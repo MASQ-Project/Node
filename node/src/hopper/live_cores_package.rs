@@ -101,7 +101,7 @@ mod tests {
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::node_addr::NodeAddr;
-    use crate::sub_lib::route::Route;
+    use crate::sub_lib::route::{Route, RouteError};
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::{
         main_cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,

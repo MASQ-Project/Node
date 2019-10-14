@@ -45,7 +45,7 @@ pub struct MASQMockNode {
 
 enum CryptDEEnum {
     Real(CryptDEReal),
-    Fake(CryptDENull),
+    Fake((CryptDENull, CryptDENull)),
 }
 
 impl Clone for MASQMockNode {
@@ -70,21 +70,28 @@ impl MASQNode for MASQMockNode {
         )
     }
 
-    fn cryptde_null(&self) -> Option<&CryptDENull> {
+    fn main_cryptde_null(&self) -> Option<&CryptDENull> {
         match &self.guts.cryptde_enum {
-            CryptDEEnum::Fake(ref cryptde_null) => Some(cryptde_null),
+            CryptDEEnum::Fake((ref cryptde_null, _)) => Some(cryptde_null),
+            CryptDEEnum::Real(_) => None,
+        }
+    }
+
+    fn alias_cryptde_null(&self) -> Option<&CryptDENull> {
+        match &self.guts.cryptde_enum {
+            CryptDEEnum::Fake((_, ref cryptde_null)) => Some(cryptde_null),
             CryptDEEnum::Real(_) => None,
         }
     }
 
     fn signing_cryptde(&self) -> Option<&dyn CryptDE> {
         match &self.guts.cryptde_enum {
-            CryptDEEnum::Fake(ref cryptde_null) => Some(cryptde_null),
+            CryptDEEnum::Fake((ref cryptde_null, _)) => Some(cryptde_null),
             CryptDEEnum::Real(ref cryptde_real) => Some(cryptde_real),
         }
     }
 
-    fn public_key(&self) -> &PublicKey {
+    fn main_public_key(&self) -> &PublicKey {
         self.signing_cryptde().unwrap().public_key()
     }
 
@@ -137,7 +144,11 @@ impl MASQMockNode {
         public_key: &PublicKey,
         chain_id: u8,
     ) -> MASQMockNode {
-        let cryptde_enum = CryptDEEnum::Fake(CryptDENull::from(public_key, chain_id));
+        let main_cryptde = CryptDENull::from (public_key, chain_id);
+        let mut key = public_key.as_slice().to_vec();
+        key.reverse();
+        let alias_cryptde = CryptDENull::from (&PublicKey::new (&key), chain_id);
+        let cryptde_enum = CryptDEEnum::Fake((main_cryptde, alias_cryptde));
         Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
     }
 
@@ -171,7 +182,7 @@ impl MASQMockNode {
             node_addr,
             earning_wallet,
             consuming_wallet,
-            cryptde_enum,
+            cryptde_enum: cryptde_enum,
             framer,
             chain: None,
         });
@@ -270,7 +281,7 @@ impl MASQMockNode {
         self.transmit_gossip(
             receiver.port_list()[0],
             gossip,
-            receiver.public_key(),
+            receiver.main_public_key(),
             receiver.socket_addr(PortSelector::First),
         )
     }
@@ -351,7 +362,7 @@ impl MASQMockNode {
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
                 let incoming_cores_package = package
-                    .to_expired(from, self.signing_cryptde().unwrap())
+                    .to_expired(from, self.main_cryptde_null().unwrap(), self.alias_cryptde_null().unwrap())
                     .unwrap();
                 match incoming_cores_package.payload {
                     MessageType::Gossip(g) => Some((g, from.ip())),

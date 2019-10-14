@@ -387,14 +387,21 @@ mod standard {
         match value_m!(multi_config, "fake-public-key", String) {
             None => (),
             Some(public_key_str) => {
-                let public_key = match base64::decode(&public_key_str) {
-                    Ok(key) => PublicKey::new(&key),
+                let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
+                    Ok(mut key) => {
+                        let main_public_key = PublicKey::new(&key);
+                        key.reverse();
+                        let alias_public_key = PublicKey::new(&key);
+                        (main_public_key, alias_public_key)
+                    },
                     Err(_) => panic!("Invalid fake public key: {}", public_key_str),
                 };
-                let cryptde_null =
-                    CryptDENull::from(&public_key, config.blockchain_bridge_config.chain_id);
-                config.main_cryptde_null_opt = Some(cryptde_null);
-                config.alias_cryptde_null_opt = Some(CryptDENull::new(config.blockchain_bridge_config.chain_id));
+                let main_cryptde_null =
+                    CryptDENull::from(&main_public_key, config.blockchain_bridge_config.chain_id);
+                let alias_cryptde_null =
+                    CryptDENull::from(&alias_public_key, config.blockchain_bridge_config.chain_id);
+                config.main_cryptde_null_opt = Some(main_cryptde_null);
+                config.alias_cryptde_null_opt = Some(alias_cryptde_null);
             }
         }
     }

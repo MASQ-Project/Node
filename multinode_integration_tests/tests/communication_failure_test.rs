@@ -48,10 +48,10 @@ fn neighborhood_notified_of_newly_missing_node() {
         "Should have been introductions, but wasn't: {}",
         introductions.to_dot_graph(
             (
-                originating_node.public_key(),
+                originating_node.main_public_key(),
                 &Some(originating_node.node_addr())
             ),
-            (witness_node.public_key(), &Some(witness_node.node_addr()))
+            (witness_node.main_public_key(), &Some(witness_node.node_addr()))
         )
     );
 
@@ -69,10 +69,10 @@ fn neighborhood_notified_of_newly_missing_node() {
 
     let dot_graph = disappearance_gossip.to_dot_graph(
         (
-            originating_node.public_key(),
+            originating_node.main_public_key(),
             &Some(originating_node.node_addr()),
         ),
-        (witness_node.public_key(), &Some(witness_node.node_addr())),
+        (witness_node.main_public_key(), &Some(witness_node.node_addr())),
     );
     assert_eq!(
         3,
@@ -83,16 +83,16 @@ fn neighborhood_notified_of_newly_missing_node() {
     let disappearance_agrs: Vec<AccessibleGossipRecord> = disappearance_gossip.try_into().unwrap();
     let originating_node_agr = disappearance_agrs
         .into_iter()
-        .find(|agr| &agr.inner.public_key == originating_node.public_key())
+        .find(|agr| &agr.inner.public_key == originating_node.main_public_key())
         .unwrap();
     assert!(
         !originating_node_agr
             .inner
             .neighbors
-            .contains(&disappearing_node.public_key()),
+            .contains(&disappearing_node.main_public_key()),
         "Originating Node {} should not be connected to the disappeared Node {}, but is: {}",
-        originating_node.public_key(),
-        disappearing_node.public_key(),
+        originating_node.main_public_key(),
+        disappearing_node.main_public_key(),
         dot_graph
     );
 }

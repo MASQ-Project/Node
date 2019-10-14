@@ -110,7 +110,7 @@ fn one_mock_node_talks_to_another() {
     let cryptde = cryptde();
     let route = Route::one_way(
         RouteSegment::new(
-            vec![&mock_node_1.public_key(), &mock_node_2.public_key()],
+            vec![&mock_node_1.main_public_key(), &mock_node_2.main_public_key()],
             Component::Hopper,
         ),
         cryptde,
@@ -122,7 +122,7 @@ fn one_mock_node_talks_to_another() {
         cryptde,
         route,
         make_meaningless_message_type(),
-        &mock_node_2.public_key(),
+        &mock_node_2.main_public_key(),
     )
     .unwrap();
 
@@ -131,7 +131,7 @@ fn one_mock_node_talks_to_another() {
             5550,
             incipient_cores_package,
             &masquerader,
-            &mock_node_2.public_key(),
+            &mock_node_2.main_public_key(),
             mock_node_2.socket_addr(PortSelector::First),
         )
         .unwrap();

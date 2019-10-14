@@ -37,7 +37,7 @@ fn graph_connects_but_does_not_over_connect() {
     let last_node = real_nodes.last().unwrap();
     let mock_node =
         cluster.start_mock_node_with_public_key(vec![10000], &PublicKey::new(&[1, 2, 3, 4]));
-    let dont_count_these = vec![mock_node.public_key()];
+    let dont_count_these = vec![mock_node.main_public_key()];
     // Wait for Gossip to abate
     thread::sleep(Duration::from_millis(2000));
 
@@ -49,7 +49,7 @@ fn graph_connects_but_does_not_over_connect() {
     }
     let standard_gossip = StandardBuilder::new()
         .add_masq_node(&mock_node, 100)
-        .half_neighbors(mock_node.public_key(), last_node.public_key())
+        .half_neighbors(mock_node.main_public_key(), last_node.main_public_key())
         .build();
     mock_node
         .transmit_multinode_gossip(last_node, &standard_gossip)
@@ -99,7 +99,7 @@ fn lots_of_stalled_nodes_dont_prevent_acceptance_of_new_node() {
         .unwrap();
     match parse_gossip(&gossip, sender) {
         GossipType::IntroductionGossip(introduction) => {
-            assert_eq!(introduction.introducer_key(), root_node.public_key());
+            assert_eq!(introduction.introducer_key(), root_node.main_public_key());
             assert_eq!(introduction.introducee_key(), full_neighbor_key);
         }
         _ => panic!("Received unexpected Gossip when expecting Introduction"),
