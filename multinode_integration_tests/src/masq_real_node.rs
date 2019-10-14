@@ -20,7 +20,7 @@ use node_lib::sub_lib::utils::localhost;
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
-use node_lib::test_utils::DEFAULT_CHAIN_ID;
+use node_lib::test_utils::{DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
 use regex::Regex;
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
@@ -143,7 +143,7 @@ impl NodeStartupConfig {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -380,7 +380,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -404,7 +404,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -428,7 +428,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -448,7 +448,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -1334,7 +1334,9 @@ mod tests {
                 "--data-directory",
                 DATA_DIRECTORY,
                 "--consuming-private-key",
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                "--chain",
+                TEST_DEFAULT_CHAIN_NAME,
             ))
         );
     }

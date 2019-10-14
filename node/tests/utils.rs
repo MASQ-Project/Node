@@ -9,6 +9,7 @@ use std::process::Output;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use node_lib::test_utils::TEST_DEFAULT_CHAIN_NAME;
 
 pub struct MASQNode {
     pub logfile_contents: String,
@@ -241,6 +242,7 @@ impl MASQNode {
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )
+            .pair("--chain", TEST_DEFAULT_CHAIN_NAME)
             .pair("--log-level", "trace")
             .args
     }

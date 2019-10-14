@@ -99,9 +99,13 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
         msg: ExpiredCoresPackage<ClientRequestPayload>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
+        let is_zero_hop = match msg.remaining_route.next_hop(self.cryptde) {
+            Ok(live_hop) => &live_hop.public_key == self.cryptde.public_key(),
+            Err(_) => false,
+        };
         let payload = msg.payload;
         let paying_wallet = msg.paying_wallet;
-        if paying_wallet.is_some() || &payload.originator_public_key == self.cryptde.public_key() {
+        if paying_wallet.is_some() || is_zero_hop {
             let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
             let return_route = msg.remaining_route;
             let latest_stream_context = StreamContext {
@@ -321,7 +325,7 @@ mod tests {
     use crate::sub_lib::proxy_client::ClientResponsePayload;
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::sub_lib::route::Route;
+    use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
@@ -338,6 +342,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use crate::sub_lib::dispatcher::Component;
+    use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
 
     fn dnss() -> Vec<SocketAddr> {
         vec![SocketAddr::from_str("8.8.8.8:53").unwrap()]
@@ -768,7 +774,8 @@ mod tests {
 
     #[test]
     fn does_provide_zero_hop_exit_services_with_no_paying_wallet() {
-        let cryptde = main_cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let request = ClientRequestPayload {
             version: ClientRequestPayload::version(),
             stream_key: make_meaningless_stream_key(),
@@ -780,12 +787,18 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
+        let zero_hop_remaining_route = Route::one_way(
+            RouteSegment::new(vec![main_cryptde.public_key(), main_cryptde.public_key()], Component::ProxyServer),
+            main_cryptde,
+            None,
+            Some(TESTNET_CONTRACT_ADDRESS),
+        ).unwrap();
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,
-            make_meaningless_route(),
+            zero_hop_remaining_route,
             request.clone().into(),
             0,
         );
@@ -803,7 +816,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde: main_cryptde,
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
