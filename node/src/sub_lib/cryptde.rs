@@ -11,6 +11,7 @@ use serde::Serializer;
 use serde_cbor;
 use std::fmt;
 use std::iter::FromIterator;
+use crate::sub_lib::route::RouteError;
 
 #[derive(Clone, PartialEq)]
 pub struct PrivateKey {
@@ -567,6 +568,7 @@ pub enum CodexError {
     DeserializationError (SerdeCborError),
     EncryptionError (CryptdecError),
     DecryptionError (CryptdecError),
+    RoutingError (RouteError),
 }
 
 pub fn encodex<T>(

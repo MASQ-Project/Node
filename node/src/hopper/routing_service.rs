@@ -2,7 +2,7 @@
 use super::live_cores_package::LiveCoresPackage;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::cryptde::{decodex, encodex, CryptDE, CryptData, CryptdecError};
+use crate::sub_lib::cryptde::{decodex, encodex, CryptDE, CryptData, CryptdecError, CodexError};
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
@@ -197,17 +197,35 @@ impl RoutingService {
         payer_owns_secret_key: bool,
     ) {
         let data_len = live_package.payload.len();
-        let expired_package =
-            match live_package.to_expired(immediate_neighbor_addr, self.main_cryptde.borrow()) {
-                Ok(pkg) => pkg,
-                Err(e) => {
-                    error!(
-                        self.logger,
-                        "Couldn't expire CORES package with {}-byte payload: {:?}", data_len, e
-                    );
-                    return;
+        let expired_package = match live_package.to_expired (immediate_neighbor_addr, self.main_cryptde, self.alias_cryptde) {
+            Ok(pkg) => pkg,
+            Err(CodexError::DecryptionError(CryptdecError::OpeningFailed)) => {
+                match live_package.to_expired (immediate_neighbor_addr, self.main_cryptde, self.main_cryptde) {
+                    Ok(pkg) => pkg,
+                    Err (CodexError::DecryptionError(CryptdecError::OpeningFailed)) => {
+                        error!(
+                            self.logger,
+                            "Neither alias key nor main key can expire CORES package with {}-byte payload", data_len
+                        );
+                        return;
+                    }
+                    Err (e2) => {
+                        error!(
+                            self.logger,
+                            "Couldn't expire CORES package with {}-byte payload using main key: {:?}", data_len, e2
+                        );
+                        return;
+                    }
                 }
-            };
+            },
+            Err(e) => {
+                error!(
+                    self.logger,
+                    "Couldn't expire CORES package with {}-byte payload using alias key: {:?}", data_len, e
+                );
+                return;
+            }
+        };
         trace!(
             self.logger,
             "Forwarding ExpiredCoresPackage to {:?}",
@@ -240,7 +258,7 @@ impl RoutingService {
                     );
                 }
             }
-            (Component::ProxyServer, MessageType::ClientResponse(client_reponse)) => self
+            (Component::ProxyServer, MessageType::ClientResponse(client_response)) => self
                 .routing_service_subs
                 .proxy_server_subs
                 .from_hopper
@@ -248,7 +266,7 @@ impl RoutingService {
                     expired_package.immediate_neighbor,
                     expired_package.paying_wallet,
                     expired_package.remaining_route,
-                    client_reponse,
+                    client_response,
                     expired_package.payload_len,
                 ))
                 .expect("ProxyServer is dead"),
@@ -408,7 +426,6 @@ mod tests {
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
-        init_test_logging();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
@@ -417,8 +434,8 @@ mod tests {
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
-                main_cryptde,
-                &main_cryptde.public_key(),
+                alias_cryptde,
+                &alias_cryptde.public_key(),
                 &MessageType::DnsResolveFailed(dns_resolve_failure.clone()),
             )
             .unwrap(),
@@ -432,7 +449,7 @@ mod tests {
             is_clandestine: false,
             data: data_enc.into(),
         };
-        let (proxy_server, proxy_server_awaiter, proxy_server_recording) = make_recorder();
+        let (proxy_server, _, proxy_server_recording) = make_recorder();
 
         let system = System::new("dns_resolution_failures_are_reported_to_the_proxy_server");
         let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
@@ -457,14 +474,13 @@ mod tests {
         System::current().stop();
         system.run();
 
-        proxy_server_awaiter.await_message_count(1);
         let recordings = proxy_server_recording.lock().unwrap();
         let message = recordings.get_record::<ExpiredCoresPackage<DnsResolveFailure>>(0);
         assert_eq!(dns_resolve_failure, message.payload);
     }
 
     #[test]
-    fn logs_and_ignores_message_that_cannot_be_decoded() {
+    fn logs_and_ignores_message_that_cannot_be_deserialized() {
         init_test_logging();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
@@ -498,10 +514,55 @@ mod tests {
             200,
             false,
         );
+
         subject.route(inbound_client_data);
-        TestLogHandler::new().await_log_matching(
-            "Couldn't expire CORES package with \\d+-byte payload: .*",
-            1000,
+
+        TestLogHandler::new().exists_log_matching(
+            "Couldn't expire CORES package with \\d+-byte payload using main key: DeserializationError.*",
+        );
+    }
+
+    #[test]
+    fn logs_and_ignores_message_that_cannot_be_decrypted() {
+        init_test_logging();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let rogue_cryptde = CryptDENull::new (DEFAULT_CHAIN_ID);
+        let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
+        let lcp = LiveCoresPackage::new(
+            route,
+            encodex(&rogue_cryptde, rogue_cryptde.public_key(), &[42u8]).unwrap(),
+        );
+        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            sequence_number: None,
+            last_data: false,
+            is_clandestine: false,
+            data: data_enc.into(),
+        };
+        let peer_actors = peer_actors_builder().build();
+        let subject = RoutingService::new(
+            main_cryptde,
+            alias_cryptde,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            100,
+            200,
+            false,
+        );
+
+        subject.route(inbound_client_data);
+
+        TestLogHandler::new().exists_log_matching(
+            "Neither alias key nor main key can expire CORES package with \\d+-byte payload",
         );
     }
 
@@ -548,12 +609,13 @@ mod tests {
         );
         subject.route(inbound_client_data);
         TestLogHandler::new()
-            .await_log_matching("Attempt to send invalid combination .* to .*", 1000);
+            .exists_log_matching("Attempt to send invalid combination .* to .*");
     }
 
     #[test]
     fn converts_live_message_to_expired_for_proxy_client() {
         let _eg = EnvironmentGuard::new();
+        init_test_logging();
         BAN_CACHE.clear();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
@@ -602,7 +664,7 @@ mod tests {
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.2.3.4:5678").unwrap(), main_cryptde)
+            .to_expired(SocketAddr::from_str("1.2.3.4:5678").unwrap(), main_cryptde, main_cryptde)
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -622,19 +684,18 @@ mod tests {
         let payload = make_response_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
-            encodex::<MessageType>(main_cryptde, &main_cryptde.public_key(), &payload.clone().into())
+            encodex::<MessageType>(alias_cryptde, &alias_cryptde.public_key(), &payload.clone().into())
                 .unwrap(),
         );
         let lcp_a = lcp.clone();
-        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
+        let lcp_enc = encodex(main_cryptde, main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
-            data: data_enc.into(),
+            data: lcp_enc.into(),
         };
 
         let system = System::new("converts_live_message_to_expired_for_proxy_server");
@@ -663,7 +724,7 @@ mod tests {
         let record =
             component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), main_cryptde)
+            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), main_cryptde, alias_cryptde)
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -732,7 +793,7 @@ mod tests {
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage<Gossip>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), main_cryptde)
+            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), main_cryptde, main_cryptde)
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -1412,7 +1473,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Invalid 67-byte CORES package: EmptyRoute",
+            "ERROR: RoutingService: Invalid 67-byte CORES package: RoutingError(EmptyRoute)",
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
@@ -1452,6 +1513,6 @@ mod tests {
         subject.route_data_around_again(lcp, &ibcd);
 
         TestLogHandler::new()
-            .exists_log_containing("ERROR: RoutingService: bad zero-hop route: EmptyRoute");
+            .exists_log_containing("ERROR: RoutingService: bad zero-hop route: RoutingError(EmptyRoute)");
     }
 }

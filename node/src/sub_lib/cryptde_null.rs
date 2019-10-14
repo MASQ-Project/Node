@@ -189,22 +189,21 @@ impl CryptDENull {
         } else if data.is_empty() {
             Err(CryptdecError::EmptyData)
         } else if key_data.len() > data.len() {
-            Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
+            Err(CryptdecError::InvalidKey(CryptDENull::wrong_key_message(
                 key_data, data,
             )))
         } else {
             let (k, d) = data.as_slice().split_at(key_data.len());
             if k != key_data {
-                Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
-                    key_data, data,
-                )))
+                eprintln! ("{}", Self::wrong_key_message(key_data, data));
+                Err(CryptdecError::OpeningFailed)
             } else {
                 Ok(PlainData::new(d))
             }
         }
     }
 
-    fn invalid_key_message(key_data: &[u8], data: &CryptData) -> String {
+    fn wrong_key_message(key_data: &[u8], data: &CryptData) -> String {
         let prefix_len = std::cmp::min(key_data.len(), data.len());
         let vec = Vec::from(&data.as_slice()[0..prefix_len]);
         format!(
@@ -286,13 +285,13 @@ mod tests {
     }
 
     #[test]
-    fn decode_with_invalid_key_and_data() {
+    fn decode_with_incorrect_private_key() {
         let mut subject = main_cryptde().clone();
         subject.private_key = PrivateKey::new(b"badKey");
 
         let result = subject.decode(&CryptData::new(b"keydataxyz"));
 
-        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")), result.err().unwrap());
+        assert_eq!(CryptdecError::OpeningFailed, result.err().unwrap());
     }
 
     #[test]
@@ -399,13 +398,13 @@ mod tests {
     }
 
     #[test]
-    fn decode_sym_with_invalid_key_and_data() {
+    fn decode_sym_with_wrong_key() {
         let subject = main_cryptde().clone();
         let key = SymmetricKey::new(b"badKey");
 
         let result = subject.decode_sym(&key, &CryptData::new(b"keydataxyz"));
 
-        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")), result.err().unwrap());
+        assert_eq!(CryptdecError::OpeningFailed, result.err().unwrap());
     }
 
     #[test]
@@ -474,14 +473,12 @@ mod tests {
         let key2 = subject.gen_key_sym();
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject.encode_sym(&key1, &expected_data).unwrap();
+
         let result = subject.decode_sym(&key2, &encrypted_data);
+
         assert_eq!(
             result,
-            Err(CryptdecError::InvalidKey(format!(
-                "Could not decrypt with {:?} data beginning with {:?}",
-                key2.as_slice(),
-                key1.as_slice()
-            )))
+            Err(CryptdecError::OpeningFailed)
         );
     }
 

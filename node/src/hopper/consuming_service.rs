@@ -209,7 +209,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: \"Couldn\\'t encode hop: EncryptionError(EmptyKey)");
+        TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: EncryptionError(EmptyKey)");
     }
 
     #[test]
@@ -329,7 +329,7 @@ mod tests {
         );
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: ConsumingService: Could not decrypt next hop: EmptyRoute",
+            "ERROR: ConsumingService: Could not decrypt next hop: RoutingError(EmptyRoute)",
         );
     }
 }

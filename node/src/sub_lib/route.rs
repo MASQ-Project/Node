@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::sub_lib::cryptde::decodex;
+use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -22,7 +22,7 @@ impl Route {
     pub fn single_hop(
         destination: &PublicKey,
         cryptde: &dyn CryptDE, // The CryptDE of the beginning of this Route must go here.
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         Self::construct(
             RouteSegment::new(
                 vec![&cryptde.public_key(), destination],
@@ -41,7 +41,7 @@ impl Route {
         cryptde: &dyn CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
         consuming_wallet: Option<Wallet>,
         contract_address: Option<Address>,
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         Self::construct(
             route_segment,
             None,
@@ -59,7 +59,7 @@ impl Route {
         consuming_wallet: Option<Wallet>,
         return_route_id: u32,
         contract_address: Option<Address>,
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         Self::construct(
             route_segment_over,
             Some(route_segment_back),
@@ -82,20 +82,20 @@ impl Route {
     }
 
     // This cryptde must be the CryptDE of the next hop to come off the Route.
-    pub fn next_hop(&self, cryptde: &dyn CryptDE) -> Result<LiveHop, RouteError> {
+    pub fn next_hop(&self, cryptde: &dyn CryptDE) -> Result<LiveHop, CodexError> {
         match self.hops.first() {
-            None => Err(RouteError::EmptyRoute),
-            Some(first) => Route::decode_hop(cryptde, &first.clone()),
+            None => Err(CodexError::RoutingError(RouteError::EmptyRoute)),
+            Some(first) => LiveHop::decode(cryptde, &first.clone()),
         }
     }
 
-    pub fn shift(&mut self, cryptde: &dyn CryptDE) -> Result<LiveHop, RouteError> {
+    pub fn shift(&mut self, cryptde: &dyn CryptDE) -> Result<LiveHop, CodexError> {
         if self.hops.is_empty() {
-            return Err(RouteError::EmptyRoute);
+            return Err(CodexError::RoutingError(RouteError::EmptyRoute));
         }
         let top_hop = self.hops.remove(0);
         let top_hop_len = top_hop.len();
-        let next_hop = Route::decode_hop(cryptde, &top_hop)?;
+        let next_hop = LiveHop::decode(cryptde, &top_hop)?;
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(top_hop_len).collect();
         cryptde.random(&mut garbage_can[..]);
@@ -148,9 +148,9 @@ impl Route {
         consuming_wallet: Option<Wallet>,
         return_route_id_opt: Option<u32>,
         contract_address: Option<Address>,
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         if let Some(error) = Route::validate_route_segments(&over, &back) {
-            return Err(format!("{:?}", error));
+            return Err(CodexError::RoutingError(error));
         }
 
         let over_component = over.recipient;
@@ -290,19 +290,12 @@ impl Route {
         None
     }
 
-    fn decode_hop(cryptde: &dyn CryptDE, hop_enc: &CryptData) -> Result<LiveHop, RouteError> {
-        match LiveHop::decode(cryptde, hop_enc) {
-            Err(e) => Err(RouteError::HopDecodeProblem(format! ("{:?}", e))),
-            Ok(h) => Ok(h),
-        }
-    }
-
     fn hops_to_route(
         hops: Vec<LiveHop>,
         top_hop_key: &PublicKey,
         return_route_id_opt: Option<u32>,
         cryptde: &dyn CryptDE,
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         let mut hops_enc: Vec<CryptData> = Vec::new();
         let mut hop_key = top_hop_key;
         for hop_index in 0..hops.len() {
@@ -310,7 +303,7 @@ impl Route {
             // crashpoint - should not be possible, can this be restructured to remove Option?
             hops_enc.push(match data_hop.encode(hop_key, cryptde) {
                 Ok(crypt_data) => crypt_data,
-                Err(e) => return Err(format!("Couldn't encode hop: {:?}", e)),
+                Err(e) => return Err(e),
             });
             hop_key = &data_hop.public_key;
         }
@@ -390,7 +383,7 @@ mod tests {
             hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
         };
 
-        assert_eq!(subject.id(&cryptde2), Err("DecryptionError(InvalidKey(\"Could not decrypt with [235, 229, 249, 160, 226] data beginning with [235, 229, 249, 160, 225]\"))".to_string()));
+        assert_eq!(subject.id(&cryptde2), Err("DecryptionError(OpeningFailed)".to_string()));
     }
 
     #[test]
@@ -406,7 +399,7 @@ mod tests {
         .err()
         .unwrap();
 
-        assert_eq!(String::from("TooFewKeysInRouteSegment"), result)
+        assert_eq!(result, CodexError::RoutingError(RouteError::TooFewKeysInRouteSegment));
     }
 
     #[test]
@@ -429,7 +422,7 @@ mod tests {
         .err()
         .unwrap();
 
-        assert_eq!(String::from("DisjointRouteSegments"), result)
+        assert_eq!(result, CodexError::RoutingError(RouteError::DisjointRouteSegments));
     }
 
     #[test]
@@ -722,7 +715,7 @@ mod tests {
 
         let result = subject.next_hop(cryptde).err().unwrap();
 
-        assert_eq!(result, RouteError::EmptyRoute);
+        assert_eq!(result, CodexError::RoutingError(RouteError::EmptyRoute));
     }
 
     #[test]
@@ -732,7 +725,7 @@ mod tests {
 
         let result = subject.shift(cryptde).err().unwrap();
 
-        assert_eq!(result, RouteError::EmptyRoute);
+        assert_eq!(result, CodexError::RoutingError(RouteError::EmptyRoute));
     }
 
     #[test]
