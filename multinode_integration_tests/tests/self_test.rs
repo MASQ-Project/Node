@@ -15,7 +15,7 @@ use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
-use node_lib::test_utils::{make_meaningless_message_type, make_paying_wallet, main_cryptde};
+use node_lib::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;
@@ -111,7 +111,10 @@ fn one_mock_node_talks_to_another() {
     let cryptde = main_cryptde();
     let route = Route::one_way(
         RouteSegment::new(
-            vec![&mock_node_1.main_public_key(), &mock_node_2.main_public_key()],
+            vec![
+                &mock_node_1.main_public_key(),
+                &mock_node_2.main_public_key(),
+            ],
             Component::Hopper,
         ),
         cryptde,

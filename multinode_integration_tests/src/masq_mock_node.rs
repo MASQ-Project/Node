@@ -10,9 +10,9 @@ use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
 use node_lib::neighborhood::gossip::Gossip;
-use node_lib::sub_lib::cryptde::{CryptData, CodexError, CryptdecError};
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde::{encodex, CryptDE};
+use node_lib::sub_lib::cryptde::{CodexError, CryptData, CryptdecError};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::cryptde_real::CryptDEReal;
 use node_lib::sub_lib::framer::Framer;
@@ -144,10 +144,10 @@ impl MASQMockNode {
         public_key: &PublicKey,
         chain_id: u8,
     ) -> MASQMockNode {
-        let main_cryptde = CryptDENull::from (public_key, chain_id);
+        let main_cryptde = CryptDENull::from(public_key, chain_id);
         let mut key = public_key.as_slice().to_vec();
         key.reverse();
-        let alias_cryptde = CryptDENull::from (&PublicKey::new (&key), chain_id);
+        let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain_id);
         let cryptde_enum = CryptDEEnum::Fake((main_cryptde, alias_cryptde));
         Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
     }
@@ -361,15 +361,22 @@ impl MASQMockNode {
         let masquerader = JsonMasquerader::new();
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
-                let incoming_cores_package = match package
-                    .to_expired(from, self.main_cryptde_null().unwrap(), self.alias_cryptde_null().unwrap()) {
+                let incoming_cores_package = match package.to_expired(
+                    from,
+                    self.main_cryptde_null().unwrap(),
+                    self.alias_cryptde_null().unwrap(),
+                ) {
                     Ok(icp) => icp,
                     Err(CodexError::DecryptionError(CryptdecError::OpeningFailed)) => match package
-                        .to_expired(from, self.main_cryptde_null().unwrap(), self.main_cryptde_null().unwrap()) {
+                        .to_expired(
+                            from,
+                            self.main_cryptde_null().unwrap(),
+                            self.main_cryptde_null().unwrap(),
+                        ) {
                         Ok(icp) => icp,
-                        Err(e) => panic! ("Couldn't expire LiveCoresPackage: {:?}", e),
+                        Err(e) => panic!("Couldn't expire LiveCoresPackage: {:?}", e),
                     },
-                    Err(e) => panic! ("Couldn't expire LiveCoresPackage: {:?}", e),
+                    Err(e) => panic!("Couldn't expire LiveCoresPackage: {:?}", e),
                 };
                 match incoming_cores_package.payload {
                     MessageType::Gossip(g) => Some((g, from.ip())),

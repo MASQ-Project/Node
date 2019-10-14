@@ -323,7 +323,9 @@ mod tests {
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
-    use crate::test_utils::{assert_contains, main_cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{
+        assert_contains, main_cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID,
+    };
     use std::net::IpAddr;
     use std::str::FromStr;
 

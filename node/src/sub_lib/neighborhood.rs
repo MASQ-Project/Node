@@ -383,8 +383,11 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
-        let result =
-            NodeDescriptor::from_str(main_cryptde(), "bad_key:1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
+        let result = NodeDescriptor::from_str(
+            main_cryptde(),
+            "bad_key:1.2.3.4:1234;2345",
+            DEFAULT_CHAIN_ID,
+        );
 
         assert_eq!(
             result,
@@ -394,7 +397,8 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::from_str(main_cryptde(), ":1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
+        let result =
+            NodeDescriptor::from_str(main_cryptde(), ":1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
@@ -443,8 +447,11 @@ mod tests {
     #[test]
     fn node_descriptor_from_str_accepts_mainnet_delimiter() {
         let chain_id = chain_id_from_name("mainnet");
-        let result =
-            NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ@1.2.3.4:1234;2345;3456", chain_id);
+        let result = NodeDescriptor::from_str(
+            main_cryptde(),
+            "R29vZEtleQ@1.2.3.4:1234;2345;3456",
+            chain_id,
+        );
 
         assert_eq!(
             result.unwrap(),

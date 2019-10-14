@@ -607,11 +607,17 @@ impl MASQNode for MASQRealNode {
     }
 
     fn main_cryptde_null(&self) -> Option<&CryptDENull> {
-        self.guts.cryptde_null_pair_opt.as_ref().map (|pair| &pair.main)
+        self.guts
+            .cryptde_null_pair_opt
+            .as_ref()
+            .map(|pair| &pair.main)
     }
 
     fn alias_cryptde_null(&self) -> Option<&CryptDENull> {
-        self.guts.cryptde_null_pair_opt.as_ref().map (|pair| &pair.alias)
+        self.guts
+            .cryptde_null_pair_opt
+            .as_ref()
+            .map(|pair| &pair.alias)
     }
 
     fn signing_cryptde(&self) -> Option<&dyn CryptDE> {
@@ -784,11 +790,11 @@ impl MASQRealNode {
                     let mut key = main_cdn.public_key().as_slice().to_vec();
                     key.reverse();
                     let alias_cdn = CryptDENull::from(&PublicKey::new(&key), chain_id);
-                    Some (CryptDENullPair {
+                    Some(CryptDENullPair {
                         main: main_cdn,
                         alias: alias_cdn,
                     })
-                },
+                }
             },
             chain: real_startup_config.chain,
             accepts_connections: vec!["standard"]

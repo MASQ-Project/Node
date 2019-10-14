@@ -51,7 +51,10 @@ fn neighborhood_notified_of_newly_missing_node() {
                 originating_node.main_public_key(),
                 &Some(originating_node.node_addr())
             ),
-            (witness_node.main_public_key(), &Some(witness_node.node_addr()))
+            (
+                witness_node.main_public_key(),
+                &Some(witness_node.node_addr())
+            )
         )
     );
 
@@ -72,7 +75,10 @@ fn neighborhood_notified_of_newly_missing_node() {
             originating_node.main_public_key(),
             &Some(originating_node.node_addr()),
         ),
-        (witness_node.main_public_key(), &Some(witness_node.node_addr())),
+        (
+            witness_node.main_public_key(),
+            &Some(witness_node.node_addr()),
+        ),
     );
     assert_eq!(
         3,

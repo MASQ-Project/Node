@@ -64,7 +64,13 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
         let (tx, rx) = mpsc::channel();
 
-        ActorSystemFactoryReal::prepare_initial_messages(main_cryptde, alias_cryptde, config, actor_factory, tx);
+        ActorSystemFactoryReal::prepare_initial_messages(
+            main_cryptde,
+            alias_cryptde,
+            config,
+            actor_factory,
+            tx,
+        );
 
         rx.recv().expect("Internal error: actor-system init thread died before initializing StreamHandlerPool subscribers")
     }
@@ -230,7 +236,12 @@ impl ActorFactory for ActorFactoryReal {
         consuming_wallet_balance: Option<i64>,
     ) -> ProxyServerSubs {
         let addr: Addr<ProxyServer> = Arbiter::start(move |_| {
-            ProxyServer::new(main_cryptde, alias_cryptde, is_decentralized, consuming_wallet_balance)
+            ProxyServer::new(
+                main_cryptde,
+                alias_cryptde,
+                is_decentralized,
+                consuming_wallet_balance,
+            )
         });
         ProxyServer::make_subs_from(&addr)
     }
@@ -428,9 +439,9 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
-    use crate::test_utils::{rate_pack, alias_cryptde};
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
+    use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet, DEFAULT_CHAIN_ID};
     use actix::System;
     use log::LevelFilter;
@@ -493,7 +504,12 @@ mod tests {
                 .proxy_server_params
                 .lock()
                 .unwrap()
-                .get_or_insert((main_cryptde, alias_cryptde, is_decentralized, consuming_wallet_balance));
+                .get_or_insert((
+                    main_cryptde,
+                    alias_cryptde,
+                    is_decentralized,
+                    consuming_wallet_balance,
+                ));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
@@ -671,7 +687,8 @@ mod tests {
     #[derive(Clone)]
     struct Parameters<'a> {
         proxy_client_params: Arc<Mutex<Option<(ProxyClientConfig)>>>,
-        proxy_server_params: Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
+        proxy_server_params:
+            Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
@@ -959,7 +976,7 @@ mod tests {
         };
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             &Some(main_cryptde().clone()),
-            &Some(alias_cryptde().clone())
+            &Some(alias_cryptde().clone()),
         );
         let subject = ActorSystemFactoryReal {};
 
@@ -1046,11 +1063,18 @@ mod tests {
         assert_eq!(proxy_client_config.exit_service_rate, 0);
         assert_eq!(proxy_client_config.exit_byte_rate, 0);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
-        let (actual_main_cryptde, actual_alias_cryptde, actual_is_decentralized, consuming_wallet_balance) =
-            Parameters::get(parameters.proxy_server_params);
+        let (
+            actual_main_cryptde,
+            actual_alias_cryptde,
+            actual_is_decentralized,
+            consuming_wallet_balance,
+        ) = Parameters::get(parameters.proxy_server_params);
         check_cryptde(actual_main_cryptde);
         check_cryptde(actual_alias_cryptde);
-        assert_ne!(actual_main_cryptde.public_key(), actual_alias_cryptde.public_key());
+        assert_ne!(
+            actual_main_cryptde.public_key(),
+            actual_alias_cryptde.public_key()
+        );
         assert_eq!(actual_is_decentralized, false);
         assert_eq!(consuming_wallet_balance, Some(0));
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);

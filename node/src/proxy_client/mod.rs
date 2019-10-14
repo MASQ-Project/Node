@@ -313,6 +313,7 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::resolver_wrapper::ResolverWrapper;
@@ -321,6 +322,7 @@ mod tests {
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_client::ClientResponsePayload;
     use crate::sub_lib::proxy_server::ClientRequestPayload;
@@ -342,8 +344,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use crate::sub_lib::dispatcher::Component;
-    use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
 
     fn dnss() -> Vec<SocketAddr> {
         vec![SocketAddr::from_str("8.8.8.8:53").unwrap()]
@@ -790,11 +790,15 @@ mod tests {
             originator_public_key: alias_cryptde.public_key().clone(),
         };
         let zero_hop_remaining_route = Route::one_way(
-            RouteSegment::new(vec![main_cryptde.public_key(), main_cryptde.public_key()], Component::ProxyServer),
+            RouteSegment::new(
+                vec![main_cryptde.public_key(), main_cryptde.public_key()],
+                Component::ProxyServer,
+            ),
             main_cryptde,
             None,
             Some(TESTNET_CONTRACT_ADDRESS),
-        ).unwrap();
+        )
+        .unwrap();
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,

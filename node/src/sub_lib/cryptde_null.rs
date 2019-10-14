@@ -195,7 +195,7 @@ impl CryptDENull {
         } else {
             let (k, d) = data.as_slice().split_at(key_data.len());
             if k != key_data {
-                eprintln! ("{}", Self::wrong_key_message(key_data, data));
+                eprintln!("{}", Self::wrong_key_message(key_data, data));
                 Err(CryptdecError::OpeningFailed)
             } else {
                 Ok(PlainData::new(d))
@@ -476,10 +476,7 @@ mod tests {
 
         let result = subject.decode_sym(&key2, &encrypted_data);
 
-        assert_eq!(
-            result,
-            Err(CryptdecError::OpeningFailed)
-        );
+        assert_eq!(result, Err(CryptdecError::OpeningFailed));
     }
 
     #[test]

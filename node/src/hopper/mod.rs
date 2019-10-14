@@ -136,7 +136,10 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet, route_to_proxy_client, DEFAULT_CHAIN_ID, alias_cryptde};
+    use crate::test_utils::{
+        alias_cryptde, main_cryptde, make_meaningless_message_type, make_paying_wallet,
+        route_to_proxy_client, DEFAULT_CHAIN_ID,
+    };
     use actix::Actor;
     use actix::System;
     use std::net::SocketAddr;

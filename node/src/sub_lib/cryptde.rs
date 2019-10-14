@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::route::RouteError;
 use base64;
 use ethsign_crypto::Keccak256;
 use rustc_hex::ToHex;
@@ -11,7 +12,6 @@ use serde::Serializer;
 use serde_cbor;
 use std::fmt;
 use std::iter::FromIterator;
-use crate::sub_lib::route::RouteError;
 
 #[derive(Clone, PartialEq)]
 pub struct PrivateKey {
@@ -546,29 +546,29 @@ pub struct SerdeCborError {
 
 impl fmt::Debug for SerdeCborError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        self.delegate.fmt (f)
+        self.delegate.fmt(f)
     }
 }
 
 impl PartialEq for SerdeCborError {
     fn eq(&self, other: &Self) -> bool {
-        format!("{:?}", self.delegate) == format! ("{:?}", other.delegate)
+        format!("{:?}", self.delegate) == format!("{:?}", other.delegate)
     }
 }
 
 impl SerdeCborError {
-    fn new (delegate: serde_cbor::error::Error) -> SerdeCborError {
-        SerdeCborError {delegate}
+    fn new(delegate: serde_cbor::error::Error) -> SerdeCborError {
+        SerdeCborError { delegate }
     }
 }
 
-#[derive (PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub enum CodexError {
-    SerializationError (SerdeCborError),
-    DeserializationError (SerdeCborError),
-    EncryptionError (CryptdecError),
-    DecryptionError (CryptdecError),
-    RoutingError (RouteError),
+    SerializationError(SerdeCborError),
+    DeserializationError(SerdeCborError),
+    EncryptionError(CryptdecError),
+    DecryptionError(CryptdecError),
+    RoutingError(RouteError),
 }
 
 pub fn encodex<T>(
@@ -581,7 +581,7 @@ where
 {
     let serialized = match serde_cbor::ser::to_vec(item) {
         Ok(s) => s,
-        Err(e) => return Err(CodexError::SerializationError(SerdeCborError::new (e))),
+        Err(e) => return Err(CodexError::SerializationError(SerdeCborError::new(e))),
     };
     match cryptde.encode(public_key, &PlainData::from(serialized)) {
         Ok(c) => Ok(c),
@@ -599,7 +599,7 @@ where
     };
     match serde_cbor::de::from_slice(decrypted.as_slice()) {
         Ok(t) => Ok(t),
-        Err(e) => Err(CodexError::DeserializationError(SerdeCborError::new (e))),
+        Err(e) => Err(CodexError::DeserializationError(SerdeCborError::new(e))),
     }
 }
 
@@ -1000,7 +1000,10 @@ mod tests {
 
         let result = encodex(cryptde, &PublicKey::new(&[]), &item);
 
-        assert_eq!(format!("{:?}", result), "Err(EncryptionError(EmptyKey))".to_string());
+        assert_eq!(
+            format!("{:?}", result),
+            "Err(EncryptionError(EmptyKey))".to_string()
+        );
     }
 
     #[test]
@@ -1011,7 +1014,10 @@ mod tests {
 
         let result = decodex::<TestStruct>(&cryptde, &data);
 
-        assert_eq!(format!("{:?}", result), "Err(DecryptionError(EmptyKey))".to_string());
+        assert_eq!(
+            format!("{:?}", result),
+            "Err(DecryptionError(EmptyKey))".to_string()
+        );
     }
 
     #[derive(PartialEq, Debug)]
@@ -1042,7 +1048,11 @@ mod tests {
 
         let result = encodex(cryptde, &cryptde.public_key(), &item);
 
-        assert_eq!(format! ("{:?}", result), "Err(SerializationError(ErrorImpl { code: Message(\"booga\"), offset: 0 }))".to_string());
+        assert_eq!(
+            format!("{:?}", result),
+            "Err(SerializationError(ErrorImpl { code: Message(\"booga\"), offset: 0 }))"
+                .to_string()
+        );
     }
 
     #[test]
@@ -1054,6 +1064,10 @@ mod tests {
 
         let result = decodex::<BadSerStruct>(cryptde, &data);
 
-        assert_eq!(format! ("{:?}", result), "Err(DeserializationError(ErrorImpl { code: Message(\"booga\"), offset: 0 }))".to_string());
+        assert_eq!(
+            format!("{:?}", result),
+            "Err(DeserializationError(ErrorImpl { code: Message(\"booga\"), offset: 0 }))"
+                .to_string()
+        );
     }
 }

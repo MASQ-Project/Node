@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use node_lib::test_utils::TEST_DEFAULT_CHAIN_NAME;
 use std::env;
 use std::io;
 use std::ops::Drop;
@@ -9,7 +10,6 @@ use std::process::Output;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use node_lib::test_utils::TEST_DEFAULT_CHAIN_NAME;
 
 pub struct MASQNode {
     pub logfile_contents: String,

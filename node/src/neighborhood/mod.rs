@@ -3232,7 +3232,9 @@ mod tests {
         let hops = result.clone().unwrap().route.hops;
         let actual_keys: Vec<PublicKey> = match hops.as_slice() {
             [hop, exit, hop_back, origin, empty, _accounting] => vec![
-                decodex::<LiveHop>(main_cryptde(), hop).expect("hop").public_key,
+                decodex::<LiveHop>(main_cryptde(), hop)
+                    .expect("hop")
+                    .public_key,
                 decodex::<LiveHop>(&next_door_neighbor_cryptde, exit)
                     .expect("exit")
                     .public_key,

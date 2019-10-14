@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::payer::Payer;
-use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::dispatcher::Component;
 use serde_derive::{Deserialize, Serialize};
 
@@ -75,7 +75,12 @@ mod tests {
 
         let result = LiveHop::decode(cryptde, &encrypted);
 
-        assert_eq!(format! ("{:?}", result).contains("DecryptionError(InvalidKey("), true, "{:?}", result);
+        assert_eq!(
+            format!("{:?}", result).contains("DecryptionError(InvalidKey("),
+            true,
+            "{:?}",
+            result
+        );
     }
 
     #[test]

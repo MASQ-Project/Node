@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::wallet::Wallet;
@@ -73,8 +73,8 @@ impl Route {
     pub fn id(&self, cryptde: &dyn CryptDE) -> Result<u32, String> {
         if let Some(first) = self.hops.first() {
             match decodex(cryptde, first) {
-                Ok (n) => Ok (n),
-                Err (e) => Err (format! ("{:?}", e)),
+                Ok(n) => Ok(n),
+                Err(e) => Err(format!("{:?}", e)),
             }
         } else {
             Err("Response route did not contain a return route ID".to_string())
@@ -383,7 +383,10 @@ mod tests {
             hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
         };
 
-        assert_eq!(subject.id(&cryptde2), Err("DecryptionError(OpeningFailed)".to_string()));
+        assert_eq!(
+            subject.id(&cryptde2),
+            Err("DecryptionError(OpeningFailed)".to_string())
+        );
     }
 
     #[test]
@@ -399,7 +402,10 @@ mod tests {
         .err()
         .unwrap();
 
-        assert_eq!(result, CodexError::RoutingError(RouteError::TooFewKeysInRouteSegment));
+        assert_eq!(
+            result,
+            CodexError::RoutingError(RouteError::TooFewKeysInRouteSegment)
+        );
     }
 
     #[test]
@@ -422,7 +428,10 @@ mod tests {
         .err()
         .unwrap();
 
-        assert_eq!(result, CodexError::RoutingError(RouteError::DisjointRouteSegments));
+        assert_eq!(
+            result,
+            CodexError::RoutingError(RouteError::DisjointRouteSegments)
+        );
     }
 
     #[test]

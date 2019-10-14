@@ -2,7 +2,7 @@
 use super::live_cores_package::LiveCoresPackage;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::cryptde::{decodex, encodex, CryptDE, CryptData, CryptdecError, CodexError};
+use crate::sub_lib::cryptde::{decodex, encodex, CodexError, CryptDE, CryptData, CryptdecError};
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
@@ -172,8 +172,12 @@ impl RoutingService {
                 return;
             }
         };
-        let payload = encodex(self.main_cryptde, &self.main_cryptde.public_key(), &next_lcp)
-            .expect("Encryption of LiveCoresPackage failed");
+        let payload = encodex(
+            self.main_cryptde,
+            &self.main_cryptde.public_key(),
+            &next_lcp,
+        )
+        .expect("Encryption of LiveCoresPackage failed");
         let inbound_client_data = InboundClientData {
             peer_addr: ibcd_but_data.peer_addr,
             reception_port: ibcd_but_data.reception_port,
@@ -197,19 +201,27 @@ impl RoutingService {
         payer_owns_secret_key: bool,
     ) {
         let data_len = live_package.payload.len();
-        let expired_package = match live_package.to_expired (immediate_neighbor_addr, self.main_cryptde, self.alias_cryptde) {
+        let expired_package = match live_package.to_expired(
+            immediate_neighbor_addr,
+            self.main_cryptde,
+            self.alias_cryptde,
+        ) {
             Ok(pkg) => pkg,
             Err(CodexError::DecryptionError(CryptdecError::OpeningFailed)) => {
-                match live_package.to_expired (immediate_neighbor_addr, self.main_cryptde, self.main_cryptde) {
+                match live_package.to_expired(
+                    immediate_neighbor_addr,
+                    self.main_cryptde,
+                    self.main_cryptde,
+                ) {
                     Ok(pkg) => pkg,
-                    Err (CodexError::DecryptionError(CryptdecError::OpeningFailed)) => {
+                    Err(CodexError::DecryptionError(CryptdecError::OpeningFailed)) => {
                         error!(
                             self.logger,
                             "Neither alias key nor main key can expire CORES package with {}-byte payload", data_len
                         );
                         return;
                     }
-                    Err (e2) => {
+                    Err(e2) => {
                         error!(
                             self.logger,
                             "Couldn't expire CORES package with {}-byte payload using main key: {:?}", data_len, e2
@@ -217,11 +229,13 @@ impl RoutingService {
                         return;
                     }
                 }
-            },
+            }
             Err(e) => {
                 error!(
                     self.logger,
-                    "Couldn't expire CORES package with {}-byte payload using alias key: {:?}", data_len, e
+                    "Couldn't expire CORES package with {}-byte payload using alias key: {:?}",
+                    data_len,
+                    e
                 );
                 return;
             }
@@ -373,17 +387,18 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         last_data: bool,
     ) -> Result<TransmitDataMsg, CryptdecError> {
-        let (next_hop, next_live_package) = match live_package.to_next_live(self.main_cryptde.borrow()) {
-            Err(e) => {
-                let msg = format!(
-                    "Couldn't get next hop and outgoing LCP from incoming LCP: {:?}",
-                    e
-                );
-                error!(self.logger, "{}", &msg);
-                return Err(CryptdecError::OtherError(msg));
-            }
-            Ok(p) => p,
-        };
+        let (next_hop, next_live_package) =
+            match live_package.to_next_live(self.main_cryptde.borrow()) {
+                Err(e) => {
+                    let msg = format!(
+                        "Couldn't get next hop and outgoing LCP from incoming LCP: {:?}",
+                        e
+                    );
+                    error!(self.logger, "{}", &msg);
+                    return Err(CryptdecError::OtherError(msg));
+                }
+                Ok(p) => p,
+            };
         let next_live_package_enc =
             match encodex(self.main_cryptde, &next_hop.public_key, &next_live_package) {
                 Ok(nlpe) => nlpe,
@@ -419,7 +434,12 @@ mod tests {
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
-    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_meaningless_stream_key, make_paying_wallet, make_request_payload, make_response_payload, rate_pack_routing, rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client, route_to_proxy_server, DEFAULT_CHAIN_ID, alias_cryptde};
+    use crate::test_utils::{
+        alias_cryptde, main_cryptde, make_meaningless_message_type, make_meaningless_stream_key,
+        make_paying_wallet, make_request_payload, make_response_payload, rate_pack_routing,
+        rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client,
+        route_to_proxy_server, DEFAULT_CHAIN_ID,
+    };
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -527,7 +547,7 @@ mod tests {
         init_test_logging();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
-        let rogue_cryptde = CryptDENull::new (DEFAULT_CHAIN_ID);
+        let rogue_cryptde = CryptDENull::new(DEFAULT_CHAIN_ID);
         let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
@@ -608,8 +628,7 @@ mod tests {
             false,
         );
         subject.route(inbound_client_data);
-        TestLogHandler::new()
-            .exists_log_matching("Attempt to send invalid combination .* to .*");
+        TestLogHandler::new().exists_log_matching("Attempt to send invalid combination .* to .*");
     }
 
     #[test]
@@ -624,12 +643,18 @@ mod tests {
         let payload = make_request_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
-            encodex::<MessageType>(main_cryptde, &main_cryptde.public_key(), &payload.clone().into())
-                .unwrap(),
+            encodex::<MessageType>(
+                main_cryptde,
+                &main_cryptde.public_key(),
+                &payload.clone().into(),
+            )
+            .unwrap(),
         );
         let lcp_a = lcp.clone();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde
+            .encode(&main_cryptde.public_key(), &data_ser)
+            .unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -664,7 +689,11 @@ mod tests {
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.2.3.4:5678").unwrap(), main_cryptde, main_cryptde)
+            .to_expired(
+                SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                main_cryptde,
+                main_cryptde,
+            )
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -684,8 +713,12 @@ mod tests {
         let payload = make_response_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
-            encodex::<MessageType>(alias_cryptde, &alias_cryptde.public_key(), &payload.clone().into())
-                .unwrap(),
+            encodex::<MessageType>(
+                alias_cryptde,
+                &alias_cryptde.public_key(),
+                &payload.clone().into(),
+            )
+            .unwrap(),
         );
         let lcp_a = lcp.clone();
         let lcp_enc = encodex(main_cryptde, main_cryptde.public_key(), &lcp).unwrap();
@@ -724,7 +757,11 @@ mod tests {
         let record =
             component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), main_cryptde, alias_cryptde)
+            .to_expired(
+                SocketAddr::from_str("1.3.2.4:5678").unwrap(),
+                main_cryptde,
+                alias_cryptde,
+            )
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -754,8 +791,12 @@ mod tests {
         let payload = GossipBuilder::empty();
         let lcp = LiveCoresPackage::new(
             route,
-            encodex::<MessageType>(main_cryptde, &main_cryptde.public_key(), &payload.clone().into())
-                .unwrap(),
+            encodex::<MessageType>(
+                main_cryptde,
+                &main_cryptde.public_key(),
+                &payload.clone().into(),
+            )
+            .unwrap(),
         );
         let lcp_a = lcp.clone();
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
@@ -793,7 +834,11 @@ mod tests {
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage<Gossip>>(0);
         let expected_ecp = lcp_a
-            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), main_cryptde, main_cryptde)
+            .to_expired(
+                SocketAddr::from_str("1.3.2.4:5678").unwrap(),
+                main_cryptde,
+                main_cryptde,
+            )
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
@@ -828,7 +873,9 @@ mod tests {
         let lcp = LiveCoresPackage::new(route, main_cryptde.encode(&next_key, &payload).unwrap());
         let lcp_a = lcp.clone();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde
+            .encode(&main_cryptde.public_key(), &data_ser)
+            .unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -913,7 +960,9 @@ mod tests {
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
             route,
-            main_cryptde.encode(&main_cryptde.public_key(), &payload).unwrap(),
+            main_cryptde
+                .encode(&main_cryptde.public_key(), &payload)
+                .unwrap(),
         );
         let lcp_a = lcp.clone();
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
@@ -954,7 +1003,8 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<InboundClientData>(0);
         let expected_lcp = lcp_a.to_next_live(main_cryptde).unwrap().1;
-        let expected_lcp_enc = encodex(main_cryptde, &main_cryptde.public_key(), &expected_lcp).unwrap();
+        let expected_lcp_enc =
+            encodex(main_cryptde, &main_cryptde.public_key(), &expected_lcp).unwrap();
         assert_eq!(
             *record,
             InboundClientData {
@@ -993,7 +1043,9 @@ mod tests {
             IncipientCoresPackage::new(&origin_cryptde, route, payload, &destination_key).unwrap();
         let (lcp, _) = LiveCoresPackage::from_incipient(icp, &origin_cryptde).unwrap();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde
+            .encode(&main_cryptde.public_key(), &data_ser)
+            .unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -1089,7 +1141,9 @@ mod tests {
         let icp = IncipientCoresPackage::new(main_cryptde, route, payload, &public_key).unwrap();
         let (lcp, _) = LiveCoresPackage::from_incipient(icp, main_cryptde).unwrap();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde
+            .encode(&main_cryptde.public_key(), &data_ser)
+            .unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -1186,8 +1240,10 @@ mod tests {
 
         let route = Route { hops };
 
-        let lcp =
-            LiveCoresPackage::new(route, encodex(main_cryptde, &destination_key, &payload).unwrap());
+        let lcp = LiveCoresPackage::new(
+            route,
+            encodex(main_cryptde, &destination_key, &payload).unwrap(),
+        );
 
         let system = System::new(
             "route_logs_and_ignores_cores_package_that_demands_hopper_routing_with_paying_wallet_that_cant_pay",
@@ -1330,7 +1386,9 @@ mod tests {
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
             route,
-            main_cryptde.encode(&main_cryptde.public_key(), &payload).unwrap(),
+            main_cryptde
+                .encode(&main_cryptde.public_key(), &payload)
+                .unwrap(),
         );
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
@@ -1432,7 +1490,9 @@ mod tests {
         let alias_cryptde = alias_cryptde();
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = main_cryptde.encode(&main_cryptde.public_key(), &data_ser).unwrap();
+        let data_enc = main_cryptde
+            .encode(&main_cryptde.public_key(), &data_ser)
+            .unwrap();
         let inbound_client_data = InboundClientData {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
@@ -1512,7 +1572,8 @@ mod tests {
 
         subject.route_data_around_again(lcp, &ibcd);
 
-        TestLogHandler::new()
-            .exists_log_containing("ERROR: RoutingService: bad zero-hop route: RoutingError(EmptyRoute)");
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: bad zero-hop route: RoutingError(EmptyRoute)",
+        );
     }
 }

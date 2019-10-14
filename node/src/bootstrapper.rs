@@ -409,7 +409,11 @@ impl Bootstrapper {
         main_cryptde_null_opt: &Option<CryptDENull>,
         alias_cryptde_null_opt: &Option<CryptDENull>,
     ) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
-        Self::initialize_cryptdes(main_cryptde_null_opt, alias_cryptde_null_opt, crate::test_utils::DEFAULT_CHAIN_ID)
+        Self::initialize_cryptdes(
+            main_cryptde_null_opt,
+            alias_cryptde_null_opt,
+            crate::test_utils::DEFAULT_CHAIN_ID,
+        )
     }
 
     fn initialize_cryptdes(
@@ -418,11 +422,15 @@ impl Bootstrapper {
         chain_id: u8,
     ) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
         match main_cryptde_null_opt {
-            Some(cryptde_null) => unsafe { MAIN_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone())) },
+            Some(cryptde_null) => unsafe {
+                MAIN_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
+            },
             None => unsafe { MAIN_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain_id))) },
         }
         match alias_cryptde_null_opt {
-            Some(cryptde_null) => unsafe { ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone())) },
+            Some(cryptde_null) => unsafe {
+                ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
+            },
             None => unsafe { ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain_id))) },
         }
         (main_cryptde_ref(), alias_cryptde_ref())
@@ -1029,7 +1037,8 @@ mod tests {
         let cryptde_null = main_cryptde().clone();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
-        let (cryptde, _) = Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, DEFAULT_CHAIN_ID);
+        let (cryptde, _) =
+            Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, DEFAULT_CHAIN_ID);
 
         assert_eq!(cryptde.public_key(), &cryptde_null_public_key);
         assert_eq!(main_cryptde_ref().public_key(), cryptde.public_key());
@@ -1047,7 +1056,8 @@ mod tests {
         let cryptde_ref = {
             let mut streams = holder.streams();
 
-            let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
+            let (cryptde_ref, _) =
+                Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
             Bootstrapper::report_local_descriptor(
                 cryptde_ref,
                 Some(node_addr),
@@ -1103,7 +1113,8 @@ mod tests {
         let (main_cryptde_ref, alias_cryptde_ref) = {
             let mut streams = holder.streams();
 
-            let (main_cryptde_ref, alias_cryptde_ref) = Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
+            let (main_cryptde_ref, alias_cryptde_ref) =
+                Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
             Bootstrapper::report_local_descriptor(
                 main_cryptde_ref,
                 None,
@@ -1151,8 +1162,8 @@ mod tests {
             ));
             assert_eq!(decrypted_data, expected_data)
         };
-        assert_round_trip (main_cryptde_ref);
-        assert_round_trip (alias_cryptde_ref);
+        assert_round_trip(main_cryptde_ref);
+        assert_round_trip(alias_cryptde_ref);
     }
 
     #[test]

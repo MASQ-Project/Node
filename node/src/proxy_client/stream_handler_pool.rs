@@ -500,9 +500,9 @@ mod tests {
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;

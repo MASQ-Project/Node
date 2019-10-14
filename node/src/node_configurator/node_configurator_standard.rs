@@ -393,7 +393,7 @@ mod standard {
                         key.reverse();
                         let alias_public_key = PublicKey::new(&key);
                         (main_public_key, alias_public_key)
-                    },
+                    }
                     Err(_) => panic!("Invalid fake public key: {}", public_key_str),
                 };
                 let main_cryptde_null =

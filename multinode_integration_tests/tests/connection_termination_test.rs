@@ -145,11 +145,12 @@ fn actual_server_drop() {
     let (_, _, lcp) = mock_node
         .wait_for_package(&masquerader, Duration::from_secs(1))
         .unwrap();
-    let payload =
-        match decodex::<MessageType>(mock_node.main_cryptde_null().unwrap(), &lcp.payload).unwrap() {
-            MessageType::ClientResponse(p) => p,
-            mt => panic!("Unexpected: {:?}", mt),
-        };
+    let payload = match decodex::<MessageType>(mock_node.main_cryptde_null().unwrap(), &lcp.payload)
+        .unwrap()
+    {
+        MessageType::ClientResponse(p) => p,
+        mt => panic!("Unexpected: {:?}", mt),
+    };
     assert!(payload.sequenced_packet.data.is_empty());
     assert!(payload.sequenced_packet.last_data);
 }
@@ -302,11 +303,17 @@ fn create_request_icp(
         originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(
             RouteSegment::new(
-                vec![originating_node.main_public_key(), exit_node.main_public_key()],
+                vec![
+                    originating_node.main_public_key(),
+                    exit_node.main_public_key(),
+                ],
                 Component::ProxyClient,
             ),
             RouteSegment::new(
-                vec![exit_node.main_public_key(), originating_node.main_public_key()],
+                vec![
+                    exit_node.main_public_key(),
+                    originating_node.main_public_key(),
+                ],
                 Component::ProxyServer,
             ),
             originating_node.main_cryptde_null().unwrap(),
@@ -339,11 +346,17 @@ fn create_meaningless_icp(
         originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(
             RouteSegment::new(
-                vec![originating_node.main_public_key(), exit_node.main_public_key()],
+                vec![
+                    originating_node.main_public_key(),
+                    exit_node.main_public_key(),
+                ],
                 Component::ProxyClient,
             ),
             RouteSegment::new(
-                vec![exit_node.main_public_key(), originating_node.main_public_key()],
+                vec![
+                    exit_node.main_public_key(),
+                    originating_node.main_public_key(),
+                ],
                 Component::ProxyServer,
             ),
             originating_node.main_cryptde_null().unwrap(),
@@ -374,11 +387,17 @@ fn create_server_drop_report(
 ) -> IncipientCoresPackage {
     let mut route = Route::round_trip(
         RouteSegment::new(
-            vec![originating_node.main_public_key(), exit_node.main_public_key()],
+            vec![
+                originating_node.main_public_key(),
+                exit_node.main_public_key(),
+            ],
             Component::ProxyClient,
         ),
         RouteSegment::new(
-            vec![exit_node.main_public_key(), originating_node.main_public_key()],
+            vec![
+                exit_node.main_public_key(),
+                originating_node.main_public_key(),
+            ],
             Component::ProxyServer,
         ),
         originating_node.main_cryptde_null().unwrap(),
@@ -413,11 +432,17 @@ fn create_client_drop_report(
 ) -> IncipientCoresPackage {
     let route = Route::round_trip(
         RouteSegment::new(
-            vec![originating_node.main_public_key(), exit_node.main_public_key()],
+            vec![
+                originating_node.main_public_key(),
+                exit_node.main_public_key(),
+            ],
             Component::ProxyClient,
         ),
         RouteSegment::new(
-            vec![exit_node.main_public_key(), originating_node.main_public_key()],
+            vec![
+                exit_node.main_public_key(),
+                originating_node.main_public_key(),
+            ],
             Component::ProxyServer,
         ),
         originating_node.main_cryptde_null().unwrap(),

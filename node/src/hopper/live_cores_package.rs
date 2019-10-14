@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::cryptde::{CryptData, CodexError};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{decodex, CryptDE};
+use crate::sub_lib::cryptde::{CodexError, CryptData};
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -85,8 +85,8 @@ impl LiveCoresPackage {
                 self.payload.len(),
             )
         }) {
-            Ok(ecp) => Ok (ecp),
-            Err(e) => Err (e),
+            Ok(ecp) => Ok(ecp),
+            Err(e) => Err(e),
         }
     }
 }
@@ -101,8 +101,8 @@ mod tests {
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::node_addr::NodeAddr;
-    use crate::sub_lib::route::{Route, RouteError};
     use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::route::{Route, RouteError};
     use crate::test_utils::{
         main_cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
         DEFAULT_CHAIN_ID,
@@ -190,7 +190,10 @@ mod tests {
 
         let result = subject.to_next_live(main_cryptde());
 
-        assert_eq!(result, Err(CodexError::RoutingError(RouteError::EmptyRoute)));
+        assert_eq!(
+            result,
+            Err(CodexError::RoutingError(RouteError::EmptyRoute))
+        );
     }
 
     #[test]
@@ -283,7 +286,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(String::from("Could not decrypt next hop: RoutingError(EmptyRoute)"))
+            Err(String::from(
+                "Could not decrypt next hop: RoutingError(EmptyRoute)"
+            ))
         );
     }
 
@@ -317,7 +322,11 @@ mod tests {
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
 
         let result = subject
-            .to_expired(immediate_neighbor_ip, &first_stop_cryptde, &first_stop_cryptde)
+            .to_expired(
+                immediate_neighbor_ip,
+                &first_stop_cryptde,
+                &first_stop_cryptde,
+            )
             .unwrap();
 
         assert_eq!(result.immediate_neighbor, immediate_neighbor_ip);
@@ -382,9 +391,16 @@ mod tests {
             CryptData::new(main_cryptde().private_key().as_slice()),
         );
 
-        let result = subject.to_expired(SocketAddr::from_str("1.2.3.4:1234").unwrap(), main_cryptde(), main_cryptde());
+        let result = subject.to_expired(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            main_cryptde(),
+            main_cryptde(),
+        );
 
-        assert_eq!(result, Err(CodexError::RoutingError(RouteError::EmptyRoute)));
+        assert_eq!(
+            result,
+            Err(CodexError::RoutingError(RouteError::EmptyRoute))
+        );
     }
 
     #[test]
