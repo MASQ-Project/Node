@@ -10,7 +10,7 @@ use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
 use node_lib::neighborhood::gossip::Gossip;
-use node_lib::sub_lib::cryptde::CryptData;
+use node_lib::sub_lib::cryptde::{CryptData, CodexError, CryptdecError};
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde::{encodex, CryptDE};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -361,9 +361,16 @@ impl MASQMockNode {
         let masquerader = JsonMasquerader::new();
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
-                let incoming_cores_package = package
-                    .to_expired(from, self.main_cryptde_null().unwrap(), self.alias_cryptde_null().unwrap())
-                    .unwrap();
+                let incoming_cores_package = match package
+                    .to_expired(from, self.main_cryptde_null().unwrap(), self.alias_cryptde_null().unwrap()) {
+                    Ok(icp) => icp,
+                    Err(CodexError::DecryptionError(CryptdecError::OpeningFailed)) => match package
+                        .to_expired(from, self.main_cryptde_null().unwrap(), self.main_cryptde_null().unwrap()) {
+                        Ok(icp) => icp,
+                        Err(e) => panic! ("Couldn't expire LiveCoresPackage: {:?}", e),
+                    },
+                    Err(e) => panic! ("Couldn't expire LiveCoresPackage: {:?}", e),
+                };
                 match incoming_cores_package.payload {
                     MessageType::Gossip(g) => Some((g, from.ip())),
                     _ => panic!("Expected Gossip, got something else"),

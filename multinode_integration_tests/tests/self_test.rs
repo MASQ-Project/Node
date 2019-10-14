@@ -142,8 +142,8 @@ fn one_mock_node_talks_to_another() {
     let expired_cores_package = package
         .to_expired(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            mock_node_2.signing_cryptde().unwrap(),
-            mock_node_2.alias_cryptde_null().unwrap(),
+            mock_node_2.main_cryptde_null().unwrap(),
+            mock_node_2.main_cryptde_null().unwrap(),
         )
         .unwrap();
 
