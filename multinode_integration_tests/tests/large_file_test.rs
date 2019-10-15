@@ -8,6 +8,7 @@ use multinode_integration_tests_lib::masq_real_node::{
 use multinode_integration_tests_lib::rest_utils::RestServer;
 use std::thread;
 use std::time::Duration;
+use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 
 const MAXIMUM_KBYTES: &'static str = "148480";
 const REQUEST_BYTES: u64 = 157_286_400;
@@ -20,6 +21,7 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
         NodeStartupConfigBuilder::standard()
             .memory(MAXIMUM_KBYTES)
             .consuming_wallet_info(make_consuming_wallet_info(MAXIMUM_KBYTES))
+            .chain(chain_name_from_id(cluster.chain_id))
             .build(),
     );
 
@@ -29,6 +31,7 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
                 NodeStartupConfigBuilder::standard()
                     .neighbor(originating_node.node_reference())
                     .memory(MAXIMUM_KBYTES)
+                    .chain(chain_name_from_id(cluster.chain_id))
                     .build(),
             )
         })

@@ -8,7 +8,7 @@ use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::PortSelector;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
-use node_lib::blockchain::blockchain_interface::contract_address;
+use node_lib::blockchain::blockchain_interface::{chain_name_from_id, contract_address};
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::dispatcher::Component;
@@ -36,6 +36,7 @@ fn establishes_masq_node_cluster_from_nothing() {
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .fake_public_key(&PublicKey::new(&[1, 2, 3, 4]))
+            .chain(chain_name_from_id(cluster.chain_id))
             .build(),
     );
     cluster.start_mock_node_with_public_key(vec![2345], &PublicKey::new(&[2, 3, 4, 5]));

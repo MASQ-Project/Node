@@ -16,6 +16,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::{BTreeSet, HashMap};
 use std::convert::TryInto;
 use std::time::Duration;
+use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 
 /// Construct a neighborhood for testing that corresponds to a provided NeighborhoodDatabase, with a MASQRealNode
 /// corresponding to the root of the database, MASQMockNodes corresponding to all the root's immediate neighbors,
@@ -65,6 +66,7 @@ pub fn construct_neighborhood(
             .consuming_wallet_info(make_consuming_wallet_info(
                 model_db.root().public_key().to_string().as_str(),
             ))
+            .chain(chain_name_from_id(cluster.chain_id))
             .build(),
     );
     let (mock_node_map, adjacent_mock_node_keys) =

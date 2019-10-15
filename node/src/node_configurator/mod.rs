@@ -930,7 +930,7 @@ mod tests {
     fn data_directory_default_works() {
         let mock_dirs_wrapper = MockDirsWrapper::new().data_dir_result(Some("mocked/path".into()));
 
-        let result = data_directory_default(&mock_dirs_wrapper, TEST_DEFAULT_CHAIN_NAME);
+        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
 
         let expected = PathBuf::from("mocked/path")
             .join("MASQ")

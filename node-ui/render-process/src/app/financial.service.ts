@@ -15,7 +15,7 @@ export class FinancialService {
   financialStatsResponseListener: BehaviorSubject<PendingAmounts> = new BehaviorSubject({pendingCredit: '', pendingDebt: ''});
   financialStatisticsResponse: Observable<PendingAmounts> = this.financialStatsResponseListener.asObservable();
 
-  constructor(private electronService: ElectronService, private scheduler: AsyncScheduler) {
+  constructor(private electronService: ElectronService) {
     this.electronService.ipcRenderer.on('get-financial-statistics-response', (_, result: PendingAmounts) => {
       this.financialStatsResponseListener.next(result);
     });
@@ -27,7 +27,7 @@ export class FinancialService {
 
   startFinancialStatistics() {
     if (!!!this.financialStatsSubscription) {
-      this.financialStatsSubscription = timer(0, 5000, this.scheduler).subscribe(() => {
+      this.financialStatsSubscription = timer(0, 5000).subscribe(() => {
         this.electronService.ipcRenderer.send('get-financial-statistics');
       });
     }
