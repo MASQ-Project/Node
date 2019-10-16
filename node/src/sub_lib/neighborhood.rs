@@ -14,12 +14,12 @@ use crate::sub_lib::utils::node_descriptor_delimiter;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
+use core::fmt;
 use lazy_static::lazy_static;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
-use core::fmt;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -160,11 +160,14 @@ impl NodeDescriptor {
         let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
 
         if pieces.len() != 2 {
-            return Err(String::from(s));
+            return Err(format!(
+                "Should be <public key>{}<node address>, not '{}'",
+                delimiter, s
+            ));
         }
 
         let public_key = match cryptde.descriptor_fragment_to_first_contact_public_key(pieces[0]) {
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(e),
             Ok(hpk) => hpk,
         };
 
@@ -173,7 +176,7 @@ impl NodeDescriptor {
                 None
             } else {
                 match NodeAddr::from_str(&pieces[1]) {
-                    Err(_) => return Err(String::from(s)),
+                    Err(e) => return Err(e),
                     Ok(node_addr) => Some(node_addr),
                 }
             }
@@ -347,7 +350,9 @@ impl fmt::Display for GossipFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let msg = match self {
             GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
-            GossipFailure::NoSuitableNeighbors => "No neighbors were suitable for Introduction or Pass",
+            GossipFailure::NoSuitableNeighbors => {
+                "No neighbors were suitable for Introduction or Pass"
+            }
             GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
         };
         write!(f, "{}", msg)
@@ -399,7 +404,12 @@ mod tests {
     fn node_descriptor_from_str_requires_two_pieces_to_a_configuration() {
         let result = NodeDescriptor::from_str(cryptde(), "only_one_piece", DEFAULT_CHAIN_ID);
 
-        assert_eq!(result, Err(String::from("only_one_piece")));
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Should be <public key>:<node address>, not 'only_one_piece'"
+            ))
+        );
     }
 
     #[test]
@@ -425,7 +435,7 @@ mod tests {
         let result =
             NodeDescriptor::from_str(cryptde(), "R29vZEtleQ==:BadNodeAddr", DEFAULT_CHAIN_ID);
 
-        assert_eq!(result, Err(String::from("R29vZEtleQ==:BadNodeAddr")));
+        assert_eq!(result, Err(String::from("NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'BadNodeAddr'")));
     }
 
     #[test]
@@ -614,15 +624,21 @@ mod tests {
     fn gossip_failure_display() {
         // Structured this way so that modifications to GossipFailure will draw attention here
         // so that the test can be updated
-        vec![GossipFailure::NoNeighbors, GossipFailure::NoSuitableNeighbors, GossipFailure::ManualRejection]
-            .into_iter()
-            .for_each(|gf| {
-                let expected_string = match gf {
-                    GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
-                    GossipFailure::NoSuitableNeighbors => "No neighbors were suitable for Introduction or Pass",
-                    GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
-                };
-                assert_eq!(&gf.to_string(), expected_string);
-            });
+        vec![
+            GossipFailure::NoNeighbors,
+            GossipFailure::NoSuitableNeighbors,
+            GossipFailure::ManualRejection,
+        ]
+        .into_iter()
+        .for_each(|gf| {
+            let expected_string = match gf {
+                GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
+                GossipFailure::NoSuitableNeighbors => {
+                    "No neighbors were suitable for Introduction or Pass"
+                }
+                GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
+            };
+            assert_eq!(&gf.to_string(), expected_string);
+        });
     }
 }

@@ -9,6 +9,7 @@ use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_re
 use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::neighborhood::GossipFailure;
 use node_lib::test_utils::vec_to_set;
 use std::convert::TryInto;
 use std::time::Duration;
@@ -109,7 +110,7 @@ fn debut_target_does_not_pass_to_known_neighbors() {
     debuter_mock_node
         .transmit_multinode_gossip(&subject_real_node, &debut_gossip)
         .unwrap();
-    let result = debuter_mock_node.wait_for_gossip(Duration::from_secs(2));
+    let result = debuter_mock_node.wait_for_gossip_failure(Duration::from_secs(2));
 
-    assert_eq!(result, None); // couldn't pass to anyone for all the common neighbors; no response, test passes
+    assert_eq!(result.unwrap().0, GossipFailure::NoSuitableNeighbors);
 }

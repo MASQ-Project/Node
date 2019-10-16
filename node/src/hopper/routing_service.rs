@@ -403,6 +403,7 @@ mod tests {
     use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType, MessageType::ClientRequest};
+    use crate::sub_lib::neighborhood::GossipFailure;
     use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
     use crate::sub_lib::proxy_server::ClientRequestPayload;
     use crate::sub_lib::route::{Route, RouteSegment};
@@ -418,7 +419,6 @@ mod tests {
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use crate::sub_lib::neighborhood::GossipFailure;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
@@ -763,8 +763,7 @@ mod tests {
         let payload = MessageType::GossipFailure(GossipFailure::NoNeighbors);
         let lcp = LiveCoresPackage::new(
             route,
-            encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload)
-                .unwrap(),
+            encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload).unwrap(),
         );
         let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
@@ -776,7 +775,8 @@ mod tests {
             data: data_enc.into(),
         };
 
-        let system = System::new("converts_live_gossip_failure_message_to_expired_for_neighborhood");
+        let system =
+            System::new("converts_live_gossip_failure_message_to_expired_for_neighborhood");
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
             cryptde,
