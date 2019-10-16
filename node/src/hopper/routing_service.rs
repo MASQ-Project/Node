@@ -273,6 +273,18 @@ impl RoutingService {
                     expired_package.payload_len,
                 ))
                 .expect("Neighborhood is dead"),
+            (Component::Neighborhood, MessageType::GossipFailure(failure)) => self
+                .routing_service_subs
+                .neighborhood_subs
+                .gossip_failure
+                .try_send(ExpiredCoresPackage::new(
+                    expired_package.immediate_neighbor,
+                    expired_package.paying_wallet,
+                    expired_package.remaining_route,
+                    failure,
+                    expired_package.payload_len,
+                ))
+                .expect("Neighborhood is dead"),
             (destination, payload) => error!(
                 self.logger,
                 "Attempt to send invalid combination {:?} to {:?}", payload, destination
@@ -406,6 +418,7 @@ mod tests {
     use actix::System;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use crate::sub_lib::neighborhood::GossipFailure;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
@@ -664,7 +677,7 @@ mod tests {
     }
 
     #[test]
-    fn converts_live_message_to_expired_for_neighborhood() {
+    fn converts_live_gossip_message_to_expired_for_neighborhood() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         let cryptde = cryptde();
@@ -697,7 +710,7 @@ mod tests {
             data: data_enc.into(),
         };
 
-        let system = System::new("converts_live_message_to_expired_for_neighborhood");
+        let system = System::new("converts_live_gossip_message_to_expired_for_neighborhood");
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
             cryptde,
@@ -727,6 +740,72 @@ mod tests {
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
         assert_eq!(record.remaining_route, expected_ecp.remaining_route);
         assert_eq!(record.payload, payload);
+        assert_eq!(record.payload_len, expected_ecp.payload_len);
+    }
+
+    #[test]
+    fn converts_live_gossip_failure_message_to_expired_for_neighborhood() {
+        let _eg = EnvironmentGuard::new();
+        BAN_CACHE.clear();
+        let cryptde = cryptde();
+        let (component, _, component_recording_arc) = make_recorder();
+        let mut route = Route::one_way(
+            RouteSegment::new(
+                vec![&cryptde.public_key(), &cryptde.public_key()],
+                Component::Neighborhood,
+            ),
+            cryptde,
+            None,
+            None,
+        )
+        .unwrap();
+        route.shift(cryptde).unwrap();
+        let payload = MessageType::GossipFailure(GossipFailure::NoNeighbors);
+        let lcp = LiveCoresPackage::new(
+            route,
+            encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload)
+                .unwrap(),
+        );
+        let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
+            reception_port: None,
+            last_data: false,
+            is_clandestine: true,
+            sequence_number: None,
+            data: data_enc.into(),
+        };
+
+        let system = System::new("converts_live_gossip_failure_message_to_expired_for_neighborhood");
+        let peer_actors = peer_actors_builder().neighborhood(component).build();
+        let subject = RoutingService::new(
+            cryptde,
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            0,
+            0,
+            true,
+        );
+
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
+        let component_recording = component_recording_arc.lock().unwrap();
+        let record = component_recording.get_record::<ExpiredCoresPackage<GossipFailure>>(0);
+        let expected_ecp = lcp
+            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), cryptde)
+            .unwrap();
+        assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
+        assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
+        assert_eq!(record.remaining_route, expected_ecp.remaining_route);
+        assert_eq!(record.payload, GossipFailure::NoNeighbors);
         assert_eq!(record.payload_len, expected_ecp.payload_len);
     }
 

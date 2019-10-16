@@ -19,6 +19,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use core::fmt;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -215,6 +216,7 @@ pub struct NeighborhoodSubs {
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip>>,
+    pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
@@ -334,6 +336,24 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum GossipFailure {
+    NoNeighbors,
+    NoSuitableNeighbors,
+    ManualRejection,
+}
+
+impl fmt::Display for GossipFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let msg = match self {
+            GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
+            GossipFailure::NoSuitableNeighbors => "No neighbors were suitable for Introduction or Pass",
+            GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
+        };
+        writeln!(f, "{}", msg)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,6 +384,7 @@ mod tests {
             route_query: recipient!(recorder, RouteQueryMessage),
             update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip>),
+            gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),

@@ -16,6 +16,7 @@ use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use crate::sub_lib::neighborhood::GossipFailure;
 
 /// Special-case hack to avoid extending a Card From Hell. I'm not sure what the right way to do
 /// this is, but this doesn't feel like it. The intent here is to provide a way to send a CORES
@@ -66,6 +67,7 @@ pub enum MessageType {
     ClientRequest(ClientRequestPayload),
     ClientResponse(ClientResponsePayload),
     Gossip(Gossip),
+    GossipFailure(GossipFailure),
     DnsResolveFailed(DnsResolveFailure),
 }
 

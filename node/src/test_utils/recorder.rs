@@ -17,7 +17,7 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
+use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure};
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
@@ -88,6 +88,7 @@ recorder_message_handler!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload>);
 recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload>);
 recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure>);
+recorder_message_handler!(ExpiredCoresPackage<GossipFailure>);
 recorder_message_handler!(ExpiredCoresPackage<Gossip>);
 recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(TransmitDataMsg);
@@ -374,6 +375,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         route_query: recipient!(addr, RouteQueryMessage),
         update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
         from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
+        gossip_failure: addr.clone().recipient::<ExpiredCoresPackage<GossipFailure>>(),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),

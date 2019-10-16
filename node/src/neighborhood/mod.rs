@@ -29,7 +29,7 @@ use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
+use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure};
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
@@ -64,7 +64,8 @@ use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::net::SocketAddr;
+use std::net::{SocketAddr};
+use itertools::Itertools;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -266,6 +267,14 @@ impl Handler<ExpiredCoresPackage<Gossip>> for Neighborhood {
     }
 }
 
+impl Handler<ExpiredCoresPackage<GossipFailure>> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: ExpiredCoresPackage<GossipFailure>, _ctx: &mut Self::Context) -> Self::Result {
+        unimplemented!()
+    }
+}
+
 impl Handler<RemoveNeighborMessage> for Neighborhood {
     type Result = ();
 
@@ -414,6 +423,7 @@ impl Neighborhood {
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
             update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
+            gossip_failure: addr.clone().recipient::<ExpiredCoresPackage<GossipFailure>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
@@ -1229,6 +1239,63 @@ mod tests {
                 NodeDescriptor::from(&another_neighbor_node).to_string(cryptde, DEFAULT_CHAIN_ID)
             ]
         );
+    }
+
+    #[test]
+    fn gossip_failures_eventually_stop_the_neighborhood() {
+        init_test_logging();
+        let cryptde = cryptde();
+        let earning_wallet = make_wallet("earning");
+        let one_neighbor_node: NodeRecord = make_node_record(3456, true);
+        let another_neighbor_node: NodeRecord = make_node_record(4567, true);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
+
+        let subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        this_node_addr.clone(),
+                        vec![
+                            NodeDescriptor::from(&one_neighbor_node)
+                                .to_string(cryptde, DEFAULT_CHAIN_ID),
+                            NodeDescriptor::from(&another_neighbor_node)
+                                .to_string(cryptde, DEFAULT_CHAIN_ID),
+                        ],
+                        rate_pack(100),
+                    ),
+                },
+                earning_wallet.clone(),
+                None,
+            ),
+        );
+        let ecp1 = ExpiredCoresPackage::new (
+            one_neighbor_node.node_addr_opt().unwrap().into(),
+            None,
+            make_meaningless_route(),
+            GossipFailure::NoNeighbors,
+            0,
+        );
+        let ecp2 = ExpiredCoresPackage::new (
+            another_neighbor_node.node_addr_opt().unwrap().into(),
+            None,
+            make_meaningless_route(),
+            GossipFailure::ManualRejection,
+            0,
+        );
+        let system = System::new("responds_with_none_when_initially_configured_with_no_data");
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub = addr.recipient::<ExpiredCoresPackage<GossipFailure>>();
+
+        sub.try_send(ecp1).unwrap();
+        sub.try_send(ecp2).unwrap();
+
+        system.run(); // If this never halts, it's because the Neighborhood isn't properly killing its actor
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing (&format!("WARN: Neighborhood: Node {} refused Debut: No neighbors for introduction or pass", one_neighbor_node.public_key()));
+        tlh.exists_log_containing (&format!("WARN: Neighborhood: Node {} refused Debut: Node owner manually rejected your Debut", another_neighbor_node.public_key()));
+        tlh.exists_log_containing ("ERROR: None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
     }
 
     #[test]
