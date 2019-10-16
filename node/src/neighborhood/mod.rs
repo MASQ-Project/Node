@@ -48,9 +48,9 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
-use crate::sub_lib::utils::{node_descriptor_delimiter, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
+use actix::{Actor, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -77,7 +77,7 @@ pub struct Neighborhood {
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
-    initial_neighbors: Vec<String>,
+    initial_neighbors: Vec<NodeDescriptor>,
     logger: Logger,
     chain_id: u8,
 }
@@ -117,15 +117,7 @@ impl Handler<StartMessage> for Neighborhood {
         let gossip = self
             .gossip_producer
             .produce_debut(&self.neighborhood_database);
-        self.initial_neighbors.iter().for_each(|neighbor| {
-            let node_descriptor = NodeDescriptor::from_str(self.cryptde, neighbor, self.chain_id)
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "--neighbors must be <public key>{}<ip address>:<port>;<port>..., not '{}'",
-                        node_descriptor_delimiter(self.chain_id),
-                        e
-                    );
-                });
+        self.initial_neighbors.iter().for_each(|node_descriptor| {
             if let Some(node_addr) = &node_descriptor.node_addr_opt {
                 self.hopper_no_lookup
                     .as_ref()
@@ -151,7 +143,7 @@ impl Handler<StartMessage> for Neighborhood {
             } else {
                 panic!(
                     "--neighbors node descriptors must have IP address and port list, not '{}'",
-                    neighbor
+                    node_descriptor.to_string(self.cryptde, self.chain_id)
                 )
             }
         });
@@ -271,7 +263,7 @@ impl Handler<ExpiredCoresPackage<GossipFailure>> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ExpiredCoresPackage<GossipFailure>, _ctx: &mut Self::Context) -> Self::Result {
-        unimplemented!()
+        self.handle_gossip_failure(msg.immediate_neighbor, msg.payload);
     }
 }
 
@@ -409,7 +401,7 @@ impl Neighborhood {
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet.clone(),
             next_return_route_id: 0,
-            initial_neighbors: neighborhood_config.mode.neighbor_configs().clone(),
+            initial_neighbors: neighborhood_config.mode.neighbor_configs().iter().flat_map(|nc| NodeDescriptor::from_str(cryptde, nc, config.blockchain_bridge_config.chain_id)).collect(),
             logger: Logger::new("Neighborhood"),
             chain_id: config.blockchain_bridge_config.chain_id,
         }
@@ -487,6 +479,23 @@ impl Neighborhood {
 
         self.handle_agrs(agrs, gossip_source);
         self.announce_gossip_handling_completion(record_count);
+    }
+
+    fn handle_gossip_failure(&mut self, failure_source: SocketAddr, failure: GossipFailure) {
+        match self.initial_neighbors.iter().find_position(|n| match &n.node_addr_opt {
+            None => false,
+            Some(node_addr) => node_addr.ip_addr() == failure_source.ip()
+        }) {
+            None => unimplemented!(),
+            Some((position, node_descriptor)) => {
+                warning!(self.logger, "Node at {} refused Debut: {}", node_descriptor.node_addr_opt.as_ref().expect("NodeAddr disappeared").ip_addr(), failure);
+                self.initial_neighbors.remove (position);
+                if self.initial_neighbors.is_empty() {
+                    error!(self.logger, "None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
+                    System::current().stop_with_code(1)
+                }
+            }
+        };
     }
 
     fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
@@ -1235,8 +1244,8 @@ mod tests {
         assert_eq!(
             subject.initial_neighbors,
             vec![
-                NodeDescriptor::from(&one_neighbor_node).to_string(cryptde, DEFAULT_CHAIN_ID),
-                NodeDescriptor::from(&another_neighbor_node).to_string(cryptde, DEFAULT_CHAIN_ID)
+                NodeDescriptor::from(&one_neighbor_node),
+                NodeDescriptor::from(&another_neighbor_node)
             ]
         );
     }
@@ -1293,9 +1302,9 @@ mod tests {
         system.run(); // If this never halts, it's because the Neighborhood isn't properly killing its actor
 
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing (&format!("WARN: Neighborhood: Node {} refused Debut: No neighbors for introduction or pass", one_neighbor_node.public_key()));
-        tlh.exists_log_containing (&format!("WARN: Neighborhood: Node {} refused Debut: Node owner manually rejected your Debut", another_neighbor_node.public_key()));
-        tlh.exists_log_containing ("ERROR: None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
+        tlh.exists_log_containing ("WARN: Neighborhood: Node at 3.4.5.6 refused Debut: No neighbors for Introduction or Pass");
+        tlh.exists_log_containing ("WARN: Neighborhood: Node at 4.5.6.7 refused Debut: Node owner manually rejected your Debut");
+        tlh.exists_log_containing ("ERROR: Neighborhood: None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
     }
 
     #[test]

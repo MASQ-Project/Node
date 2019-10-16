@@ -350,7 +350,7 @@ impl fmt::Display for GossipFailure {
             GossipFailure::NoSuitableNeighbors => "No neighbors were suitable for Introduction or Pass",
             GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
         };
-        writeln!(f, "{}", msg)
+        write!(f, "{}", msg)
     }
 }
 
@@ -608,5 +608,21 @@ mod tests {
         assert!(!subject.is_originate_only());
         assert!(!subject.is_consume_only());
         assert!(subject.is_zero_hop());
+    }
+
+    #[test]
+    fn gossip_failure_display() {
+        // Structured this way so that modifications to GossipFailure will draw attention here
+        // so that the test can be updated
+        vec![GossipFailure::NoNeighbors, GossipFailure::NoSuitableNeighbors, GossipFailure::ManualRejection]
+            .into_iter()
+            .for_each(|gf| {
+                let expected_string = match gf {
+                    GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
+                    GossipFailure::NoSuitableNeighbors => "No neighbors were suitable for Introduction or Pass",
+                    GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
+                };
+                assert_eq!(&gf.to_string(), expected_string);
+            });
     }
 }
