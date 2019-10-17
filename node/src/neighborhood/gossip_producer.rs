@@ -4,6 +4,7 @@ use super::gossip::Gossip;
 use super::gossip::GossipBuilder;
 use super::neighborhood_database::NeighborhoodDatabase;
 use crate::sub_lib::cryptde::PublicKey;
+use std::collections::BTreeSet;
 
 pub trait GossipProducer: Send {
     fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip;
@@ -29,10 +30,17 @@ impl GossipProducer for GossipProducerReal {
         let target_node_ref = database
             .node_by_key(target)
             .unwrap_or_else(|| panic!("Target node {:?} not in NeighborhoodDatabase", target));
+        let referenced_keys: BTreeSet<PublicKey> = database
+            .keys()
+            .into_iter()
+            .flat_map(|k| database.node_by_key(k))
+            .flat_map(|n| n.inner.neighbors.clone())
+            .collect();
         let builder = database
             .keys()
             .into_iter()
             .filter(|k| *k != target)
+            .filter(|k| referenced_keys.contains (k))
             .flat_map(|k| database.node_by_key(k))
             .fold(GossipBuilder::new(database), |so_far, node_record_ref| {
                 let reveal_node_addr = node_record_ref.accepts_connections()
@@ -69,9 +77,10 @@ mod tests {
     use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::DEFAULT_CHAIN_ID;
+    use crate::test_utils::{DEFAULT_CHAIN_ID, assert_contains};
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
+    use itertools::Itertools;
 
     #[test]
     #[should_panic(expected = "Target node AgMEBQ not in NeighborhoodDatabase")]
@@ -98,12 +107,11 @@ mod tests {
         let knows_root_key = &db.add_node(make_node_record(1241, false)).unwrap();
         let root_knows_key_ac = &db.add_node(make_node_record(1242, true)).unwrap();
         let root_knows_key_nac = &db.add_node(make_node_record(1243, true)).unwrap();
+        let referencer = &db.add_node(make_node_record(1300, false)).unwrap();
         db.node_by_key_mut(root_knows_key_nac)
             .unwrap()
             .inner
             .accepts_connections = false;
-        let root_bootstrap_key = &db.add_node(make_node_record(1244, true)).unwrap();
-        let target_bootstrap_key = &db.add_node(make_node_record(1245, false)).unwrap();
         db.add_arbitrary_full_neighbor(root_node.public_key(), target_node_key);
         db.add_arbitrary_full_neighbor(root_node.public_key(), common_neighbor_key);
         db.add_arbitrary_full_neighbor(target_node_key, common_neighbor_key);
@@ -115,8 +123,8 @@ mod tests {
         db.add_arbitrary_half_neighbor(root_node.public_key(), root_knows_key_ac);
         db.add_arbitrary_half_neighbor(root_node.public_key(), root_knows_key_nac);
         db.add_arbitrary_half_neighbor(target_node_key, root_knows_key_nac);
-        db.add_arbitrary_full_neighbor(target_node_key, target_bootstrap_key);
-        db.add_arbitrary_full_neighbor(root_node.public_key(), root_bootstrap_key);
+        db.add_arbitrary_half_neighbor(referencer, knows_target_key);
+        db.add_arbitrary_half_neighbor(referencer, knows_root_key);
         let subject = GossipProducerReal::new();
         let db = db.clone();
 
@@ -156,8 +164,6 @@ mod tests {
             node_digest(knows_root_key, false),
             node_digest(root_knows_key_ac, false),
             node_digest(root_knows_key_nac, false),
-            node_digest(root_bootstrap_key, false),
-            node_digest(target_bootstrap_key, false),
         ];
         expected_gossip_digests.sort_unstable_by(|a, b| a.0.cmp(&b.0));
         let mut actual_gossip_digests = gossip
@@ -191,6 +197,31 @@ mod tests {
             .find(|agr| &agr.inner.public_key == root_node.public_key())
             .unwrap();
         assert_eq!(gossip_root.node_addr_opt, None);
+    }
+
+    #[test]
+    fn produce_does_not_gossip_about_isolated_nodes() {
+        let root_node: NodeRecord = make_node_record(1234, true); // AQIDBA
+        let mut db: NeighborhoodDatabase = db_from_node(&root_node);
+        let once_referenced = db.add_node(make_node_record(2345, true)).unwrap(); // AgMEBQ
+        let never_referenced = db.add_node(make_node_record(3456, true)).unwrap(); // AwQFBg
+        let gossip_target = db.add_node(make_node_record(4567, true)).unwrap(); // BAUGBw
+        db.add_arbitrary_half_neighbor(&once_referenced, root_node.public_key());
+        db.add_arbitrary_half_neighbor(&never_referenced, root_node.public_key());
+        db.add_arbitrary_half_neighbor(&never_referenced, &once_referenced);
+        db.add_arbitrary_full_neighbor(&gossip_target, root_node.public_key());
+        let subject = GossipProducerReal::new();
+
+        let gossip = subject.produce(&db, &gossip_target);
+
+        let gossipped_keys = gossip.node_records
+            .into_iter()
+            .flat_map (AccessibleGossipRecord::try_from)
+            .map (|agr| agr.inner.public_key)
+            .collect_vec();
+        assert_contains(&gossipped_keys, root_node.public_key());
+        assert_contains(&gossipped_keys, &once_referenced);
+        assert_eq! (gossipped_keys.len(), 2);
     }
 
     #[test]
