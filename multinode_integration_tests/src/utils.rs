@@ -70,7 +70,7 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
         let mut agr = AccessibleGossipRecord {
             inner: NodeRecordInner {
                 data_version: NodeRecordInner::data_version(),
-                public_key: masq_node.public_key().clone(),
+                public_key: masq_node.main_public_key().clone(),
                 earning_wallet: masq_node.earning_wallet(),
                 rate_pack: masq_node.rate_pack(),
                 neighbors: BTreeSet::new(),

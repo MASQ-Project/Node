@@ -50,13 +50,23 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
 
-static mut CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
+static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
+static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
-pub fn cryptde_ref() -> &'static dyn CryptDE {
+pub fn main_cryptde_ref() -> &'static dyn CryptDE {
     unsafe {
-        CRYPTDE_BOX_OPT
+        MAIN_CRYPTDE_BOX_OPT
             .as_ref()
-            .expect("Internal error: CryptDE uninitialized")
+            .expect("Internal error: Main CryptDE uninitialized")
+            .as_ref()
+    }
+}
+
+pub fn alias_cryptde_ref() -> &'static dyn CryptDE {
+    unsafe {
+        ALIAS_CRYPTDE_BOX_OPT
+            .as_ref()
+            .expect("Internal error: Alias CryptDE uninitialized")
             .as_ref()
     }
 }
@@ -238,7 +248,8 @@ pub struct BootstrapperConfig {
     pub blockchain_bridge_config: BlockchainBridgeConfig,
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
-    pub cryptde_null_opt: Option<CryptDENull>,
+    pub main_cryptde_null_opt: Option<CryptDENull>,
+    pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub real_user: RealUser,
 
     // These fields must be set without privilege: otherwise the database will be created as root
@@ -281,7 +292,8 @@ impl BootstrapperConfig {
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
-            cryptde_null_opt: None,
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
 
             // These fields must be set without privilege: otherwise the database will be created as root
@@ -359,8 +371,9 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(args, streams);
         self.config.merge_unprivileged(unprivileged_config);
         self.establish_clandestine_port();
-        let cryptde_ref = Bootstrapper::initialize_cryptde(
-            &self.config.cryptde_null_opt,
+        let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
+            &self.config.main_cryptde_null_opt,
+            &self.config.alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain_id,
         );
         self.config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
@@ -391,22 +404,36 @@ impl Bootstrapper {
         }
     }
 
-    #[cfg(test)] // The real one is private, but ActorSystemFactory needs to use it for testing
-    pub fn pub_initialize_cryptde_for_testing(
-        cryptde_null_opt: &Option<CryptDENull>,
-    ) -> &'static dyn CryptDE {
-        Self::initialize_cryptde(cryptde_null_opt, crate::test_utils::DEFAULT_CHAIN_ID)
+    #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
+    pub fn pub_initialize_cryptdes_for_testing(
+        main_cryptde_null_opt: &Option<CryptDENull>,
+        alias_cryptde_null_opt: &Option<CryptDENull>,
+    ) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+        Self::initialize_cryptdes(
+            main_cryptde_null_opt,
+            alias_cryptde_null_opt,
+            crate::test_utils::DEFAULT_CHAIN_ID,
+        )
     }
 
-    fn initialize_cryptde(
-        cryptde_null_opt: &Option<CryptDENull>,
+    fn initialize_cryptdes(
+        main_cryptde_null_opt: &Option<CryptDENull>,
+        alias_cryptde_null_opt: &Option<CryptDENull>,
         chain_id: u8,
-    ) -> &'static dyn CryptDE {
-        match cryptde_null_opt {
-            Some(cryptde_null) => unsafe { CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone())) },
-            None => unsafe { CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain_id))) },
+    ) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+        match main_cryptde_null_opt {
+            Some(cryptde_null) => unsafe {
+                MAIN_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
+            },
+            None => unsafe { MAIN_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain_id))) },
         }
-        cryptde_ref()
+        match alias_cryptde_null_opt {
+            Some(cryptde_null) => unsafe {
+                ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
+            },
+            None => unsafe { ALIAS_CRYPTDE_BOX_OPT = Some(Box::new(CryptDEReal::new(chain_id))) },
+        }
+        (main_cryptde_ref(), alias_cryptde_ref())
     }
 
     fn report_local_descriptor(
@@ -503,7 +530,7 @@ mod tests {
     use crate::test_utils::{
         assert_contains, ensure_node_home_directory_exists, rate_pack, ArgsBuilder,
     };
-    use crate::test_utils::{cryptde, FakeStreamHolder, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, FakeStreamHolder, DEFAULT_CHAIN_ID};
     use actix::Recipient;
     use actix::System;
     use lazy_static::lazy_static;
@@ -996,24 +1023,25 @@ mod tests {
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
         let _lock = INITIALIZATION.lock();
-        let cryptde_init = Bootstrapper::initialize_cryptde(&None, DEFAULT_CHAIN_ID);
+        let (cryptde_init, _) = Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
 
-        assert_eq!(cryptde_ref().public_key(), cryptde_init.public_key());
+        assert_eq!(main_cryptde_ref().public_key(), cryptde_init.public_key());
         // Brittle assertion: this may not be true forever
-        let cryptde_null = cryptde();
+        let cryptde_null = main_cryptde();
         assert!(cryptde_init.public_key().len() > cryptde_null.public_key().len());
     }
 
     #[test]
     fn initialize_cryptde_with_cryptde_null_uses_cryptde_null() {
         let _lock = INITIALIZATION.lock();
-        let cryptde_null = cryptde().clone();
+        let cryptde_null = main_cryptde().clone();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
-        let cryptde = Bootstrapper::initialize_cryptde(&Some(cryptde_null), DEFAULT_CHAIN_ID);
+        let (cryptde, _) =
+            Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, DEFAULT_CHAIN_ID);
 
         assert_eq!(cryptde.public_key(), &cryptde_null_public_key);
-        assert_eq!(cryptde_ref().public_key(), cryptde.public_key());
+        assert_eq!(main_cryptde_ref().public_key(), cryptde.public_key());
     }
 
     #[test]
@@ -1028,7 +1056,8 @@ mod tests {
         let cryptde_ref = {
             let mut streams = holder.streams();
 
-            let cryptde_ref = Bootstrapper::initialize_cryptde(&None, DEFAULT_CHAIN_ID);
+            let (cryptde_ref, _) =
+                Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
             Bootstrapper::report_local_descriptor(
                 cryptde_ref,
                 Some(node_addr),
@@ -1077,27 +1106,28 @@ mod tests {
     }
 
     #[test]
-    fn initialize_cryptde_and_report_local_descriptor_without_ip_address() {
+    fn initialize_cryptdes_and_report_local_descriptor_without_ip_address() {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
-        let cryptde_ref = {
+        let (main_cryptde_ref, alias_cryptde_ref) = {
             let mut streams = holder.streams();
 
-            let cryptde_ref = Bootstrapper::initialize_cryptde(&None, DEFAULT_CHAIN_ID);
+            let (main_cryptde_ref, alias_cryptde_ref) =
+                Bootstrapper::initialize_cryptdes(&None, &None, DEFAULT_CHAIN_ID);
             Bootstrapper::report_local_descriptor(
-                cryptde_ref,
+                main_cryptde_ref,
                 None,
                 &mut streams,
                 DEFAULT_CHAIN_ID,
             );
 
-            cryptde_ref
+            (main_cryptde_ref, alias_cryptde_ref)
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
             "{}::",
-            cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
+            main_cryptde_ref.public_key_to_descriptor_fragment(main_cryptde_ref.public_key())
         );
         let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
             .expect("Couldn't compile regular expression");
@@ -1116,20 +1146,24 @@ mod tests {
             .as_str(),
         );
 
-        let expected_data = PlainData::new(b"ho'q ;iaerh;frjhvs;lkjerre");
-        let crypt_data = cryptde_ref
-            .encode(&cryptde_ref.public_key(), &expected_data)
-            .expect(&format!(
-                "Couldn't encrypt data {:?} with key {:?}",
-                expected_data,
+        let assert_round_trip = |cryptde_ref: &dyn CryptDE| {
+            let expected_data = PlainData::new(b"ho'q ;iaerh;frjhvs;lkjerre");
+            let crypt_data = cryptde_ref
+                .encode(&cryptde_ref.public_key(), &expected_data)
+                .expect(&format!(
+                    "Couldn't encrypt data {:?} with key {:?}",
+                    expected_data,
+                    cryptde_ref.public_key()
+                ));
+            let decrypted_data = cryptde_ref.decode(&crypt_data).expect(&format!(
+                "Couldn't decrypt data {:?} to key {:?}",
+                crypt_data,
                 cryptde_ref.public_key()
             ));
-        let decrypted_data = cryptde_ref.decode(&crypt_data).expect(&format!(
-            "Couldn't decrypt data {:?} to key {:?}",
-            crypt_data,
-            cryptde_ref.public_key()
-        ));
-        assert_eq!(decrypted_data, expected_data)
+            assert_eq!(decrypted_data, expected_data)
+        };
+        assert_round_trip(main_cryptde_ref);
+        assert_round_trip(alias_cryptde_ref);
     }
 
     #[test]

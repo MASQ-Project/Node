@@ -500,9 +500,9 @@ mod tests {
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::test_utils::cryptde;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
@@ -558,7 +558,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let cryptde = cryptde();
+            let cryptde = main_cryptde();
             let resolver_mock =
                 ResolverWrapperMock::new().lookup_ip_failure(ResolveErrorKind::Io.into());
             let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn non_terminal_payload_can_be_sent_over_existing_connection() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let client_request_payload = ClientRequestPayload {
             version: ClientRequestPayload::version(),
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn write_failure_for_nonexistent_stream_generates_termination_message() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
@@ -738,7 +738,7 @@ mod tests {
 
     #[test]
     fn when_hostname_is_ip_establish_stream_without_dns_lookup() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -848,7 +848,7 @@ mod tests {
 
     #[test]
     fn ip_is_parsed_even_without_port() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -959,7 +959,7 @@ mod tests {
     #[test]
     fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
@@ -1021,7 +1021,7 @@ mod tests {
 
     #[test]
     fn nonexistent_connection_springs_into_being_and_is_persisted_to_handle_transaction() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -1131,7 +1131,7 @@ mod tests {
 
     #[test]
     fn failing_to_make_a_connection_sends_an_error_response() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -1213,7 +1213,7 @@ mod tests {
 
     #[test]
     fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -1330,7 +1330,7 @@ mod tests {
     #[test]
     fn bad_dns_lookup_produces_log_and_sends_error_response() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
@@ -1391,7 +1391,7 @@ mod tests {
     #[test]
     fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let (proxy_client, _, _) = make_recorder();
         let (hopper, _, _) = make_recorder();
@@ -1458,7 +1458,7 @@ mod tests {
     fn process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key(
     ) {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         thread::spawn(move || {
@@ -1525,7 +1525,7 @@ mod tests {
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
-            cryptde(),
+            main_cryptde(),
             peer_actors.accountant.report_exit_service_provided,
             peer_actors.proxy_client,
             0,
@@ -1568,7 +1568,7 @@ mod tests {
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
-            cryptde(),
+            main_cryptde(),
             peer_actors.accountant.report_exit_service_provided,
             peer_actors.proxy_client,
             0,

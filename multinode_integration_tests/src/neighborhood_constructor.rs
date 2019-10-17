@@ -90,15 +90,15 @@ fn make_mock_node_map(
     let adjacent_mock_nodes = form_mock_node_skeleton(cluster, &model_db, &real_node);
     let adjacent_mock_node_keys = adjacent_mock_nodes
         .iter()
-        .map(|node| node.public_key().clone())
+        .map(|node| node.main_public_key().clone())
         .collect::<Vec<PublicKey>>();
     let mut mock_node_map = adjacent_mock_nodes
         .into_iter()
-        .map(|node| (node.public_key().clone(), node))
+        .map(|node| (node.main_public_key().clone(), node))
         .collect::<HashMap<PublicKey, MASQMockNode>>();
     additional_keys_to_mock.iter().for_each(|key| {
         let mock_node = cluster.start_mock_node_with_public_key(vec![10000], key);
-        let mock_node_key = mock_node.public_key().clone();
+        let mock_node_key = mock_node.main_public_key().clone();
         mock_node_map.insert(mock_node_key, mock_node);
     });
     (mock_node_map, adjacent_mock_node_keys)
@@ -128,7 +128,7 @@ fn make_modified_db(
     modified_db.root_mut().set_version(2);
     modified_nodes
         .iter()
-        .filter(|node| node.public_key() != real_node.public_key())
+        .filter(|node| node.public_key() != real_node.main_public_key())
         .for_each(|node| {
             let mut cloned_node = node.clone();
             cloned_node.set_version(2);
@@ -143,7 +143,7 @@ fn make_and_send_final_setup_gossip(
     modified_nodes: &Vec<NodeRecord>,
     real_node: &MASQRealNode,
 ) {
-    let gossip_source_key = gossip_source_mock_node.public_key().clone();
+    let gossip_source_key = gossip_source_mock_node.main_public_key().clone();
     let gossip_source_node = modified_nodes
         .iter()
         .find(|node| node.public_key() == &gossip_source_key)
@@ -158,7 +158,7 @@ fn make_and_send_final_setup_gossip(
             cloned_node.resign();
             gossip_db.add_node(cloned_node).unwrap();
         });
-    let gossip: Gossip = GossipProducerReal::new().produce(&gossip_db, real_node.public_key());
+    let gossip: Gossip = GossipProducerReal::new().produce(&gossip_db, real_node.main_public_key());
     gossip_source_mock_node
         .transmit_multinode_gossip(real_node, &Standard::from(&gossip.try_into().unwrap()))
         .unwrap();
@@ -189,7 +189,7 @@ fn form_mock_node_skeleton(
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             let standard_gossip = StandardBuilder::new()
                 .add_masq_node(&node, 1)
-                .half_neighbors(node.public_key(), real_node.public_key())
+                .half_neighbors(node.main_public_key(), real_node.main_public_key())
                 .chain_id(cluster.chain_id)
                 .build();
             node.transmit_multinode_gossip(real_node, &standard_gossip)

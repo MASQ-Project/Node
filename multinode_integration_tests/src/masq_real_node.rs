@@ -20,7 +20,7 @@ use node_lib::sub_lib::utils::localhost;
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
-use node_lib::test_utils::DEFAULT_CHAIN_ID;
+use node_lib::test_utils::{DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
 use regex::Regex;
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
@@ -143,7 +143,7 @@ impl NodeStartupConfig {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -380,7 +380,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -404,7 +404,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -428,7 +428,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -448,7 +448,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: None,
+            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
         }
     }
 
@@ -606,18 +606,28 @@ impl MASQNode for MASQRealNode {
         self.guts.node_reference.clone()
     }
 
-    fn cryptde_null(&self) -> Option<&CryptDENull> {
-        self.guts.cryptde_null.as_ref()
+    fn main_cryptde_null(&self) -> Option<&CryptDENull> {
+        self.guts
+            .cryptde_null_pair_opt
+            .as_ref()
+            .map(|pair| &pair.main)
+    }
+
+    fn alias_cryptde_null(&self) -> Option<&CryptDENull> {
+        self.guts
+            .cryptde_null_pair_opt
+            .as_ref()
+            .map(|pair| &pair.alias)
     }
 
     fn signing_cryptde(&self) -> Option<&dyn CryptDE> {
-        match self.cryptde_null() {
+        match self.main_cryptde_null() {
             Some(cryptde_null) => Some(cryptde_null),
             None => None,
         }
     }
 
-    fn public_key(&self) -> &PublicKey {
+    fn main_public_key(&self) -> &PublicKey {
         &self.guts.node_reference.public_key
     }
 
@@ -753,7 +763,7 @@ impl MASQRealNode {
             .map(|chain_name| chain_id_from_name(chain_name.as_str()))
             .unwrap_or(DEFAULT_CHAIN_ID);
         let node_args = real_startup_config.make_args();
-        let cryptde_null = real_startup_config
+        let cryptde_null_opt = real_startup_config
             .fake_public_key
             .clone()
             .map(|public_key| CryptDENull::from(&public_key, chain_id));
@@ -774,7 +784,18 @@ impl MASQRealNode {
             consuming_wallet_opt: real_startup_config.get_consuming_wallet(),
             rate_pack,
             root_dir,
-            cryptde_null,
+            cryptde_null_pair_opt: match cryptde_null_opt {
+                None => None,
+                Some(main_cdn) => {
+                    let mut key = main_cdn.public_key().as_slice().to_vec();
+                    key.reverse();
+                    let alias_cdn = CryptDENull::from(&PublicKey::new(&key), chain_id);
+                    Some(CryptDENullPair {
+                        main: main_cdn,
+                        alias: alias_cdn,
+                    })
+                }
+            },
             chain: real_startup_config.chain,
             accepts_connections: vec!["standard"]
                 .contains(&real_startup_config.neighborhood_mode.as_str()),
@@ -1031,7 +1052,7 @@ impl MASQRealNode {
     }
 
     fn extract_node_reference(name: &String) -> Result<NodeReference, String> {
-        let regex = Regex::new(r"MASQ Node local descriptor: ([^:]+:[\d.]*:[\d,]*)").unwrap();
+        let regex = Regex::new(r"MASQ Node local descriptor: ([^:]+[:@][\d.]*:[\d,]*)").unwrap();
         let mut retries_left = 5;
         loop {
             println!("Checking for {} startup", name);
@@ -1063,6 +1084,12 @@ impl MASQRealNode {
     }
 }
 
+#[derive(Debug, Clone)]
+struct CryptDENullPair {
+    main: CryptDENull,
+    alias: CryptDENull,
+}
+
 #[derive(Debug)]
 struct MASQRealNodeGuts {
     name: String,
@@ -1072,7 +1099,7 @@ struct MASQRealNodeGuts {
     consuming_wallet_opt: Option<Wallet>,
     rate_pack: RatePack,
     root_dir: String,
-    cryptde_null: Option<CryptDENull>,
+    cryptde_null_pair_opt: Option<CryptDENullPair>,
     chain: Option<String>,
     accepts_connections: bool,
     routes_data: bool,
@@ -1313,7 +1340,9 @@ mod tests {
                 "--data-directory",
                 DATA_DIRECTORY,
                 "--consuming-private-key",
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                "--chain",
+                TEST_DEFAULT_CHAIN_NAME,
             ))
         );
     }

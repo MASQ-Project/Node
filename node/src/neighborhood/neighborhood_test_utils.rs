@@ -57,7 +57,7 @@ pub fn make_node_record_f(
 
 pub fn make_global_cryptde_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let mut node_record = make_node_record(n, has_ip);
-    node_record.inner.public_key = cryptde().public_key().clone();
+    node_record.inner.public_key = main_cryptde().public_key().clone();
     node_record.resign();
     node_record
 }
@@ -80,7 +80,7 @@ pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,
 ) -> Neighborhood {
-    let cryptde = cryptde();
+    let cryptde = main_cryptde();
     if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }

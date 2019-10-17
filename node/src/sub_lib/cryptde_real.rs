@@ -2,12 +2,13 @@
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
-    CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey,
+    CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
 };
 use lazy_static::lazy_static;
 use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
 use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305::SEALBYTES;
 use sodiumoxide::crypto::sealedbox::{open, seal};
+use sodiumoxide::crypto::secretbox;
 use sodiumoxide::crypto::sign as signing;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
@@ -50,6 +51,44 @@ impl CryptDE for CryptDEReal {
             Ok(data) => Ok(PlainData::from(data)),
             Err(()) => Err(CryptdecError::OpeningFailed),
         }
+    }
+
+    fn encode_sym(&self, key: &SymmetricKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        let nonce = secretbox::gen_nonce();
+        let cipher_data = {
+            match secretbox::Key::from_slice(key.as_slice()) {
+                None => return Err(CryptdecError::InvalidKey(format!("{:?}", key.as_slice()))),
+                Some(secretbox_key) => secretbox::seal(data.as_slice(), &nonce, &secretbox_key),
+            }
+        };
+        let mut result: Vec<u8> = nonce[..].to_vec();
+        result.extend(cipher_data);
+        Ok(CryptData::new(&result))
+    }
+
+    fn decode_sym(&self, key: &SymmetricKey, data: &CryptData) -> Result<PlainData, CryptdecError> {
+        if data.len() <= secretbox::NONCEBYTES {
+            return Err(CryptdecError::EmptyData);
+        }
+        let nonce_data = &data.as_slice()[0..secretbox::NONCEBYTES];
+        let secret_key = match secretbox::Key::from_slice(key.as_slice()) {
+            None => return Err(CryptdecError::InvalidKey(format!("{:?}", key.as_slice()))),
+            Some(secret_key) => secret_key,
+        };
+        let crypt_data = &data.as_slice()[secretbox::NONCEBYTES..];
+        let nonce = match secretbox::Nonce::from_slice(nonce_data) {
+            None => return Err(CryptdecError::EmptyData),
+            Some(nonce) => nonce,
+        };
+        let plain_data = match secretbox::open(&crypt_data, &nonce, &secret_key) {
+            Err(_) => return Err(CryptdecError::OpeningFailed),
+            Ok(data) => data,
+        };
+        Ok(PlainData::new(&plain_data))
+    }
+
+    fn gen_key_sym(&self) -> SymmetricKey {
+        SymmetricKey::new(&secretbox::gen_key()[..])
     }
 
     fn random(&self, dest: &mut [u8]) {
@@ -318,6 +357,94 @@ mod tests {
         let decoded = subject.decode(&encoded).unwrap();
 
         assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn encode_sym_with_invalid_key() {
+        let subject = CryptDEReal::default();
+
+        let result = subject.encode_sym(
+            &SymmetricKey::new(b"not long enough"),
+            &PlainData::new(b"data"),
+        );
+
+        assert_eq!(
+            CryptdecError::InvalidKey(String::from(
+                "[110, 111, 116, 32, 108, 111, 110, 103, 32, 101, 110, 111, 117, 103, 104]"
+            )),
+            result.err().unwrap()
+        );
+    }
+
+    #[test]
+    fn decode_sym_with_empty_data() {
+        let subject = CryptDEReal::default();
+        let key = subject.gen_key_sym();
+
+        let result = subject.decode_sym(&key, &CryptData::new(b""));
+
+        assert_eq!(CryptdecError::EmptyData, result.err().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_data_too_short_to_be_valid() {
+        let data = CryptData::new(b"short");
+        let subject = CryptDEReal::default();
+        let key = subject.gen_key_sym();
+
+        let result = subject.decode_sym(&key, &data);
+
+        assert_eq!(CryptdecError::EmptyData, result.err().unwrap());
+    }
+
+    #[test]
+    fn encode_sym_and_then_decode_sym_with_the_wrong_key() {
+        let subject = CryptDEReal::default();
+        let key1 = subject.gen_key_sym();
+        let key2 = subject.gen_key_sym();
+        let data = PlainData::new(&[4u8; 100]);
+        let crypt_data = subject.encode_sym(&key1, &data).unwrap();
+
+        let result = subject.decode_sym(&key2, &crypt_data);
+
+        assert_eq!(result, Err(CryptdecError::OpeningFailed))
+    }
+
+    #[test]
+    fn encode_syming_the_same_data_twice_with_the_same_key_produces_different_results() {
+        let subject = CryptDEReal::default();
+        let key = subject.gen_key_sym();
+        let data = PlainData::new(&[10u8; 100]);
+
+        let crypt_data1 = subject.encode_sym(&key, &data);
+        let crypt_data2 = subject.encode_sym(&key, &data);
+
+        assert_ne!(crypt_data1, crypt_data2);
+    }
+
+    #[test]
+    fn encode_sym_decode_sym_round_trip_works() {
+        let subject = CryptDEReal::default();
+        let key = subject.gen_key_sym();
+
+        let data = PlainData::new(b"Let me out!");
+        let encoded = subject.encode_sym(&key, &data).unwrap();
+        let decoded = subject.decode_sym(&key, &encoded).unwrap();
+
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn gen_key_sym_produces_different_keys_on_successive_calls() {
+        let subject = CryptDEReal::default();
+
+        let one_key = subject.gen_key_sym();
+        let another_key = subject.gen_key_sym();
+        let third_key = subject.gen_key_sym();
+
+        assert_ne!(one_key, another_key);
+        assert_ne!(another_key, third_key);
+        assert_ne!(third_key, one_key);
     }
 
     #[test]

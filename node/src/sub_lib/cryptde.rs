@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::sub_lib::route::RouteError;
 use base64;
 use ethsign_crypto::Keccak256;
 use rustc_hex::ToHex;
@@ -177,7 +178,111 @@ impl<'a> Visitor<'a> for KeyVisitor {
     where
         E: serde::de::Error,
     {
-        Ok(PublicKey::new(v))
+        Ok(Self::Value::from(v))
+    }
+}
+
+#[derive(Clone, PartialEq, Hash)]
+pub struct SymmetricKey {
+    data: Vec<u8>,
+}
+
+impl Serialize for SymmetricKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.data[..])
+    }
+}
+
+impl<'de> Deserialize<'de> for SymmetricKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(SymmetricKeyVisitor)
+    }
+}
+
+impl fmt::Display for SymmetricKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}",
+            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
+        )
+    }
+}
+
+impl fmt::Debug for SymmetricKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}",
+            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
+        )
+    }
+}
+
+impl From<&[u8]> for SymmetricKey {
+    fn from(slice: &[u8]) -> Self {
+        SymmetricKey::new(slice)
+    }
+}
+
+impl From<Vec<u8>> for SymmetricKey {
+    fn from(data: Vec<u8>) -> Self {
+        SymmetricKey { data }
+    }
+}
+
+impl Into<Vec<u8>> for SymmetricKey {
+    fn into(self) -> Vec<u8> {
+        self.data
+    }
+}
+
+impl AsRef<[u8]> for SymmetricKey {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl SymmetricKey {
+    pub fn new(data: &[u8]) -> SymmetricKey {
+        SymmetricKey {
+            data: Vec::from(data),
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        self.data.as_slice()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+struct SymmetricKeyVisitor;
+
+impl<'a> Visitor<'a> for SymmetricKeyVisitor {
+    type Value = SymmetricKey;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a SymmetricKey struct")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(Self::Value::from(v))
     }
 }
 
@@ -411,6 +516,9 @@ pub enum CryptdecError {
 pub trait CryptDE: Send + Sync {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError>;
+    fn encode_sym(&self, key: &SymmetricKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
+    fn decode_sym(&self, key: &SymmetricKey, data: &CryptData) -> Result<PlainData, CryptdecError>;
+    fn gen_key_sym(&self) -> SymmetricKey;
     fn random(&self, dest: &mut [u8]);
     fn private_key(&self) -> &PrivateKey;
     fn public_key(&self) -> &PublicKey;
@@ -432,35 +540,66 @@ pub trait CryptDE: Send + Sync {
     fn digest(&self) -> [u8; 32];
 }
 
+pub struct SerdeCborError {
+    pub delegate: serde_cbor::error::Error,
+}
+
+impl fmt::Debug for SerdeCborError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        self.delegate.fmt(f)
+    }
+}
+
+impl PartialEq for SerdeCborError {
+    fn eq(&self, other: &Self) -> bool {
+        format!("{:?}", self.delegate) == format!("{:?}", other.delegate)
+    }
+}
+
+impl SerdeCborError {
+    fn new(delegate: serde_cbor::error::Error) -> SerdeCborError {
+        SerdeCborError { delegate }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub enum CodexError {
+    SerializationError(SerdeCborError),
+    DeserializationError(SerdeCborError),
+    EncryptionError(CryptdecError),
+    DecryptionError(CryptdecError),
+    RoutingError(RouteError),
+}
+
 pub fn encodex<T>(
     cryptde: &dyn CryptDE,
     public_key: &PublicKey,
     item: &T,
-) -> Result<CryptData, String>
+) -> Result<CryptData, CodexError>
 where
     T: Serialize,
 {
     let serialized = match serde_cbor::ser::to_vec(item) {
         Ok(s) => s,
-        Err(e) => return Err(format!("Serialization error: {:?}", e)),
+        Err(e) => return Err(CodexError::SerializationError(SerdeCborError::new(e))),
     };
     match cryptde.encode(public_key, &PlainData::from(serialized)) {
         Ok(c) => Ok(c),
-        Err(e) => Err(format!("Encryption error: {:?}", e)),
+        Err(e) => Err(CodexError::EncryptionError(e)),
     }
 }
 
-pub fn decodex<T>(cryptde: &dyn CryptDE, data: &CryptData) -> Result<T, String>
+pub fn decodex<T>(cryptde: &dyn CryptDE, data: &CryptData) -> Result<T, CodexError>
 where
     for<'de> T: Deserialize<'de>,
 {
     let decrypted = match cryptde.decode(data) {
         Ok(d) => d,
-        Err(e) => return Err(format!("Decryption error: {:?}", e)),
+        Err(e) => return Err(CodexError::DecryptionError(e)),
     };
     match serde_cbor::de::from_slice(decrypted.as_slice()) {
         Ok(t) => Ok(t),
-        Err(e) => Err(format!("Deserialization error: {:?}", e)),
+        Err(e) => Err(CodexError::DeserializationError(SerdeCborError::new(e))),
     }
 }
 
@@ -471,7 +610,7 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{cryptde, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;
@@ -819,7 +958,7 @@ mod tests {
 
     #[test]
     fn encodex_and_decodex_communicate() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let start = TestStruct::make();
 
         let intermediate = encodex(cryptde, &cryptde.public_key(), &start).unwrap();
@@ -830,7 +969,7 @@ mod tests {
 
     #[test]
     fn encodex_produces_expected_data() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let start = TestStruct::make();
 
         let intermediate = super::encodex(cryptde, &cryptde.public_key(), &start).unwrap();
@@ -843,7 +982,7 @@ mod tests {
 
     #[test]
     fn decodex_produces_expected_structure() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let serialized = serde_cbor::ser::to_vec(&TestStruct::make()).unwrap();
         let encrypted = cryptde
             .encode(&cryptde.public_key(), &PlainData::from(serialized))
@@ -856,23 +995,29 @@ mod tests {
 
     #[test]
     fn encodex_handles_encryption_error() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let item = TestStruct::make();
 
         let result = encodex(cryptde, &PublicKey::new(&[]), &item);
 
-        assert_eq!(result, Err(String::from("Encryption error: EmptyKey")));
+        assert_eq!(
+            format!("{:?}", result),
+            "Err(EncryptionError(EmptyKey))".to_string()
+        );
     }
 
     #[test]
     fn decodex_handles_decryption_error() {
-        let mut cryptde = cryptde().clone();
+        let mut cryptde = main_cryptde().clone();
         cryptde.set_key_pair(&PublicKey::new(&[]), DEFAULT_CHAIN_ID);
         let data = CryptData::new(&b"booga"[..]);
 
         let result = decodex::<TestStruct>(&cryptde, &data);
 
-        assert_eq!(result, Err(String::from("Decryption error: EmptyKey")));
+        assert_eq!(
+            format!("{:?}", result),
+            "Err(DecryptionError(EmptyKey))".to_string()
+        );
     }
 
     #[derive(PartialEq, Debug)]
@@ -898,22 +1043,21 @@ mod tests {
 
     #[test]
     fn encodex_handles_serialization_error() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let item = BadSerStruct { flag: true };
 
         let result = encodex(cryptde, &cryptde.public_key(), &item);
 
         assert_eq!(
-            result,
-            Err(String::from(
-                "Serialization error: ErrorImpl { code: Message(\"booga\"), offset: 0 }"
-            ))
+            format!("{:?}", result),
+            "Err(SerializationError(ErrorImpl { code: Message(\"booga\"), offset: 0 }))"
+                .to_string()
         );
     }
 
     #[test]
     fn decodex_handles_deserialization_error() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let data = cryptde
             .encode(&cryptde.public_key(), &PlainData::new(b"whompem"))
             .unwrap();
@@ -921,10 +1065,9 @@ mod tests {
         let result = decodex::<BadSerStruct>(cryptde, &data);
 
         assert_eq!(
-            result,
-            Err(String::from(
-                "Deserialization error: ErrorImpl { code: Message(\"booga\"), offset: 0 }"
-            ))
+            format!("{:?}", result),
+            "Err(DeserializationError(ErrorImpl { code: Message(\"booga\"), offset: 0 }))"
+                .to_string()
         );
     }
 }

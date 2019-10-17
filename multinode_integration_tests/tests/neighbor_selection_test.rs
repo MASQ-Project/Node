@@ -50,7 +50,7 @@ fn debut_target_does_not_introduce_known_neighbors() {
     let (_, subject_real_node, _) = construct_neighborhood(&mut cluster, dest_db, vec![]);
     let debut_gossip = SingleNode::from(
         GossipBuilder::new(&src_db)
-            .node(debuter_mock_node.public_key(), true)
+            .node(debuter_mock_node.main_public_key(), true)
             .build(),
     );
 
@@ -67,7 +67,7 @@ fn debut_target_does_not_introduce_known_neighbors() {
     assert_eq!(
         standard_gossip.key_set(),
         vec_to_set(vec![
-            subject_real_node.public_key().clone(),
+            subject_real_node.main_public_key().clone(),
             one_common_neighbor.public_key().clone(),
             another_common_neighbor.public_key().clone(),
         ])
@@ -102,7 +102,7 @@ fn debut_target_does_not_pass_to_known_neighbors() {
     let (_, subject_real_node, _) = construct_neighborhood(&mut cluster, dest_db, vec![]);
     let debut_gossip = SingleNode::from(
         GossipBuilder::new(&src_db)
-            .node(debuter_mock_node.public_key(), true)
+            .node(debuter_mock_node.main_public_key(), true)
             .build(),
     );
 

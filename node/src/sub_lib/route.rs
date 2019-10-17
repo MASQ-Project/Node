@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::sub_lib::cryptde::decodex;
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::wallet::Wallet;
@@ -22,7 +22,7 @@ impl Route {
     pub fn single_hop(
         destination: &PublicKey,
         cryptde: &dyn CryptDE, // The CryptDE of the beginning of this Route must go here.
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         Self::construct(
             RouteSegment::new(
                 vec![&cryptde.public_key(), destination],
@@ -41,7 +41,7 @@ impl Route {
         cryptde: &dyn CryptDE, // Any CryptDE can go here; it's only used to encrypt to public keys.
         consuming_wallet: Option<Wallet>,
         contract_address: Option<Address>,
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         Self::construct(
             route_segment,
             None,
@@ -59,7 +59,7 @@ impl Route {
         consuming_wallet: Option<Wallet>,
         return_route_id: u32,
         contract_address: Option<Address>,
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         Self::construct(
             route_segment_over,
             Some(route_segment_back),
@@ -72,27 +72,30 @@ impl Route {
 
     pub fn id(&self, cryptde: &dyn CryptDE) -> Result<u32, String> {
         if let Some(first) = self.hops.first() {
-            decodex(cryptde, first)
+            match decodex(cryptde, first) {
+                Ok(n) => Ok(n),
+                Err(e) => Err(format!("{:?}", e)),
+            }
         } else {
             Err("Response route did not contain a return route ID".to_string())
         }
     }
 
     // This cryptde must be the CryptDE of the next hop to come off the Route.
-    pub fn next_hop(&self, cryptde: &dyn CryptDE) -> Result<LiveHop, RouteError> {
+    pub fn next_hop(&self, cryptde: &dyn CryptDE) -> Result<LiveHop, CodexError> {
         match self.hops.first() {
-            None => Err(RouteError::EmptyRoute),
-            Some(first) => Route::decode_hop(cryptde, &first.clone()),
+            None => Err(CodexError::RoutingError(RouteError::EmptyRoute)),
+            Some(first) => LiveHop::decode(cryptde, &first.clone()),
         }
     }
 
-    pub fn shift(&mut self, cryptde: &dyn CryptDE) -> Result<LiveHop, RouteError> {
+    pub fn shift(&mut self, cryptde: &dyn CryptDE) -> Result<LiveHop, CodexError> {
         if self.hops.is_empty() {
-            return Err(RouteError::EmptyRoute);
+            return Err(CodexError::RoutingError(RouteError::EmptyRoute));
         }
         let top_hop = self.hops.remove(0);
         let top_hop_len = top_hop.len();
-        let next_hop = Route::decode_hop(cryptde, &top_hop)?;
+        let next_hop = LiveHop::decode(cryptde, &top_hop)?;
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(top_hop_len).collect();
         cryptde.random(&mut garbage_can[..]);
@@ -115,7 +118,7 @@ impl Route {
             let cryptde = most_cryptdes[index];
             let live_hop_str = match decodex::<LiveHop>(cryptde, hop_enc) {
                 Ok(live_hop) => format!("Encrypted with {}: {:?}", cryptde.public_key(), live_hop),
-                Err(e) => format!("Error: {}", e),
+                Err(e) => format!("Error: {:?}", e),
             };
             format!("{}\n{}", sofar, live_hop_str)
         });
@@ -133,7 +136,7 @@ impl Route {
                     last_cryptde.public_key(),
                     return_route_id
                 ),
-                Err(inside) => format!("{}\nError: {:?} / {}", most_strings, outside, inside),
+                Err(inside) => format!("{}\nError: {:?} / {:?}", most_strings, outside, inside),
             },
         }
     }
@@ -145,9 +148,9 @@ impl Route {
         consuming_wallet: Option<Wallet>,
         return_route_id_opt: Option<u32>,
         contract_address: Option<Address>,
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         if let Some(error) = Route::validate_route_segments(&over, &back) {
-            return Err(format!("{:?}", error));
+            return Err(CodexError::RoutingError(error));
         }
 
         let over_component = over.recipient;
@@ -287,19 +290,12 @@ impl Route {
         None
     }
 
-    fn decode_hop(cryptde: &dyn CryptDE, hop_enc: &CryptData) -> Result<LiveHop, RouteError> {
-        match LiveHop::decode(cryptde, hop_enc) {
-            Err(e) => Err(RouteError::HopDecodeProblem(e)),
-            Ok(h) => Ok(h),
-        }
-    }
-
     fn hops_to_route(
         hops: Vec<LiveHop>,
         top_hop_key: &PublicKey,
         return_route_id_opt: Option<u32>,
         cryptde: &dyn CryptDE,
-    ) -> Result<Route, String> {
+    ) -> Result<Route, CodexError> {
         let mut hops_enc: Vec<CryptData> = Vec::new();
         let mut hop_key = top_hop_key;
         for hop_index in 0..hops.len() {
@@ -307,7 +303,7 @@ impl Route {
             // crashpoint - should not be possible, can this be restructured to remove Option?
             hops_enc.push(match data_hop.encode(hop_key, cryptde) {
                 Ok(crypt_data) => crypt_data,
-                Err(e) => return Err(format!("Couldn't encode hop: {}", e)),
+                Err(e) => return Err(e),
             });
             hop_key = &data_hop.public_key;
         }
@@ -352,12 +348,12 @@ mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{cryptde, make_paying_wallet, make_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, make_paying_wallet, make_wallet, DEFAULT_CHAIN_ID};
     use serde_cbor;
 
     #[test]
     fn id_decodes_return_route_id() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
 
         let subject = Route {
             hops: vec![Route::encrypt_return_route_id(42, cryptde)],
@@ -368,7 +364,7 @@ mod tests {
 
     #[test]
     fn id_returns_empty_route_error_when_the_route_is_empty() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
 
         let subject = Route { hops: vec![] };
 
@@ -387,12 +383,15 @@ mod tests {
             hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
         };
 
-        assert_eq!(subject.id(&cryptde2), Err("Decryption error: InvalidKey(\"Could not decrypt with [235, 229, 249, 160, 226] data beginning with [235, 229, 249, 160, 225]\")".to_string()));
+        assert_eq!(
+            subject.id(&cryptde2),
+            Err("DecryptionError(OpeningFailed)".to_string())
+        );
     }
 
     #[test]
     fn construct_does_not_like_route_segments_with_too_few_keys() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_wallet("wallet");
         let result = Route::one_way(
             RouteSegment::new(vec![], Component::ProxyClient),
@@ -403,7 +402,10 @@ mod tests {
         .err()
         .unwrap();
 
-        assert_eq!(String::from("TooFewKeysInRouteSegment"), result)
+        assert_eq!(
+            result,
+            CodexError::RoutingError(RouteError::TooFewKeysInRouteSegment)
+        );
     }
 
     #[test]
@@ -412,7 +414,7 @@ mod tests {
         let b_key = PublicKey::new(&[66, 66, 66]);
         let c_key = PublicKey::new(&[67, 67, 67]);
         let d_key = PublicKey::new(&[68, 68, 68]);
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
 
         let result = Route::round_trip(
@@ -426,13 +428,16 @@ mod tests {
         .err()
         .unwrap();
 
-        assert_eq!(String::from("DisjointRouteSegments"), result)
+        assert_eq!(
+            result,
+            CodexError::RoutingError(RouteError::DisjointRouteSegments)
+        );
     }
 
     #[test]
     fn construct_can_make_single_hop_route() {
         let target_key = PublicKey::new(&[65, 65, 65]);
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
 
         let subject = Route::single_hop(&target_key, cryptde).unwrap();
 
@@ -460,7 +465,7 @@ mod tests {
         let e_key = PublicKey::new(&[69, 69, 69]);
         let f_key = PublicKey::new(&[70, 70, 70]);
 
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let return_route_id = 4321;
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
@@ -571,7 +576,7 @@ mod tests {
     fn construct_can_make_short_single_stop_route() {
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
 
@@ -607,7 +612,7 @@ mod tests {
 
     #[test]
     fn next_hop_decodes_top_hop() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -662,7 +667,7 @@ mod tests {
 
     #[test]
     fn shift_returns_next_hop_and_adds_garbage_at_the_bottom() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -714,29 +719,29 @@ mod tests {
 
     #[test]
     fn empty_route_says_none_when_asked_for_next_hop() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let subject = Route { hops: Vec::new() };
 
         let result = subject.next_hop(cryptde).err().unwrap();
 
-        assert_eq!(result, RouteError::EmptyRoute);
+        assert_eq!(result, CodexError::RoutingError(RouteError::EmptyRoute));
     }
 
     #[test]
     fn shift_says_none_when_asked_for_next_hop_on_empty_route() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let mut subject = Route { hops: Vec::new() };
 
         let result = subject.shift(cryptde).err().unwrap();
 
-        assert_eq!(result, RouteError::EmptyRoute);
+        assert_eq!(result, CodexError::RoutingError(RouteError::EmptyRoute));
     }
 
     #[test]
     fn route_serialization_deserialization() {
         let key1 = PublicKey::new(&[1, 2, 3, 4]);
         let key2 = PublicKey::new(&[4, 3, 2, 1]);
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let original = Route::round_trip(
             RouteSegment::new(vec![&key1, &key2], Component::ProxyClient),
@@ -763,7 +768,7 @@ mod tests {
         let paying_wallet = make_paying_wallet(b"wallet");
         let subject = Route::one_way(
             RouteSegment::new(vec![&key1, &key2, &key3], Component::Neighborhood),
-            cryptde(),
+            main_cryptde(),
             Some(paying_wallet),
             Some(contract_address(DEFAULT_CHAIN_ID)),
         )
