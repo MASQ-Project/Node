@@ -2,6 +2,7 @@
 
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -87,6 +88,10 @@ where
     } else {
         Some(index)
     }
+}
+
+pub fn time_t_timestamp() -> u32 {
+    SystemTime::now().duration_since (UNIX_EPOCH).expect("bad interval").as_secs() as u32
 }
 
 pub fn make_printable_string(bytes: &[u8]) -> String {

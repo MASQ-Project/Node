@@ -838,7 +838,7 @@ impl GossipHandler for StandardGossipHandler {
     ) -> GossipAcceptanceResult {
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
-        db_changed = self.identify_and_update_obsolete_nodes(database, &agrs) || db_changed;
+        db_changed = self.identify_and_update_obsolete_nodes(database, agrs) || db_changed;
         db_changed = self.handle_root_node(cryptde, database, gossip_source) || db_changed;
         // If no Nodes need updating, return ::Ignored and don't change the database.
         // Otherwise, return ::Accepted.
@@ -891,10 +891,10 @@ impl StandardGossipHandler {
     fn identify_and_update_obsolete_nodes(
         &self,
         database: &mut NeighborhoodDatabase,
-        agrs: &Vec<AccessibleGossipRecord>,
+        agrs: Vec<AccessibleGossipRecord>,
     ) -> bool {
         let change_flags: Vec<bool> = agrs
-            .iter()
+            .into_iter()
             .flat_map(|agr| match database.node_by_key(&agr.inner.public_key) {
                 Some(existing_node) if existing_node.version() < agr.inner.version => {
                     Some(self.update_database_record(database, agr))
@@ -935,24 +935,15 @@ impl StandardGossipHandler {
     fn update_database_record(
         &self,
         database: &mut NeighborhoodDatabase,
-        agr: &AccessibleGossipRecord,
+        agr: AccessibleGossipRecord,
     ) -> bool {
         let existing_node_record = database
             .node_by_key_mut(&agr.inner.public_key)
             .expect("Node magically disappeared");
-        if let (None, Some(new_node_addr)) = (
-            existing_node_record.node_addr_opt(),
-            agr.node_addr_opt.clone(),
-        ) {
-            existing_node_record
-                .set_node_addr(&new_node_addr)
-                .expect("Unexpected complaint about changing NodeAddr");
-        } // Maybe we eventually want to detect errors here and abort the change, returning false.
-
-        existing_node_record.inner = agr.inner.clone();
-        existing_node_record.signed_gossip = agr.signed_gossip.clone();
-        existing_node_record.signature = agr.signature.clone();
-        true
+        match existing_node_record.update(agr) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
     }
 
     fn add_ip_addr(set: HashSet<IpAddr>, ip_addr: IpAddr) -> HashSet<IpAddr> {
@@ -1118,6 +1109,7 @@ mod tests {
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set, DEFAULT_CHAIN_ID};
     use std::convert::TryInto;
     use std::str::FromStr;
+    use crate::sub_lib::utils::time_t_timestamp;
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     enum Mode {
@@ -1635,21 +1627,21 @@ mod tests {
         dest_db
             .node_by_key_mut(introducer_key)
             .unwrap()
-            .unset_node_addr();
+            .force_node_addr(&NodeAddr::from (&SocketAddr::from_str ("4.5.6.7:4567").unwrap()));
         dest_db.resign_node(introducer_key);
         let introducer_before_gossip = dest_db.node_by_key(introducer_key).unwrap().clone();
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
         let handle_result = subject.handle(&cryptde, &mut dest_db, agrs.clone(), gossip_source);
 
-        assert_eq!(Qualification::Matched, qualifies_result);
+        assert_eq!(qualifies_result, Qualification::Matched);
         assert_eq!(
+            handle_result,
             GossipAcceptanceResult::Ban(format!("Introducer {} tried changing immutable characteristic: Updating a NodeRecord must not change its node_addr_opt", introducer_key)),
-            handle_result
         );
         assert_eq!(
+            dest_db.node_by_key(introducer_key).unwrap(),
             &introducer_before_gossip,
-            dest_db.node_by_key(introducer_key).unwrap()
         );
     }
 
@@ -2446,7 +2438,8 @@ mod tests {
 
     #[test]
     fn redebut_is_passed_to_standard_gossip_handler_and_incorporated_if_it_is_a_new_version() {
-        let src_node = make_node_record(1234, true);
+        let mut src_node = make_node_record(1234, true);
+        src_node.set_last_updated(0);
         let mut src_db = db_from_node(&src_node);
         let dest_node = make_node_record(2345, true);
         let mut dest_db = db_from_node(&dest_node);
@@ -2464,16 +2457,14 @@ mod tests {
         let gossip_source: SocketAddr = src_node.node_addr_opt().unwrap().into();
         let subject = GossipAcceptorReal::new(main_cryptde());
 
+        let begin_at = time_t_timestamp();
         let result = subject.handle(&mut dest_db, debut_agrs, gossip_source);
+        let end_at = time_t_timestamp();
 
         assert_eq!(GossipAcceptanceResult::Accepted, result);
-        assert_eq!(
-            true,
-            dest_db
-                .node_by_key(src_node.public_key())
-                .unwrap()
-                .has_half_neighbor(dest_node.public_key())
-        );
+        let node = dest_db.node_by_key(src_node.public_key()).unwrap();
+        assert_eq!(node.has_half_neighbor(dest_node.public_key()), true);
+        assert_eq!((node.last_updated() == begin_at) || (node.last_updated() == end_at), true);
     }
 
     #[test]
@@ -2594,30 +2585,7 @@ mod tests {
         src_db.add_arbitrary_full_neighbor(node_a.public_key(), root_node.public_key());
         src_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
         src_db.add_arbitrary_full_neighbor(node_b.public_key(), root_node.public_key());
-        src_db
-            .node_by_key_mut(root_node.public_key())
-            .unwrap()
-            .resign();
-        src_db
-            .node_by_key_mut(node_a.public_key())
-            .unwrap()
-            .resign();
-        src_db
-            .node_by_key_mut(node_b.public_key())
-            .unwrap()
-            .resign();
-        src_db
-            .node_by_key_mut(node_c.public_key())
-            .unwrap()
-            .resign();
-        src_db
-            .node_by_key_mut(node_e.public_key())
-            .unwrap()
-            .resign();
-        src_db
-            .node_by_key_mut(node_f.public_key())
-            .unwrap()
-            .resign();
+        resign_nodes(&mut src_db, vec![&root_node, &node_a, &node_b, &node_c, &node_e, &node_f]);
         let gossip = GossipBuilder::new(&src_db)
             .node(node_a.public_key(), true)
             .node(node_b.public_key(), false)
@@ -2640,50 +2608,31 @@ mod tests {
         expected_dest_db.remove_arbitrary_half_neighbor(node_b.public_key(), node_d.public_key());
         expected_dest_db.add_node(node_d.clone()).unwrap();
         expected_dest_db.add_arbitrary_half_neighbor(node_d.public_key(), node_b.public_key());
-        expected_dest_db
-            .node_by_key_mut(node_a.public_key())
-            .unwrap()
-            .resign();
-        expected_dest_db
-            .node_by_key_mut(node_b.public_key())
-            .unwrap()
-            .resign();
-        expected_dest_db
-            .node_by_key_mut(node_d.public_key())
-            .unwrap()
-            .resign();
-        expected_dest_db
-            .node_by_key_mut(node_e.public_key())
-            .unwrap()
-            .resign();
-        expected_dest_db
-            .node_by_key_mut(node_f.public_key())
-            .unwrap()
-            .resign();
+        resign_nodes(&mut expected_dest_db, vec![&node_a, &node_b, &node_d, &node_e, &node_f]);
         assert_eq!(
+            dest_db.node_by_key(root_node.public_key()).unwrap(),
             expected_dest_db
                 .node_by_key(root_node.public_key())
                 .unwrap(),
-            dest_db.node_by_key(root_node.public_key()).unwrap()
         );
         assert_eq!(
+            dest_db.node_by_key(node_a.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_a.public_key()).unwrap(),
-            dest_db.node_by_key(node_a.public_key()).unwrap()
         );
         assert_eq!(
+            dest_db.node_by_key(node_b.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_b.public_key()).unwrap(),
-            dest_db.node_by_key(node_b.public_key()).unwrap()
         );
         assert_eq!(
+            dest_db.node_by_key(node_c.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_c.public_key()).unwrap(),
-            dest_db.node_by_key(node_c.public_key()).unwrap()
         );
         assert_eq!(
+            dest_db.node_by_key(node_d.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_d.public_key()).unwrap(),
-            dest_db.node_by_key(node_d.public_key()).unwrap()
         );
-        assert_eq!(None, dest_db.node_by_key(node_e.public_key()));
-        assert_eq!(None, dest_db.node_by_key(node_f.public_key()));
+        assert_eq!(dest_db.node_by_key(node_e.public_key()), None);
+        assert_eq!(dest_db.node_by_key(node_f.public_key()), None);
     }
 
     #[test]
@@ -2717,18 +2666,7 @@ mod tests {
             .node_by_key_mut(third_node.public_key())
             .unwrap()
             .increment_version();
-        src_db
-            .node_by_key_mut(src_node.public_key())
-            .unwrap()
-            .resign();
-        src_db
-            .node_by_key_mut(dest_node.public_key())
-            .unwrap()
-            .resign();
-        src_db
-            .node_by_key_mut(third_node.public_key())
-            .unwrap()
-            .resign();
+        resign_nodes(&mut src_db, vec![&src_node, &dest_node, &third_node]);
         let gossip = GossipBuilder::new(&src_db)
             .node(src_node.public_key(), true)
             .node(third_node.public_key(), true)
@@ -3088,6 +3026,10 @@ mod tests {
             vec_to_set(result),
             vec_to_set(vec![two_neighbors_key, three_neighbors_key])
         );
+    }
+
+    fn resign_nodes(db: &mut NeighborhoodDatabase, nodes: Vec<&NodeRecord>) {
+        nodes.into_iter().for_each(|n| db.node_by_key_mut(n.public_key()).unwrap().resign());
     }
 
     fn make_debut(n: u16, mode: Mode) -> (Gossip, NodeRecord, SocketAddr) {
