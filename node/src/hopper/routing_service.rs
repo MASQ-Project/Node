@@ -864,7 +864,7 @@ mod tests {
     fn converts_live_gossip_failure_message_to_expired_for_neighborhood() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (component, _, component_recording_arc) = make_recorder();
         let mut route = Route::one_way(
             RouteSegment::new(
@@ -897,6 +897,7 @@ mod tests {
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
             cryptde,
+            alias_cryptde(),
             RoutingServiceSubs {
                 proxy_client_subs: peer_actors.proxy_client,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -917,7 +918,11 @@ mod tests {
         let component_recording = component_recording_arc.lock().unwrap();
         let record = component_recording.get_record::<ExpiredCoresPackage<GossipFailure>>(0);
         let expected_ecp = lcp
-            .to_expired(SocketAddr::from_str("1.3.2.4:5678").unwrap(), cryptde)
+            .to_expired(
+                SocketAddr::from_str("1.3.2.4:5678").unwrap(),
+                cryptde,
+                cryptde,
+            )
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);

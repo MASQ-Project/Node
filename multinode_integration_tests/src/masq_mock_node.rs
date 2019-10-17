@@ -392,7 +392,7 @@ impl MASQMockNode {
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
                 let incoming_cores_package = package
-                    .to_expired(from, self.signing_cryptde().unwrap())
+                    .to_expired(from, self.signing_cryptde().unwrap(), self.signing_cryptde().unwrap())
                     .unwrap();
                 match incoming_cores_package.payload {
                     MessageType::GossipFailure(g) => Some((g, from.ip())),
