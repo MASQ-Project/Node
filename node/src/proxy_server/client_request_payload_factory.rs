@@ -67,7 +67,7 @@ mod tests {
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::{cryptde, make_meaningless_stream_key};
+    use crate::test_utils::{main_cryptde, make_meaningless_stream_key};
     use std::net::SocketAddr;
     use std::str::FromStr;
 
@@ -82,7 +82,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
@@ -117,7 +117,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
@@ -172,7 +172,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
@@ -220,7 +220,7 @@ mod tests {
             sequence_number: Some(0),
             data: data.clone().into(),
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
@@ -255,7 +255,7 @@ mod tests {
             is_clandestine: false,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
@@ -278,7 +278,7 @@ mod tests {
             is_clandestine: true,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = ClientRequestPayloadFactory::new();
 
@@ -298,7 +298,7 @@ mod tests {
             data: vec![0x10, 0x11, 0x12],
             is_clandestine: false,
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let logger = Logger::new("test");
 
         let subject = ClientRequestPayloadFactory::new();
@@ -321,7 +321,7 @@ mod tests {
             sequence_number: None,
             data: vec![1, 3, 5, 7],
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let logger = Logger::new("test");
 
         let subject = ClientRequestPayloadFactory::new();

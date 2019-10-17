@@ -64,7 +64,8 @@ impl DiscriminatorCluster {
 
 pub struct MASQCoresServer {
     discriminators: RefCell<DiscriminatorCluster>,
-    cryptde: CryptDENull,
+    main_cryptde: CryptDENull,
+    alias_cryptde: CryptDENull,
     io_receiver: Receiver<io::Result<Vec<u8>>>,
     socket_addr: SocketAddr,
     _join_handle: JoinHandle<()>,
@@ -77,7 +78,10 @@ impl MASQCoresServer {
         let local_addr = SocketAddr::new(ip_address, port);
         let listener = TcpListener::bind(local_addr)
             .expect(format!("Couldn't start server on {}", local_addr).as_str());
-        let cryptde = CryptDENull::new(chain_id);
+        let main_cryptde = CryptDENull::new(chain_id);
+        let mut key = main_cryptde.public_key().as_slice().to_vec();
+        key.reverse();
+        let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain_id);
         let (io_tx, io_rx) = mpsc::channel::<io::Result<Vec<u8>>>();
         let join_handle = thread::spawn(move || loop {
             let (mut stream, _) = match listener.accept() {
@@ -118,7 +122,8 @@ impl MASQCoresServer {
         thread::sleep(Duration::from_millis(100));
         MASQCoresServer {
             discriminators: RefCell::new(DiscriminatorCluster::new(Self::default_factories())),
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             io_receiver: io_rx,
             socket_addr: local_addr,
             _join_handle: join_handle,
@@ -131,7 +136,7 @@ impl MASQCoresServer {
 
     pub fn node_reference(&self) -> NodeReference {
         NodeReference {
-            public_key: self.cryptde.public_key().clone(),
+            public_key: self.main_cryptde.public_key().clone(),
             node_addr_opt: Some(NodeAddr::new(
                 &self.socket_addr.ip(),
                 &vec![self.socket_addr.port()],
@@ -139,8 +144,12 @@ impl MASQCoresServer {
         }
     }
 
-    pub fn cryptde<'a>(&'a self) -> &'a dyn CryptDE {
-        &self.cryptde
+    pub fn main_cryptde<'a>(&'a self) -> &'a dyn CryptDE {
+        &self.main_cryptde
+    }
+
+    pub fn alias_cryptde<'a>(&'a self) -> &'a dyn CryptDE {
+        &self.alias_cryptde
     }
 
     pub fn public_key(&self) -> PublicKey {
@@ -152,13 +161,13 @@ impl MASQCoresServer {
     }
 
     pub fn private_key(&self) -> &PrivateKey {
-        self.cryptde().private_key()
+        self.main_cryptde().private_key()
     }
 
     pub fn wait_for_package(&self, timeout: Duration) -> LiveCoresPackage {
         let chunk = self.get_next_chunk(timeout);
         let decoded_chunk = self
-            .cryptde
+            .main_cryptde
             .decode(&CryptData::new(&chunk.chunk[..]))
             .unwrap();
         serde_cbor::de::from_slice::<LiveCoresPackage>(decoded_chunk.as_slice())

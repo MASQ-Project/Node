@@ -1125,7 +1125,7 @@ mod tests {
     };
     use crate::neighborhood::node_record::NodeRecord;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{assert_contains, cryptde, vec_to_set, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{assert_contains, main_cryptde, vec_to_set, DEFAULT_CHAIN_ID};
     use std::convert::TryInto;
     use std::str::FromStr;
 
@@ -2042,7 +2042,7 @@ mod tests {
 
     #[test]
     fn last_gossip_handler_rejects_everything() {
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
         let reject_handler = subject.gossip_handlers.last().unwrap();
         let db = make_meaningless_db();
         let (debut, _, debut_gossip_source) = make_debut(1234, Mode::Standard);
@@ -2116,7 +2116,7 @@ mod tests {
             .node(node_a.public_key(), false)
             .node(node_b.public_key(), false)
             .build();
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
 
         let result = subject.handle(
             &mut dest_db,
@@ -2447,7 +2447,7 @@ mod tests {
             .node(src_node.public_key(), true)
             .build();
         let gossip_source: SocketAddr = src_node.node_addr_opt().unwrap().into();
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
 
         let result = subject.handle(&mut dest_db, debut.try_into().unwrap(), gossip_source);
 
@@ -2479,7 +2479,7 @@ mod tests {
             .build();
         let debut_agrs = debut.try_into().unwrap();
         let gossip_source: SocketAddr = src_node.node_addr_opt().unwrap().into();
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
 
         let result = subject.handle(&mut dest_db, debut_agrs, gossip_source);
 
@@ -2507,7 +2507,7 @@ mod tests {
             .build();
         let debut_agrs = debut.try_into().unwrap();
         let gossip_source = src_node.node_addr_opt().unwrap().into();
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
 
         let result = subject.handle(&mut dest_db, debut_agrs, gossip_source);
 
@@ -2537,7 +2537,7 @@ mod tests {
             .build();
         let debut_agrs = debut.try_into().unwrap();
         let gossip_source = src_node.node_addr_opt().unwrap().into();
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
 
         let result = subject.handle(&mut dest_db, debut_agrs, gossip_source);
 
@@ -2556,7 +2556,7 @@ mod tests {
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
 
         let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source);
 
@@ -2642,7 +2642,7 @@ mod tests {
             .node(node_e.public_key(), true)
             .node(node_f.public_key(), true)
             .build();
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
 
         let result = subject.handle(
             &mut dest_db,
@@ -2832,7 +2832,7 @@ mod tests {
             .node(current_node.public_key(), false)
             .node(obsolete_node.public_key(), false)
             .build();
-        let subject = GossipAcceptorReal::new(cryptde());
+        let subject = GossipAcceptorReal::new(main_cryptde());
         let original_dest_db = dest_db.clone();
 
         let result = subject.handle(

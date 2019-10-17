@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::payer::Payer;
-use crate::sub_lib::cryptde::decodex;
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{decodex, CodexError};
 use crate::sub_lib::dispatcher::Component;
 use serde_derive::{Deserialize, Serialize};
 
@@ -27,7 +27,7 @@ impl LiveHop {
         }
     }
 
-    pub fn decode(cryptde: &dyn CryptDE, crypt_data: &CryptData) -> Result<Self, String> {
+    pub fn decode(cryptde: &dyn CryptDE, crypt_data: &CryptData) -> Result<Self, CodexError> {
         decodex::<LiveHop>(cryptde, crypt_data)
     }
 
@@ -35,7 +35,7 @@ impl LiveHop {
         &self,
         public_key: &PublicKey,
         cryptde: &dyn CryptDE,
-    ) -> Result<CryptData, String> {
+    ) -> Result<CryptData, CodexError> {
         encodex(cryptde, public_key, &self)
     }
 
@@ -51,7 +51,7 @@ impl LiveHop {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
-    use crate::test_utils::{cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
 
     #[test]
     fn can_construct_hop() {
@@ -70,23 +70,22 @@ mod tests {
 
     #[test]
     fn decode_can_handle_errors() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let encrypted = CryptData::new(&[0]);
 
         let result = LiveHop::decode(cryptde, &encrypted);
 
         assert_eq!(
+            format!("{:?}", result).contains("DecryptionError(InvalidKey("),
+            true,
+            "{:?}",
             result
-                .err()
-                .unwrap()
-                .contains("Decryption error: InvalidKey"),
-            true
         );
     }
 
     #[test]
     fn encode_decode() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let encode_key = cryptde.public_key();
         let contract_address = &contract_address(DEFAULT_CHAIN_ID);

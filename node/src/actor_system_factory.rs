@@ -60,10 +60,17 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
-        let cryptde = bootstrapper::cryptde_ref();
+        let main_cryptde = bootstrapper::main_cryptde_ref();
+        let alias_cryptde = bootstrapper::alias_cryptde_ref();
         let (tx, rx) = mpsc::channel();
 
-        ActorSystemFactoryReal::prepare_initial_messages(cryptde, config, actor_factory, tx);
+        ActorSystemFactoryReal::prepare_initial_messages(
+            main_cryptde,
+            alias_cryptde,
+            config,
+            actor_factory,
+            tx,
+        );
 
         rx.recv().expect("Internal error: actor-system init thread died before initializing StreamHandlerPool subscribers")
     }
@@ -71,7 +78,8 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 
 impl ActorSystemFactoryReal {
     fn prepare_initial_messages(
-        cryptde: &'static dyn CryptDE,
+        main_cryptde: &'static dyn CryptDE,
+        alias_cryptde: &'static dyn CryptDE,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         tx: Sender<StreamHandlerPoolSubs>,
@@ -80,7 +88,8 @@ impl ActorSystemFactoryReal {
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher();
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             config.neighborhood_config.mode.is_decentralized(),
             if config.consuming_wallet.is_none() {
                 None
@@ -89,7 +98,7 @@ impl ActorSystemFactoryReal {
             },
         );
         let proxy_client_subs = actor_factory.make_and_start_proxy_client(ProxyClientConfig {
-            cryptde,
+            cryptde: main_cryptde,
             dns_servers: config.dns_servers.clone(),
             exit_service_rate: config
                 .neighborhood_config
@@ -99,7 +108,8 @@ impl ActorSystemFactoryReal {
             exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
         });
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             per_routing_service: config
                 .neighborhood_config
                 .mode
@@ -114,7 +124,7 @@ impl ActorSystemFactoryReal {
         });
         let blockchain_bridge_subs =
             actor_factory.make_and_start_blockchain_bridge(&config, &db_initializer);
-        let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptde, &config);
+        let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
             &config.data_directory.clone(),
@@ -176,7 +186,8 @@ pub trait ActorFactory: Send {
     fn make_and_start_dispatcher(&self) -> (DispatcherSubs, Recipient<PoolBindMessage>);
     fn make_and_start_proxy_server(
         &self,
-        cryptde: &'static dyn CryptDE,
+        main_cryptde: &'static dyn CryptDE,
+        alias_cryptde: &'static dyn CryptDE,
         is_decentralized: bool,
         consuming_wallet_balance: Option<i64>,
     ) -> ProxyServerSubs;
@@ -219,12 +230,18 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_proxy_server(
         &self,
-        cryptde: &'static dyn CryptDE,
+        main_cryptde: &'static dyn CryptDE,
+        alias_cryptde: &'static dyn CryptDE,
         is_decentralized: bool,
         consuming_wallet_balance: Option<i64>,
     ) -> ProxyServerSubs {
         let addr: Addr<ProxyServer> = Arbiter::start(move |_| {
-            ProxyServer::new(cryptde, is_decentralized, consuming_wallet_balance)
+            ProxyServer::new(
+                main_cryptde,
+                alias_cryptde,
+                is_decentralized,
+                consuming_wallet_balance,
+            )
         });
         ProxyServer::make_subs_from(&addr)
     }
@@ -424,10 +441,10 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
-    use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::{cryptde, make_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::test_utils::{main_cryptde, make_wallet, DEFAULT_CHAIN_ID};
     use actix::System;
     use log::LevelFilter;
     use std::cell::RefCell;
@@ -480,7 +497,8 @@ mod tests {
 
         fn make_and_start_proxy_server(
             &self,
-            cryptde: &'a dyn CryptDE,
+            main_cryptde: &'a dyn CryptDE,
+            alias_cryptde: &'a dyn CryptDE,
             is_decentralized: bool,
             consuming_wallet_balance: Option<i64>,
         ) -> ProxyServerSubs {
@@ -488,7 +506,12 @@ mod tests {
                 .proxy_server_params
                 .lock()
                 .unwrap()
-                .get_or_insert((cryptde, is_decentralized, consuming_wallet_balance));
+                .get_or_insert((
+                    main_cryptde,
+                    alias_cryptde,
+                    is_decentralized,
+                    consuming_wallet_balance,
+                ));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
@@ -669,7 +692,8 @@ mod tests {
     #[derive(Clone)]
     struct Parameters<'a> {
         proxy_client_params: Arc<Mutex<Option<(ProxyClientConfig)>>>,
-        proxy_server_params: Arc<Mutex<Option<(&'a dyn CryptDE, bool, Option<i64>)>>>,
+        proxy_server_params:
+            Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
@@ -951,10 +975,14 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            cryptde_null_opt: None,
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
         };
-        Bootstrapper::pub_initialize_cryptde_for_testing(&Some(cryptde().clone()));
+        Bootstrapper::pub_initialize_cryptdes_for_testing(
+            &Some(main_cryptde().clone()),
+            &Some(alias_cryptde().clone()),
+        );
         let subject = ActorSystemFactoryReal {};
 
         let system = System::new("test");
@@ -1006,14 +1034,16 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            cryptde_null_opt: None,
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
-            cryptde(),
+            main_cryptde(),
+            alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
             tx,
@@ -1030,7 +1060,7 @@ mod tests {
         check_bind_message(&recordings.accountant);
         check_start_message(&recordings.accountant);
         let hopper_config = Parameters::get(parameters.hopper_params);
-        check_cryptde(hopper_config.cryptde);
+        check_cryptde(hopper_config.main_cryptde);
         assert_eq!(hopper_config.per_routing_service, 0);
         assert_eq!(hopper_config.per_routing_byte, 0);
         let proxy_client_config = Parameters::get(parameters.proxy_client_params);
@@ -1038,9 +1068,18 @@ mod tests {
         assert_eq!(proxy_client_config.exit_service_rate, 0);
         assert_eq!(proxy_client_config.exit_byte_rate, 0);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
-        let (actual_cryptde, actual_is_decentralized, consuming_wallet_balance) =
-            Parameters::get(parameters.proxy_server_params);
-        check_cryptde(actual_cryptde);
+        let (
+            actual_main_cryptde,
+            actual_alias_cryptde,
+            actual_is_decentralized,
+            consuming_wallet_balance,
+        ) = Parameters::get(parameters.proxy_server_params);
+        check_cryptde(actual_main_cryptde);
+        check_cryptde(actual_alias_cryptde);
+        assert_ne!(
+            actual_main_cryptde.public_key(),
+            actual_alias_cryptde.public_key()
+        );
         assert_eq!(actual_is_decentralized, false);
         assert_eq!(consuming_wallet_balance, Some(0));
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
@@ -1108,14 +1147,16 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: None,
             data_directory: PathBuf::new(),
-            cryptde_null_opt: None,
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
         };
         let (tx, _) = mpsc::channel();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
-            cryptde(),
+            main_cryptde(),
+            alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
             tx,
@@ -1123,7 +1164,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let (_, _, consuming_wallet_balance) = Parameters::get(parameters.proxy_server_params);
+        let (_, _, _, consuming_wallet_balance) = Parameters::get(parameters.proxy_server_params);
         assert_eq!(consuming_wallet_balance, None);
     }
 
@@ -1172,7 +1213,7 @@ mod tests {
         let crypt_data = candidate
             .encode(&candidate.public_key(), &plain_data)
             .unwrap();
-        let result = cryptde().decode(&crypt_data).unwrap();
+        let result = candidate.decode(&crypt_data).unwrap();
         assert_eq!(result, plain_data);
     }
 }

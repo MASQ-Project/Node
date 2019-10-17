@@ -80,14 +80,14 @@ fn reported_server_drop() {
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
     let (stream_key, return_route_id) =
-        context_from_request_lcp(lcp, real_node.cryptde_null().unwrap(), &exit_cryptde);
+        context_from_request_lcp(lcp, real_node.main_cryptde_null().unwrap(), &exit_cryptde);
 
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
             create_server_drop_report(&mock_node, &real_node, stream_key, return_route_id),
             &masquerader,
-            real_node.public_key(),
+            real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
         )
         .unwrap();
@@ -120,7 +120,7 @@ fn actual_server_drop() {
                 cluster.chain_id,
             ),
             &masquerader,
-            real_node.public_key(),
+            real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
         )
         .unwrap();
@@ -138,18 +138,19 @@ fn actual_server_drop() {
             mock_node.port_list()[0],
             create_meaningless_icp(&mock_node, &real_node),
             &masquerader,
-            real_node.public_key(),
+            real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
         )
         .unwrap();
     let (_, _, lcp) = mock_node
         .wait_for_package(&masquerader, Duration::from_secs(1))
         .unwrap();
-    let payload =
-        match decodex::<MessageType>(mock_node.cryptde_null().unwrap(), &lcp.payload).unwrap() {
-            MessageType::ClientResponse(p) => p,
-            mt => panic!("Unexpected: {:?}", mt),
-        };
+    let payload = match decodex::<MessageType>(mock_node.main_cryptde_null().unwrap(), &lcp.payload)
+        .unwrap()
+    {
+        MessageType::ClientResponse(p) => p,
+        mt => panic!("Unexpected: {:?}", mt),
+    };
     assert!(payload.sequenced_packet.data.is_empty());
     assert!(payload.sequenced_packet.last_data);
 }
@@ -179,7 +180,7 @@ fn reported_client_drop() {
                 cluster.chain_id,
             ),
             &masquerader,
-            real_node.public_key(),
+            real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
         )
         .unwrap();
@@ -194,7 +195,7 @@ fn reported_client_drop() {
             mock_node.port_list()[0],
             create_client_drop_report(&mock_node, &real_node, stream_key, return_route_id),
             &masquerader,
-            real_node.public_key(),
+            real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
         )
         .unwrap();
@@ -235,7 +236,7 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
             // It's an Introduction of the one that didn't go down!
             assert_eq!(
                 introduction.introducee_key(),
-                undesirable_but_up_node.public_key()
+                undesirable_but_up_node.main_public_key()
             );
         }
         unexpected => panic!("Unexpected gossip: {:?}", unexpected),
@@ -299,17 +300,23 @@ fn create_request_icp(
     chain_id: u8,
 ) -> IncipientCoresPackage {
     IncipientCoresPackage::new(
-        originating_node.cryptde_null().unwrap(),
+        originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(
             RouteSegment::new(
-                vec![originating_node.public_key(), exit_node.public_key()],
+                vec![
+                    originating_node.main_public_key(),
+                    exit_node.main_public_key(),
+                ],
                 Component::ProxyClient,
             ),
             RouteSegment::new(
-                vec![exit_node.public_key(), originating_node.public_key()],
+                vec![
+                    exit_node.main_public_key(),
+                    originating_node.main_public_key(),
+                ],
                 Component::ProxyServer,
             ),
-            originating_node.cryptde_null().unwrap(),
+            originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             return_route_id,
             Some(contract_address(chain_id)),
@@ -322,9 +329,9 @@ fn create_request_icp(
             target_hostname: Some(format!("{}", server.socket_addr().ip())),
             target_port: server.socket_addr().port(),
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: originating_node.public_key().clone(),
+            originator_public_key: originating_node.main_public_key().clone(),
         }),
-        exit_node.public_key(),
+        exit_node.main_public_key(),
     )
     .unwrap()
 }
@@ -336,17 +343,23 @@ fn create_meaningless_icp(
     let socket_addr = SocketAddr::from_str("3.2.1.0:7654").unwrap();
     let stream_key = StreamKey::new(PublicKey::new(&[9, 8, 7, 6]), socket_addr);
     IncipientCoresPackage::new(
-        originating_node.cryptde_null().unwrap(),
+        originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(
             RouteSegment::new(
-                vec![originating_node.public_key(), exit_node.public_key()],
+                vec![
+                    originating_node.main_public_key(),
+                    exit_node.main_public_key(),
+                ],
                 Component::ProxyClient,
             ),
             RouteSegment::new(
-                vec![exit_node.public_key(), originating_node.public_key()],
+                vec![
+                    exit_node.main_public_key(),
+                    originating_node.main_public_key(),
+                ],
                 Component::ProxyServer,
             ),
-            originating_node.cryptde_null().unwrap(),
+            originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
             1357,
             Some(contract_address(DEFAULT_CHAIN_ID)),
@@ -359,9 +372,9 @@ fn create_meaningless_icp(
             target_hostname: Some(format!("nowhere.com")),
             target_port: socket_addr.port(),
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: originating_node.public_key().clone(),
+            originator_public_key: originating_node.main_public_key().clone(),
         }),
-        exit_node.public_key(),
+        exit_node.main_public_key(),
     )
     .unwrap()
 }
@@ -374,21 +387,27 @@ fn create_server_drop_report(
 ) -> IncipientCoresPackage {
     let mut route = Route::round_trip(
         RouteSegment::new(
-            vec![originating_node.public_key(), exit_node.public_key()],
+            vec![
+                originating_node.main_public_key(),
+                exit_node.main_public_key(),
+            ],
             Component::ProxyClient,
         ),
         RouteSegment::new(
-            vec![exit_node.public_key(), originating_node.public_key()],
+            vec![
+                exit_node.main_public_key(),
+                originating_node.main_public_key(),
+            ],
             Component::ProxyServer,
         ),
-        originating_node.cryptde_null().unwrap(),
+        originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
         Some(contract_address(DEFAULT_CHAIN_ID)),
     )
     .unwrap();
     route
-        .shift(originating_node.cryptde_null().unwrap())
+        .shift(originating_node.main_cryptde_null().unwrap())
         .unwrap();
     let payload = MessageType::ClientResponse(ClientResponsePayload {
         version: DataVersion::new(0, 0).unwrap(),
@@ -397,10 +416,10 @@ fn create_server_drop_report(
     });
 
     IncipientCoresPackage::new(
-        exit_node.cryptde_null().unwrap(),
+        exit_node.main_cryptde_null().unwrap(),
         route,
         payload,
-        originating_node.public_key(),
+        originating_node.main_public_key(),
     )
     .unwrap()
 }
@@ -413,14 +432,20 @@ fn create_client_drop_report(
 ) -> IncipientCoresPackage {
     let route = Route::round_trip(
         RouteSegment::new(
-            vec![originating_node.public_key(), exit_node.public_key()],
+            vec![
+                originating_node.main_public_key(),
+                exit_node.main_public_key(),
+            ],
             Component::ProxyClient,
         ),
         RouteSegment::new(
-            vec![exit_node.public_key(), originating_node.public_key()],
+            vec![
+                exit_node.main_public_key(),
+                originating_node.main_public_key(),
+            ],
             Component::ProxyServer,
         ),
-        originating_node.cryptde_null().unwrap(),
+        originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
         return_route_id,
         Some(contract_address(DEFAULT_CHAIN_ID)),
@@ -433,14 +458,14 @@ fn create_client_drop_report(
         target_hostname: Some(String::from("doesnt.matter.com")),
         target_port: 80,
         protocol: ProxyProtocol::HTTP,
-        originator_public_key: originating_node.public_key().clone(),
+        originator_public_key: originating_node.main_public_key().clone(),
     });
 
     IncipientCoresPackage::new(
-        originating_node.cryptde_null().unwrap(),
+        originating_node.main_cryptde_null().unwrap(),
         route,
         payload,
-        exit_node.public_key(),
+        exit_node.main_public_key(),
     )
     .unwrap()
 }

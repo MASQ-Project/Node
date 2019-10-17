@@ -129,7 +129,7 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::test_utils::cryptde;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -171,7 +171,7 @@ mod tests {
             ];
 
             let subject = StreamEstablisher {
-                cryptde: cryptde(),
+                cryptde: main_cryptde(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"

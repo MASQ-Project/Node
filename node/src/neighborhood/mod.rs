@@ -1076,7 +1076,7 @@ mod tests {
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{assert_contains, make_wallet};
     use crate::test_utils::{assert_matches, make_meaningless_route};
-    use crate::test_utils::{cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
     use actix::dev::{MessageResponse, ResponseChannel};
     use actix::Message;
     use actix::Recipient;
@@ -1093,7 +1093,7 @@ mod tests {
 
     #[test]
     fn node_with_zero_hop_config_creates_single_node_database() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
 
         let subject = Neighborhood::new(
@@ -1116,7 +1116,7 @@ mod tests {
 
     #[test]
     fn node_with_originate_only_config_is_decentralized_with_neighbor_but_not_ip() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let neighbor: NodeRecord = make_node_record(1234, true);
         let earning_wallet = make_wallet("earning");
 
@@ -1146,7 +1146,7 @@ mod tests {
     #[test]
     fn node_with_zero_hop_config_ignores_start_message() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
@@ -1182,7 +1182,7 @@ mod tests {
         expected = "--neighbors must be <public key>[@|:]<ip address>:<port>;<port>..., not 'ooga'"
     )]
     fn node_with_bad_neighbor_config_panics() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system = System::new("node_with_bad_neighbor_config_panics");
@@ -1216,7 +1216,7 @@ mod tests {
         expected = "--neighbors node descriptors must have IP address and port list, not 'AwQFBg::'"
     )]
     fn node_with_neighbor_config_having_no_node_addr_panics() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let neighbor_node = make_node_record(3456, true);
@@ -1249,7 +1249,7 @@ mod tests {
 
     #[test]
     fn neighborhood_adds_nodes_and_links() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let one_neighbor_node = make_node_record(3456, true);
@@ -1374,7 +1374,7 @@ mod tests {
 
     #[test]
     fn node_query_responds_with_none_when_key_query_matches_no_configured_data() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
@@ -1413,7 +1413,7 @@ mod tests {
 
     #[test]
     fn node_query_responds_with_result_when_key_query_matches_configured_data() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
@@ -1460,7 +1460,7 @@ mod tests {
 
     #[test]
     fn node_query_responds_with_none_when_ip_address_query_matches_no_configured_data() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system = System::new(
@@ -1502,7 +1502,7 @@ mod tests {
 
     #[test]
     fn node_query_responds_with_result_when_ip_address_query_matches_configured_data() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let system = System::new(
             "node_query_responds_with_result_when_ip_address_query_matches_configured_data",
         );
@@ -1582,7 +1582,7 @@ mod tests {
 
     #[test]
     fn route_query_succeeds_when_asked_for_one_hop_round_trip_route_without_consuming_wallet() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let system = System::new(
             "route_query_succeeds_when_asked_for_one_hop_round_trip_route_without_consuming_wallet",
@@ -1715,7 +1715,7 @@ mod tests {
 
     #[test]
     fn route_query_responds_with_standard_zero_hop_route_when_requested() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let system = System::new("responds_with_standard_zero_hop_route_when_requested");
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
@@ -1783,7 +1783,7 @@ mod tests {
 
     #[test]
     fn route_query_messages() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let system = System::new("route_query_messages");
         let mut subject = make_standard_subject();
@@ -2000,7 +2000,7 @@ mod tests {
 
     #[test]
     fn return_route_ids_increase() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let system = System::new("return_route_ids_increase");
         let (_, _, _, subject) = make_o_r_e_subject();
 
@@ -2032,7 +2032,7 @@ mod tests {
 
     #[test]
     fn can_update_consuming_wallet() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let system = System::new("can_update_consuming_wallet");
         let (o, r, e, subject) = make_o_r_e_subject();
         let addr: Addr<Neighborhood> = subject.start();
@@ -2218,7 +2218,7 @@ mod tests {
     #[test]
     fn gossips_after_removing_a_neighbor() {
         let (hopper, hopper_awaiter, hopper_recording) = make_recorder();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let this_node = NodeRecord::new_for_tests(
@@ -2531,7 +2531,7 @@ mod tests {
         let package_2 = hopper_recording.get_record::<IncipientCoresPackage>(1);
         fn digest(package: IncipientCoresPackage) -> (PublicKey, CryptData) {
             (
-                package.route.next_hop(cryptde()).unwrap().public_key,
+                package.route.next_hop(main_cryptde()).unwrap().public_key,
                 package.payload,
             )
         }
@@ -2541,7 +2541,7 @@ mod tests {
                 (
                     full_neighbor.public_key().clone(),
                     encodex(
-                        cryptde(),
+                        main_cryptde(),
                         full_neighbor.public_key(),
                         &MessageType::Gossip(gossip.clone()),
                     )
@@ -2550,7 +2550,7 @@ mod tests {
                 (
                     half_neighbor.public_key().clone(),
                     encodex(
-                        cryptde(),
+                        main_cryptde(),
                         half_neighbor.public_key(),
                         &MessageType::Gossip(gossip.clone()),
                     )
@@ -2574,7 +2574,7 @@ mod tests {
             )
             .as_str(),
         );
-        let key_as_str = format!("{}", cryptde().public_key());
+        let key_as_str = format!("{}", main_cryptde().public_key());
         tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAQIDBA\\n1.2.3.4\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
         tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
     }
@@ -2735,7 +2735,7 @@ mod tests {
     #[test]
     fn neighborhood_logs_received_gossip_in_dot_graph_format() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let this_node = NodeRecord::new_for_tests(
             &cryptde.public_key(),
             Some(&NodeAddr::new(
@@ -2820,7 +2820,7 @@ mod tests {
 
     #[test]
     fn node_gossips_to_neighbors_on_startup() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let neighbor = make_node_record(1234, true);
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter();
@@ -2960,7 +2960,7 @@ mod tests {
 
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_initially_configured_with_no_data() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("responds_with_none_when_initially_configured_with_no_data");
@@ -2999,7 +2999,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data()
     {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -3058,7 +3058,7 @@ mod tests {
 
     #[test]
     fn neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -3124,7 +3124,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data(
     ) {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -3183,7 +3183,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data(
     ) {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (recorder, awaiter, recording_arc) = make_recorder();
         let node_record = make_node_record(1234, true);
         let another_node_record = make_node_record(2345, true);
@@ -3249,7 +3249,7 @@ mod tests {
     #[test]
     fn neighborhood_responds_with_dot_graph_when_requested_and_logs_acknowledgement() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
 
         let (recorder, awaiter, recording_arc) = make_recorder();
         let node_record = make_node_record(1234, true);
@@ -3348,7 +3348,7 @@ mod tests {
             Err(format!(
                 "Couldn't find any routes: at least {}-hop from {} to ProxyClient at Unknown",
                 minimum_hop_count,
-                cryptde().public_key()
+                main_cryptde().public_key()
             )),
             result
         );
@@ -3396,7 +3396,9 @@ mod tests {
         let hops = result.clone().unwrap().route.hops;
         let actual_keys: Vec<PublicKey> = match hops.as_slice() {
             [hop, exit, hop_back, origin, empty, _accounting] => vec![
-                decodex::<LiveHop>(cryptde(), hop).expect("hop").public_key,
+                decodex::<LiveHop>(main_cryptde(), hop)
+                    .expect("hop")
+                    .public_key,
                 decodex::<LiveHop>(&next_door_neighbor_cryptde, exit)
                     .expect("exit")
                     .public_key,
@@ -3406,7 +3408,7 @@ mod tests {
                 decodex::<LiveHop>(&next_door_neighbor_cryptde, origin)
                     .expect("origin")
                     .public_key,
-                decodex::<LiveHop>(cryptde(), empty)
+                decodex::<LiveHop>(main_cryptde(), empty)
                     .expect("empty")
                     .public_key,
             ],

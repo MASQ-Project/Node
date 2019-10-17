@@ -47,7 +47,7 @@ impl ConsumingService {
                     Err(e) => {
                         error!(
                             self.logger,
-                            "Could not accept CORES package for transmission: {}", e
+                            "Could not accept CORES package for transmission: {:?}", e
                         );
                         return;
                     }
@@ -77,7 +77,7 @@ impl ConsumingService {
                     match encodex(self.cryptde, &next_hop.public_key, &live_package) {
                         Ok(p) => p,
                         Err(e) => {
-                            error!(self.logger, "Couldn't encode package: {}", e);
+                            error!(self.logger, "Couldn't encode package: {:?}", e);
                             return;
                         }
                     };
@@ -141,7 +141,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{
-        cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
+        main_cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
     };
     use actix::System;
     use std::net::{IpAddr, Ipv4Addr};
@@ -154,7 +154,7 @@ mod tests {
         let target_node_addr =
             NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &vec![1212, 2121]);
         let package = NoLookupIncipientCoresPackage::new(
-            cryptde(),
+            main_cryptde(),
             &target_key,
             &target_node_addr,
             make_meaningless_message_type(),
@@ -163,7 +163,7 @@ mod tests {
         let system = System::new("");
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
-            cryptde(),
+            main_cryptde(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -174,13 +174,13 @@ mod tests {
         system.run();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let transmit_data_msg = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, cryptde()).unwrap();
+        let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, main_cryptde()).unwrap();
         assert_eq!(
             &TransmitDataMsg {
                 endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
                 last_data: false,
                 sequence_number: None,
-                data: encodex(cryptde(), &target_key, &lcp).unwrap().into(),
+                data: encodex(main_cryptde(), &target_key, &lcp).unwrap().into(),
             },
             transmit_data_msg
         );
@@ -200,7 +200,7 @@ mod tests {
         let system = System::new("");
         let peer_actors = peer_actors_builder().build();
         let subject = ConsumingService::new(
-            cryptde(),
+            main_cryptde(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -209,12 +209,12 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: \"Couldn\\'t encode hop: Encryption error: EmptyKey\"");
+        TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: EncryptionError(EmptyKey)");
     }
 
     #[test]
     fn consume_converts_incipient_message_to_live_and_sends_to_dispatcher() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let destination_key = PublicKey::new(&[65, 65, 65]);
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn consume_sends_zero_hop_incipient_directly_to_hopper() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let destination_key = cryptde.public_key();
@@ -316,11 +316,11 @@ mod tests {
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
         let to_hopper = peer_actors.hopper.from_dispatcher;
 
-        let subject = ConsumingService::new(cryptde(), to_dispatcher, to_hopper);
+        let subject = ConsumingService::new(main_cryptde(), to_dispatcher, to_hopper);
 
         subject.consume(
             IncipientCoresPackage::new(
-                cryptde(),
+                main_cryptde(),
                 Route { hops: vec![] },
                 make_meaningless_message_type(),
                 &PublicKey::new(&[1, 2]),
@@ -329,7 +329,7 @@ mod tests {
         );
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: ConsumingService: Could not decrypt next hop: EmptyRoute",
+            "ERROR: ConsumingService: Could not decrypt next hop: RoutingError(EmptyRoute)",
         );
     }
 }

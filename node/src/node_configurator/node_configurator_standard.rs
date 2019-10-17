@@ -387,13 +387,21 @@ mod standard {
         match value_m!(multi_config, "fake-public-key", String) {
             None => (),
             Some(public_key_str) => {
-                let public_key = match base64::decode(&public_key_str) {
-                    Ok(key) => PublicKey::new(&key),
+                let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
+                    Ok(mut key) => {
+                        let main_public_key = PublicKey::new(&key);
+                        key.reverse();
+                        let alias_public_key = PublicKey::new(&key);
+                        (main_public_key, alias_public_key)
+                    }
                     Err(_) => panic!("Invalid fake public key: {}", public_key_str),
                 };
-                let cryptde_null =
-                    CryptDENull::from(&public_key, config.blockchain_bridge_config.chain_id);
-                config.cryptde_null_opt = Some(cryptde_null);
+                let main_cryptde_null =
+                    CryptDENull::from(&main_public_key, config.blockchain_bridge_config.chain_id);
+                let alias_cryptde_null =
+                    CryptDENull::from(&alias_public_key, config.blockchain_bridge_config.chain_id);
+                config.main_cryptde_null_opt = Some(main_cryptde_null);
+                config.alias_cryptde_null_opt = Some(alias_cryptde_null);
             }
         }
     }
@@ -1286,7 +1294,7 @@ mod tests {
         );
         assert_eq!(config.data_directory, home_dir);
         assert_eq!(
-            config.cryptde_null_opt.unwrap().public_key(),
+            config.main_cryptde_null_opt.unwrap().public_key(),
             &PublicKey::new(&[1, 2, 3, 4]),
         );
         assert_eq!(
@@ -1404,7 +1412,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap()
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5333);
-        assert!(config.cryptde_null_opt.is_none());
+        assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(config.real_user, RealUser::null().populate());
     }
 

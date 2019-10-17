@@ -323,7 +323,9 @@ mod tests {
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
-    use crate::test_utils::{assert_contains, cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{
+        assert_contains, main_cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID,
+    };
     use std::net::IpAddr;
     use std::str::FromStr;
 
@@ -383,7 +385,7 @@ mod tests {
             &vec![1234, 2345],
         ));
 
-        let result = subject.node_descriptor(cryptde(), DEFAULT_CHAIN_ID);
+        let result = subject.node_descriptor(main_cryptde(), DEFAULT_CHAIN_ID);
 
         assert_eq!(result, "AQIDBA:1.2.3.4:1234;2345".to_string());
     }
@@ -392,7 +394,7 @@ mod tests {
     fn node_descriptor_works_when_node_addr_is_not_present() {
         let subject: NodeRecord = make_node_record(1234, false);
 
-        let result = subject.node_descriptor(cryptde(), DEFAULT_CHAIN_ID);
+        let result = subject.node_descriptor(main_cryptde(), DEFAULT_CHAIN_ID);
 
         assert_eq!(result, "AQIDBA::".to_string());
     }
@@ -560,7 +562,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -569,7 +571,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -578,7 +580,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
@@ -587,7 +589,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         with_neighbor
             .add_half_neighbor_key(mod_key.public_key().clone())
@@ -599,7 +601,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         mod_node_addr
             .set_node_addr(&NodeAddr::new(
@@ -614,7 +616,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -623,7 +625,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mod_accepts_connections = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -632,7 +634,7 @@ mod tests {
             false,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mod_routes_data = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -641,7 +643,7 @@ mod tests {
             true,
             false,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -650,7 +652,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
@@ -660,7 +662,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         mod_signature.signature = CryptData::new(&[]);
         let mod_version = NodeRecord::new(
@@ -670,7 +672,7 @@ mod tests {
             true,
             true,
             1,
-            cryptde(),
+            main_cryptde(),
         );
 
         assert_eq!(exemplar, exemplar);
