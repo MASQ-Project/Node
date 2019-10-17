@@ -31,9 +31,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     client.send_chunk(request);
     let response = String::from_utf8(client.wait_for_chunk()).unwrap();
     assert!(
-        response.contains(
-            "This domain is established to be used for illustrative examples in documents."
-        ),
+        response.contains("This domain is for use in illustrative examples in documents."),
         "Not from example.com:\n{}",
         response
     );

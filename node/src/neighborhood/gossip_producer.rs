@@ -30,25 +30,27 @@ impl GossipProducer for GossipProducerReal {
         let target_node_ref = database
             .node_by_key(target)
             .unwrap_or_else(|| panic!("Target node {:?} not in NeighborhoodDatabase", target));
-        let referenced_keys: BTreeSet<PublicKey> = database
+        let mut referenced_keys: BTreeSet<PublicKey> = database
             .keys()
             .into_iter()
             .flat_map(|k| database.node_by_key(k))
             .flat_map(|n| n.inner.neighbors.clone())
             .collect();
+        // Local Node is always Gossipped
+        referenced_keys.insert (database.root().public_key().clone());
         let builder = database
             .keys()
             .into_iter()
             .filter(|k| *k != target)
-            .filter(|k| referenced_keys.contains (k))
+            .filter(|k| referenced_keys.contains(k))
             .flat_map(|k| database.node_by_key(k))
             .fold(GossipBuilder::new(database), |so_far, node_record_ref| {
                 let reveal_node_addr = node_record_ref.accepts_connections()
                     && (
-                        node_record_ref.public_key() == database.root().public_key()
-                            || target_node_ref.has_half_neighbor(node_record_ref.public_key())
-                        // TODO SC-894/GH-132: Do we really want to reveal this?
-                    );
+                    node_record_ref.public_key() == database.root().public_key()
+                        || target_node_ref.has_half_neighbor(node_record_ref.public_key())
+                    // TODO SC-894/GH-132: Do we really want to reveal this?
+                );
                 so_far.node(node_record_ref.public_key(), reveal_node_addr)
             });
         builder.build()
@@ -77,10 +79,10 @@ mod tests {
     use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{DEFAULT_CHAIN_ID, assert_contains};
+    use crate::test_utils::{assert_contains, DEFAULT_CHAIN_ID};
+    use itertools::Itertools;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
-    use itertools::Itertools;
 
     #[test]
     #[should_panic(expected = "Target node AgMEBQ not in NeighborhoodDatabase")]
@@ -214,14 +216,35 @@ mod tests {
 
         let gossip = subject.produce(&db, &gossip_target);
 
-        let gossipped_keys = gossip.node_records
+        let gossipped_keys = gossip
+            .node_records
             .into_iter()
-            .flat_map (AccessibleGossipRecord::try_from)
-            .map (|agr| agr.inner.public_key)
+            .flat_map(AccessibleGossipRecord::try_from)
+            .map(|agr| agr.inner.public_key)
             .collect_vec();
         assert_contains(&gossipped_keys, root_node.public_key());
         assert_contains(&gossipped_keys, &once_referenced);
-        assert_eq! (gossipped_keys.len(), 2);
+        assert_eq!(gossipped_keys.len(), 2);
+    }
+
+    #[test]
+    fn produce_includes_root_node_in_first_debut_response() {
+        let root_node: NodeRecord = make_node_record(1234, true); // AQIDBA
+        let mut db: NeighborhoodDatabase = db_from_node(&root_node);
+        let gossip_target = db.add_node(make_node_record(2345, true)).unwrap(); // AgMEBQ
+        db.add_arbitrary_half_neighbor(root_node.public_key(), &gossip_target);
+        let subject = GossipProducerReal::new();
+
+        let gossip = subject.produce(&db, &gossip_target);
+
+        let gossipped_keys = gossip
+            .node_records
+            .into_iter()
+            .flat_map(AccessibleGossipRecord::try_from)
+            .map(|agr| agr.inner.public_key)
+            .collect_vec();
+        assert_contains(&gossipped_keys, root_node.public_key());
+        assert_eq!(gossipped_keys.len(), 1);
     }
 
     #[test]
