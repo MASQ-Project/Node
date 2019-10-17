@@ -157,12 +157,14 @@ pub trait MASQNode: Any {
     fn name(&self) -> &str;
     // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;
-    // If this MASQNode has a CryptDENull instead of a CryptDEReal, you can get it here.
-    fn cryptde_null(&self) -> Option<&CryptDENull>;
+    // If this MASQNode has a main CryptDENull instead of a CryptDEReal, you can get it here.
+    fn main_cryptde_null(&self) -> Option<&CryptDENull>;
+    // If this MASQNode has an alias CryptDENull instead of a CryptDEReal, you can get it here.
+    fn alias_cryptde_null(&self) -> Option<&CryptDENull>;
     // The CryptDE that can be used for signing for this Node, if any. (None if it's a MASQRealNode with a CryptDEReal.)
     fn signing_cryptde(&self) -> Option<&dyn CryptDE>;
-    // A reference to this MASQNode's public key.
-    fn public_key(&self) -> &PublicKey;
+    // A reference to this MASQNode's main public key.
+    fn main_public_key(&self) -> &PublicKey;
     // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;
     fn port_list(&self) -> Vec<u16>;

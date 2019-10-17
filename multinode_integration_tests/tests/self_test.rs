@@ -15,7 +15,7 @@ use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
-use node_lib::test_utils::{cryptde, make_meaningless_message_type, make_paying_wallet};
+use node_lib::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;
@@ -66,7 +66,7 @@ fn server_relays_cores_package() {
     let cluster = MASQNodeCluster::start().unwrap();
     let masquerader = JsonMasquerader::new();
     let server = MASQCoresServer::new(cluster.chain_id);
-    let cryptde = server.cryptde();
+    let cryptde = server.main_cryptde();
     let mut client = MASQCoresClient::new(server.local_addr(), cryptde);
     let mut route = Route::one_way(
         RouteSegment::new(
@@ -91,7 +91,8 @@ fn server_relays_cores_package() {
     let expired = package
         .to_expired(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            server.cryptde(),
+            cryptde,
+            cryptde,
         )
         .unwrap();
 
@@ -108,10 +109,13 @@ fn one_mock_node_talks_to_another() {
     cluster.start_mock_node_with_public_key(vec![5551], &PublicKey::new(&[2, 3, 4, 5]));
     let mock_node_1 = cluster.get_mock_node_by_name("mock_node_1").unwrap();
     let mock_node_2 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
-    let cryptde = cryptde();
+    let cryptde = main_cryptde();
     let route = Route::one_way(
         RouteSegment::new(
-            vec![&mock_node_1.public_key(), &mock_node_2.public_key()],
+            vec![
+                &mock_node_1.main_public_key(),
+                &mock_node_2.main_public_key(),
+            ],
             Component::Hopper,
         ),
         cryptde,
@@ -123,7 +127,7 @@ fn one_mock_node_talks_to_another() {
         cryptde,
         route,
         make_meaningless_message_type(),
-        &mock_node_2.public_key(),
+        &mock_node_2.main_public_key(),
     )
     .unwrap();
 
@@ -132,7 +136,7 @@ fn one_mock_node_talks_to_another() {
             5550,
             incipient_cores_package,
             &masquerader,
-            &mock_node_2.public_key(),
+            &mock_node_2.main_public_key(),
             mock_node_2.socket_addr(PortSelector::First),
         )
         .unwrap();
@@ -142,7 +146,8 @@ fn one_mock_node_talks_to_another() {
     let expired_cores_package = package
         .to_expired(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            mock_node_2.signing_cryptde().unwrap(),
+            mock_node_2.main_cryptde_null().unwrap(),
+            mock_node_2.main_cryptde_null().unwrap(),
         )
         .unwrap();
 

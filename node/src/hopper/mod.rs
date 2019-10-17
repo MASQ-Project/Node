@@ -20,7 +20,8 @@ use consuming_service::ConsumingService;
 use routing_service::RoutingService;
 
 pub struct Hopper {
-    cryptde: &'static dyn CryptDE,
+    main_cryptde: &'static dyn CryptDE,
+    alias_cryptde: &'static dyn CryptDE,
     consuming_service: Option<ConsumingService>,
     routing_service: Option<RoutingService>,
     per_routing_service: u64,
@@ -38,12 +39,13 @@ impl Handler<BindMessage> for Hopper {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.consuming_service = Some(ConsumingService::new(
-            self.cryptde,
+            self.main_cryptde,
             msg.peer_actors.dispatcher.from_dispatcher_client.clone(),
             msg.peer_actors.hopper.from_dispatcher.clone(),
         ));
         self.routing_service = Some(RoutingService::new(
-            self.cryptde,
+            self.main_cryptde,
+            self.alias_cryptde,
             RoutingServiceSubs {
                 proxy_client_subs: msg.peer_actors.proxy_client,
                 proxy_server_subs: msg.peer_actors.proxy_server,
@@ -103,7 +105,8 @@ impl Handler<InboundClientData> for Hopper {
 impl Hopper {
     pub fn new(config: HopperConfig) -> Hopper {
         Hopper {
-            cryptde: config.cryptde,
+            main_cryptde: config.main_cryptde,
+            alias_cryptde: config.alias_cryptde,
             consuming_service: None,
             routing_service: None,
             per_routing_service: config.per_routing_service,
@@ -134,8 +137,8 @@ mod tests {
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::{
-        cryptde, make_meaningless_message_type, make_paying_wallet, route_to_proxy_client,
-        DEFAULT_CHAIN_ID,
+        alias_cryptde, main_cryptde, make_meaningless_message_type, make_paying_wallet,
+        route_to_proxy_client, DEFAULT_CHAIN_ID,
     };
     use actix::Actor;
     use actix::System;
@@ -145,20 +148,21 @@ mod tests {
     #[test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]
     fn panics_if_routing_service_is_unbound() {
-        let cryptde = cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let route = route_to_proxy_client(&cryptde.public_key(), cryptde);
+        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
-        let data = cryptde
+        let data = main_cryptde
             .encode(
-                &cryptde.public_key(),
+                &main_cryptde.public_key(),
                 &PlainData::new(&serialized_payload[..]),
             )
             .unwrap();
         let live_package = LiveCoresPackage::new(route, data);
         let live_data = PlainData::new(&serde_cbor::ser::to_vec(&live_package).unwrap()[..]);
-        let encrypted_package = cryptde
-            .encode(&cryptde.public_key(), &live_data)
+        let encrypted_package = main_cryptde
+            .encode(&main_cryptde.public_key(), &live_data)
             .unwrap()
             .into();
 
@@ -172,7 +176,8 @@ mod tests {
         };
         let system = System::new("panics_if_routing_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
@@ -188,29 +193,31 @@ mod tests {
     #[test]
     #[should_panic(expected = "Hopper unbound: no ConsumingService")]
     fn panics_if_consuming_service_is_unbound() {
-        let cryptde = cryptde();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&cryptde.public_key(), &next_key],
+                vec![&main_cryptde.public_key(), &next_key],
                 Component::Neighborhood,
             ),
-            cryptde,
+            main_cryptde,
             Some(paying_wallet),
             Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let incipient_package = IncipientCoresPackage::new(
-            cryptde,
+            main_cryptde,
             route,
             make_meaningless_message_type(),
-            &cryptde.public_key(),
+            &main_cryptde.public_key(),
         )
         .unwrap();
         let system = System::new("panics_if_consuming_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
-            cryptde,
+            main_cryptde,
+            alias_cryptde,
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,

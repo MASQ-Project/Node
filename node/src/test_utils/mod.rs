@@ -72,11 +72,16 @@ pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
 pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten"; //For testing only
 
 lazy_static! {
-    static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
+    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
+    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
 }
 
-pub fn cryptde() -> &'static CryptDENull {
-    &CRYPT_DE_NULL
+pub fn main_cryptde() -> &'static CryptDENull {
+    &MAIN_CRYPTDE_NULL
+}
+
+pub fn alias_cryptde() -> &'static CryptDENull {
+    &ALIAS_CRYPTDE_NULL
 }
 
 #[derive(Default)]
@@ -279,7 +284,7 @@ pub fn make_meaningless_route() -> Route {
             ],
             Component::ProxyClient,
         ),
-        cryptde(),
+        main_cryptde(),
         Some(make_paying_wallet(b"irrelevant")),
         Some(contract_address(DEFAULT_CHAIN_ID)),
     )
@@ -630,7 +635,7 @@ mod tests {
 
     #[test]
     fn characterize_zero_hop_route() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key = cryptde.public_key();
 
         let subject = zero_hop_route_response(&key, cryptde);
@@ -662,7 +667,7 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_client() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key = cryptde.public_key();
 
         let subject = route_to_proxy_client(&key, cryptde);
@@ -686,7 +691,7 @@ mod tests {
 
     #[test]
     fn characterize_route_from_proxy_client() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key = cryptde.public_key();
 
         let subject = route_from_proxy_client(&key, cryptde);
@@ -710,7 +715,7 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_server() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key = cryptde.public_key();
 
         let subject = route_to_proxy_server(&key, cryptde);
