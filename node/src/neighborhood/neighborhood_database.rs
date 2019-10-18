@@ -17,14 +17,16 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
 use crate::sub_lib::utils::time_t_timestamp;
+use crate::sub_lib::logger::Logger;
 
-const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
+pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
 #[derive(Clone)]
 pub struct NeighborhoodDatabase {
     this_node: PublicKey,
     by_public_key: HashMap<PublicKey, NodeRecord>,
     by_ip_addr: HashMap<IpAddr, PublicKey>,
+    logger: Logger,
 }
 
 impl Debug for NeighborhoodDatabase {
@@ -44,6 +46,7 @@ impl NeighborhoodDatabase {
             this_node: public_key.clone(),
             by_public_key: HashMap::new(),
             by_ip_addr: HashMap::new(),
+            logger: Logger::new ("NeighborhoodDatabase"),
         };
 
         let mut node_record = NodeRecord::new(
@@ -217,9 +220,18 @@ impl NeighborhoodDatabase {
             .map(|k| k.clone())
             .filter(|k| self.node_by_key(k).expect("Node disappeared").last_updated() <= deadline)
             .collect();
-        to_cull
-            .iter()
-            .for_each(|k| self.remove_node(k));
+        if !to_cull.is_empty() {
+            info!(self.logger, "Culling from the neighborhood {} Node{} that {} been isolated for {} seconds or more: {:?}",
+                  to_cull.len(),
+                  if to_cull.len() == 1 { "" } else { "s" },
+                  if to_cull.len() == 1 { "has" } else { "have" },
+                  ISOLATED_NODE_GRACE_PERIOD_SECS,
+                  to_cull
+            );
+            to_cull
+                .iter()
+                .for_each(|k| self.remove_node(k));
+        }
     }
 
     pub fn to_dot_graph(&self) -> String {

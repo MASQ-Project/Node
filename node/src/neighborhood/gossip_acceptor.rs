@@ -2003,7 +2003,7 @@ mod tests {
         add_neighbors(&mut dest_db, MAX_DEGREE);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(five_neighbors[0].public_key(), src_root.public_key());
-        let gossip = GossipProducerReal::new().produce(&src_db, dest_root.public_key());
+        let gossip = GossipProducerReal::new().produce(&mut src_db, dest_root.public_key()).unwrap();
         let subject = GossipAcceptorReal::new(&dest_cryptde);
 
         let result = subject.handle(
