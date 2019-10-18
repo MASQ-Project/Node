@@ -1657,7 +1657,7 @@ mod tests {
         assert_eq!(qualifies_result, Qualification::Matched);
         assert_eq!(
             handle_result,
-            GossipAcceptanceResult::Ban(format!("Introducer {} tried changing immutable characteristic: Updating a NodeRecord must not change its node_addr_opt", introducer_key)),
+            GossipAcceptanceResult::Ban(format!("Introducer {} tried changing immutable characteristic: Updating a NodeRecord must not change its node_addr_opt: 4.5.6.7:4567 -> 2.3.4.5:2345", introducer_key)),
         );
         assert_eq!(
             dest_db.node_by_key(introducer_key).unwrap(),

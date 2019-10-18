@@ -861,7 +861,7 @@ mod tests {
         let result = subject.update(agr);
 
         assert_eq!(
-            Err("Updating a NodeRecord must not change its public key".to_string()),
+            Err("Updating a NodeRecord must not change its public key: AQIDBA -> ZGFuZ2Vyb3Vz".to_string()),
             result
         )
     }
@@ -881,7 +881,7 @@ mod tests {
         let result = subject.update(agr);
 
         assert_eq!(
-            Err("Updating a NodeRecord must not change its node_addr_opt".to_string()),
+            Err("Updating a NodeRecord must not change its node_addr_opt: 1.2.3.4:1234 -> 2.3.4.5:2345".to_string()),
             result
         );
         assert_eq!(subject.node_addr_opt(), existing_node_addr_opt);
@@ -945,7 +945,7 @@ mod tests {
         let result = subject.update(agr);
 
         assert_eq!(
-            Err("Updating a NodeRecord must not change its rate pack".to_string()),
+            Err("Updating a NodeRecord must not change its rate pack: 1236+1235b route 1238+1237b exit -> 0+0b route 0+0b exit".to_string()),
             result
         )
     }
