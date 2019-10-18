@@ -14,11 +14,11 @@ use node_lib::neighborhood::neighborhood_test_utils::db_from_node;
 use node_lib::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use node_lib::sub_lib::utils::time_t_timestamp;
 use std::collections::{BTreeSet, HashMap};
 use std::convert::TryInto;
 use std::time::Duration;
-use node_lib::sub_lib::utils::time_t_timestamp;
-use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
 /// Construct a neighborhood for testing that corresponds to a provided NeighborhoodDatabase, with a MASQRealNode
 /// corresponding to the root of the database, MASQMockNodes corresponding to all the root's immediate neighbors,
@@ -160,7 +160,9 @@ fn make_and_send_final_setup_gossip(
             cloned_node.resign();
             gossip_db.add_node(cloned_node).unwrap();
         });
-    let gossip: Gossip = GossipProducerReal::new().produce(&mut gossip_db, real_node.main_public_key()).unwrap();
+    let gossip: Gossip = GossipProducerReal::new()
+        .produce(&mut gossip_db, real_node.main_public_key())
+        .unwrap();
     gossip_source_mock_node
         .transmit_multinode_gossip(real_node, &Standard::from(&gossip.try_into().unwrap()))
         .unwrap();

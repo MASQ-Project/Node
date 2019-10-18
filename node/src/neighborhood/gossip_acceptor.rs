@@ -951,9 +951,16 @@ debug!(self.logger, "Ignoring {} because incoming version v{} is not later than 
         match existing_node_record.update(agr) {
             Ok(_) => true,
             Err(e) => {
-                error!(self.logger, "Failed to update {} from v{} to v{}: {}", existing_node_record.public_key(), existing_node_record.version(), new_version, e);
+                error!(
+                    self.logger,
+                    "Failed to update {} from v{} to v{}: {}",
+                    existing_node_record.public_key(),
+                    existing_node_record.version(),
+                    new_version,
+                    e
+                );
                 false
-            },
+            }
         }
     }
 

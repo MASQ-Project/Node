@@ -14,12 +14,12 @@ use crate::sub_lib::utils::node_descriptor_delimiter;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
+use core::fmt;
 use lazy_static::lazy_static;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
-use core::fmt;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -337,7 +337,14 @@ pub struct RatePack {
 
 impl fmt::Display for RatePack {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}+{}b route {}+{}b exit", self.routing_service_rate, self.routing_byte_rate, self.exit_service_rate, self.exit_byte_rate)
+        write!(
+            f,
+            "{}+{}b route {}+{}b exit",
+            self.routing_service_rate,
+            self.routing_byte_rate,
+            self.exit_service_rate,
+            self.exit_byte_rate
+        )
     }
 }
 

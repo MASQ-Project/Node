@@ -263,17 +263,28 @@ impl NodeRecord {
 
     pub fn update(&mut self, agr: AccessibleGossipRecord) -> Result<(), String> {
         if &agr.inner.public_key != self.public_key() {
-            return Err(format!("Updating a NodeRecord must not change its public key: {} -> {}", self.public_key(), agr.inner.public_key));
+            return Err(format!(
+                "Updating a NodeRecord must not change its public key: {} -> {}",
+                self.public_key(),
+                agr.inner.public_key
+            ));
         }
         if &agr.inner.rate_pack != self.rate_pack() {
-            return Err(format!("Updating a NodeRecord must not change its rate pack: {} -> {}", self.rate_pack(), agr.inner.rate_pack));
+            return Err(format!(
+                "Updating a NodeRecord must not change its rate pack: {} -> {}",
+                self.rate_pack(),
+                agr.inner.rate_pack
+            ));
         }
         match (&self.metadata.node_addr_opt, &agr.node_addr_opt) {
             (None, None) => (),
             (None, Some(na)) => self.metadata.node_addr_opt = Some(na.clone()),
             (Some(_), None) => (),
             (Some(existing), Some(incoming)) if existing != incoming => {
-                return Err(format!("Updating a NodeRecord must not change its node_addr_opt: {} -> {}", existing, incoming))
+                return Err(format!(
+                    "Updating a NodeRecord must not change its node_addr_opt: {} -> {}",
+                    existing, incoming
+                ))
             }
             _ => (),
         }
