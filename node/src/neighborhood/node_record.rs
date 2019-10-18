@@ -861,7 +861,10 @@ mod tests {
         let result = subject.update(agr);
 
         assert_eq!(
-            Err("Updating a NodeRecord must not change its public key: AQIDBA -> ZGFuZ2Vyb3Vz".to_string()),
+            Err(
+                "Updating a NodeRecord must not change its public key: AQIDBA -> ZGFuZ2Vyb3Vz"
+                    .to_string()
+            ),
             result
         )
     }
