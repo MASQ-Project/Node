@@ -4,7 +4,6 @@ use super::gossip::Gossip;
 use super::gossip::GossipBuilder;
 use super::neighborhood_database::NeighborhoodDatabase;
 use crate::sub_lib::cryptde::PublicKey;
-use std::collections::BTreeSet;
 
 pub trait GossipProducer: Send {
     fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip;
@@ -30,14 +29,7 @@ impl GossipProducer for GossipProducerReal {
         let target_node_ref = database
             .node_by_key(target)
             .unwrap_or_else(|| panic!("Target node {:?} not in NeighborhoodDatabase", target));
-        let mut referenced_keys: BTreeSet<PublicKey> = database
-            .keys()
-            .into_iter()
-            .flat_map(|k| database.node_by_key(k))
-            .flat_map(|n| n.inner.neighbors.clone())
-            .collect();
-        // Local Node is always Gossipped
-        referenced_keys.insert (database.root().public_key().clone());
+        let referenced_keys = database.referenced_node_keys();
         let builder = database
             .keys()
             .into_iter()
