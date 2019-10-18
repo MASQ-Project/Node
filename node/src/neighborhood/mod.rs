@@ -60,12 +60,12 @@ use gossip_acceptor::GossipAcceptor;
 use gossip_acceptor::GossipAcceptorReal;
 use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
+use itertools::Itertools;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
-use itertools::Itertools;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -514,13 +514,21 @@ impl Neighborhood {
         self.neighborhood_database
             .root_mut()
             .regenerate_signed_gossip(self.cryptde);
-        let neighbors = self.neighborhood_database.root().half_neighbor_keys().into_iter().map(|kr| kr.clone()).collect_vec();
-        neighbors.iter().for_each(|neighbor|
-            match self.gossip_producer.produce(&mut self.neighborhood_database, neighbor) {
-                Some (gossip) => self.gossip_to_neighbor(neighbor, gossip),
-                None => (),
+        let neighbors = self
+            .neighborhood_database
+            .root()
+            .half_neighbor_keys()
+            .into_iter()
+            .cloned()
+            .collect_vec();
+        neighbors.iter().for_each(|neighbor| {
+            if let Some(gossip) = self
+                .gossip_producer
+                .produce(&mut self.neighborhood_database, neighbor)
+            {
+                self.gossip_to_neighbor(neighbor, gossip)
             }
-        );
+        });
     }
 
     fn gossip_to_neighbor(&self, neighbor: &PublicKey, gossip: Gossip) {
@@ -2349,8 +2357,8 @@ mod tests {
         let produce_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_producer = GossipProducerMock::new()
             .produce_params(&produce_params_arc)
-            .produce_result(Some (gossip.clone()))
-            .produce_result(Some (gossip.clone()));
+            .produce_result(Some(gossip.clone()))
+            .produce_result(Some(gossip.clone()));
         subject.gossip_producer = Box::new(gossip_producer);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -2423,8 +2431,8 @@ mod tests {
     #[test]
     fn neighborhood_sends_no_gossip_when_target_does_not_exist() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
-        // This is ungossippable not because of any attribute of its own, but because the
-        // GossipProducerMock is set to return None when ordered to target it.
+                                                                        // This is ungossippable not because of any attribute of its own, but because the
+                                                                        // GossipProducerMock is set to return None when ordered to target it.
         let ungossippable = make_node_record(1000, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&ungossippable));
         subject
@@ -3564,7 +3572,11 @@ mod tests {
     }
 
     impl GossipProducer for GossipProducerMock {
-        fn produce(&self, database: &mut NeighborhoodDatabase, target: &PublicKey) -> Option<Gossip> {
+        fn produce(
+            &self,
+            database: &mut NeighborhoodDatabase,
+            target: &PublicKey,
+        ) -> Option<Gossip> {
             self.produce_params
                 .lock()
                 .unwrap()

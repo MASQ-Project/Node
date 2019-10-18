@@ -19,6 +19,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use core::fmt;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -332,6 +333,12 @@ pub struct RatePack {
     pub routing_service_rate: u64,
     pub exit_byte_rate: u64,
     pub exit_service_rate: u64,
+}
+
+impl fmt::Display for RatePack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}+{}b route {}+{}b exit", self.routing_service_rate, self.routing_byte_rate, self.exit_service_rate, self.exit_byte_rate)
+    }
 }
 
 #[cfg(test)]

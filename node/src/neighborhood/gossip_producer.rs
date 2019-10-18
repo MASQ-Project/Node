@@ -17,7 +17,7 @@ pub trait GossipProducer: Send {
 
 pub struct GossipProducerReal {
     logger: Logger,
-    last_dead_node_check: Cell<u32>
+    last_dead_node_check: Cell<u32>,
 }
 
 impl GossipProducer for GossipProducerReal {
@@ -42,8 +42,11 @@ impl GossipProducer for GossipProducerReal {
         let target_node_ref = match database.node_by_key(target) {
             Some(node) => node,
             None => {
-                debug!(self.logger, "Target {} is removed or nonexistent; producing no Gossip for it", target);
-                return None
+                debug!(
+                    self.logger,
+                    "Target {} is removed or nonexistent; producing no Gossip for it", target
+                );
+                return None;
             }
         };
         let referenced_keys = database.referenced_node_keys();
@@ -56,13 +59,13 @@ impl GossipProducer for GossipProducerReal {
             .fold(GossipBuilder::new(database), |so_far, node_record_ref| {
                 let reveal_node_addr = node_record_ref.accepts_connections()
                     && (
-                    node_record_ref.public_key() == database.root().public_key()
-                        || target_node_ref.has_half_neighbor(node_record_ref.public_key())
-                    // TODO SC-894/GH-132: Do we really want to reveal this?
-                );
+                        node_record_ref.public_key() == database.root().public_key()
+                            || target_node_ref.has_half_neighbor(node_record_ref.public_key())
+                        // TODO SC-894/GH-132: Do we really want to reveal this?
+                    );
                 so_far.node(node_record_ref.public_key(), reveal_node_addr)
             });
-        Some (builder.build())
+        Some(builder.build())
     }
 
     fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip {
@@ -85,18 +88,18 @@ impl GossipProducerReal {
 mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::*;
+    use crate::neighborhood::neighborhood_database::ISOLATED_NODE_GRACE_PERIOD_SECS;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner};
     use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::{assert_contains, DEFAULT_CHAIN_ID};
+    use itertools::Itertools;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
-    use crate::sub_lib::utils::time_t_timestamp;
-    use crate::neighborhood::neighborhood_database::ISOLATED_NODE_GRACE_PERIOD_SECS;
-    use itertools::Itertools;
 
     #[test]
     fn constructor_populates_last_dead_node_check() {
@@ -104,7 +107,10 @@ mod tests {
         let subject = GossipProducerReal::new();
         let end_at = time_t_timestamp();
 
-        assert! ((subject.last_dead_node_check.get() >= begin_at) && (subject.last_dead_node_check.get() <= end_at));
+        assert!(
+            (subject.last_dead_node_check.get() >= begin_at)
+                && (subject.last_dead_node_check.get() <= end_at)
+        );
     }
 
     #[test]
@@ -219,7 +225,7 @@ mod tests {
 
         let result = subject.produce(&mut db, nonexistent_node.public_key());
 
-        assert_eq! (result, None);
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -254,23 +260,29 @@ mod tests {
         let root_node: NodeRecord = make_node_record(1234, true); // AQIDBA
         let mut db: NeighborhoodDatabase = db_from_node(&root_node);
         let once_referenced = db.add_node(make_node_record(2345, true)).unwrap(); // AgMEBQ
-        db.node_by_key_mut(&once_referenced).unwrap().set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
+        db.node_by_key_mut(&once_referenced)
+            .unwrap()
+            .set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
         let never_referenced = db.add_node(make_node_record(3456, true)).unwrap(); // AwQFBg
-        db.node_by_key_mut(&never_referenced).unwrap().set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
+        db.node_by_key_mut(&never_referenced)
+            .unwrap()
+            .set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
         let gossip_target = db.add_node(make_node_record(4567, true)).unwrap(); // BAUGBw
         db.add_arbitrary_half_neighbor(&once_referenced, root_node.public_key());
         db.add_arbitrary_half_neighbor(&never_referenced, root_node.public_key());
         db.add_arbitrary_half_neighbor(&never_referenced, &once_referenced);
         db.add_arbitrary_full_neighbor(&gossip_target, root_node.public_key());
         let subject = GossipProducerReal::new();
-        subject.last_dead_node_check.set (time_t_timestamp() - DEAD_NODE_CHECK_INTERVAL_SECS - 2);
+        subject
+            .last_dead_node_check
+            .set(time_t_timestamp() - DEAD_NODE_CHECK_INTERVAL_SECS - 2);
 
         let begin_at = time_t_timestamp();
         let gossip = subject.produce(&mut db, &gossip_target).unwrap();
         let end_at = time_t_timestamp();
 
-        assert! (subject.last_dead_node_check.get() >= begin_at);
-        assert! (subject.last_dead_node_check.get() <= end_at);
+        assert!(subject.last_dead_node_check.get() >= begin_at);
+        assert!(subject.last_dead_node_check.get() <= end_at);
         let gossipped_keys = gossip
             .node_records
             .into_iter()

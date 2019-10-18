@@ -17,6 +17,8 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::{BTreeSet, HashMap};
 use std::convert::TryInto;
 use std::time::Duration;
+use node_lib::sub_lib::utils::time_t_timestamp;
+use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
 /// Construct a neighborhood for testing that corresponds to a provided NeighborhoodDatabase, with a MASQRealNode
 /// corresponding to the root of the database, MASQMockNodes corresponding to all the root's immediate neighbors,
@@ -158,7 +160,7 @@ fn make_and_send_final_setup_gossip(
             cloned_node.resign();
             gossip_db.add_node(cloned_node).unwrap();
         });
-    let gossip: Gossip = GossipProducerReal::new().produce(&gossip_db, real_node.main_public_key());
+    let gossip: Gossip = GossipProducerReal::new().produce(&mut gossip_db, real_node.main_public_key()).unwrap();
     gossip_source_mock_node
         .transmit_multinode_gossip(real_node, &Standard::from(&gossip.try_into().unwrap()))
         .unwrap();
@@ -210,6 +212,7 @@ fn modify_node(
         None => model_node.node_addr_opt(),
     };
     gossip_node.metadata.node_addr_opt = node_addr_opt;
+    gossip_node.inner.rate_pack = DEFAULT_RATE_PACK.clone();
     gossip_node.inner.version = 2;
     gossip_node.inner.neighbors = model_node
         .half_neighbor_keys()
@@ -244,6 +247,7 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
         inner: agr.inner.clone(),
         metadata: NodeRecordMetadata {
             desirable: true,
+            last_update: time_t_timestamp(),
             node_addr_opt: agr.node_addr_opt.clone(),
         },
         signed_gossip: agr.signed_gossip.clone(),

@@ -6,18 +6,18 @@ use crate::neighborhood::dot_graph::{
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordError};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodMode;
 use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
-use std::collections::{HashMap, BTreeSet};
 use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
-use crate::sub_lib::utils::time_t_timestamp;
-use crate::sub_lib::logger::Logger;
 
 pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
@@ -46,7 +46,7 @@ impl NeighborhoodDatabase {
             this_node: public_key.clone(),
             by_public_key: HashMap::new(),
             by_ip_addr: HashMap::new(),
-            logger: Logger::new ("NeighborhoodDatabase"),
+            logger: Logger::new("NeighborhoodDatabase"),
         };
 
         let mut node_record = NodeRecord::new(
@@ -202,11 +202,11 @@ impl NeighborhoodDatabase {
     pub fn remove_node(&mut self, node_key: &PublicKey) {
         let ip_addr_opt = match self.node_by_key(node_key) {
             None => None,
-            Some (node) => node.node_addr_opt().map(|na| na.ip_addr()),
+            Some(node) => node.node_addr_opt().map(|na| na.ip_addr()),
         };
-        let _ = self.by_public_key.remove (node_key).is_some();
+        let _ = self.by_public_key.remove(node_key).is_some();
         if let Some(ip_addr) = ip_addr_opt {
-            let _ = self.by_ip_addr.remove (&ip_addr).is_some();
+            let _ = self.by_ip_addr.remove(&ip_addr).is_some();
         }
     }
 
@@ -215,10 +215,15 @@ impl NeighborhoodDatabase {
         let deadline = time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS;
         let to_cull: BTreeSet<PublicKey> = self
             .keys()
-            .into_iter ()
-            .filter(|k| !referenced_node_keys.contains (*k))
-            .map(|k| k.clone())
-            .filter(|k| self.node_by_key(k).expect("Node disappeared").last_updated() <= deadline)
+            .into_iter()
+            .filter(|k| !referenced_node_keys.contains(*k))
+            .cloned()
+            .filter(|k| {
+                self.node_by_key(k)
+                    .expect("Node disappeared")
+                    .last_updated()
+                    <= deadline
+            })
             .collect();
         if !to_cull.is_empty() {
             info!(self.logger, "Culling from the neighborhood {} Node{} that {} been isolated for {} seconds or more: {:?}",
@@ -228,9 +233,7 @@ impl NeighborhoodDatabase {
                   ISOLATED_NODE_GRACE_PERIOD_SECS,
                   to_cull
             );
-            to_cull
-                .iter()
-                .for_each(|k| self.remove_node(k));
+            to_cull.iter().for_each(|k| self.remove_node(k));
         }
     }
 
@@ -247,7 +250,7 @@ impl NeighborhoodDatabase {
             .flat_map(|n| n.inner.neighbors.clone())
             .collect();
         // Local Node is always referenced
-        keys.insert (self.root().public_key().clone());
+        keys.insert(self.root().public_key().clone());
         keys
     }
 
@@ -352,10 +355,10 @@ mod tests {
     use super::*;
     use crate::neighborhood::neighborhood_test_utils::db_from_node;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::{assert_string_contains, DEFAULT_CHAIN_ID};
     use std::iter::FromIterator;
     use std::str::FromStr;
-    use crate::sub_lib::utils::time_t_timestamp;
 
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {
@@ -838,47 +841,59 @@ mod tests {
     fn cull_dead_nodes_distinguishes_between_nodes_that_stink_and_nodes_that_dont() {
         let root_node = make_node_record(1234, true);
         let mut subject: NeighborhoodDatabase = db_from_node(&root_node);
-        let live_node_key = &subject.add_node (make_node_record(2345, true)).unwrap();
-        let non_stinky_node_key = &subject.add_node (make_node_record(3456, true)).unwrap();
-        let stinky_node_key = &subject.add_node (make_node_record(4567, true)).unwrap();
-        subject.node_by_key_mut(stinky_node_key).unwrap().set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
+        let live_node_key = &subject.add_node(make_node_record(2345, true)).unwrap();
+        let non_stinky_node_key = &subject.add_node(make_node_record(3456, true)).unwrap();
+        let stinky_node_key = &subject.add_node(make_node_record(4567, true)).unwrap();
+        subject
+            .node_by_key_mut(stinky_node_key)
+            .unwrap()
+            .set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
         subject.add_arbitrary_half_neighbor(root_node.public_key(), live_node_key);
         subject.add_arbitrary_half_neighbor(non_stinky_node_key, root_node.public_key());
         subject.add_arbitrary_half_neighbor(stinky_node_key, root_node.public_key());
 
         subject.cull_dead_nodes();
 
-        assert! (subject.node_by_key (root_node.public_key()).is_some());
-        assert! (subject.node_by_key (non_stinky_node_key).is_some());
-        assert! (subject.node_by_key (stinky_node_key).is_none());
+        assert!(subject.node_by_key(root_node.public_key()).is_some());
+        assert!(subject.node_by_key(non_stinky_node_key).is_some());
+        assert!(subject.node_by_key(stinky_node_key).is_none());
     }
 
     #[test]
     fn cull_dead_nodes_never_culls_the_root() {
         let root_node = make_node_record(1234, true);
         let mut subject: NeighborhoodDatabase = db_from_node(&root_node);
-        subject.node_by_key_mut(root_node.public_key()).unwrap().set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
+        subject
+            .node_by_key_mut(root_node.public_key())
+            .unwrap()
+            .set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
 
         subject.cull_dead_nodes();
 
-        assert! (subject.node_by_key (root_node.public_key()).is_some());
+        assert!(subject.node_by_key(root_node.public_key()).is_some());
     }
 
     #[test]
     fn cull_dead_nodes_does_not_recurse() {
         let root_node = make_node_record(1234, true);
         let mut subject: NeighborhoodDatabase = db_from_node(&root_node);
-        let dead = &subject.add_node (make_node_record(2345, true)).unwrap();
-        subject.node_by_key_mut(dead).unwrap().set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
-        let referenced_by_dead = &subject.add_node (make_node_record(3456, true)).unwrap();
-        subject.node_by_key_mut(referenced_by_dead).unwrap().set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
+        let dead = &subject.add_node(make_node_record(2345, true)).unwrap();
+        subject
+            .node_by_key_mut(dead)
+            .unwrap()
+            .set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
+        let referenced_by_dead = &subject.add_node(make_node_record(3456, true)).unwrap();
+        subject
+            .node_by_key_mut(referenced_by_dead)
+            .unwrap()
+            .set_last_updated(time_t_timestamp() - ISOLATED_NODE_GRACE_PERIOD_SECS - 2);
         subject.add_arbitrary_half_neighbor(referenced_by_dead, root_node.public_key());
         subject.add_arbitrary_half_neighbor(dead, referenced_by_dead);
 
         subject.cull_dead_nodes();
 
-        assert! (subject.node_by_key (root_node.public_key()).is_some());
-        assert! (subject.node_by_key (referenced_by_dead).is_some());
-        assert! (subject.node_by_key (dead).is_none());
+        assert!(subject.node_by_key(root_node.public_key()).is_some());
+        assert!(subject.node_by_key(referenced_by_dead).is_some());
+        assert!(subject.node_by_key(dead).is_none());
     }
 }

@@ -91,7 +91,10 @@ where
 }
 
 pub fn time_t_timestamp() -> u32 {
-    SystemTime::now().duration_since (UNIX_EPOCH).expect("bad interval").as_secs() as u32
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("bad interval")
+        .as_secs() as u32
 }
 
 pub fn make_printable_string(bytes: &[u8]) -> String {

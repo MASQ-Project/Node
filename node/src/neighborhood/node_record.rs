@@ -8,13 +8,13 @@ use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::iter::FromIterator;
-use crate::sub_lib::utils::time_t_timestamp;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct NodeRecordInner {
@@ -124,10 +124,7 @@ impl NodeRecord {
     }
 
     #[cfg(test)]
-    pub fn force_node_addr(
-        &mut self,
-        node_addr: &NodeAddr,
-    ) {
+    pub fn force_node_addr(&mut self, node_addr: &NodeAddr) {
         self.metadata.node_addr_opt = Some(node_addr.clone());
     }
 
@@ -266,17 +263,18 @@ impl NodeRecord {
 
     pub fn update(&mut self, agr: AccessibleGossipRecord) -> Result<(), String> {
         if &agr.inner.public_key != self.public_key() {
-            return Err("Updating a NodeRecord must not change its public key".to_string());
+            return Err(format!("Updating a NodeRecord must not change its public key: {} -> {}", self.public_key(), agr.inner.public_key));
         }
         if &agr.inner.rate_pack != self.rate_pack() {
-            return Err("Updating a NodeRecord must not change its rate pack".to_string());
+            return Err(format!("Updating a NodeRecord must not change its rate pack: {} -> {}", self.rate_pack(), agr.inner.rate_pack));
         }
         match (&self.metadata.node_addr_opt, &agr.node_addr_opt) {
             (None, None) => (),
             (None, Some(na)) => self.metadata.node_addr_opt = Some(na.clone()),
-            (Some (_), None) => (),
-            (Some (existing), Some (incoming)) if existing != incoming =>
-                return Err("Updating a NodeRecord must not change its node_addr_opt".to_string()),
+            (Some(_), None) => (),
+            (Some(existing), Some(incoming)) if existing != incoming => {
+                return Err(format!("Updating a NodeRecord must not change its node_addr_opt: {} -> {}", existing, incoming))
+            }
             _ => (),
         }
         self.metadata.last_update = time_t_timestamp();
@@ -746,7 +744,7 @@ mod tests {
         let subject = make_node_record(1234, true);
         let end_at = time_t_timestamp();
 
-        assert! ((subject.last_updated() == begin_at) || (subject.last_updated() == end_at));
+        assert!((subject.last_updated() == begin_at) || (subject.last_updated() == end_at));
     }
 
     #[test]
@@ -862,7 +860,10 @@ mod tests {
         let mut subject = make_node_record(1234, true);
         let existing_node_addr_opt = subject.node_addr_opt();
         let mut modified = subject.clone();
-        modified.metadata.node_addr_opt = Some(NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]));
+        modified.metadata.node_addr_opt = Some(NodeAddr::new(
+            &IpAddr::from_str("2.3.4.5").unwrap(),
+            &vec![2345],
+        ));
         modified.resign();
         let agr = AccessibleGossipRecord::from(&modified);
 
@@ -878,7 +879,10 @@ mod tests {
     #[test]
     fn update_adopts_new_node_addr_when_current_version_has_none() {
         let mut subject = make_node_record(1234, false);
-        let new_node_addr_opt = Some(NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2345]));
+        let new_node_addr_opt = Some(NodeAddr::new(
+            &IpAddr::from_str("2.3.4.5").unwrap(),
+            &vec![2345],
+        ));
         let mut modified = subject.clone();
         modified.metadata.node_addr_opt = new_node_addr_opt.clone();
         modified.resign();
