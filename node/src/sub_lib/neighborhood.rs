@@ -14,6 +14,7 @@ use crate::sub_lib::utils::node_descriptor_delimiter;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
+use core::fmt;
 use lazy_static::lazy_static;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -159,11 +160,14 @@ impl NodeDescriptor {
         let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
 
         if pieces.len() != 2 {
-            return Err(String::from(s));
+            return Err(format!(
+                "Should be <public key>{}<node address>, not '{}'",
+                delimiter, s
+            ));
         }
 
         let public_key = match cryptde.descriptor_fragment_to_first_contact_public_key(pieces[0]) {
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(e),
             Ok(hpk) => hpk,
         };
 
@@ -172,7 +176,7 @@ impl NodeDescriptor {
                 None
             } else {
                 match NodeAddr::from_str(&pieces[1]) {
-                    Err(_) => return Err(String::from(s)),
+                    Err(e) => return Err(e),
                     Ok(node_addr) => Some(node_addr),
                 }
             }
@@ -215,6 +219,7 @@ pub struct NeighborhoodSubs {
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip>>,
+    pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
@@ -334,6 +339,26 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum GossipFailure {
+    NoNeighbors,
+    NoSuitableNeighbors,
+    ManualRejection,
+}
+
+impl fmt::Display for GossipFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let msg = match self {
+            GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
+            GossipFailure::NoSuitableNeighbors => {
+                "No neighbors were suitable for Introduction or Pass"
+            }
+            GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
+        };
+        write!(f, "{}", msg)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,6 +389,7 @@ mod tests {
             route_query: recipient!(recorder, RouteQueryMessage),
             update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip>),
+            gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
@@ -378,7 +404,12 @@ mod tests {
     fn node_descriptor_from_str_requires_two_pieces_to_a_configuration() {
         let result = NodeDescriptor::from_str(main_cryptde(), "only_one_piece", DEFAULT_CHAIN_ID);
 
-        assert_eq!(result, Err(String::from("only_one_piece")));
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Should be <public key>:<node address>, not 'only_one_piece'"
+            ))
+        );
     }
 
     #[test]
@@ -408,7 +439,7 @@ mod tests {
         let result =
             NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ==:BadNodeAddr", DEFAULT_CHAIN_ID);
 
-        assert_eq!(result, Err(String::from("R29vZEtleQ==:BadNodeAddr")));
+        assert_eq!(result, Err(String::from("NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'BadNodeAddr'")));
     }
 
     #[test]
@@ -594,5 +625,27 @@ mod tests {
         assert!(!subject.is_originate_only());
         assert!(!subject.is_consume_only());
         assert!(subject.is_zero_hop());
+    }
+
+    #[test]
+    fn gossip_failure_display() {
+        // Structured this way so that modifications to GossipFailure will draw attention here
+        // so that the test can be updated
+        vec![
+            GossipFailure::NoNeighbors,
+            GossipFailure::NoSuitableNeighbors,
+            GossipFailure::ManualRejection,
+        ]
+        .into_iter()
+        .for_each(|gf| {
+            let expected_string = match gf {
+                GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
+                GossipFailure::NoSuitableNeighbors => {
+                    "No neighbors were suitable for Introduction or Pass"
+                }
+                GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
+            };
+            assert_eq!(&gf.to_string(), expected_string);
+        });
     }
 }

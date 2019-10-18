@@ -5,6 +5,7 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::neighborhood::GossipFailure;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
@@ -66,6 +67,7 @@ pub enum MessageType {
     ClientRequest(ClientRequestPayload),
     ClientResponse(ClientResponsePayload),
     Gossip(Gossip),
+    GossipFailure(GossipFailure),
     DnsResolveFailed(DnsResolveFailure),
 }
 
