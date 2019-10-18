@@ -6,6 +6,7 @@ use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::logger::Logger;
+use crate::sub_lib::neighborhood::GossipFailure;
 use crate::sub_lib::node_addr::NodeAddr;
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
@@ -21,6 +22,8 @@ pub enum GossipAcceptanceResult {
     Accepted,
     // Don't generate Gossip from the database: instead, send this Gossip to the provided key and NodeAddr.
     Reply(Gossip, PublicKey, NodeAddr),
+    // The incoming Gossip was proper, and we tried to accept it, but couldn't.
+    Failed(GossipFailure, PublicKey, NodeAddr),
     // The incoming Gossip contained nothing we didn't know. Don't send out any Gossip because of it.
     Ignored,
     // Gossip was ignored because it was evil: ban the sender of the Gossip as a malefactor.
@@ -166,7 +169,14 @@ impl GossipHandler for DebutHandler {
                     "Neighbor count at maximum, but no non-common neighbors. DebutHandler is reluctantly ignoring debut from {} at {}",
                     source_key, source_node_addr
                 );
-                return GossipAcceptanceResult::Ignored;
+                return GossipAcceptanceResult::Failed(
+                    GossipFailure::NoSuitableNeighbors,
+                    (&source_agr.inner.public_key).clone(),
+                    (&source_agr
+                        .node_addr_opt
+                        .expect("Debuter's NodeAddr disappeared"))
+                        .clone(),
+                );
             }
             Some(key) => key,
         };
@@ -1263,7 +1273,14 @@ mod tests {
             src_root.node_addr_opt().unwrap().into(),
         );
 
-        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        assert_eq!(
+            result,
+            GossipAcceptanceResult::Failed(
+                GossipFailure::NoSuitableNeighbors,
+                src_root.public_key().clone(),
+                src_root.node_addr_opt().unwrap(),
+            )
+        );
     }
 
     #[test]

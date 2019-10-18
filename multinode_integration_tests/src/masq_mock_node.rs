@@ -17,7 +17,7 @@ use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::cryptde_real::CryptDEReal;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use node_lib::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK};
+use node_lib::sub_lib::neighborhood::{GossipFailure, RatePack, DEFAULT_RATE_PACK};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::utils::indicates_dead_stream;
@@ -382,6 +382,26 @@ impl MASQMockNode {
                 match incoming_cores_package.payload {
                     MessageType::Gossip(g) => Some((g, from.ip())),
                     _ => panic!("Expected Gossip, got something else"),
+                }
+            }
+            Err(_) => None,
+        }
+    }
+
+    pub fn wait_for_gossip_failure(&self, timeout: Duration) -> Option<(GossipFailure, IpAddr)> {
+        let masquerader = JsonMasquerader::new();
+        match self.wait_for_package(&masquerader, timeout) {
+            Ok((from, _, package)) => {
+                let incoming_cores_package = package
+                    .to_expired(
+                        from,
+                        self.signing_cryptde().unwrap(),
+                        self.signing_cryptde().unwrap(),
+                    )
+                    .unwrap();
+                match incoming_cores_package.payload {
+                    MessageType::GossipFailure(g) => Some((g, from.ip())),
+                    _ => panic!("Expected GossipFailure, got something else"),
                 }
             }
             Err(_) => None,

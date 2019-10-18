@@ -422,7 +422,9 @@ mod tests {
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
-    use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, NodeRecordMetadataMessage};
+    use crate::sub_lib::neighborhood::{
+        DispatcherNodeQueryMessage, GossipFailure, NodeRecordMetadataMessage,
+    };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodDotGraphRequest, RouteQueryMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodMode, RemoveNeighborMessage};
@@ -562,6 +564,9 @@ mod tests {
                 route_query: recipient!(addr, RouteQueryMessage),
                 update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
                 from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
+                gossip_failure: addr
+                    .clone()
+                    .recipient::<ExpiredCoresPackage<GossipFailure>>(),
                 dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
                 remove_neighbor: recipient!(addr, RemoveNeighborMessage),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
