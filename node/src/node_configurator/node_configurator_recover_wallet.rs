@@ -6,9 +6,9 @@ use crate::node_configurator::{
     app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
     data_directory_arg, earning_wallet_arg, exit, flushed_write, language_arg,
     mnemonic_passphrase_arg, prepare_initialization_mode, real_user_arg,
-    request_password_with_confirmation, request_password_with_retry, wallet_password_arg, Either,
+    request_password_with_confirmation, request_password_with_retry, db_password_arg, Either,
     NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP,
-    WALLET_PASSWORD_HELP,
+    DB_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -130,7 +130,7 @@ impl NodeConfiguratorRecoverWallet {
                 )
                 .arg(mnemonic_passphrase_arg())
                 .arg(real_user_arg())
-                .arg(wallet_password_arg(WALLET_PASSWORD_HELP)),
+                .arg(db_password_arg(DB_PASSWORD_HELP)),
         }
     }
 
@@ -387,7 +387,7 @@ mod tests {
             "node_configurator_recover_wallet",
             "parse_args_creates_configurations",
         );
-        let password = "secret-wallet-password";
+        let password = "secret-db-password";
         let phrase = "llanto elipse chaleco factor setenta dental moneda rasgo gala rostro taco nudillo orador temor puesto";
         let consuming_path = "m/44'/60'/0'/77/78";
         let earning_path = "m/44'/60'/0'/78/77";
@@ -395,7 +395,7 @@ mod tests {
             .opt("--recover-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
-            .param("--wallet-password", password)
+            .param("--db-password", password)
             .param("--consuming-wallet", consuming_path)
             .param("--earning-wallet", earning_path)
             .param("--language", "español")
@@ -425,7 +425,7 @@ mod tests {
                     mnemonic_seed: PlainData::new(
                         Seed::new(&expected_mnemonic, "Mortimer").as_ref()
                     ),
-                    wallet_password: password.to_string(),
+                    db_password: password.to_string(),
                     consuming_derivation_path_opt: Some(consuming_path.to_string()),
                 }),
                 real_user: RealUser::new(Some(123), Some(456), Some("/home/booga".into()))
@@ -435,12 +435,12 @@ mod tests {
 
     #[test]
     fn parse_args_creates_configuration_with_defaults() {
-        let password = "secret-wallet-password";
+        let password = "secret-db-password";
         let phrase = "company replace elder oxygen access into pair squeeze clip occur world crowd";
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
-            .param("--wallet-password", password)
+            .param("--db-password", password)
             .param("--mnemonic", phrase)
             .param("--mnemonic-passphrase", "Mortimer");
         let subject = NodeConfiguratorRecoverWallet::new();
@@ -465,7 +465,7 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: PlainData::new(seed.as_ref()),
-                    wallet_password: password.to_string(),
+                    db_password: password.to_string(),
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
@@ -487,7 +487,7 @@ mod tests {
                 "--mnemonic",
                 "one two three four five six seven eight nine ten eleven twelve",
             )
-            .param("--wallet-password", "wallet-password")
+            .param("--db-password", "db-password")
             .param("--mnemonic-passphrase", "mnemonic passphrase");
         let subject = NodeConfiguratorRecoverWallet::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
@@ -582,7 +582,7 @@ mod tests {
             .opt("--recover-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", data_directory.to_str().unwrap())
-            .param("--wallet-password", "rick-rolled");
+            .param("--db-password", "rick-rolled");
         let subject = NodeConfiguratorRecoverWallet::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);

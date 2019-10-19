@@ -21,7 +21,7 @@ pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
-    pub set_consuming_wallet_password_sub: Recipient<SetWalletPasswordMsg>,
+    pub set_consuming_db_password_sub: Recipient<SetDbPasswordMsg>,
     pub set_gas_price_sub: Recipient<SetGasPriceMsg>,
 }
 
@@ -37,7 +37,7 @@ pub struct ReportAccountsPayable {
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]
-pub struct SetWalletPasswordMsg {
+pub struct SetDbPasswordMsg {
     pub client_id: u64,
     pub password: String,
 }
@@ -66,7 +66,7 @@ mod tests {
             bind: recipient!(recorder, BindMessage),
             report_accounts_payable: recipient!(recorder, ReportAccountsPayable),
             retrieve_transactions: recipient!(recorder, RetrieveTransactions),
-            set_consuming_wallet_password_sub: recipient!(recorder, SetWalletPasswordMsg),
+            set_consuming_db_password_sub: recipient!(recorder, SetDbPasswordMsg),
             set_gas_price_sub: recipient!(recorder, SetGasPriceMsg),
         };
 

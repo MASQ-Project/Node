@@ -5,7 +5,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator;
 use crate::node_configurator::{
     app_head, chain_arg, common_validators, config_file_arg, data_directory_arg,
-    earning_wallet_arg, initialize_database, real_user_arg, wallet_password_arg, NodeConfigurator,
+    earning_wallet_arg, initialize_database, real_user_arg, db_password_arg, NodeConfigurator,
 };
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
@@ -89,6 +89,10 @@ const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID).";
+const DB_PASSWORD_HELP: &str =
+    "A password or phrase to decrypt the encrypted material in the database, to include your consuming \
+    private key (if applicable) and your list of previous neighbors. If you don't provide this password, \
+    none of the encrypted data in your database will be used.";
 const DNS_SERVERS_HELP: &str =
     "IP addresses of DNS Servers for host name look-up while providing exit \
      services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)";
@@ -135,9 +139,6 @@ const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relates t
      standard means that your Node will operate fully unconstrained, both originating and accepting \
      connections, both consuming and providing services, and when you operate behind a router, it \
      requires that you forward your clandestine port through that router to your Node's machine.";
-const WALLET_PASSWORD_HELP: &str =
-    "A password or phrase to decrypt your consuming wallet or a keystore file. Can be changed \
-     later and still produce the same addresses.";
 
 const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
@@ -208,6 +209,7 @@ fn app() -> App<'static, 'static> {
                 .hidden(true),
         )
         .arg(data_directory_arg())
+        .arg(db_password_arg(DB_PASSWORD_HELP))
         .arg(
             Arg::with_name("dns-servers")
                 .long("dns-servers")
@@ -285,7 +287,6 @@ fn app() -> App<'static, 'static> {
                 .validator(validators::validate_ui_port)
                 .help(&UI_PORT_HELP),
         )
-        .arg(wallet_password_arg(WALLET_PASSWORD_HELP))
 }
 
 mod standard {
@@ -475,13 +476,13 @@ mod standard {
         }
 
         if earning_wallet_opt.is_none() || consuming_wallet_opt.is_none() {
-            if let Some((_, wallet_password)) =
+            if let Some((_, db_password)) =
                 standard::get_mnemonic_seed_and_password(multi_config, streams, persistent_config)
             {
                 if consuming_wallet_opt.is_none() {
                     consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
                         persistent_config,
-                        &wallet_password,
+                        &db_password,
                     );
                 } else if persistent_config
                     .consuming_wallet_derivation_path()
@@ -569,11 +570,11 @@ mod standard {
 
     fn get_consuming_wallet_opt_from_derivation_path(
         persistent_config: &dyn PersistentConfiguration,
-        wallet_password: &str,
+        db_password: &str,
     ) -> Option<Wallet> {
         match persistent_config.consuming_wallet_derivation_path() {
             None => None,
-            Some(derivation_path) => match persistent_config.mnemonic_seed(wallet_password) {
+            Some(derivation_path) => match persistent_config.mnemonic_seed(db_password) {
                 Err(Bip39Error::NotPresent) => None,
                 Ok(mnemonic_seed) => {
                     let keypair =
@@ -629,8 +630,8 @@ mod standard {
         match persistent_config.encrypted_mnemonic_seed() {
             None => None,
             Some(encrypted_mnemonic_seed) => {
-                let wallet_password =
-                    match value_user_specified_m!(multi_config, "wallet-password", String) {
+                let db_password =
+                    match value_user_specified_m!(multi_config, "db-password", String) {
                         (Some(wp), _) => wp,
                         (None, false) => return None,
                         (None, true) => request_wallet_decryption_password(
@@ -641,8 +642,8 @@ mod standard {
                         )
                         .expect("Decryption password is required"),
                     };
-                match Bip39::decrypt_bytes(&encrypted_mnemonic_seed, &wallet_password) {
-                    Ok(plain_data) => Some((plain_data, wallet_password)),
+                match Bip39::decrypt_bytes(&encrypted_mnemonic_seed, &db_password) {
+                    Ok(plain_data) => Some((plain_data, db_password)),
                     Err(e) => panic!("Could not verify password: {:?}", e),
                 }
             }
@@ -1229,7 +1230,7 @@ mod tests {
             .param("--blockchain-service-url", "http://127.0.0.1:8545")
             .param("--log-level", "trace")
             .param("--fake-public-key", "AQIDBA")
-            .param("--wallet-password", "secret-wallet-password")
+            .param("--db-password", "secret-db-password")
             .param(
                 "--earning-wallet",
                 "0x0123456789012345678901234567890123456789",
@@ -1319,7 +1320,7 @@ mod tests {
         let consuming_private_key =
             PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
         let persistent_config = PersistentConfigurationReal::new(config_dao);
-        let password = "secret-wallet-password";
+        let password = "secret-db-password";
         let args = ArgsBuilder::new()
             .param("--config-file", "specified_config.toml")
             .param("--dns-servers", "12.34.56.78,23.45.67.89")
@@ -1334,7 +1335,7 @@ mod tests {
             .param("--blockchain-service-url", "http://127.0.0.1:8545")
             .param("--log-level", "trace")
             .param("--fake-public-key", "AQIDBA")
-            .param("--wallet-password", password)
+            .param("--db-password", password)
             .param(
                 "--earning-wallet",
                 "0x0123456789012345678901234567890123456789",
@@ -1480,13 +1481,13 @@ mod tests {
 
     fn make_persistent_config(
         mnemonic_seed_prefix_opt: Option<&str>,
-        wallet_password_opt: Option<&str>,
+        db_password_opt: Option<&str>,
         consuming_wallet_private_key_opt: Option<&str>,
         consuming_wallet_derivation_path_opt: Option<&str>,
         earning_wallet_address_opt: Option<&str>,
     ) -> PersistentConfigurationMock {
         let (mnemonic_seed_result, encrypted_mnemonic_seed_opt) =
-            match (mnemonic_seed_prefix_opt, wallet_password_opt) {
+            match (mnemonic_seed_prefix_opt, db_password_opt) {
                 (None, None) => (Err(Bip39Error::NotPresent), None),
                 (None, Some(_)) => (Err(Bip39Error::NotPresent), None),
                 (Some(mnemonic_seed_prefix), None) => {
@@ -1495,10 +1496,10 @@ mod tests {
                         Bip39::encrypt_bytes(&mnemonic_seed, "prompt for me").unwrap();
                     (Ok(mnemonic_seed), Some(encrypted_mnemonic_seed))
                 }
-                (Some(mnemonic_seed_prefix), Some(wallet_password)) => {
+                (Some(mnemonic_seed_prefix), Some(db_password)) => {
                     let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
                     let encrypted_mnemonic_seed =
-                        Bip39::encrypt_bytes(&mnemonic_seed, wallet_password).unwrap();
+                        Bip39::encrypt_bytes(&mnemonic_seed, db_password).unwrap();
                     (Ok(mnemonic_seed), Some(encrypted_mnemonic_seed))
                 }
             };
@@ -1568,7 +1569,7 @@ mod tests {
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
         let multi_config = make_multi_config(
             ArgsBuilder::new()
-                .param("--wallet-password", "password")
+                .param("--db-password", "password")
                 .param("--consuming-private-key", &consuming_private_key_hex),
         );
         let mnemonic_seed_prefix = "mnemonic_seed";
@@ -1652,7 +1653,7 @@ mod tests {
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
         let multi_config = make_multi_config(
             ArgsBuilder::new()
-                .param("--wallet-password", "password")
+                .param("--db-password", "password")
                 .param("--consuming-private-key", &consuming_private_key_hex),
         );
         let mnemonic_seed_prefix = "mnemonic_seed";
@@ -1679,7 +1680,7 @@ mod tests {
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
         let multi_config = make_multi_config(
             ArgsBuilder::new()
-                .param("--wallet-password", "password")
+                .param("--db-password", "password")
                 .param("--consuming-private-key", &consuming_private_key_hex),
         );
         let persistent_config =
@@ -1715,7 +1716,7 @@ mod tests {
         let bad_consuming_private_key_hex = bad_consuming_private_key.to_hex::<String>();
         let multi_config = make_multi_config(
             ArgsBuilder::new()
-                .param("--wallet-password", "password")
+                .param("--db-password", "password")
                 .param("--consuming-private-key", &bad_consuming_private_key_hex),
         );
         let persistent_config =
@@ -1733,7 +1734,7 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
         let multi_config =
-            make_multi_config(ArgsBuilder::new().param("--wallet-password", "password"));
+            make_multi_config(ArgsBuilder::new().param("--db-password", "password"));
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -1763,7 +1764,7 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_wallet_password_parameter() {
+    fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_parameter() {
         let multi_config = make_multi_config(ArgsBuilder::new());
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
@@ -1790,8 +1791,8 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_wallet_password_value() {
-        let multi_config = make_multi_config(ArgsBuilder::new().opt("--wallet-password"));
+    fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_value() {
+        let multi_config = make_multi_config(ArgsBuilder::new().opt("--db-password"));
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -1871,7 +1872,7 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--dns-servers", "12.34.56.78,23.45.67.89")
             .param("--data-directory", home_directory.to_str().unwrap())
-            .opt("--wallet-password");
+            .opt("--db-password");
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
             &"--consuming-private-key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
             &"cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
@@ -1926,7 +1927,7 @@ mod tests {
         config_dao.set_string("seed", "booga booga").unwrap();
         let args = make_default_cli_params()
             .param("--data-directory", data_directory.to_str().unwrap())
-            .param("--wallet-password", "rick-rolled");
+            .param("--db-password", "rick-rolled");
         let mut config = BootstrapperConfig::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);
@@ -1969,7 +1970,7 @@ mod tests {
             .unwrap();
         let args = make_default_cli_params()
             .param("--data-directory", data_directory.to_str().unwrap())
-            .param("--wallet-password", "ricked rolled");
+            .param("--db-password", "ricked rolled");
         let mut config = BootstrapperConfig::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&app(), vec![vcl]);

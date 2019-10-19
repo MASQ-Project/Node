@@ -415,7 +415,7 @@ mod tests {
         ReportExitServiceConsumedMessage, ReportExitServiceProvidedMessage,
     };
     use crate::sub_lib::blockchain_bridge::{
-        BlockchainBridgeConfig, ReportAccountsPayable, SetGasPriceMsg, SetWalletPasswordMsg,
+        BlockchainBridgeConfig, ReportAccountsPayable, SetGasPriceMsg, SetDbPasswordMsg,
     };
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
@@ -672,7 +672,7 @@ mod tests {
                 report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
                 retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
                 set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
-                set_consuming_wallet_password_sub: addr.clone().recipient::<SetWalletPasswordMsg>(),
+                set_consuming_db_password_sub: addr.clone().recipient::<SetDbPasswordMsg>(),
             }
         }
     }

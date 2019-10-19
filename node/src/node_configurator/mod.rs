@@ -76,7 +76,7 @@ pub const REAL_USER_HELP: &str =
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
      you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
      like <uid>:<gid>:<home directory>.";
-pub const WALLET_PASSWORD_HELP: &str =
+pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to encrypt your consuming wallet in the MASQ Node database or decrypt a keystore file. Can be changed \
      later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
      insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
@@ -197,10 +197,10 @@ pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
         .hidden(true)
 }
 
-pub fn wallet_password_arg(help: &str) -> Arg {
-    Arg::with_name("wallet-password")
-        .long("wallet-password")
-        .value_name("WALLET-PASSWORD")
+pub fn db_password_arg(help: &str) -> Arg {
+    Arg::with_name("db-password")
+        .long("db-password")
+        .value_name("DB-PASSWORD")
         .required(false)
         .takes_value(true)
         .min_values(0)
@@ -242,13 +242,13 @@ pub fn create_wallet(
     if let Some(derivation_path_info) = &config.derivation_path_info_opt {
         persistent_config.set_mnemonic_seed(
             &derivation_path_info.mnemonic_seed,
-            &derivation_path_info.wallet_password,
+            &derivation_path_info.db_password,
         );
         if let Some(consuming_derivation_path) = &derivation_path_info.consuming_derivation_path_opt
         {
             persistent_config.set_consuming_wallet_derivation_path(
                 consuming_derivation_path,
-                &derivation_path_info.wallet_password,
+                &derivation_path_info.db_password,
             )
         }
     }
@@ -601,7 +601,7 @@ pub enum Either<L: Debug + PartialEq, R: Debug + PartialEq> {
 #[derive(PartialEq, Debug)]
 pub struct DerivationPathWalletInfo {
     pub mnemonic_seed: PlainData,
-    pub wallet_password: String,
+    pub db_password: String,
     pub consuming_derivation_path_opt: Option<String>,
 }
 
@@ -622,9 +622,9 @@ pub trait WalletCreationConfigMaker {
             Some(mp) => mp,
             None => self.make_mnemonic_passphrase(multi_config, streams),
         };
-        let wallet_password = match value_m!(multi_config, "wallet-password", String) {
+        let db_password = match value_m!(multi_config, "db-password", String) {
             Some(wp) => wp,
-            None => self.make_wallet_password(streams),
+            None => self.make_db_password(streams),
         };
         let consuming_derivation_path = match value_m!(multi_config, "consuming-wallet", String) {
             Some(cdp) => cdp,
@@ -666,14 +666,14 @@ pub trait WalletCreationConfigMaker {
             },
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
                 mnemonic_seed,
-                wallet_password,
+                db_password,
                 consuming_derivation_path_opt: Some(consuming_derivation_path),
             }),
             real_user,
         }
     }
 
-    fn make_wallet_password(&self, streams: &mut StdStreams) -> String {
+    fn make_db_password(&self, streams: &mut StdStreams) -> String {
         match request_wallet_encryption_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed later)..."),
@@ -1343,7 +1343,7 @@ mod tests {
                     .arg(earning_wallet_arg("", |_| Ok(())))
                     .arg(mnemonic_passphrase_arg())
                     .arg(real_user_arg())
-                    .arg(wallet_password_arg(WALLET_PASSWORD_HELP)),
+                    .arg(db_password_arg(DB_PASSWORD_HELP)),
             }
         }
     }
@@ -1356,7 +1356,7 @@ mod tests {
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
             stdin: &mut Cursor::new(
-                &b"a terrible wallet password\na terrible wallet password\n"[..],
+                &b"a terrible db password\na terrible db password\n"[..],
             ),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
@@ -1382,7 +1382,7 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
-                    wallet_password: "a terrible wallet password".to_string(),
+                    db_password: "a terrible db password".to_string(),
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
@@ -1400,7 +1400,7 @@ mod tests {
             .param("--consuming-wallet", "m/44'/60'/1'/2/3")
             .param("--earning-wallet", "m/44'/60'/3'/2/1")
             .param("--mnemonic-passphrase", "mnemonic passphrase")
-            .param("--wallet-password", "wallet password")
+            .param("--db-password", "db password")
             .param("--real-user", "123::");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
@@ -1429,7 +1429,7 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
-                    wallet_password: "wallet password".to_string(),
+                    db_password: "db password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
                 }),
                 real_user: RealUser::new(Some(123), None, None),
@@ -1447,7 +1447,7 @@ mod tests {
                 "0x0123456789ABCDEF0123456789ABCDEF01234567",
             )
             .param("--mnemonic-passphrase", "mnemonic passphrase")
-            .param("--wallet-password", "wallet password")
+            .param("--db-password", "db password")
             .param("--real-user", "123::");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
@@ -1471,7 +1471,7 @@ mod tests {
                 ),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
-                    wallet_password: "wallet password".to_string(),
+                    db_password: "db password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
                 }),
                 real_user: RealUser::new(Some(123), None, None),
@@ -1505,7 +1505,7 @@ mod tests {
             earning_wallet_address_opt: Some(earning_address.clone()),
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
                 mnemonic_seed: PlainData::new(seed.as_ref()),
-                wallet_password: "wallet password".to_string(),
+                db_password: "db password".to_string(),
                 consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
             }),
             real_user: RealUser::null(),
@@ -1525,7 +1525,7 @@ mod tests {
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
-            vec![(seed.as_ref().to_vec(), "wallet password".to_string())]
+            vec![(seed.as_ref().to_vec(), "db password".to_string())]
         );
         let set_consuming_wallet_derivation_path_params =
             set_consuming_wallet_derivation_path_params_arc
@@ -1535,7 +1535,7 @@ mod tests {
             *set_consuming_wallet_derivation_path_params,
             vec![(
                 "m/44'/60'/1'/2/3".to_string(),
-                "wallet password".to_string()
+                "db password".to_string()
             )]
         );
         let set_earning_wallet_address_params =
@@ -1551,7 +1551,7 @@ mod tests {
             ),
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
                 mnemonic_seed: PlainData::new(&[1, 2, 3, 4]),
-                wallet_password: "wallet password".to_string(),
+                db_password: "db password".to_string(),
                 consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
             }),
             real_user: RealUser::null(),
@@ -1571,7 +1571,7 @@ mod tests {
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
-            vec![(vec![1u8, 2u8, 3u8, 4u8], "wallet password".to_string())]
+            vec![(vec![1u8, 2u8, 3u8, 4u8], "db password".to_string())]
         );
         let set_consuming_wallet_derivation_path_params =
             set_consuming_wallet_derivation_path_params_arc
@@ -1581,7 +1581,7 @@ mod tests {
             *set_consuming_wallet_derivation_path_params,
             vec![(
                 "m/44'/60'/1'/2/3".to_string(),
-                "wallet password".to_string()
+                "db password".to_string()
             )]
         );
         let set_earning_wallet_address_params =

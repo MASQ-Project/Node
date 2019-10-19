@@ -7,8 +7,8 @@ use crate::node_configurator::{
     app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
     data_directory_arg, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
     prepare_initialization_mode, real_user_arg, request_password_with_confirmation,
-    request_password_with_retry, wallet_password_arg, Either, NodeConfigurator,
-    WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
+    request_password_with_retry, db_password_arg, Either, NodeConfigurator,
+    WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, DB_PASSWORD_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -148,7 +148,7 @@ impl NodeConfiguratorGenerateWallet {
                 .arg(language_arg())
                 .arg(mnemonic_passphrase_arg())
                 .arg(real_user_arg())
-                .arg(wallet_password_arg(WALLET_PASSWORD_HELP))
+                .arg(db_password_arg(DB_PASSWORD_HELP))
                 .arg(
                     Arg::with_name("word-count")
                         .long("word-count")
@@ -430,12 +430,12 @@ mod tests {
             "parse_args_creates_configurations",
         );
 
-        let password = "secret-wallet-password";
+        let password = "secret-db-password";
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
-            .param("--wallet-password", password)
+            .param("--db-password", password)
             .param("--consuming-wallet", "m/44'/60'/0'/77/78")
             .param("--earning-wallet", "m/44'/60'/0'/78/77")
             .param("--language", "español")
@@ -474,7 +474,7 @@ mod tests {
                     mnemonic_seed: PlainData::new(
                         Seed::new(&expected_mnemonic, "Mortimer").as_ref()
                     ),
-                    wallet_password: password.to_string(),
+                    db_password: password.to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/0'/77/78".to_string()),
                 }),
                 real_user: RealUser::new(Some(123), Some(456), Some("/home/booga".into()))
@@ -487,7 +487,7 @@ mod tests {
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
-            .param("--wallet-password", "password123")
+            .param("--db-password", "password123")
             .param("--mnemonic-passphrase", "Mortimer");
         let mut subject = NodeConfiguratorGenerateWallet::new();
         let make_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -523,7 +523,7 @@ mod tests {
                     mnemonic_seed: PlainData::new(
                         Seed::new(&expected_mnemonic, "Mortimer").as_ref()
                     ),
-                    wallet_password: "password123".to_string(),
+                    db_password: "password123".to_string(),
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
@@ -621,7 +621,7 @@ mod tests {
             .opt("--generate-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", data_directory.to_str().unwrap())
-            .param("--wallet-password", "rick-rolled");
+            .param("--db-password", "rick-rolled");
         let subject = NodeConfiguratorGenerateWallet::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);

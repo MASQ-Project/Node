@@ -31,11 +31,11 @@ impl Bip39 {
 
     pub fn encrypt_bytes(
         seed: &dyn AsRef<[u8]>,
-        wallet_password: &str,
+        db_password: &str,
     ) -> Result<String, Bip39Error> {
         match Crypto::encrypt(
             seed.as_ref(),
-            &Protected::new(wallet_password.as_bytes()),
+            &Protected::new(db_password.as_bytes()),
             NonZeroU32::new(10240).expect("Internal error"),
         ) {
             Ok(crypto) => match serde_cbor::to_vec(&crypto) {
@@ -54,11 +54,11 @@ impl Bip39 {
 
     pub fn decrypt_bytes(
         crypt_string: &str,
-        wallet_password: &str,
+        db_password: &str,
     ) -> Result<PlainData, Bip39Error> {
         match crypt_string.from_hex::<Vec<u8>>() {
             Ok(cipher_seed_slice) => match serde_cbor::from_slice::<Crypto>(&cipher_seed_slice) {
-                Ok(crypto) => match crypto.decrypt(&Protected::new(wallet_password)) {
+                Ok(crypto) => match crypto.decrypt(&Protected::new(db_password)) {
                     Ok(mnemonic_seed) => Ok(PlainData::new(&mnemonic_seed)),
                     Err(e) => Err(Bip39Error::DecryptionFailure(format!("{:?}", e))),
                 },

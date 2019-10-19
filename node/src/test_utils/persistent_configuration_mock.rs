@@ -56,19 +56,19 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.encrypted_mnemonic_seed_results)
     }
 
-    fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error> {
+    fn mnemonic_seed(&self, db_password: &str) -> Result<PlainData, Bip39Error> {
         self.mnemonic_seed_params
             .lock()
             .unwrap()
-            .push(wallet_password.to_string());
+            .push(db_password.to_string());
         Self::result_from(&self.mnemonic_seed_results)
     }
 
-    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, wallet_password: &str) {
+    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, db_password: &str) {
         self.set_mnemonic_seed_params
             .lock()
             .unwrap()
-            .push((seed.as_ref().to_vec(), wallet_password.to_string()));
+            .push((seed.as_ref().to_vec(), db_password.to_string()));
     }
 
     fn consuming_wallet_public_key(&self) -> Option<String> {
@@ -79,11 +79,11 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.consuming_wallet_derivation_path_results)
     }
 
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str) {
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, db_password: &str) {
         self.set_consuming_wallet_derivation_path_params
             .lock()
             .unwrap()
-            .push((derivation_path.to_string(), wallet_password.to_string()));
+            .push((derivation_path.to_string(), db_password.to_string()));
     }
 
     fn set_consuming_wallet_public_key(&self, public_key: &PlainData) {

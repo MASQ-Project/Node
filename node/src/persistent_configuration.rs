@@ -24,11 +24,11 @@ pub trait PersistentConfiguration: Send {
     fn gas_price(&self) -> u64;
     fn set_gas_price(&self, gas_price: u64);
     fn encrypted_mnemonic_seed(&self) -> Option<String>;
-    fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error>;
-    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, wallet_password: &str);
+    fn mnemonic_seed(&self, db_password: &str) -> Result<PlainData, Bip39Error>;
+    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, db_password: &str);
     fn consuming_wallet_public_key(&self) -> Option<String>;
     fn consuming_wallet_derivation_path(&self) -> Option<String>;
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str);
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, db_password: &str);
     fn set_consuming_wallet_public_key(&self, public_key: &PlainData);
     fn earning_wallet_from_address(&self) -> Option<Wallet>;
     fn earning_wallet_address(&self) -> Option<String>;
@@ -122,15 +122,15 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error> {
+    fn mnemonic_seed(&self, db_password: &str) -> Result<PlainData, Bip39Error> {
         match self.encrypted_mnemonic_seed() {
             None => Err(Bip39Error::NotPresent),
-            Some(ems) => Ok(Bip39::decrypt_bytes(&ems, wallet_password)?),
+            Some(ems) => Ok(Bip39::decrypt_bytes(&ems, db_password)?),
         }
     }
 
-    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, wallet_password: &str) {
-        let encrypted_mnemonic_seed = Bip39::encrypt_bytes(seed, wallet_password)
+    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, db_password: &str) {
+        let encrypted_mnemonic_seed = Bip39::encrypt_bytes(seed, db_password)
             .expect("Can't continue; encryption of mnemonic seed failed");
         match self.dao.set_string("seed", &encrypted_mnemonic_seed) {
             Ok(_) => (),
@@ -175,7 +175,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str) {
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, db_password: &str) {
         match (
             self.dao.get_string("consuming_wallet_public_key"),
             self.dao.get_string("consuming_wallet_derivation_path"),
@@ -185,7 +185,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 .set_string("consuming_wallet_derivation_path", derivation_path)
                 .expect("Database is corrupt"),
             (Ok(private_public_key), Err(ConfigDaoError::NotPresent)) => {
-                let seed = match self.mnemonic_seed(wallet_password) {
+                let seed = match self.mnemonic_seed(db_password) {
                     Ok(seed) => seed,
                     Err(Bip39Error::NotPresent) => {
                         panic!("Can't set consuming wallet derivation path without a mnemonic seed")
@@ -603,8 +603,8 @@ mod tests {
     #[test]
     fn set_mnemonic_seed_succeeds() {
         let seed = make_meaningless_seed();
-        let wallet_password = "seed password";
-        let encrypted_seed = Bip39::encrypt_bytes(&seed, wallet_password).unwrap();
+        let db_password = "seed password";
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, db_password).unwrap();
         let expected_params = ("seed".to_string(), encrypted_seed);
         let set_string_params_arc = Arc::new(Mutex::new(vec![expected_params.clone()]));
         let config_dao = ConfigDaoMock::new()
@@ -612,7 +612,7 @@ mod tests {
             .set_string_result(Ok(()));
 
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-        subject.set_mnemonic_seed(&seed, wallet_password);
+        subject.set_mnemonic_seed(&seed, db_password);
 
         let set_string_params = set_string_params_arc.lock().unwrap();
 

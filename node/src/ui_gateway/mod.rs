@@ -5,7 +5,7 @@ pub mod ui_traffic_converter;
 mod websocket_supervisor;
 
 use crate::sub_lib::accountant::GetFinancialStatisticsMessage;
-use crate::sub_lib::blockchain_bridge::{SetGasPriceMsg, SetWalletPasswordMsg};
+use crate::sub_lib::blockchain_bridge::{SetGasPriceMsg, SetDbPasswordMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -26,7 +26,7 @@ use actix::Recipient;
 
 struct UiGatewayOutSubs {
     ui_message_sub: Recipient<UiCarrierMessage>,
-    blockchain_bridge_set_consuming_wallet_password_sub: Recipient<SetWalletPasswordMsg>,
+    blockchain_bridge_set_consuming_db_password_sub: Recipient<SetDbPasswordMsg>,
     blockchain_bridge_set_gas_price_sub: Recipient<SetGasPriceMsg>,
     accountant_get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
     neighborhood: Recipient<NeighborhoodDotGraphRequest>,
@@ -75,10 +75,10 @@ impl Handler<BindMessage> for UiGateway {
         //        ctx.set_mailbox_capacity(?);
         let subs = UiGatewayOutSubs {
             ui_message_sub: msg.peer_actors.ui_gateway.ui_message_sub.clone(),
-            blockchain_bridge_set_consuming_wallet_password_sub: msg
+            blockchain_bridge_set_consuming_db_password_sub: msg
                 .peer_actors
                 .blockchain_bridge
-                .set_consuming_wallet_password_sub
+                .set_consuming_db_password_sub
                 .clone(),
             blockchain_bridge_set_gas_price_sub: msg
                 .peer_actors
@@ -107,12 +107,12 @@ impl Handler<UiCarrierMessage> for UiGateway {
     // All UI messages, both inbound and outbound, come through here
     fn handle(&mut self, msg: UiCarrierMessage, _ctx: &mut Self::Context) -> Self::Result {
         match msg.data {
-            UiMessage::SetWalletPassword(password) => {
+            UiMessage::SetDbPassword(password) => {
                 self.subs
                     .as_ref()
                     .expect("UiGateway is unbound")
-                    .blockchain_bridge_set_consuming_wallet_password_sub
-                    .try_send(SetWalletPasswordMsg {
+                    .blockchain_bridge_set_consuming_db_password_sub
+                    .try_send(SetDbPasswordMsg {
                         client_id: msg.client_id,
                         password,
                     })
@@ -143,7 +143,7 @@ impl Handler<UiCarrierMessage> for UiGateway {
                 .expect("UiGateway is dead"),
             UiMessage::SetGasPrice(gas_price) => set_gas_price(self, msg.client_id, &gas_price),
             UiMessage::NodeDescriptor(_)
-            | UiMessage::SetWalletPasswordResponse(_)
+            | UiMessage::SetDbPasswordResponse(_)
             | UiMessage::FinancialStatisticsResponse(_)
             | UiMessage::SetGasPriceResponse(_)
             | UiMessage::NeighborhoodDotGraphResponse(_) => {
@@ -213,7 +213,7 @@ impl Handler<FromUiMessage> for UiGateway {
 mod tests {
     use super::*;
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
-    use crate::sub_lib::blockchain_bridge::SetWalletPasswordMsg;
+    use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
     use crate::sub_lib::ui_gateway::UiMessage;
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
@@ -233,9 +233,9 @@ mod tests {
             let addr = recorder.start();
             UiGatewayOutSubs {
                 ui_message_sub: addr.clone().recipient::<UiCarrierMessage>(),
-                blockchain_bridge_set_consuming_wallet_password_sub: addr
+                blockchain_bridge_set_consuming_db_password_sub: addr
                     .clone()
-                    .recipient::<SetWalletPasswordMsg>(
+                    .recipient::<SetDbPasswordMsg>(
                 ),
                 blockchain_bridge_set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
                 accountant_get_financial_statistics_sub: addr
@@ -395,14 +395,14 @@ mod tests {
     }
 
     #[test]
-    fn receiving_a_set_consuming_wallet_password_message_sends_traffic_to_blockchain_bridge() {
+    fn receiving_a_set_consuming_db_password_message_sends_traffic_to_blockchain_bridge() {
         let (blockchain_bridge, _, blockchain_bridge_recorder_arc) = make_recorder();
         let subject = UiGateway::new(&UiGatewayConfig {
             ui_port: find_free_port(),
             node_descriptor: String::from(""),
         });
         let system = System::new(
-            "receiving_a_set_consuming_wallet_password_message_sends_traffic_to_blockchain_bridge",
+            "receiving_a_set_consuming_db_password_message_sends_traffic_to_blockchain_bridge",
         );
         let addr: Addr<UiGateway> = subject.start();
         let mut peer_actors = peer_actors_builder()
@@ -413,7 +413,7 @@ mod tests {
 
         addr.try_send(UiCarrierMessage {
             client_id: 0,
-            data: UiMessage::SetWalletPassword("booga".to_string()),
+            data: UiMessage::SetDbPassword("booga".to_string()),
         })
         .unwrap();
 
@@ -421,8 +421,8 @@ mod tests {
         system.run();
         let blockchain_bridge_recorder = blockchain_bridge_recorder_arc.lock().unwrap();
         assert_eq!(
-            blockchain_bridge_recorder.get_record::<SetWalletPasswordMsg>(0),
-            &SetWalletPasswordMsg {
+            blockchain_bridge_recorder.get_record::<SetDbPasswordMsg>(0),
+            &SetDbPasswordMsg {
                 client_id: 0,
                 password: "booga".to_string(),
             }
@@ -564,12 +564,12 @@ mod tests {
     }
 
     #[test]
-    fn set_consuming_wallet_password_response_message_is_directed_to_websocket_supervisor() {
+    fn set_consuming_db_password_response_message_is_directed_to_websocket_supervisor() {
         let (ui_gateway_recorder, _, _) = make_recorder();
         let receive_parameters_arc = Arc::new(Mutex::new(vec![]));
 
         let system = System::new(
-            "set_consuming_wallet_password_response_message_is_directed_to_websocket_supervisor",
+            "set_consuming_db_password_response_message_is_directed_to_websocket_supervisor",
         );
         let mut subject = UiGateway::new(&UiGatewayConfig {
             ui_port: find_free_port(),
@@ -590,7 +590,7 @@ mod tests {
             .ui_message_sub
             .try_send(UiCarrierMessage {
                 client_id: 1234,
-                data: UiMessage::SetWalletPasswordResponse(true),
+                data: UiMessage::SetDbPasswordResponse(true),
             })
             .unwrap();
 
@@ -609,7 +609,7 @@ mod tests {
                 .unwrap(),
             &(
                 1234 as u64,
-                serde_json::to_string(&UiMessage::SetWalletPasswordResponse(true)).unwrap()
+                serde_json::to_string(&UiMessage::SetDbPasswordResponse(true)).unwrap()
             )
         )
     }
