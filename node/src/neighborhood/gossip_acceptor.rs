@@ -906,16 +906,9 @@ impl StandardGossipHandler {
         let change_flags: Vec<bool> = agrs
             .into_iter()
             .flat_map(|agr| match database.node_by_key(&agr.inner.public_key) {
-                Some(existing_node) => {
-                    if agr.inner.version > existing_node.version() {
-debug!(self.logger, "Updating {} because incoming version v{} is later than existing version v{}", agr.inner.public_key, agr.inner.version, existing_node.version());
-                        Some(self.update_database_record(database, agr))
-                    }
-                    else {
-debug!(self.logger, "Ignoring {} because incoming version v{} is not later than existing version v{}", agr.inner.public_key, agr.inner.version, existing_node.version());
-                        None
-                    }
-                },
+                Some(existing_node) if agr.inner.version > existing_node.version() => {
+                    Some(self.update_database_record(database, agr))
+                }
                 _ => None,
             })
             .collect();
