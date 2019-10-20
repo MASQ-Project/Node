@@ -15,6 +15,8 @@ pub struct ConfigDaoMock {
     set_u64_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
     set_u64_transactional_params: Arc<Mutex<Vec<(String, u64)>>>,
     set_u64_transactional_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
+    clear_params: Arc<Mutex<Vec<String>>>,
+    clear_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
 }
 
 impl ConfigDao for ConfigDaoMock {
@@ -41,6 +43,11 @@ impl ConfigDao for ConfigDaoMock {
     fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError> {
         self.get_u64_params.lock().unwrap().push(String::from(name));
         self.get_u64_results.borrow_mut().remove(0)
+    }
+
+    fn clear(&self, name: &str) -> Result<(), ConfigDaoError> {
+        self.clear_params.lock().unwrap().push(String::from(name));
+        self.clear_results.borrow_mut().remove(0)
     }
 
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError> {
@@ -123,6 +130,19 @@ impl ConfigDaoMock {
 
     pub fn set_u64_transactional_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
         self.set_u64_transactional_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn clear_params(
+        mut self,
+        params_arc: &Arc<Mutex<Vec<String>>>,
+    ) -> ConfigDaoMock {
+        self.clear_params = params_arc.clone();
+        self
+    }
+
+    pub fn clear_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
+        self.clear_results.borrow_mut().push(result);
         self
     }
 }

@@ -16,6 +16,7 @@ pub trait ConfigDao: Send {
     fn get_string(&self, name: &str) -> Result<String, ConfigDaoError>;
     fn set_string(&self, name: &str, value: &str) -> Result<(), ConfigDaoError>;
     fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError>;
+    fn clear(&self, name: &str) -> Result<(), ConfigDaoError>;
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError>;
     fn set_u64_transactional(
         &self,
@@ -70,6 +71,10 @@ impl ConfigDao for ConfigDaoReal {
             Err(_) => Err(ConfigDaoError::TypeError),
             Ok(v) => Ok(v),
         }
+    }
+
+    fn clear(&self, _name: &str) -> Result<(), ConfigDaoError> {
+        unimplemented!()
     }
 
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError> {

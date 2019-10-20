@@ -117,7 +117,7 @@ impl NeighborhoodMode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeDescriptor {
     pub public_key: PublicKey,
     pub mainnet: bool,
@@ -162,19 +162,19 @@ impl NodeDescriptor {
         cryptde: &dyn CryptDE,
         s: &str,
     ) -> Result<NodeDescriptor, String> {
-        let (delimiter, mainnet, pieces) = {
+        let (mainnet, pieces) = {
             let chain_id = chain_id_from_name("mainnet");
             let delimiter = node_descriptor_delimiter(chain_id);
             let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
             if pieces.len() == 2 {
-                (delimiter, true, pieces)
+                (true, pieces)
             }
             else {
                 let chain_id = chain_id_from_name("testnet");
                 let delimiter = node_descriptor_delimiter(chain_id);
                 let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
                 if pieces.len() == 2 {
-                    (delimiter, false, pieces)
+                    (false, pieces)
                 }
                 else {
                     return Err(format!(
@@ -384,7 +384,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::utils::localhost;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde};
     use actix::Actor;
     use std::str::FromStr;
 

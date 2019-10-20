@@ -4,7 +4,7 @@ use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::config_dao::ConfigDaoError;
 use crate::config_dao::{ConfigDao, ConfigDaoReal};
 use crate::database::db_initializer::ConnectionWrapper;
-use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::cryptde::{PlainData};
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::Transaction;
 use rustc_hex::ToHex;
@@ -282,11 +282,36 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn past_neighbors(&self, db_password: &str) -> Option<Vec<NodeDescriptor>> {
-        unimplemented!()
+        match self.dao.get_string("past_neighbors") {
+            Ok(encrypted_string) => {
+                let plain_data = Bip39::decrypt_bytes(&encrypted_string, db_password)
+                    .expect("Can't continue; past neighbors configuration is corrupt and cannot be decrypted.");
+                let neighbors = serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(&plain_data.as_slice())
+                    .expect ("Can't continue; past neighbors configuration is corrupt and cannot be decrypted.");
+                Some(neighbors)
+            },
+            Err(ConfigDaoError::NotPresent) => None,
+            Err(e) => panic!("Can't continue; past neighbors configuration is inaccessible: {:?}", e),
+        }
     }
 
     fn set_past_neighbors(&self, node_descriptors_opt: Option<Vec<NodeDescriptor>>, db_password: &str) {
-        unimplemented!()
+        match node_descriptors_opt {
+            Some(node_descriptors) => {
+                let plain_data = serde_cbor::ser::to_vec(&node_descriptors).expect("Serialization failed");
+                let encrypted_string = Bip39::encrypt_bytes(&plain_data.as_slice(), db_password).expect("Encryption failed");
+                match self.dao.set_string ("past_neighbors", &encrypted_string) {
+                    Ok(_) => (),
+                    Err(e) => panic!("Can't continue; past neighbors configuration is inaccessible: {:?}", e)
+                }
+            },
+            None => {
+                match self.dao.clear ("past_neighbors") {
+                    Ok(_) => (),
+                    Err(_) => unimplemented!()
+                }
+            }
+        }
     }
 
     fn start_block(&self) -> u64 {
@@ -363,7 +388,7 @@ mod tests {
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, find_free_port, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{ensure_node_home_directory_exists, find_free_port, DEFAULT_CHAIN_ID, main_cryptde};
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use ethsign::keyfile::Crypto;
     use ethsign::Protected;
@@ -718,6 +743,112 @@ mod tests {
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         subject.set_gas_price(3);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; past neighbors configuration is inaccessible: TypeError"
+    )]
+    fn past_neighbors_panics_if_dao_error() {
+        let config_dao = ConfigDaoMock::new().get_string_result(Err(ConfigDaoError::TypeError));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.past_neighbors("password");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; past neighbors configuration is corrupt and cannot be decrypted."
+    )]
+    fn past_neighbors_panics_if_data_cannot_be_decrypted() {
+        let string_result = "booga".to_string();
+        let config_dao = ConfigDaoMock::new().get_string_result(Ok(string_result));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.past_neighbors("password");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; past neighbors configuration is corrupt and cannot be decrypted."
+    )]
+    fn past_neighbors_panics_if_data_cannot_be_deserialized() {
+        let serialized: Vec<u8> = vec![1, 2, 3, 4];
+        let string_result = Bip39::encrypt_bytes(&serialized, "password").unwrap();
+        let config_dao = ConfigDaoMock::new().get_string_result(Ok(string_result));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.past_neighbors("password");
+    }
+
+    #[test]
+    fn past_neighbors_success() {
+        let node_descriptors = vec![
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+        ];
+        let node_descriptors_bytes = serde_cbor::ser::to_vec(&node_descriptors).unwrap();
+        let encrypted_string = Bip39::encrypt_bytes(&node_descriptors_bytes, "password").unwrap();
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_string_params(&get_string_params_arc)
+            .get_string_result(Ok(encrypted_string));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.past_neighbors("password");
+
+        assert_eq!(result, Some(node_descriptors));
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!("past_neighbors".to_string(), get_string_params[0]);
+        assert_eq!(get_string_params.len(), 1);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; past neighbors configuration is inaccessible: NotPresent"
+    )]
+    fn set_past_neighbors_panics_if_dao_error() {
+        let config_dao = ConfigDaoMock::new().set_string_result(Err(ConfigDaoError::NotPresent));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_past_neighbors(Some(vec![]), "password");
+    }
+
+    #[test]
+    fn set_past_neighbors_none_success() {
+        let clear_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .clear_params(&clear_params_arc)
+            .clear_result(Ok(()));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_past_neighbors(None, "password");
+
+        let clear_params = clear_params_arc.lock().unwrap();
+        assert_eq!(clear_params[0], "past_neighbors".to_string());
+        assert_eq!(1, clear_params.len());
+    }
+
+    #[test]
+    fn set_past_neighbors_some_success() {
+        let node_descriptors = vec![
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+        ];
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_string_params(&set_string_params_arc)
+            .set_string_result(Ok(()));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_past_neighbors(Some(node_descriptors.clone()), "password");
+
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert_eq!(set_string_params[0].0, "past_neighbors".to_string());
+        let serialized_node_descriptors = Bip39::decrypt_bytes(&set_string_params[0].1, "password").unwrap();
+        let actual_node_descriptors = serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(&serialized_node_descriptors.as_slice()).unwrap();
+        assert_eq!(actual_node_descriptors, node_descriptors);
+        assert_eq!(set_string_params.len(), 1);
     }
 
     #[test]

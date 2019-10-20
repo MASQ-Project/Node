@@ -113,11 +113,12 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn past_neighbors(&self, db_password: &str) -> Option<Vec<NodeDescriptor>> {
-        unimplemented!()
+        self.past_neighbors_params.lock().unwrap().push(db_password.to_string());
+        self.past_neighbors_results.borrow_mut().remove(0)
     }
 
     fn set_past_neighbors(&self, node_descriptors_opt: Option<Vec<NodeDescriptor>>, db_password: &str) {
-        unimplemented!()
+        self.set_past_neighbors_params.lock().unwrap().push((node_descriptors_opt, db_password.to_string()));
     }
 
     fn start_block(&self) -> u64 {
@@ -233,6 +234,21 @@ impl PersistentConfigurationMock {
         params: &Arc<Mutex<Vec<u64>>>,
     ) -> PersistentConfigurationMock {
         self.set_gas_price_params = params.clone();
+        self
+    }
+
+    pub fn past_neighbors_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> PersistentConfigurationMock {
+        self.past_neighbors_params = params.clone();
+        self
+    }
+
+    pub fn past_neighbors_result(self, result: Option<Vec<NodeDescriptor>>) -> PersistentConfigurationMock {
+        self.past_neighbors_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_past_neighbors_params(mut self, params: &Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>) -> PersistentConfigurationMock {
+        self.set_past_neighbors_params = params.clone();
         self
     }
 
