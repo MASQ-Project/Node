@@ -73,8 +73,16 @@ impl ConfigDao for ConfigDaoReal {
         }
     }
 
-    fn clear(&self, _name: &str) -> Result<(), ConfigDaoError> {
-        unimplemented!()
+    fn clear(&self, name: &str) -> Result<(), ConfigDaoError> {
+        let mut stmt = match self
+            .conn
+            .prepare("update config set value = null where name = ?")
+            {
+                Ok(stmt) => stmt,
+                Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
+            };
+        let params: &[&dyn ToSql] = &[&name];
+        handle_update_execution(stmt.execute(params))
     }
 
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError> {
@@ -183,6 +191,21 @@ mod tests {
             ),
         );
         assert_contains(&result, &("seed".to_string(), None));
+    }
+
+    #[test]
+    fn clear_removes_value_but_not_row() {
+        let home_dir = ensure_node_home_directory_exists("node", "clear_removes_value_but_not_row");
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
+
+        let _ = subject.clear("schema_version").unwrap();
+
+        let result = subject.get_string ("schema_version");
+        assert_eq!(result, Err(ConfigDaoError::NotPresent));
     }
 
     #[test]
