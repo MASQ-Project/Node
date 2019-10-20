@@ -17,7 +17,7 @@ mod neighborhood_test_utils;
 #[cfg(feature = "expose_test_privates")]
 pub mod neighborhood_test_utils;
 
-use crate::blockchain::blockchain_interface::contract_address;
+use crate::blockchain::blockchain_interface::{contract_address, chain_id_from_name};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::{DotGossipEndpoint, Gossip, GossipNodeRecord};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
@@ -143,7 +143,7 @@ impl Handler<StartMessage> for Neighborhood {
             } else {
                 panic!(
                     "--neighbors node descriptors must have IP address and port list, not '{}'",
-                    node_descriptor.to_string(self.cryptde, self.chain_id)
+                    node_descriptor.to_string(self.cryptde)
                 )
             }
         });
@@ -395,8 +395,13 @@ impl Neighborhood {
             cryptde,
         );
         let initial_neighbors = neighborhood_config.mode.neighbor_configs().iter().map (|nc|
-            match NodeDescriptor::from_str(cryptde, nc, config.blockchain_bridge_config.chain_id) {
-                Ok(descriptor) => descriptor,
+            match NodeDescriptor::from_str(cryptde, nc) {
+                Ok(descriptor) => {
+                    if descriptor.mainnet != (config.blockchain_bridge_config.chain_id == chain_id_from_name("mainnet")) {
+                        unimplemented! ("Test-drive me!")
+                    }
+                    descriptor
+                },
                 Err (_) => panic! ("--neighbors must be <public key>[@|:]<ip address>:<port>;<port>..., not '{}'", nc),
             }
         ).collect_vec();
@@ -1051,7 +1056,7 @@ pub fn regenerate_signed_gossip(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
+    use crate::blockchain::blockchain_interface::{contract_address, chain_id_from_name};
     use crate::neighborhood::gossip::Gossip;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::*;
@@ -1227,8 +1232,8 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
-                        vec![NodeDescriptor::from(neighbor_node.public_key())
-                            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                        vec![NodeDescriptor::from((neighbor_node.public_key(), DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
+                            .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -1263,10 +1268,10 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from(&one_neighbor_node)
-                                .to_string(cryptde, DEFAULT_CHAIN_ID),
-                            NodeDescriptor::from(&another_neighbor_node)
-                                .to_string(cryptde, DEFAULT_CHAIN_ID),
+                            NodeDescriptor::from((&one_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
+                                .to_string(cryptde),
+                            NodeDescriptor::from((&another_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
+                                .to_string(cryptde),
                         ],
                         rate_pack(100),
                     ),
@@ -1294,8 +1299,8 @@ mod tests {
         assert_eq!(
             subject.initial_neighbors,
             vec![
-                NodeDescriptor::from(&one_neighbor_node),
-                NodeDescriptor::from(&another_neighbor_node)
+                NodeDescriptor::from((&one_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"))),
+                NodeDescriptor::from((&another_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
             ]
         );
     }
@@ -1316,10 +1321,10 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from(&one_neighbor_node)
-                                .to_string(cryptde, DEFAULT_CHAIN_ID),
-                            NodeDescriptor::from(&another_neighbor_node)
-                                .to_string(cryptde, DEFAULT_CHAIN_ID),
+                            NodeDescriptor::from((&one_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
+                                .to_string(cryptde),
+                            NodeDescriptor::from((&another_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
+                                .to_string(cryptde),
                         ],
                         rate_pack(100),
                     ),
@@ -1391,8 +1396,9 @@ mod tests {
                                 &IpAddr::from_str("1.2.3.4").unwrap(),
                                 &vec![1234, 2345],
                             ),
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                         ))
-                        .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                        .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -1478,8 +1484,9 @@ mod tests {
                                 &IpAddr::from_str("1.2.3.4").unwrap(),
                                 &vec![1234, 2345],
                             ),
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                         ))
-                        .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                        .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -1515,7 +1522,7 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
                         vec![
-                            NodeDescriptor::from(&node_record).to_string(cryptde, DEFAULT_CHAIN_ID)
+                            NodeDescriptor::from((&node_record, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"))).to_string(cryptde)
                         ],
                         rate_pack(100),
                     ),
@@ -2832,8 +2839,8 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![1234]),
-                        vec![NodeDescriptor::from(&neighbor_inside)
-                            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                        vec![NodeDescriptor::from((&neighbor_inside, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
+                            .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -2954,8 +2961,9 @@ mod tests {
         NodeDescriptor::from((
             &node_record_ref.public_key().clone(),
             &node_record_ref.node_addr_opt().unwrap().clone(),
+            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
         ))
-        .to_string(cryptde, DEFAULT_CHAIN_ID)
+        .to_string(cryptde)
     }
 
     #[test]
@@ -3021,8 +3029,9 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &vec![1234, 2345],
                                 ),
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                             ))
-                            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                            .to_string(cryptde)],
                             rate_pack(100),
                         ),
                     },
@@ -3145,8 +3154,9 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &vec![1234, 2345],
                                 ),
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                             ))
-                            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                            .to_string(cryptde)],
                             rate_pack(100),
                         ),
                     },
@@ -3205,7 +3215,7 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
                         vec![
-                            NodeDescriptor::from(&node_record).to_string(cryptde, DEFAULT_CHAIN_ID)
+                            NodeDescriptor::from((&node_record, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"))).to_string(cryptde)
                         ],
                         rate_pack(100),
                     ),
@@ -3265,7 +3275,7 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
                         vec![
-                            NodeDescriptor::from(&node_record).to_string(cryptde, DEFAULT_CHAIN_ID)
+                            NodeDescriptor::from((&node_record, DEFAULT_CHAIN_ID == chain_id_from_name ("mainnet"))).to_string(cryptde)
                         ],
                         rate_pack(100),
                     ),

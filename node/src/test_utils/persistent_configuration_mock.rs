@@ -5,6 +5,7 @@ use crate::sub_lib::wallet::Wallet;
 use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use crate::sub_lib::neighborhood::NodeDescriptor;
 
 type MnemonicSeedParam = (Vec<u8>, String);
 
@@ -29,6 +30,9 @@ pub struct PersistentConfigurationMock {
     set_start_block_transactionally_results: RefCell<Vec<Result<(), String>>>,
     set_gas_price_params: Arc<Mutex<Vec<u64>>>,
     gas_price_results: RefCell<Vec<u64>>,
+    past_neighbors_params: Arc<Mutex<Vec<String>>>,
+    past_neighbors_results: RefCell<Vec<Option<Vec<NodeDescriptor>>>>,
+    set_past_neighbors_params: Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
@@ -106,6 +110,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .lock()
             .unwrap()
             .push(address.to_string());
+    }
+
+    fn past_neighbors(&self, db_password: &str) -> Option<Vec<NodeDescriptor>> {
+        unimplemented!()
+    }
+
+    fn set_past_neighbors(&self, node_descriptors_opt: Option<Vec<NodeDescriptor>>, db_password: &str) {
+        unimplemented!()
     }
 
     fn start_block(&self) -> u64 {

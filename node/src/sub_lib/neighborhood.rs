@@ -20,6 +20,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -119,32 +120,38 @@ impl NeighborhoodMode {
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeDescriptor {
     pub public_key: PublicKey,
+    pub mainnet: bool,
     pub node_addr_opt: Option<NodeAddr>,
 }
 
-impl From<(&PublicKey, &NodeAddr)> for NodeDescriptor {
-    fn from(pair: (&PublicKey, &NodeAddr)) -> Self {
-        let (public_key, node_addr) = pair;
+impl From<(&PublicKey, &NodeAddr, bool)> for NodeDescriptor {
+    fn from(triple: (&PublicKey, &NodeAddr, bool)) -> Self {
+        let (public_key, node_addr, mainnet) = triple;
         NodeDescriptor {
             public_key: public_key.clone(),
+            mainnet,
             node_addr_opt: Some(node_addr.clone()),
         }
     }
 }
 
-impl From<&PublicKey> for NodeDescriptor {
-    fn from(public_key: &PublicKey) -> Self {
+impl From<(&PublicKey, bool)> for NodeDescriptor {
+    fn from(pair: (&PublicKey, bool)) -> Self {
+        let (public_key, mainnet) = pair;
         NodeDescriptor {
             public_key: public_key.clone(),
+            mainnet,
             node_addr_opt: None,
         }
     }
 }
 
-impl From<&NodeRecord> for NodeDescriptor {
-    fn from(node_record: &NodeRecord) -> Self {
+impl From<(&NodeRecord, bool)> for NodeDescriptor {
+    fn from(pair: (&NodeRecord, bool)) -> Self {
+        let (node_record, mainnet) = pair;
         NodeDescriptor {
             public_key: node_record.public_key().clone(),
+            mainnet,
             node_addr_opt: node_record.node_addr_opt(),
         }
     }
@@ -154,17 +161,29 @@ impl NodeDescriptor {
     pub fn from_str(
         cryptde: &dyn CryptDE,
         s: &str,
-        chain_id: u8,
     ) -> Result<NodeDescriptor, String> {
-        let delimiter = node_descriptor_delimiter(chain_id);
-        let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
-
-        if pieces.len() != 2 {
-            return Err(format!(
-                "Should be <public key>{}<node address>, not '{}'",
-                delimiter, s
-            ));
-        }
+        let (delimiter, mainnet, pieces) = {
+            let chain_id = chain_id_from_name("mainnet");
+            let delimiter = node_descriptor_delimiter(chain_id);
+            let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
+            if pieces.len() == 2 {
+                (delimiter, true, pieces)
+            }
+            else {
+                let chain_id = chain_id_from_name("testnet");
+                let delimiter = node_descriptor_delimiter(chain_id);
+                let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
+                if pieces.len() == 2 {
+                    (delimiter, false, pieces)
+                }
+                else {
+                    return Err(format!(
+                        "Should be <public key>[@ | :]<node address>, not '{}'",
+                        s
+                    ));
+                }
+            }
+        };
 
         let public_key = match cryptde.descriptor_fragment_to_first_contact_public_key(pieces[0]) {
             Err(e) => return Err(e),
@@ -184,17 +203,18 @@ impl NodeDescriptor {
 
         Ok(NodeDescriptor {
             public_key,
+            mainnet,
             node_addr_opt,
         })
     }
 
-    pub fn to_string(&self, cryptde: &dyn CryptDE, chain_id: u8) -> String {
+    pub fn to_string(&self, cryptde: &dyn CryptDE) -> String {
         let contact_public_key_string = cryptde.public_key_to_descriptor_fragment(&self.public_key);
         let node_addr_string = match &self.node_addr_opt {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
         };
-        let delimiter = node_descriptor_delimiter(chain_id);
+        let delimiter = if self.mainnet {"@"} else {":"};
         format!(
             "{}{}{}",
             contact_public_key_string, delimiter, node_addr_string
@@ -362,7 +382,6 @@ impl fmt::Display for GossipFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::sub_lib::utils::localhost;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
@@ -402,12 +421,12 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_requires_two_pieces_to_a_configuration() {
-        let result = NodeDescriptor::from_str(main_cryptde(), "only_one_piece", DEFAULT_CHAIN_ID);
+        let result = NodeDescriptor::from_str(main_cryptde(), "only_one_piece");
 
         assert_eq!(
             result,
             Err(String::from(
-                "Should be <public key>:<node address>, not 'only_one_piece'"
+                "Should be <public key>[@ | :]<node address>, not 'only_one_piece'"
             ))
         );
     }
@@ -417,7 +436,6 @@ mod tests {
         let result = NodeDescriptor::from_str(
             main_cryptde(),
             "bad_key:1.2.3.4:1234;2345",
-            DEFAULT_CHAIN_ID,
         );
 
         assert_eq!(
@@ -429,7 +447,7 @@ mod tests {
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
         let result =
-            NodeDescriptor::from_str(main_cryptde(), ":1.2.3.4:1234;2345", DEFAULT_CHAIN_ID);
+            NodeDescriptor::from_str(main_cryptde(), ":1.2.3.4:1234;2345");
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
@@ -437,7 +455,7 @@ mod tests {
     #[test]
     fn node_descriptor_from_str_complains_about_bad_node_addr() {
         let result =
-            NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ==:BadNodeAddr", DEFAULT_CHAIN_ID);
+            NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ==:BadNodeAddr");
 
         assert_eq!(result, Err(String::from("NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'BadNodeAddr'")));
     }
@@ -447,13 +465,13 @@ mod tests {
         let result = NodeDescriptor::from_str(
             main_cryptde(),
             "R29vZEtleQ:1.2.3.4:1234;2345;3456",
-            DEFAULT_CHAIN_ID,
         );
 
         assert_eq!(
             result.unwrap(),
             NodeDescriptor {
                 public_key: PublicKey::new(b"GoodKey"),
+                mainnet: false,
                 node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &vec!(1234, 2345, 3456),
@@ -464,12 +482,13 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path_without_node_addr() {
-        let result = NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ::", DEFAULT_CHAIN_ID);
+        let result = NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ::");
 
         assert_eq!(
             result.unwrap(),
             NodeDescriptor {
                 public_key: PublicKey::new(b"GoodKey"),
+                mainnet: false,
                 node_addr_opt: None
             },
         )
@@ -477,17 +496,16 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_accepts_mainnet_delimiter() {
-        let chain_id = chain_id_from_name("mainnet");
         let result = NodeDescriptor::from_str(
             main_cryptde(),
             "R29vZEtleQ@1.2.3.4:1234;2345;3456",
-            chain_id,
         );
 
         assert_eq!(
             result.unwrap(),
             NodeDescriptor {
                 public_key: PublicKey::new(b"GoodKey"),
+                mainnet: true,
                 node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &vec!(1234, 2345, 3456),
@@ -497,37 +515,67 @@ mod tests {
     }
 
     #[test]
-    fn node_descriptor_from_key_and_node_addr_works() {
+    fn node_descriptor_from_key_node_addr_and_mainnet_flag_works() {
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(
             &IpAddr::from_str("123.45.67.89").unwrap(),
             &vec![2345, 3456],
         );
 
-        let result = NodeDescriptor::from((&public_key, &node_addr));
+        let result = NodeDescriptor::from((&public_key, &node_addr, true));
 
         assert_eq!(
             result,
             NodeDescriptor {
                 public_key,
+                mainnet: true,
                 node_addr_opt: Some(node_addr),
             }
         );
     }
 
     #[test]
-    fn node_descriptor_from_key_works() {
+    fn node_descriptor_from_key_and_mainnet_flag_works() {
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
 
-        let result = NodeDescriptor::from(&public_key);
+        let result = NodeDescriptor::from((&public_key, true));
 
         assert_eq!(
             result,
             NodeDescriptor {
                 public_key,
+                mainnet: true,
                 node_addr_opt: None,
             }
         );
+    }
+
+    #[test]
+    fn node_descriptor_to_string_works_for_mainnet() {
+        let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let node_addr = NodeAddr::new(
+            &IpAddr::from_str("123.45.67.89").unwrap(),
+            &vec![2345, 3456],
+        );
+        let subject = NodeDescriptor::from((&public_key, &node_addr, true));
+
+        let result = subject.to_string(main_cryptde());
+
+        assert_eq!(result, "AQIDBAUGBwg@123.45.67.89:2345;3456".to_string());
+    }
+
+    #[test]
+    fn node_descriptor_to_string_works_for_not_mainnet() {
+        let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let node_addr = NodeAddr::new(
+            &IpAddr::from_str("123.45.67.89").unwrap(),
+            &vec![2345, 3456],
+        );
+        let subject = NodeDescriptor::from((&public_key, &node_addr, false));
+
+        let result = subject.to_string(main_cryptde());
+
+        assert_eq!(result, "AQIDBAUGBwg:123.45.67.89:2345;3456".to_string());
     }
 
     #[test]

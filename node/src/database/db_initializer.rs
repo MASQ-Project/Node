@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.9";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.10";
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
@@ -190,6 +190,7 @@ impl DbInitializerReal {
             format!("{} start block", chain_name_from_id(chain_id)).as_str(),
         );
         Self::set_config_value(conn, "gas_price", Some(DEFAULT_GAS_PRICE), "gas price");
+        Self::set_config_value(conn, "past_neighbors", None, "past neighbors");
         Ok(())
     }
 
@@ -524,6 +525,7 @@ mod tests {
         verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
         verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
+        verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
         verify(
             &mut config_vec,

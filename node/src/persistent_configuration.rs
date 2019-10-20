@@ -10,6 +10,7 @@ use rusqlite::Transaction;
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
+use crate::sub_lib::neighborhood::NodeDescriptor;
 
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
@@ -33,6 +34,8 @@ pub trait PersistentConfiguration: Send {
     fn earning_wallet_from_address(&self) -> Option<Wallet>;
     fn earning_wallet_address(&self) -> Option<String>;
     fn set_earning_wallet_address(&self, address: &str);
+    fn past_neighbors(&self, db_password: &str) -> Option<Vec<NodeDescriptor>>;
+    fn set_past_neighbors(&self, node_descriptors_opt: Option<Vec<NodeDescriptor>>, db_password: &str);
     fn start_block(&self) -> u64;
     fn set_start_block_transactionally(&self, tx: &Transaction, value: u64) -> Result<(), String>;
 }
@@ -276,6 +279,14 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             Ok(_) => (),
             Err(e) => panic!("Error setting earning wallet address: {:?}", e),
         }
+    }
+
+    fn past_neighbors(&self, db_password: &str) -> Option<Vec<NodeDescriptor>> {
+        unimplemented!()
+    }
+
+    fn set_past_neighbors(&self, node_descriptors_opt: Option<Vec<NodeDescriptor>>, db_password: &str) {
+        unimplemented!()
     }
 
     fn start_block(&self) -> u64 {

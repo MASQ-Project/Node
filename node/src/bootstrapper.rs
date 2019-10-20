@@ -49,6 +49,7 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -444,8 +445,8 @@ impl Bootstrapper {
     ) -> String {
         let descriptor = match node_addr_opt {
             Some(node_addr) => {
-                let node_descriptor = NodeDescriptor::from((cryptde.public_key(), &node_addr));
-                node_descriptor.to_string(cryptde, chain_id)
+                let node_descriptor = NodeDescriptor::from((cryptde.public_key(), &node_addr, chain_id == chain_id_from_name("mainnet")));
+                node_descriptor.to_string(cryptde)
             }
             None => format!(
                 "{}::",
@@ -548,6 +549,7 @@ mod tests {
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
 
     lazy_static! {
         static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1365,8 +1367,9 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                 ))
-                .to_string(&cryptde, DEFAULT_CHAIN_ID)],
+                .to_string(&cryptde)],
                 rate_pack(100),
             ),
         };
@@ -1432,8 +1435,9 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                 ))
-                .to_string(&cryptde, DEFAULT_CHAIN_ID)],
+                .to_string(&cryptde)],
                 rate_pack(100),
             ),
         };
@@ -1481,8 +1485,9 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                 ))
-                .to_string(&cryptde, DEFAULT_CHAIN_ID)],
+                .to_string(&cryptde)],
                 rate_pack(100),
             ),
         };
@@ -1516,8 +1521,9 @@ mod tests {
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
             ))
-            .to_string(&cryptde, DEFAULT_CHAIN_ID)]),
+            .to_string(&cryptde)]),
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()

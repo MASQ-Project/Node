@@ -15,6 +15,7 @@ use crate::test_utils::*;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(
@@ -88,8 +89,8 @@ pub fn neighborhood_from_nodes(
     config.neighborhood_config = match neighbor_opt {
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                root.node_addr_opt().expect("Test-drive me!"),
-                vec![NodeDescriptor::from(neighbor).to_string(cryptde, DEFAULT_CHAIN_ID)],
+                root.node_addr_opt().expect("Test-drive me!"), // TODO: Clean this up
+                vec![NodeDescriptor::from((neighbor, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"))).to_string(cryptde)],
                 root.rate_pack().clone(),
             ),
         },

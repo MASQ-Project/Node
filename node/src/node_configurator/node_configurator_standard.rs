@@ -90,9 +90,9 @@ const BLOCKCHAIN_SERVICE_HELP: &str =
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID).";
 const DB_PASSWORD_HELP: &str =
-    "A password or phrase to decrypt the encrypted material in the database, to include your consuming \
-    private key (if applicable) and your list of previous neighbors. If you don't provide this password, \
-    none of the encrypted data in your database will be used.";
+    "A password or phrase to decrypt the encrypted material in the database, to include your \
+    mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
+    password, none of the encrypted data in your database will be used.";
 const DNS_SERVERS_HELP: &str =
     "IP addresses of DNS Servers for host name look-up while providing exit \
      services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)";

@@ -14,6 +14,7 @@ use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::iter::FromIterator;
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct NodeRecordInner {
@@ -103,7 +104,7 @@ impl NodeRecord {
     }
 
     pub fn node_descriptor(&self, cryptde: &dyn CryptDE, chain_id: u8) -> String {
-        NodeDescriptor::from(self).to_string(cryptde, chain_id)
+        NodeDescriptor::from((self, chain_id == chain_id_from_name("mainnet"))).to_string(cryptde)
     }
 
     pub fn set_node_addr(
