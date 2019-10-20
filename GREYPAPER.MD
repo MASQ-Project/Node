@@ -118,9 +118,10 @@ Starting repositories include forks of:
 **Join our Community and Get in Touch with us!**
 
 Get in Touch
- - Telegram
+ - [Telegram]
+ - [Twitter]
  - [GitHub]
- - [MASQ.ai]
+ - [Website]
  
 # REFERENCES
 
@@ -129,8 +130,8 @@ Get in Touch
    [SubNode]: <https://github.com/SubstratumNetwork/SubstratumNode>
    [SubTNT]: <https://github.com/SubstratumNetwork/TNT>
    [sub-contract]: <https://github.com/SubstratumNetwork/sub-contract>
-[//]:   [Telegram]: 
+   [Telegram]: <https://t.me/MASQ_ai>
+   [Twitter]: <https://twitter.com/MASQ_ai>
    [GitHub]: <https://github.com/MASQ-Project>
-   [MASQ.ai]: <https://MASQ.ai>
-[//]:   [Email]:
+   [Website]: <https://MASQ.ai>
    [Encryption Wiki Page]: https://github.com/MASQ-Project/Node/wiki/Encryption-Methods-Explained
