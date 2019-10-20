@@ -120,6 +120,7 @@ Starting repositories include forks of:
 Get in Touch
  - Telegram
  - [GitHub]
+ - [MASQ.ai]
  
 # REFERENCES
 
@@ -130,5 +131,6 @@ Get in Touch
    [sub-contract]: <https://github.com/SubstratumNetwork/sub-contract>
 [//]:   [Telegram]: 
    [GitHub]: <https://github.com/MASQ-Project>
+   [MASQ.ai]: <https://MASQ.ai>
 [//]:   [Email]:
    [Encryption Wiki Page]: https://github.com/MASQ-Project/Node/wiki/Encryption-Methods-Explained
