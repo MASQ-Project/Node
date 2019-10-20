@@ -1,6 +1,8 @@
-MASQ is licensed under the GNU GPL, version 3
+MASQ Node and code under MASQ Project (https://github.com/MASQ-Project) is licensed under the GNU GPL, version 3
 
-This package/repository contains code from the MASQ project and contributors as well as some open-source works - namely the forked code-base of the open-source Substratum repos. You can find the source code of their open source projects along with license information below.
+This package/repository contains code from the MASQ project team and contributors as well as some open-source works - namely
+the forked code-base of the open-source Substratum repos. You can find the source code of their open source projects 
+along with license information below.
 We acknowledge and are grateful to these developers for their contributions to open source.
 
 File Copyrights
