@@ -3,18 +3,22 @@ use crate::config_dao::ConfigDaoError::DatabaseError;
 use crate::database::db_initializer::ConnectionWrapper;
 use rusqlite::types::ToSql;
 use rusqlite::{OptionalExtension, Rows, NO_PARAMS};
+use crate::sub_lib::cryptde::PlainData;
 
 #[derive(Debug, PartialEq)]
 pub enum ConfigDaoError {
     NotPresent,
     TypeError,
+    PasswordError,
     DatabaseError(String),
 }
 
 pub trait ConfigDao: Send {
-    fn get_all(&self) -> Result<Vec<(String, Option<String>)>, ConfigDaoError>;
+    fn get_all(&self, db_password: Option<&str>) -> Result<Vec<(String, Option<String>)>, ConfigDaoError>;
     fn get_string(&self, name: &str) -> Result<String, ConfigDaoError>;
     fn set_string(&self, name: &str, value: &str) -> Result<(), ConfigDaoError>;
+    fn get_bytes_e(&self, name: &str, db_password: &str) -> Result<PlainData, ConfigDaoError>;
+    fn set_bytes_e(&self, name: &str, value: &PlainData, db_password: &str) -> Result<(), ConfigDaoError>;
     fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError>;
     fn clear(&self, name: &str) -> Result<(), ConfigDaoError>;
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError>;
@@ -31,7 +35,7 @@ pub struct ConfigDaoReal {
 }
 
 impl ConfigDao for ConfigDaoReal {
-    fn get_all(&self) -> Result<Vec<(String, Option<String>)>, ConfigDaoError> {
+    fn get_all(&self, _db_password: Option<&str>) -> Result<Vec<(String, Option<String>)>, ConfigDaoError> {
         let mut stmt = self
             .conn
             .prepare("select name, value from config")
@@ -60,6 +64,14 @@ impl ConfigDao for ConfigDaoReal {
 
     fn set_string(&self, name: &str, value: &str) -> Result<(), ConfigDaoError> {
         self.try_update(name, value)
+    }
+
+    fn get_bytes_e(&self, name: &str, db_password: &str) -> Result<PlainData, ConfigDaoError> {
+        unimplemented!()
+    }
+
+    fn set_bytes_e(&self, name: &str, value: &PlainData, db_password: &str) -> Result<(), ConfigDaoError> {
+        unimplemented!()
     }
 
     fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError> {
@@ -174,7 +186,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.get_all().unwrap();
+        let result = subject.get_all(None).unwrap();
 
         assert_contains(
             &result,

@@ -2,6 +2,7 @@
 use crate::config_dao::{ConfigDao, ConfigDaoError};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use crate::sub_lib::cryptde::PlainData;
 
 #[derive(Default)]
 pub struct ConfigDaoMock {
@@ -9,6 +10,10 @@ pub struct ConfigDaoMock {
     get_string_results: RefCell<Vec<Result<String, ConfigDaoError>>>,
     set_string_params: Arc<Mutex<Vec<(String, String)>>>,
     set_string_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
+    get_bytes_e_params: Arc<Mutex<Vec<(String, String)>>>,
+    get_bytes_e_results: RefCell<Vec<Result<PlainData, ConfigDaoError>>>,
+    set_bytes_e_params: Arc<Mutex<Vec<(String, PlainData, String)>>>,
+    set_bytes_e_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
     get_u64_params: Arc<Mutex<Vec<String>>>,
     get_u64_results: RefCell<Vec<Result<u64, ConfigDaoError>>>,
     set_u64_params: Arc<Mutex<Vec<(String, u64)>>>,
@@ -20,7 +25,7 @@ pub struct ConfigDaoMock {
 }
 
 impl ConfigDao for ConfigDaoMock {
-    fn get_all(&self) -> Result<Vec<(String, Option<String>)>, ConfigDaoError> {
+    fn get_all(&self, _db_password: Option<&str>) -> Result<Vec<(String, Option<String>)>, ConfigDaoError> {
         unimplemented!()
     }
 
@@ -38,6 +43,22 @@ impl ConfigDao for ConfigDaoMock {
             .unwrap()
             .push((String::from(name), String::from(value)));
         self.set_string_results.borrow_mut().remove(0)
+    }
+
+    fn get_bytes_e(&self, name: &str, db_password: &str) -> Result<PlainData, ConfigDaoError> {
+        self.get_bytes_e_params
+            .lock()
+            .unwrap()
+            .push((String::from(name), String::from(db_password)));
+        self.get_bytes_e_results.borrow_mut().remove(0)
+    }
+
+    fn set_bytes_e(&self, name: &str, value: &PlainData, db_password: &str) -> Result<(), ConfigDaoError> {
+        self.set_bytes_e_params
+            .lock()
+            .unwrap()
+            .push((String::from(name), value.clone(), String::from(db_password)));
+        self.set_bytes_e_results.borrow_mut().remove(0)
     }
 
     fn get_u64(&self, name: &str) -> Result<u64, ConfigDaoError> {

@@ -20,7 +20,7 @@ pub fn dump_config(args: &Vec<String>, streams: &mut StdStreams) -> i32 {
     let (real_user, data_directory, chain_id) = distill_args(args);
     PrivilegeDropperReal::new().drop_privileges(&real_user);
     let config_dao = make_config_dao(&data_directory, chain_id);
-    let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
+    let configuration = config_dao.get_all(None).expect("Couldn't fetch configuration");
     let json = configuration_to_json(configuration);
     write_string(streams, json);
     0

@@ -3,7 +3,7 @@
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
-use crate::node_configurator::{app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, real_user_arg, request_password_with_confirmation, request_password_with_retry, db_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, DB_PASSWORD_HELP, update_db_password};
+use crate::node_configurator::{app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, real_user_arg, request_password_with_confirmation, request_password_with_retry, db_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, DB_PASSWORD_HELP, update_db_password, mnemonic_seed_exists};
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
@@ -163,7 +163,7 @@ impl NodeConfiguratorGenerateWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
-        if persistent_config.encrypted_mnemonic_seed().is_some() {
+        if mnemonic_seed_exists(persistent_config) {
             panic!("Can't generate wallets: mnemonic seed has already been created")
         }
         self.make_wallet_creation_config(multi_config, streams)
@@ -425,7 +425,6 @@ mod tests {
             "exercise_configure",
         );
         let password = "secret-db-password";
-        let phrase = "llanto elipse chaleco factor setenta dental moneda rasgo gala rostro taco nudillo orador temor puesto";
         let consuming_path = "m/44'/60'/0'/77/78";
         let earning_path = "m/44'/60'/0'/78/77";
         let args = ArgsBuilder::new()
@@ -433,8 +432,8 @@ mod tests {
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--db-password", password)
-            .param("--consuming-wallet", "m/44'/60'/0'/77/78")
-            .param("--earning-wallet", "m/44'/60'/0'/78/77")
+            .param("--consuming-wallet", consuming_path)
+            .param("--earning-wallet", earning_path)
             .param("--language", "español")
             .param("--word-count", "15")
             .param("--mnemonic-passphrase", "Mortimer")

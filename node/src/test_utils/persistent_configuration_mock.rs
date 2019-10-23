@@ -1,5 +1,6 @@
-use crate::blockchain::bip39::Bip39Error;
-use crate::persistent_configuration::PersistentConfiguration;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
+use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigError};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::Transaction;
@@ -17,10 +18,10 @@ pub struct PersistentConfigurationMock {
     check_password_results: RefCell<Vec<Option<bool>>>,
     clandestine_port_results: RefCell<Vec<u16>>,
     set_clandestine_port_params: Arc<Mutex<Vec<u16>>>,
-    encrypted_mnemonic_seed_results: RefCell<Vec<Option<String>>>,
     mnemonic_seed_params: Arc<Mutex<Vec<String>>>,
-    mnemonic_seed_results: RefCell<Vec<Result<PlainData, Bip39Error>>>,
+    mnemonic_seed_results: RefCell<Vec<Result<Option<PlainData>, PersistentConfigError>>>,
     set_mnemonic_seed_params: Arc<Mutex<Vec<MnemonicSeedParam>>>,
+    set_mnemonic_seed_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     consuming_wallet_public_key_results: RefCell<Vec<Option<String>>>,
     consuming_wallet_public_key_params: Arc<Mutex<Vec<String>>>,
     consuming_wallet_derivation_path_results: RefCell<Vec<Option<String>>>,
@@ -34,8 +35,9 @@ pub struct PersistentConfigurationMock {
     set_gas_price_params: Arc<Mutex<Vec<u64>>>,
     gas_price_results: RefCell<Vec<u64>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
-    past_neighbors_results: RefCell<Vec<Option<Vec<NodeDescriptor>>>>,
-    set_past_neighbors_params: Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>
+    past_neighbors_results: RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
+    set_past_neighbors_params: Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>,
+    set_past_neighbors_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
@@ -68,11 +70,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_gas_price_params.lock().unwrap().push(gas_price);
     }
 
-    fn encrypted_mnemonic_seed(&self) -> Option<String> {
-        Self::result_from(&self.encrypted_mnemonic_seed_results)
-    }
-
-    fn mnemonic_seed(&self, db_password: &str) -> Result<PlainData, Bip39Error> {
+    fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError> {
         self.mnemonic_seed_params
             .lock()
             .unwrap()
@@ -80,11 +78,12 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.mnemonic_seed_results)
     }
 
-    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, db_password: &str) {
+    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, db_password: &str) -> Result<(), PersistentConfigError> {
         self.set_mnemonic_seed_params
             .lock()
             .unwrap()
             .push((seed.as_ref().to_vec(), db_password.to_string()));
+        self.set_mnemonic_seed_results.borrow_mut().remove(0)
     }
 
     fn consuming_wallet_public_key(&self) -> Option<String> {
@@ -124,13 +123,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .push(address.to_string());
     }
 
-    fn past_neighbors(&self, db_password: &str) -> Option<Vec<NodeDescriptor>> {
+    fn past_neighbors(&self, db_password: &str) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
         self.past_neighbors_params.lock().unwrap().push(db_password.to_string());
         self.past_neighbors_results.borrow_mut().remove(0)
     }
 
-    fn set_past_neighbors(&self, node_descriptors_opt: Option<Vec<NodeDescriptor>>, db_password: &str) {
+    fn set_past_neighbors(&self, node_descriptors_opt: Option<Vec<NodeDescriptor>>, db_password: &str) -> Result<(), PersistentConfigError>{
         self.set_past_neighbors_params.lock().unwrap().push((node_descriptors_opt, db_password.to_string()));
+        self.set_past_neighbors_results.borrow_mut().remove(0)
     }
 
     fn start_block(&self) -> u64 {
@@ -195,16 +195,6 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn encrypted_mnemonic_seed_result(
-        self,
-        result: Option<String>,
-    ) -> PersistentConfigurationMock {
-        self.encrypted_mnemonic_seed_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
     pub fn mnemonic_seed_params(
         mut self,
         params: &Arc<Mutex<Vec<String>>>,
@@ -215,7 +205,7 @@ impl PersistentConfigurationMock {
 
     pub fn mnemonic_seed_result(
         self,
-        result: Result<PlainData, Bip39Error>,
+        result: Result<Option<PlainData>, PersistentConfigError>,
     ) -> PersistentConfigurationMock {
         self.mnemonic_seed_results.borrow_mut().push(result);
         self
@@ -275,13 +265,18 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn past_neighbors_result(self, result: Option<Vec<NodeDescriptor>>) -> PersistentConfigurationMock {
+    pub fn past_neighbors_result(self, result: Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>) -> PersistentConfigurationMock {
         self.past_neighbors_results.borrow_mut().push(result);
         self
     }
 
     pub fn set_past_neighbors_params(mut self, params: &Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>) -> PersistentConfigurationMock {
         self.set_past_neighbors_params = params.clone();
+        self
+    }
+
+    pub fn set_past_neighbors_result(self, result: Result<(), PersistentConfigError>) -> PersistentConfigurationMock {
+        self.set_past_neighbors_results.borrow_mut().push(result);
         self
     }
 

@@ -2,8 +2,8 @@
 
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
-use crate::node_configurator::{app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg, earning_wallet_arg, exit, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, real_user_arg, request_password_with_confirmation, request_password_with_retry, db_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, DB_PASSWORD_HELP, update_db_password};
-use crate::persistent_configuration::PersistentConfiguration;
+use crate::node_configurator::{app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg, earning_wallet_arg, exit, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, real_user_arg, request_password_with_confirmation, request_password_with_retry, db_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, DB_PASSWORD_HELP, update_db_password, mnemonic_seed_exists};
+use crate::persistent_configuration::{PersistentConfiguration};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
 use bip39::{Language, Mnemonic};
@@ -134,11 +134,11 @@ impl NodeConfiguratorRecoverWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
-        if persistent_config.encrypted_mnemonic_seed().is_some() {
+        if mnemonic_seed_exists(persistent_config) {
             exit(
                 1,
                 "Can't recover wallets: mnemonic seed has already been created",
-            );
+            )
         }
         self.make_wallet_creation_config(multi_config, streams)
     }

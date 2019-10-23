@@ -298,15 +298,11 @@ mod standard {
     use log::LevelFilter;
 
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::bip39::{Bip39Error};
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::PortConfiguration;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
-    use crate::node_configurator::{
-        determine_config_file_path, real_user_data_directory_and_chain_id,
-        request_db_password,
-    };
+    use crate::node_configurator::{determine_config_file_path, real_user_data_directory_and_chain_id, request_existing_db_password, mnemonic_seed_exists};
     use crate::persistent_configuration::{PersistentConfiguration, HTTP_PORT, TLS_PORT};
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
@@ -468,28 +464,25 @@ mod standard {
             standard::get_earning_wallet_from_address(multi_config, persistent_config);
         let mut consuming_wallet_opt =
             standard::get_consuming_wallet_from_private_key(multi_config, persistent_config);
-        let encrypted_mnemonic_seed = persistent_config.encrypted_mnemonic_seed();
         if earning_wallet_opt.is_some()
             && consuming_wallet_opt.is_some()
-            && encrypted_mnemonic_seed.is_some()
+            && mnemonic_seed_exists(persistent_config)
         {
             panic!("Cannot use --consuming-private-key and earning wallet address when database contains mnemonic seed")
         }
 
-        if earning_wallet_opt.is_none() || consuming_wallet_opt.is_none() {
-            if let Some(encrypted_mnemonic_seed) = persistent_config.encrypted_mnemonic_seed() {
-                if let Some(db_password) = standard::get_db_password(multi_config, streams, config, &encrypted_mnemonic_seed) {
-                    if consuming_wallet_opt.is_none() {
-                        consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
-                            persistent_config,
-                            &db_password,
-                        );
-                    } else if persistent_config
-                        .consuming_wallet_derivation_path()
-                        .is_some()
-                    {
-                        panic!("Cannot use --consuming-private-key when database contains mnemonic seed and consuming wallet derivation path")
-                    }
+        if (earning_wallet_opt.is_none() || consuming_wallet_opt.is_none()) && mnemonic_seed_exists(persistent_config) {
+            if let Some(db_password) = standard::get_db_password(multi_config, streams, config, persistent_config) {
+                if consuming_wallet_opt.is_none() {
+                    consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
+                        persistent_config,
+                        &db_password,
+                    );
+                } else if persistent_config
+                    .consuming_wallet_derivation_path()
+                    .is_some()
+                {
+                    panic!("Cannot use --consuming-private-key when database contains mnemonic seed and consuming wallet derivation path")
                 }
             }
         }
@@ -513,7 +506,7 @@ eprintln! ("No neighbors on command line");
                     Some(db_password) => {
 eprintln! ("Found db_password");
                         match persistent_config.past_neighbors(db_password) {
-                            Some(past_neighbors) => {
+                            Ok(Some(past_neighbors)) => {
 eprintln! ("Found past neighbors in database");
                                 let dummy_cryptde = match value_m!(multi_config, "fake-public-key", String) {
                                     Some(_) => unimplemented!(),
@@ -523,7 +516,8 @@ eprintln! ("Found past neighbors in database");
 eprintln! ("Found past neighbors in database: {:?}", result);
                                 result
                             },
-                            None => vec![], // TODO: Write a specific assert for this
+                            Ok(None) => vec![], // TODO: Write a specific assert for this
+                            Err(e) => unimplemented!("Test-drive me: {:?}", e),
                         }
                     },
                     None => vec![], // TODO: Write a specific assert for this
@@ -604,8 +598,8 @@ eprintln! ("Found past neighbors in database: {:?}", result);
         match persistent_config.consuming_wallet_derivation_path() {
             None => None,
             Some(derivation_path) => match persistent_config.mnemonic_seed(db_password) {
-                Err(Bip39Error::NotPresent) => None,
-                Ok(mnemonic_seed) => {
+                Ok(None) => None,
+                Ok(Some(mnemonic_seed)) => {
                     let keypair =
                         Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), &derivation_path)
                             .unwrap_or_else(|_| {
@@ -615,8 +609,8 @@ eprintln! ("Found past neighbors in database: {:?}", result);
                         )
                             });
                     Some(Wallet::from(keypair))
-                }
-                Err(e) => panic!("Error retrieving mnemonic seed from database: {:?}", e),
+                },
+                Err(e) => panic!("{:?}", e)
             },
         }
     }
@@ -655,7 +649,7 @@ eprintln! ("Found past neighbors in database: {:?}", result);
         multi_config: &MultiConfig,
         streams: &mut StdStreams,
         config: &mut BootstrapperConfig,
-        sample_encrypted_thing: &str,
+        persistent_config: &dyn PersistentConfiguration,
     ) -> Option<String> {
         if let Some(db_password) = &config.db_password_opt {
             unimplemented!()
@@ -663,11 +657,11 @@ eprintln! ("Found past neighbors in database: {:?}", result);
         let db_password_opt = match value_user_specified_m!(multi_config, "db-password", String) {
             (Some(dbp), _) => Some (dbp),
             (None, false) => None,
-            (None, true) => request_db_password(
+            (None, true) => request_existing_db_password(
                 streams,
                 Some("Decrypt information from previous runs"),
                 "Enter password: ",
-                sample_encrypted_thing,
+                persistent_config,
             ),
         };
         if db_password_opt.is_some() {
@@ -728,7 +722,6 @@ mod validators {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::blockchain::blockchain_interface::{
         chain_id_from_name, contract_address, DEFAULT_CHAIN_NAME,
     };
@@ -745,12 +738,12 @@ mod tests {
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, DEFAULT_RATE_PACK};
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, DEFAULT_RATE_PACK, NodeDescriptor};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder, TEST_DEFAULT_CHAIN_NAME};
+    use crate::test_utils::{ensure_node_home_directory_exists, ArgsBuilder, TEST_DEFAULT_CHAIN_NAME, main_cryptde};
     use crate::test_utils::{make_default_persistent_configuration, DEFAULT_CHAIN_ID};
     use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
     use ethsign::keyfile::Crypto;
@@ -1287,7 +1280,7 @@ mod tests {
             ),
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5335);
-        let expected_port_list: Vec<u16> = vec![];
+        assert_eq!("Need to check neighbors", "but we're not");
         assert_eq!(
             config.blockchain_bridge_config.blockchain_service_url,
             Some("http://127.0.0.1:8545".to_string()),
@@ -1518,26 +1511,14 @@ mod tests {
         consuming_wallet_private_key_opt: Option<&str>,
         consuming_wallet_derivation_path_opt: Option<&str>,
         earning_wallet_address_opt: Option<&str>,
-        gas_price: Option<&str>,
-        past_neighbors: Option<&str>,
+        gas_price_opt: Option<&str>,
+        past_neighbors_opt: Option<&str>,
     ) -> PersistentConfigurationMock {
-        let (mnemonic_seed_result, encrypted_mnemonic_seed_opt) =
-            match (mnemonic_seed_prefix_opt, db_password_opt) {
-                (None, None) => (Err(Bip39Error::NotPresent), None),
-                (None, Some(_)) => (Err(Bip39Error::NotPresent), None),
-                (Some(mnemonic_seed_prefix), None) => {
-                    let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
-                    let encrypted_mnemonic_seed =
-                        Bip39::encrypt_bytes(&mnemonic_seed, "prompt for me").unwrap();
-                    (Ok(mnemonic_seed), Some(encrypted_mnemonic_seed))
-                }
-                (Some(mnemonic_seed_prefix), Some(db_password)) => {
-                    let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
-                    let encrypted_mnemonic_seed =
-                        Bip39::encrypt_bytes(&mnemonic_seed, db_password).unwrap();
-                    (Ok(mnemonic_seed), Some(encrypted_mnemonic_seed))
-                }
-            };
+        let mnemonic_seed_result = match (mnemonic_seed_prefix_opt, db_password_opt) {
+            (None, None) => Ok(None),
+            (None, Some(_)) => Ok(None),
+            (Some(mnemonic_seed_prefix), _) => Ok(Some (make_mnemonic_seed(mnemonic_seed_prefix))),
+        };
         let consuming_wallet_public_key_opt = match consuming_wallet_private_key_opt {
             None => None,
             Some(consuming_wallet_private_key_hex) => {
@@ -1559,12 +1540,18 @@ mod tests {
             None => None,
             Some(address) => Some(Wallet::from_str(address).unwrap()),
         };
+        let gas_price = gas_price_opt.unwrap_or (DEFAULT_GAS_PRICE).parse::<u64>().unwrap();
+        let past_neighbors_result = match (past_neighbors_opt, db_password_opt) {
+            (Some(past_neighbors), Some(_)) => Ok(Some(past_neighbors.split(",").map(|s| NodeDescriptor::from_str(main_cryptde(), s).unwrap()).collect::<Vec<NodeDescriptor>>())),
+            _ => Ok(None),
+        };
         PersistentConfigurationMock::new()
             .mnemonic_seed_result(mnemonic_seed_result)
-            .encrypted_mnemonic_seed_result(encrypted_mnemonic_seed_opt)
             .consuming_wallet_public_key_result(consuming_wallet_public_key_opt)
             .consuming_wallet_derivation_path_result(consuming_wallet_derivation_path_opt)
             .earning_wallet_from_address_result(earning_wallet_from_address_opt)
+            .gas_price_result(gas_price)
+            .past_neighbors_result(past_neighbors_result)
     }
 
     fn make_mnemonic_seed(prefix: &str) -> PlainData {

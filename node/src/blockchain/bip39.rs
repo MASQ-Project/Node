@@ -118,7 +118,7 @@ mod tests {
     use crate::config_dao::ConfigDaoReal;
     use crate::config_dao::{ConfigDao, ConfigDaoError};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+    use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
     use crate::test_utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use std::sync::{Arc, Mutex};
@@ -139,7 +139,7 @@ mod tests {
 
         persistent_config.set_mnemonic_seed(&expected_seed, password);
 
-        let actual_seed_plain_data: PlainData = persistent_config.mnemonic_seed(password).unwrap();
+        let actual_seed_plain_data: PlainData = persistent_config.mnemonic_seed(password).unwrap().unwrap();
         assert_eq!(expected_seed.as_bytes(), actual_seed_plain_data.as_slice());
     }
 
@@ -179,8 +179,8 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(Bip39Error::ConversionError(
-                "Invalid input length".to_string()
+            Err(PersistentConfigError::DatabaseError(
+                "blah".to_string()
             ))
         );
     }

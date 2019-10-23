@@ -2,7 +2,6 @@
 
 use crate::accountant::payable_dao::Payment;
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::bip39::Bip39Error;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, Transaction,
 };
@@ -224,7 +223,7 @@ impl BlockchainBridge {
             }
         };
         match self.persistent_config.mnemonic_seed(password) {
-            Ok(plain_data) => {
+            Ok(Some (plain_data)) => {
                 let key_pair = Bip32ECKeyPair::from_raw(
                     &plain_data.as_slice(),
                     &consuming_wallet_derivation_path,
@@ -248,7 +247,7 @@ impl BlockchainBridge {
                 );
                 true
             }
-            Err(Bip39Error::NotPresent) => {
+            Ok(None) => {
                 error!(
                     self.logger,
                     "Db password rejected: no mnemonic phrase has been configured"
@@ -268,7 +267,6 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::blockchain::blockchain_interface::{
         contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
         Transactions,
@@ -298,6 +296,7 @@ mod tests {
     use std::thread;
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
+    use crate::persistent_configuration::PersistentConfigError;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -340,10 +339,8 @@ mod tests {
 
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default()
-                .encrypted_mnemonic_seed_result(Some(
-                    Bip39::encrypt_bytes(&seed_bytes, password).unwrap(),
-                ))
-                .mnemonic_seed_result(Ok(PlainData::from(seed_bytes)))
+                // Might need a check_password_result in here
+                .mnemonic_seed_result(Ok(Some (PlainData::from(seed_bytes))))
                 .consuming_wallet_derivation_path_result(Some(
                     DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
                 ));
@@ -415,9 +412,7 @@ mod tests {
 
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default()
-                .mnemonic_seed_result(Err(Bip39Error::DecryptionFailure(
-                    "InvalidPassword".to_string(),
-                )))
+                .mnemonic_seed_result(Err(PersistentConfigError::PasswordError))
                 .consuming_wallet_derivation_path_result(Some(
                     DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
                 ));
@@ -558,7 +553,7 @@ mod tests {
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::new()
                 .consuming_wallet_derivation_path_result(Some("m/44'/60'/1'/2/3".to_string()))
-                .mnemonic_seed_result(Err(Bip39Error::NotPresent));
+                .mnemonic_seed_result(Ok(None));
             let subject = BlockchainBridge::new(
                 &bc_from_wallet(None),
                 stub_bi(),

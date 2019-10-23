@@ -5,12 +5,12 @@ pub mod node_configurator_recover_wallet;
 pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::bip39::{Bip39, Bip39Error};
+use crate::blockchain::bip39::{Bip39};
 use crate::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_NAME};
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::wallet::Wallet;
@@ -338,13 +338,13 @@ pub fn prepare_initialization_mode<'a>(
 
     let (_, data_directory, chain_id) = real_user_data_directory_and_chain_id(&multi_config);
     let persistent_config_box = initialize_database(&data_directory, chain_id);
-    if persistent_config_box.encrypted_mnemonic_seed().is_some() {
+    if mnemonic_seed_exists(persistent_config_box.as_ref()) {
         exit(1, "Cannot re-initialize Node: already initialized")
     }
     (multi_config, persistent_config_box)
 }
 
-pub fn request_wallet_encryption_password(
+pub fn request_new_db_password(
     streams: &mut StdStreams,
     possible_preamble: Option<&str>,
     prompt: &str,
@@ -374,11 +374,11 @@ pub fn request_wallet_encryption_password(
     }
 }
 
-pub fn request_db_password(
+pub fn request_existing_db_password(
     streams: &mut StdStreams,
     possible_preamble: Option<&str>,
     prompt: &str,
-    sample_encrypted_thing: &str,
+    persistent_config: &dyn PersistentConfiguration,
 ) -> Option<String> {
     if let Some(preamble) = possible_preamble {
         flushed_write(streams.stdout, &format!("{}\n", preamble))
@@ -387,10 +387,10 @@ pub fn request_db_password(
         if password.is_empty() {
             return Err("Password must not be blank.".to_string());
         }
-        match Bip39::decrypt_bytes(sample_encrypted_thing, &password) {
-            Ok(_) => Ok(()),
-            Err(Bip39Error::DecryptionFailure(_)) => Err("Incorrect password.".to_string()),
-            Err(e) => panic!("Could not verify password: {:?}", e),
+        match persistent_config.check_password(password) {
+            None => unimplemented!(), //Err("No database password has yet been set"),
+            Some (true) => Ok(()),
+            Some (false) => Err("Incorrect password.".to_string()),
         }
     };
     match request_password_with_retry(prompt, streams, |streams| {
@@ -414,6 +414,13 @@ pub fn cannot_be_blank(password: &str) -> Result<(), String> {
         Err("Password cannot be blank.".to_string())
     } else {
         Ok(())
+    }
+}
+
+pub fn mnemonic_seed_exists(persistent_config: &dyn PersistentConfiguration) -> bool {
+    match persistent_config.mnemonic_seed("bad password") {
+        Ok(Some(_)) | Err(PersistentConfigError::PasswordError) => true,
+        _ => false,
     }
 }
 
@@ -681,7 +688,7 @@ pub trait WalletCreationConfigMaker {
     }
 
     fn make_db_password(&self, streams: &mut StdStreams) -> String {
-        match request_wallet_encryption_password(
+        match request_new_db_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed later)..."),
             "  Enter password: ",
@@ -1119,18 +1126,14 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let mnemonic_seed = Seed::new(
-            &Mnemonic::new(MnemonicType::Words12, Language::English),
-            "phrase",
-        );
-        let encrypted_mnemonic_seed =
-            Bip39::encrypt_bytes(&mnemonic_seed, "Too Many S3cr3ts!").unwrap();
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_result(Some(true));
 
-        let actual = request_db_password(
+        let actual = request_existing_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
-            &encrypted_mnemonic_seed,
+            &persistent_configuration,
         );
 
         assert_eq!(actual, Some("Too Many S3cr3ts!".to_string()));
@@ -1150,17 +1153,14 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let mnemonic_seed = Seed::new(
-            &Mnemonic::new(MnemonicType::Words12, Language::English),
-            "phrase",
-        );
-        let encrypted_mnemonic_seed = Bip39::encrypt_bytes(&mnemonic_seed, "booga").unwrap();
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_result(Some(true));
 
-        let actual = request_db_password(
+        let actual = request_existing_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
-            &encrypted_mnemonic_seed,
+            &persistent_configuration,
         );
 
         assert_eq!(actual, Some("booga".to_string()));
@@ -1184,18 +1184,18 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let mnemonic_seed = Seed::new(
-            &Mnemonic::new(MnemonicType::Words12, Language::English),
-            "phrase",
-        );
-        let encrypted_mnemonic_seed =
-            Bip39::encrypt_bytes(&mnemonic_seed, "Too Many S3cr3ts!").unwrap();
+        let check_password_params_arc = Arc::new (Mutex::new (vec![]));
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_params(&check_password_params_arc)
+            .check_password_result(Some (false))
+            .check_password_result(Some (false))
+            .check_password_result(Some (false));
 
-        let actual = request_db_password(
+        let actual = request_existing_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
-            &encrypted_mnemonic_seed,
+            &persistent_configuration,
         );
 
         assert_eq!(actual, None);
@@ -1210,6 +1210,8 @@ mod tests {
              Incorrect password. Giving up.\n"
                 .to_string()
         );
+        let check_password_params = check_password_params_arc.lock().unwrap();
+        assert_eq! (*check_password_params, vec!["bad password".to_string(), "another bad password".to_string(), "final bad password".to_string()])
     }
 
     #[test]
@@ -1223,7 +1225,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = request_wallet_encryption_password(
+        let actual = request_new_db_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
              later)..."), "  Enter password: ", "Confirm password: ",
@@ -1251,7 +1253,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = request_wallet_encryption_password(
+        let actual = request_new_db_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
              later)..."), "  Enter password: ", "\nConfirm password: ",
@@ -1281,7 +1283,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = request_wallet_encryption_password(
+        let actual = request_new_db_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
              later)..."), "  Enter password: ", "Confirm password: ",
@@ -1610,7 +1612,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .set_password_params (&set_password_params_arc);
 
-        let result = update_db_password(&wallet_config, &persistent_config);
+        update_db_password(&wallet_config, &persistent_config);
 
         let set_password_params = set_password_params_arc.lock().unwrap();
         assert! (set_password_params.is_empty());
@@ -1631,7 +1633,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .set_password_params (&set_password_params_arc);
 
-        let result = update_db_password(&wallet_config, &persistent_config);
+        update_db_password(&wallet_config, &persistent_config);
 
         let set_password_params = set_password_params_arc.lock().unwrap();
         assert_eq!(*set_password_params, vec!["booga".to_string()]);
