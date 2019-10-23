@@ -241,7 +241,6 @@ pub struct BootstrapperConfig {
     // These fields can be set while privileged without penalty
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
-    pub neighborhood_config: NeighborhoodConfig,
     pub accountant_config: AccountantConfig,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
@@ -254,9 +253,11 @@ pub struct BootstrapperConfig {
     pub real_user: RealUser,
 
     // These fields must be set without privilege: otherwise the database will be created as root
+    pub db_password_opt: Option<String>,
     pub clandestine_port_opt: Option<u16>,
     pub consuming_wallet: Option<Wallet>,
     pub earning_wallet: Wallet,
+    pub neighborhood_config: NeighborhoodConfig,
 }
 
 impl Default for BootstrapperConfig {
@@ -271,9 +272,6 @@ impl BootstrapperConfig {
             // These fields can be set while privileged without penalty
             log_level: LevelFilter::Off,
             dns_servers: vec![],
-            neighborhood_config: NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop,
-            },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(DEFAULT_PAYABLE_SCAN_INTERVAL),
                 payment_received_scan_interval: Duration::from_secs(
@@ -298,15 +296,20 @@ impl BootstrapperConfig {
             real_user: RealUser::null(),
 
             // These fields must be set without privilege: otherwise the database will be created as root
+            db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
             consuming_wallet: None,
+            neighborhood_config: NeighborhoodConfig {
+                mode: NeighborhoodMode::ZeroHop,
+            },
         }
     }
 
     pub fn merge_unprivileged(&mut self, unprivileged: BootstrapperConfig) {
         self.blockchain_bridge_config.gas_price = unprivileged.blockchain_bridge_config.gas_price;
         self.clandestine_port_opt = unprivileged.clandestine_port_opt;
+        self.neighborhood_config = unprivileged.neighborhood_config;
         self.earning_wallet = unprivileged.earning_wallet;
         self.consuming_wallet = unprivileged.consuming_wallet;
     }
@@ -870,6 +873,8 @@ mod tests {
         subject.initialize_as_unprivileged(
             &vec![
                 "MASQNode".to_string(),
+                String::from("--ip"),
+                String::from("1.2.3.4"),
                 String::from("--data-directory"),
                 data_dir.to_str().unwrap().to_string(),
             ],
@@ -901,6 +906,8 @@ mod tests {
                 "MASQNode".to_string(),
                 String::from("--data-directory"),
                 data_dir.to_str().unwrap().to_string(),
+                String::from("--ip"),
+                String::from("1.2.3.4"),
                 String::from("--gas-price"),
                 "11".to_string(),
             ],
@@ -1187,24 +1194,26 @@ mod tests {
             .add_listener_handler(Box::new(clandestine_listener_handler))
             .build();
         let mut holder = FakeStreamHolder::new();
-
         subject.initialize_as_privileged(
             &vec![
                 "MASQNode".to_string(),
+//                "--clandestine-port".to_string(),
+//                "1234".to_string(),
                 "--dns-servers".to_string(),
                 "1.1.1.1".to_string(),
-                "--ip".to_string(),
-                "1.2.3.4".to_string(),
                 "--data-directory".to_string(),
                 data_dir.display().to_string(),
             ],
             &mut holder.streams(),
         );
+
         subject.initialize_as_unprivileged(
             &vec![
                 "MASQNode".to_string(),
                 "--clandestine-port".to_string(),
                 "1234".to_string(),
+                "--ip".to_string(),
+                "1.2.3.4".to_string(),
                 String::from("--data-directory"),
                 data_dir.display().to_string(),
             ],

@@ -11,6 +11,7 @@ use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use crate::sub_lib::neighborhood::NodeDescriptor;
+use rand::Rng;
 
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
@@ -20,6 +21,8 @@ pub const TLS_PORT: u16 = 443;
 
 pub trait PersistentConfiguration: Send {
     fn current_schema_version(&self) -> String;
+    fn set_password(&self, db_password: &str);
+    fn check_password(&self, db_password: &str) -> Option<bool>;
     fn clandestine_port(&self) -> u16;
     fn set_clandestine_port(&self, port: u16);
     fn gas_price(&self) -> u64;
@@ -52,6 +55,26 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 "Can't continue; current schema version is inaccessible: {:?}",
                 e
             ),
+        }
+    }
+
+    fn set_password(&self, db_password: &str) {
+        let example_data: Vec<u8> = [0..32].iter().map(|_| rand::thread_rng().gen::<u8>()).collect();
+        let example_encrypted = Bip39::encrypt_bytes(&example_data, db_password)
+            .expect("Encryption failed");
+        self.dao.set_string("example_encrypted", &example_encrypted)
+            .expect("Can't continue; example_encrypted could not be set");
+    }
+
+    fn check_password(&self, db_password: &str) -> Option<bool> {
+        match self.dao.get_string("example_encrypted") {
+            Ok(value) => match Bip39::decrypt_bytes(&value, db_password) {
+                Ok (_) => Some (true),
+                Err (Bip39Error::DecryptionFailure(_)) => Some (false),
+                Err (e) => panic! ("{:?}", e),
+            },
+            Err(ConfigDaoError::NotPresent) => None,
+            Err(e) => panic! ("Can't continue; example_encrypted could not be read: {:?}", e),
         }
     }
 
@@ -419,8 +442,99 @@ mod tests {
 
         assert_eq!("1.2.3".to_string(), result);
         let get_string_params = get_string_params_arc.lock().unwrap();
-        assert_eq!("schema_version".to_string(), get_string_params[0]);
+        assert_eq!(get_string_params[0], "schema_version".to_string());
         assert_eq!(1, get_string_params.len());
+    }
+
+    #[test]
+    fn set_password_works_if_set_string_succeeds() {
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_string_params(&set_string_params_arc)
+            .set_string_result(Ok(()));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_password("password");
+
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert_eq!(set_string_params[0].0, "example_encrypted".to_string());
+        let encrypted_string = set_string_params[0].1.clone();
+        // If this doesn't panic, the test passes
+        Bip39::decrypt_bytes(&encrypted_string, "password").unwrap();
+    }
+
+    #[test]
+    #[should_panic (expected = "Can't continue; example_encrypted could not be set")]
+    fn set_password_panics_if_set_string_fails() {
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_string_params(&set_string_params_arc)
+            .set_string_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_password("password");
+    }
+
+    #[test]
+    fn check_password_works_if_there_is_none() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_string_params(&get_string_params_arc)
+            .get_string_result(Err(ConfigDaoError::NotPresent));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.check_password("password");
+
+        assert_eq! (result, None);
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(1, get_string_params.len());
+    }
+
+    #[test]
+    fn check_password_works_if_password_is_wrong() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let data = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_data = Bip39::encrypt_bytes(&data, "password").unwrap();
+        let config_dao = ConfigDaoMock::new()
+            .get_string_params(&get_string_params_arc)
+            .get_string_result(Ok(encrypted_data));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.check_password("drowssap");
+
+        assert_eq! (result, Some (false));
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(1, get_string_params.len());
+    }
+
+    #[test]
+    fn check_password_works_if_password_is_right() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let data = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_data = Bip39::encrypt_bytes(&data, "password").unwrap();
+        let config_dao = ConfigDaoMock::new()
+            .get_string_params(&get_string_params_arc)
+            .get_string_result(Ok(encrypted_data));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.check_password("password");
+
+        assert_eq! (result, Some (true));
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(1, get_string_params.len());
+    }
+
+    #[test]
+    #[should_panic (expected = "Can't continue; example_encrypted could not be read")]
+    fn check_password_panics_if_get_string_fails() {
+        let config_dao = ConfigDaoMock::new()
+            .get_string_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.check_password("password");
     }
 
     #[test]

@@ -38,6 +38,7 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeighborhoodMode {
+    // TODO: These Vec<String>s should now be able to be converted to Vec<NodeDescriptor>s.
     Standard(NodeAddr, Vec<String>, RatePack),
     ZeroHop,
     OriginateOnly(Vec<String>, RatePack),

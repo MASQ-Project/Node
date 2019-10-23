@@ -3,13 +3,7 @@
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
-use crate::node_configurator::{
-    app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
-    data_directory_arg, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
-    prepare_initialization_mode, real_user_arg, request_password_with_confirmation,
-    request_password_with_retry, db_password_arg, Either, NodeConfigurator,
-    WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, DB_PASSWORD_HELP,
-};
+use crate::node_configurator::{app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, real_user_arg, request_password_with_confirmation, request_password_with_retry, db_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, DB_PASSWORD_HELP, update_db_password};
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
@@ -33,6 +27,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
         let config = self.parse_args(&multi_config, streams, persistent_config);
 
         create_wallet(&config, persistent_config);
+        update_db_password(&config, persistent_config);
 
         config
     }
@@ -324,7 +319,7 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVcl, VirtualCommandLine};
-    use crate::node_configurator::DerivationPathWalletInfo;
+    use crate::node_configurator::{DerivationPathWalletInfo, initialize_database};
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
@@ -424,13 +419,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_creates_configurations() {
+    fn exercise_configure() {
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_generate_wallet",
-            "parse_args_creates_configurations",
+            "exercise_configure",
         );
-
         let password = "secret-db-password";
+        let phrase = "llanto elipse chaleco factor setenta dental moneda rasgo gala rostro taco nudillo orador temor puesto";
+        let consuming_path = "m/44'/60'/0'/77/78";
+        let earning_path = "m/44'/60'/0'/78/77";
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
@@ -441,7 +438,7 @@ mod tests {
             .param("--language", "español")
             .param("--word-count", "15")
             .param("--mnemonic-passphrase", "Mortimer")
-            .param("--real-user", "123:456:/home/booga");
+            .param("--real-user", "123:456:/home/booga").into();
         let mut subject = NodeConfiguratorGenerateWallet::new();
         let make_parameters_arc = Arc::new(Mutex::new(vec![]));
         let expected_mnemonic = Mnemonic::new(MnemonicType::Words15, Language::Spanish);
@@ -449,15 +446,11 @@ mod tests {
             .make_parameters(&make_parameters_arc)
             .make_result(expected_mnemonic.clone());
         subject.mnemonic_factory = Box::new(mnemonic_factory);
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = MultiConfig::new(&subject.app, vcls);
 
-        let config = subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &make_default_persistent_configuration(),
-        );
+        let config = subject.configure(&args, &mut FakeStreamHolder::new().streams());
+
+        let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
+        assert_eq!(persistent_config.check_password (password), Some (true));
         let mut make_parameters = make_parameters_arc.lock().unwrap();
         assert_eq_debug(
             make_parameters.remove(0),

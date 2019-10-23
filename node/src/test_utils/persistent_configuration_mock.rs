@@ -12,6 +12,9 @@ type MnemonicSeedParam = (Vec<u8>, String);
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
     current_schema_version_results: RefCell<Vec<String>>,
+    set_password_params: Arc<Mutex<Vec<String>>>,
+    check_password_params: Arc<Mutex<Vec<String>>>,
+    check_password_results: RefCell<Vec<Option<bool>>>,
     clandestine_port_results: RefCell<Vec<u16>>,
     set_clandestine_port_params: Arc<Mutex<Vec<u16>>>,
     encrypted_mnemonic_seed_results: RefCell<Vec<Option<String>>>,
@@ -38,6 +41,15 @@ pub struct PersistentConfigurationMock {
 impl PersistentConfiguration for PersistentConfigurationMock {
     fn current_schema_version(&self) -> String {
         Self::result_from(&self.current_schema_version_results)
+    }
+
+    fn set_password(&self, db_password: &str) {
+        self.set_password_params.lock().unwrap().push(db_password.to_string());
+    }
+
+    fn check_password(&self, db_password: &str) -> Option<bool> {
+        self.check_password_params.lock().unwrap().push(db_password.to_string());
+        self.check_password_results.borrow_mut().remove(0)
     }
 
     fn clandestine_port(&self) -> u16 {
@@ -146,6 +158,27 @@ impl PersistentConfigurationMock {
         self.current_schema_version_results
             .borrow_mut()
             .push(result);
+        self
+    }
+
+    pub fn set_password_params(
+        mut self,
+        params: &Arc<Mutex<Vec<String>>>,
+    ) -> PersistentConfigurationMock {
+        self.set_password_params = params.clone();
+        self
+    }
+
+    pub fn check_password_params(
+        mut self,
+        params: &Arc<Mutex<Vec<String>>>,
+    ) -> PersistentConfigurationMock {
+        self.check_password_params = params.clone();
+        self
+    }
+
+    pub fn check_password_result(self, result: Option<bool>) -> PersistentConfigurationMock {
+        self.check_password_results.borrow_mut().push(result);
         self
     }
 

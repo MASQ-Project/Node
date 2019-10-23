@@ -270,6 +270,13 @@ pub fn initialize_database(
     Box::new(PersistentConfigurationReal::from(conn))
 }
 
+pub fn update_db_password(wallet_config: &WalletCreationConfig, persistent_config: &dyn PersistentConfiguration) {
+    match &wallet_config.derivation_path_info_opt {
+        Some(dpwi) => persistent_config.set_password(&dpwi.db_password),
+        None => ()
+    }
+}
+
 pub fn real_user_data_directory_and_chain_id(
     multi_config: &MultiConfig,
 ) -> (RealUser, PathBuf, u8) {
@@ -367,11 +374,11 @@ pub fn request_wallet_encryption_password(
     }
 }
 
-pub fn request_wallet_decryption_password(
+pub fn request_db_password(
     streams: &mut StdStreams,
     possible_preamble: Option<&str>,
     prompt: &str,
-    encrypted_mnemonic_seed: &str,
+    sample_encrypted_thing: &str,
 ) -> Option<String> {
     if let Some(preamble) = possible_preamble {
         flushed_write(streams.stdout, &format!("{}\n", preamble))
@@ -380,7 +387,7 @@ pub fn request_wallet_decryption_password(
         if password.is_empty() {
             return Err("Password must not be blank.".to_string());
         }
-        match Bip39::decrypt_bytes(encrypted_mnemonic_seed, &password) {
+        match Bip39::decrypt_bytes(sample_encrypted_thing, &password) {
             Ok(_) => Ok(()),
             Err(Bip39Error::DecryptionFailure(_)) => Err("Incorrect password.".to_string()),
             Err(e) => panic!("Could not verify password: {:?}", e),
@@ -1119,7 +1126,7 @@ mod tests {
         let encrypted_mnemonic_seed =
             Bip39::encrypt_bytes(&mnemonic_seed, "Too Many S3cr3ts!").unwrap();
 
-        let actual = request_wallet_decryption_password(
+        let actual = request_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
@@ -1149,7 +1156,7 @@ mod tests {
         );
         let encrypted_mnemonic_seed = Bip39::encrypt_bytes(&mnemonic_seed, "booga").unwrap();
 
-        let actual = request_wallet_decryption_password(
+        let actual = request_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
@@ -1184,7 +1191,7 @@ mod tests {
         let encrypted_mnemonic_seed =
             Bip39::encrypt_bytes(&mnemonic_seed, "Too Many S3cr3ts!").unwrap();
 
-        let actual = request_wallet_decryption_password(
+        let actual = request_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
@@ -1590,5 +1597,43 @@ mod tests {
             *set_earning_wallet_address_params,
             vec!["0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q".to_string()]
         );
+    }
+
+    #[test]
+    pub fn update_db_password_does_nothing_if_no_derivation_path_info_is_supplied() {
+        let wallet_config = WalletCreationConfig{
+            earning_wallet_address_opt: None,
+            derivation_path_info_opt: None,
+            real_user: RealUser::default()
+        };
+        let set_password_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_password_params (&set_password_params_arc);
+
+        let result = update_db_password(&wallet_config, &persistent_config);
+
+        let set_password_params = set_password_params_arc.lock().unwrap();
+        assert! (set_password_params.is_empty());
+    }
+
+    #[test]
+    pub fn update_db_password_sets_password_if_derivation_path_info_is_supplied() {
+        let wallet_config = WalletCreationConfig{
+            earning_wallet_address_opt: None,
+            derivation_path_info_opt: Some(DerivationPathWalletInfo {
+                mnemonic_seed: PlainData::new(&[]),
+                db_password: "booga".to_string(),
+                consuming_derivation_path_opt: None
+            }),
+            real_user: RealUser::default()
+        };
+        let set_password_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_password_params (&set_password_params_arc);
+
+        let result = update_db_password(&wallet_config, &persistent_config);
+
+        let set_password_params = set_password_params_arc.lock().unwrap();
+        assert_eq!(*set_password_params, vec!["booga".to_string()]);
     }
 }

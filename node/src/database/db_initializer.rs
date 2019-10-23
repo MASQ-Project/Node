@@ -154,6 +154,12 @@ impl DbInitializerReal {
     ) -> Result<(), InitializationError> {
         Self::set_config_value(
             conn,
+            "example_encrypted",
+            None,
+            "example_encrypted",
+        );
+        Self::set_config_value(
+            conn,
             "clandestine_port",
             Some(&Self::choose_clandestine_port().to_string()),
             "clandestine port",
@@ -311,7 +317,7 @@ impl DbInitializerReal {
             .as_str(),
             NO_PARAMS,
         )
-        .unwrap_or_else(|_| panic!("Can't preload config table with {}", readable));
+        .unwrap_or_else(|e| panic!("Can't preload config table with {}: {:?}", readable, e));
     }
 }
 
@@ -524,6 +530,7 @@ mod tests {
         verify(&mut config_vec, "consuming_wallet_derivation_path", None);
         verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
+        verify(&mut config_vec, "example_encrypted", None);
         verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
         verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
