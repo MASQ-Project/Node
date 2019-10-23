@@ -65,10 +65,7 @@ impl ConfigDao for ConfigDaoReal {
     }
 
     fn check_password(&self, db_password: &str) -> Result<bool, ConfigDaoError> {
-        let encrypted_string = match self.get_string("example_encrypted") {
-            Ok(s) => s,
-            Err(e) => return Err(e),
-        };
+        let encrypted_string = self.get_string("example_encrypted")?;
         match Bip39::decrypt_bytes(&encrypted_string, db_password) {
             Ok(_) => Ok(true),
             Err(Bip39Error::DecryptionFailure(_)) => Ok(false),
@@ -78,15 +75,16 @@ impl ConfigDao for ConfigDaoReal {
 
     fn change_password(&self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), ConfigDaoError> {
         if let Some(old_password) = old_password_opt {
-            if !self.check_password(old_password)? {
-                unimplemented!()
-//                return Err(ConfigDaoError::PasswordError)
+            match self.check_password(old_password) {
+                Ok(true) => (),
+                Ok(false) => return Err(ConfigDaoError::PasswordError),
+                Err(ConfigDaoError::NotPresent) => return Err(ConfigDaoError::PasswordError),
+                Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{:?}", e))),
             }
         }
         else {
             if self.check_password("bad password") != Err(ConfigDaoError::NotPresent) {
-                unimplemented!()
-//                return Err(ConfigDaoError::PasswordError)
+                return Err(ConfigDaoError::PasswordError)
             }
         }
         let example_data: Vec<u8> = [0..32].iter().map(|_| rand::thread_rng().gen::<u8>()).collect();
@@ -118,10 +116,10 @@ impl ConfigDao for ConfigDaoReal {
                 Err(e) => return Err(e),
                 Ok(encrypted_value) => {
                     match Bip39::decrypt_bytes(&encrypted_value, old_password_opt.expect("Old password disappeared")) {
-                        Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{:?}", e))), // TODO: Flesh this out
+                        Err(e) => return Err(ConfigDaoError::DatabaseError(format!("Corrupt encrypted value for {}: {:?}", name, e))),
                         Ok(plain_data) => {
                             let reencrypted = match Bip39::encrypt_bytes(&plain_data.as_slice(), new_password) {
-                                Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{:?}", e))), // TODO: Flesh this out
+                                Err(e) => return Err(ConfigDaoError::DatabaseError(format!("Error reencrypting {}: {:?}", name, e))),
                                 Ok(s) => s
                             };
                             self.set_string (&name, &reencrypted)?;
@@ -386,8 +384,58 @@ mod tests {
     }
 
     #[test]
-    fn change_password_works() {
-        let home_dir = ensure_node_home_directory_exists("node", "change_password_works");
+    fn change_password_complains_if_given_no_old_password_when_an_old_password_exists() {
+        let home_dir = ensure_node_home_directory_exists("node", "change_password_complains_if_given_no_old_password_when_an_old_password_exists");
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
+        let old_password = "old password";
+        let new_password = "new password";
+        subject.change_password(None, old_password).unwrap();
+
+        let result = subject.change_password(None, new_password);
+
+        assert_eq! (result, Err(ConfigDaoError::PasswordError));
+    }
+
+    #[test]
+    fn change_password_complains_if_given_old_password_when_no_old_password_exists() {
+        let home_dir = ensure_node_home_directory_exists("node", "change_password_complains_if_given_old_password_when_no_old_password_exists");
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
+        let old_password = "old password";
+        let new_password = "new password";
+
+        let result = subject.change_password(Some(old_password), new_password);
+
+        assert_eq! (result, Err(ConfigDaoError::PasswordError));
+    }
+
+    #[test]
+    fn change_password_complains_if_given_incorrect_old_password() {
+        let home_dir = ensure_node_home_directory_exists("node", "change_password_complains_if_given_incorrect_old_password");
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .unwrap(),
+        );
+        let old_password = "old password";
+        let new_password = "new password";
+        subject.change_password(None, old_password).unwrap();
+
+        let result = subject.change_password(Some(new_password), new_password);
+
+        assert_eq! (result, Err(ConfigDaoError::PasswordError));
+    }
+
+    #[test]
+    fn change_password_works_when_old_password_exists() {
+        let home_dir = ensure_node_home_directory_exists("node", "change_password_works_when_old_password_exists");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID)
