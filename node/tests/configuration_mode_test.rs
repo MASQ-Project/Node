@@ -89,7 +89,7 @@ fn create_database_recovering_both_derivation_paths_integration() {
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
+        persistent_config.mnemonic_seed(PASSWORD).unwrap().unwrap().as_ref(),
         expected_seed.as_ref()
     );
     assert_eq!(
@@ -140,7 +140,7 @@ fn create_database_recovering_only_earning_derivation_path_integration() {
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
+        persistent_config.mnemonic_seed(PASSWORD).unwrap().unwrap().as_ref(),
         expected_seed.as_ref()
     );
     assert_eq!(
@@ -169,7 +169,7 @@ fn create_database_recovering_only_earning_address_integration() {
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
+        persistent_config.mnemonic_seed(PASSWORD).unwrap().unwrap().as_ref(),
         expected_seed.as_ref()
     );
     assert_eq!(
@@ -198,7 +198,7 @@ fn create_database_recovering_only_consuming_derivation_path_integration() {
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
+        persistent_config.mnemonic_seed(PASSWORD).unwrap().unwrap().as_ref(),
         expected_seed.as_ref()
     );
     assert_eq!(

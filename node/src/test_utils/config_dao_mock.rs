@@ -29,6 +29,14 @@ impl ConfigDao for ConfigDaoMock {
         unimplemented!()
     }
 
+    fn check_password(&self, db_password: &str) -> Result<bool, ConfigDaoError> {
+        unimplemented!()
+    }
+
+    fn change_password(&self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), ConfigDaoError> {
+        unimplemented!()
+    }
+
     fn get_string(&self, name: &str) -> Result<String, ConfigDaoError> {
         self.get_string_params
             .lock()
@@ -118,6 +126,29 @@ impl ConfigDaoMock {
 
     pub fn set_string_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
         self.set_string_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_bytes_e_params(mut self, params_arc: &Arc<Mutex<Vec<(String, String)>>>) -> ConfigDaoMock {
+        self.get_bytes_e_params = params_arc.clone();
+        self
+    }
+
+    pub fn get_bytes_e_result(self, result: Result<PlainData, ConfigDaoError>) -> ConfigDaoMock {
+        self.get_bytes_e_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_bytes_e_params(
+        mut self,
+        params_arc: &Arc<Mutex<Vec<(String, PlainData, String)>>>,
+    ) -> ConfigDaoMock {
+        self.set_bytes_e_params = params_arc.clone();
+        self
+    }
+
+    pub fn set_bytes_e_result(self, result: Result<(), ConfigDaoError>) -> ConfigDaoMock {
+        self.set_bytes_e_results.borrow_mut().push(result);
         self
     }
 

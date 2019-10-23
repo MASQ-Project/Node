@@ -243,7 +243,7 @@ pub fn create_wallet(
         persistent_config.set_mnemonic_seed(
             &derivation_path_info.mnemonic_seed,
             &derivation_path_info.db_password,
-        );
+        ).expect ("Failed to set mnemonic seed");
         if let Some(consuming_derivation_path) = &derivation_path_info.consuming_derivation_path_opt
         {
             persistent_config.set_consuming_wallet_derivation_path(

@@ -33,7 +33,6 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.conn.prepare(query)
     }
-
     fn transaction(&mut self) -> Result<Transaction, Error> {
         self.conn.transaction()
     }
