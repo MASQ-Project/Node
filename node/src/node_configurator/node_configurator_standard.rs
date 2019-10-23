@@ -651,8 +651,8 @@ eprintln! ("Found past neighbors in database: {:?}", result);
         config: &mut BootstrapperConfig,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Option<String> {
-        if let Some(db_password) = &config.db_password_opt {
-            unimplemented!()
+        if let Some(_db_password) = &config.db_password_opt {
+            unimplemented!("TODO: Test-drive me!")
         }
         let db_password_opt = match value_user_specified_m!(multi_config, "db-password", String) {
             (Some(dbp), _) => Some (dbp),

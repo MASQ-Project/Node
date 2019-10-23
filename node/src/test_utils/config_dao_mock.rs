@@ -29,11 +29,11 @@ impl ConfigDao for ConfigDaoMock {
         unimplemented!()
     }
 
-    fn check_password(&self, db_password: &str) -> Result<bool, ConfigDaoError> {
+    fn check_password(&self, _db_password: &str) -> Result<bool, ConfigDaoError> {
         unimplemented!()
     }
 
-    fn change_password(&self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), ConfigDaoError> {
+    fn change_password(&self, _old_password_opt: Option<&str>, _new_password: &str) -> Result<(), ConfigDaoError> {
         unimplemented!()
     }
 

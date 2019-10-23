@@ -966,7 +966,7 @@ mod tests {
                 .initialize(&data_dir, DEFAULT_CHAIN_ID)
                 .unwrap();
             let persistent_config = PersistentConfigurationReal::from(conn);
-            persistent_config.set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password");
+            persistent_config.set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password").unwrap();
         }
         let app = App::new("test".to_string())
             .arg(data_directory_arg())

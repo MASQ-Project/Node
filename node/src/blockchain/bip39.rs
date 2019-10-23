@@ -137,7 +137,7 @@ mod tests {
         let mnemonic_value = Bip39::mnemonic(MnemonicType::Words12, Language::English);
         let expected_seed = Bip39::seed(&mnemonic_value, "Test123!Test456!");
 
-        persistent_config.set_mnemonic_seed(&expected_seed, password);
+        persistent_config.set_mnemonic_seed(&expected_seed, password).unwrap();
 
         let actual_seed_plain_data: PlainData = persistent_config.mnemonic_seed(password).unwrap().unwrap();
         assert_eq!(expected_seed.as_bytes(), actual_seed_plain_data.as_slice());
@@ -166,7 +166,7 @@ mod tests {
                 password,
             ),
             password,
-        );
+        ).unwrap();
     }
 
     #[test]

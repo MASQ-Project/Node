@@ -6,7 +6,6 @@ use rusqlite::{OptionalExtension, Rows, NO_PARAMS};
 use crate::sub_lib::cryptde::PlainData;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use rand::Rng;
-use itertools::Itertools;
 
 #[derive(Debug, PartialEq)]
 pub enum ConfigDaoError {
@@ -147,7 +146,7 @@ impl ConfigDao for ConfigDaoReal {
         };
         match Bip39::decrypt_bytes(&encrypted_string, &db_password) {
             Ok(data) => Ok(data),
-            Err(Bip39Error::DecryptionFailure(s)) => Err(ConfigDaoError::PasswordError),
+            Err(Bip39Error::DecryptionFailure(_)) => Err(ConfigDaoError::PasswordError),
             Err(e) => Err(ConfigDaoError::CryptoError(format! ("Can't decrypt value for {}: {:?}", name, e))),
         }
     }
@@ -346,7 +345,7 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID)
                 .unwrap(),
         );
-        subject.change_password(None, "password");
+        subject.change_password(None, "password").unwrap();
 
         let result = subject.check_password ("drowssap");
 
@@ -361,7 +360,7 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID)
                 .unwrap(),
         );
-        subject.change_password(None, "password");
+        subject.change_password(None, "password").unwrap();
 
         let result = subject.check_password ("password");
 
@@ -747,7 +746,7 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID)
                 .unwrap(),
         );
-        subject.change_password(None, "password");
+        subject.change_password(None, "password").unwrap();
 
         let result = subject.set_bytes_e("booga", &data, "drowssap");
 
