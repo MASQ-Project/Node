@@ -310,17 +310,18 @@ mod standard {
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{PlainData, PublicKey, CryptDE};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::neighborhood::{
         NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
     };
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::DEFAULT_CHAIN_ID;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use rustc_hex::{FromHex, ToHex};
     use std::convert::TryInto;
     use std::str::FromStr;
+    use itertools::Itertools;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
+    use crate::test_utils::DEFAULT_CHAIN_ID;
 
     pub fn make_service_mode_multi_config<'a>(app: &'a App, args: &Vec<String>) -> MultiConfig<'a> {
         let (config_file_path, user_specified) = determine_config_file_path(app, args);
@@ -515,10 +516,23 @@ mod standard {
         persistent_config: &dyn PersistentConfiguration,
         unprivileged_config: &mut BootstrapperConfig,
     ) -> NeighborhoodConfig {
-        let neighbor_configs: Vec<String> = {
+        let neighbor_configs: Vec<NodeDescriptor> = {
             let cli_configs = values_m!(multi_config, "neighbors", String);
             if !cli_configs.is_empty() {
-                cli_configs
+                let dummy_cryptde: Box<dyn CryptDE> = {
+                    if value_m!(multi_config, "fake-public-key", String) == None {
+                        Box::new(CryptDEReal::new(DEFAULT_CHAIN_ID))
+                    }
+                    else {
+                        Box::new(CryptDENull::new(DEFAULT_CHAIN_ID))
+                    }
+                };
+                cli_configs.into_iter()
+                    .map (|s| match NodeDescriptor::from_str (dummy_cryptde.as_ref(), &s) {
+                        Ok(nd) => nd,
+                        Err(_) => unimplemented!("TODO Test-drive me"),
+                    })
+                    .collect_vec()
             } else {
                 get_past_neighbors(multi_config, streams, persistent_config, unprivileged_config)
             }
@@ -533,22 +547,11 @@ mod standard {
         streams: &mut StdStreams,
         persistent_config: &dyn PersistentConfiguration,
         unprivileged_config: &mut BootstrapperConfig,
-    ) -> Vec<String> {
+    ) -> Vec<NodeDescriptor> {
         match &standard::get_db_password(multi_config, streams, unprivileged_config, persistent_config) {
             Some(db_password) => {
                 match persistent_config.past_neighbors(db_password) {
-                    Ok(Some(past_neighbors)) => {
-                        let dummy_cryptde_box: Box<dyn CryptDE> =
-                            match value_m!(multi_config, "fake-public-key", String) {
-                                Some(_) => Box::new (CryptDENull::new(DEFAULT_CHAIN_ID)),
-                                None => Box::new (CryptDEReal::new(DEFAULT_CHAIN_ID)),
-                            };
-                        let result = past_neighbors
-                            .into_iter()
-                            .map(|nd: NodeDescriptor| nd.to_string(dummy_cryptde_box.as_ref()))
-                            .collect::<Vec<String>>();
-                        result
-                    }
+                    Ok(Some(past_neighbors)) => past_neighbors,
                     Ok(None) => vec![], // TODO: Write a specific assert for this
                     Err(e) => unimplemented!("TODO: Test-drive me: {:?}", e),
                 }
@@ -557,7 +560,7 @@ mod standard {
         }
     }
 
-    fn make_neighborhood_mode(multi_config: &MultiConfig, neighbor_configs: Vec<String>) -> NeighborhoodMode {
+    fn make_neighborhood_mode(multi_config: &MultiConfig, neighbor_configs: Vec<NodeDescriptor>) -> NeighborhoodMode {
         match value_m! (multi_config, "neighborhood-mode", String) {
             Some (ref s) if s == "standard" => NeighborhoodMode::Standard (
                 NodeAddr::new (&value_m! (multi_config, "ip", IpAddr).expect ("Node cannot run as --neighborhood_mode standard without --ip specified"), &vec![]),
@@ -793,6 +796,7 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new()
@@ -963,7 +967,7 @@ mod tests {
                     .param("--ip", "1.2.3.4")
                     .param(
                         "--neighbors",
-                        "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+                        "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4:1.2.3.4:1234;2345,Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk:2.3.4.5:3456;4567",
                     )
                     .into(),
             ))],
@@ -976,14 +980,15 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
+        let dummy_cryptde = CryptDEReal::new(DEFAULT_CHAIN_ID);
         assert_eq!(
             result,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![]),
                     vec![
-                        "QmlsbA:1.2.3.4:1234;2345".to_string(),
-                        "VGVk:2.3.4.5:3456;4567".to_string()
+                        NodeDescriptor::from_str(&dummy_cryptde, "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4:1.2.3.4:1234;2345").unwrap(),
+                        NodeDescriptor::from_str(&dummy_cryptde, "Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk:2.3.4.5:3456;4567").unwrap()
                     ],
                     DEFAULT_RATE_PACK
                 )
@@ -1005,6 +1010,7 @@ mod tests {
                         "--neighbors",
                         "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
                     )
+                    .param("--fake-public-key", "booga")
                     .into(),
             ))],
         );
@@ -1028,6 +1034,7 @@ mod tests {
                         "--neighbors",
                         "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
                     )
+                    .param("--fake-public-key", "booga")
                     .into(),
             ))],
         );
@@ -1044,8 +1051,8 @@ mod tests {
             NeighborhoodConfig {
                 mode: NeighborhoodMode::OriginateOnly(
                     vec![
-                        "QmlsbA:1.2.3.4:1234;2345".to_string(),
-                        "VGVk:2.3.4.5:3456;4567".to_string()
+                        NodeDescriptor::from_str(main_cryptde(), "QmlsbA:1.2.3.4:1234;2345").unwrap(),
+                        NodeDescriptor::from_str(main_cryptde(), "VGVk:2.3.4.5:3456;4567").unwrap()
                     ],
                     DEFAULT_RATE_PACK
                 )
@@ -1086,6 +1093,7 @@ mod tests {
                         "--neighbors",
                         "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
                     )
+                    .param("--fake-public-key", "booga")
                     .into(),
             ))],
         );
@@ -1101,8 +1109,8 @@ mod tests {
             result,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
-                    "QmlsbA:1.2.3.4:1234;2345".to_string(),
-                    "VGVk:2.3.4.5:3456;4567".to_string()
+                    NodeDescriptor::from_str(main_cryptde(), "QmlsbA:1.2.3.4:1234;2345").unwrap(),
+                    NodeDescriptor::from_str(main_cryptde(), "VGVk:2.3.4.5:3456;4567").unwrap()
                 ],)
             }
         );
@@ -1193,6 +1201,7 @@ mod tests {
                         "--neighbors",
                         "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
                     )
+                    .param("--fake-public-key", "booga")
                     .into(),
             ))],
         );
@@ -1456,8 +1465,8 @@ mod tests {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &vec![]),
                     vec![
-                        "QmlsbA:1.2.3.4:1234;2345".to_string(),
-                        "VGVk:2.3.4.5:3456;4567".to_string(),
+                        NodeDescriptor::from_str(main_cryptde(), "QmlsbA:1.2.3.4:1234;2345").unwrap(),
+                        NodeDescriptor::from_str(main_cryptde(), "VGVk:2.3.4.5:3456;4567").unwrap(),
                     ],
                     DEFAULT_RATE_PACK.clone()
                 )
@@ -1539,8 +1548,8 @@ mod tests {
         assert_eq!(
             config.neighborhood_config.mode.neighbor_configs(),
             &vec![
-                "AQIDBA:1.2.3.4:1234".to_string(),
-                "AgMEBQ:2.3.4.5:2345".to_string(),
+                NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234").unwrap(),
+                NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
             ]
         );
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();

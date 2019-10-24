@@ -104,8 +104,8 @@ impl NodeRecord {
         self.metadata.node_addr_opt.clone()
     }
 
-    pub fn node_descriptor(&self, cryptde: &dyn CryptDE, chain_id: u8) -> String {
-        NodeDescriptor::from((self, chain_id == chain_id_from_name("mainnet"))).to_string(cryptde)
+    pub fn node_descriptor(&self, chain_id: u8, cryptde: &dyn CryptDE) -> NodeDescriptor {
+        NodeDescriptor::from((self, chain_id == chain_id_from_name("mainnet"), cryptde))
     }
 
     pub fn set_node_addr(
@@ -414,24 +414,26 @@ mod tests {
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_present() {
+        let cryptde: &dyn CryptDE = main_cryptde();
         let mut subject = make_node_record(1234, true);
         subject.metadata.node_addr_opt = Some(NodeAddr::new(
             &subject.metadata.node_addr_opt.unwrap().ip_addr(),
             &vec![1234, 2345],
         ));
 
-        let result = subject.node_descriptor(main_cryptde(), DEFAULT_CHAIN_ID);
+        let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
 
-        assert_eq!(result, "AQIDBA:1.2.3.4:1234;2345".to_string());
+        assert_eq!(result, NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234;2345").unwrap());
     }
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_not_present() {
+        let cryptde: &dyn CryptDE = main_cryptde();
         let subject: NodeRecord = make_node_record(1234, false);
 
-        let result = subject.node_descriptor(main_cryptde(), DEFAULT_CHAIN_ID);
+        let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
 
-        assert_eq!(result, "AQIDBA::".to_string());
+        assert_eq!(result, NodeDescriptor::from_str(main_cryptde(), "AQIDBA::").unwrap());
     }
 
     #[test]

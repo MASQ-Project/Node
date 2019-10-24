@@ -452,6 +452,7 @@ impl Bootstrapper {
                     cryptde.public_key(),
                     &node_addr,
                     chain_id == chain_id_from_name("mainnet"),
+                    cryptde,
                 ));
                 node_descriptor.to_string(cryptde)
             }
@@ -1372,7 +1373,8 @@ mod tests {
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
         );
-        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde: &dyn CryptDE = &cryptde_actual;
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
@@ -1381,8 +1383,8 @@ mod tests {
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
-                ))
-                .to_string(&cryptde)],
+                    cryptde,
+                ))],
                 rate_pack(100),
             ),
         };
@@ -1436,7 +1438,8 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_unspecified_port_in_standard_mode() {
-        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_unspecified_port",
@@ -1449,8 +1452,8 @@ mod tests {
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
-                ))
-                .to_string(&cryptde)],
+                    cryptde,
+                ))],
                 rate_pack(100),
             ),
         };
@@ -1485,7 +1488,8 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_originate_only() {
-        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_originate_only",
@@ -1499,8 +1503,8 @@ mod tests {
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
-                ))
-                .to_string(&cryptde)],
+                    cryptde,
+                ))],
                 rate_pack(100),
             ),
         };
@@ -1522,7 +1526,8 @@ mod tests {
 
     #[test]
     fn establish_clandestine_port_handles_consume_only() {
-        let cryptde = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
+        let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_originate_only",
@@ -1535,8 +1540,8 @@ mod tests {
                 cryptde.public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
                 DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
-            ))
-            .to_string(&cryptde)]),
+                cryptde,
+            ))]),
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()

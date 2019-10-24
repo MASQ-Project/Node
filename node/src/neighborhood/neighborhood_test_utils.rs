@@ -81,7 +81,7 @@ pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,
 ) -> Neighborhood {
-    let cryptde = main_cryptde();
+    let cryptde: &dyn CryptDE = main_cryptde();
     if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }
@@ -93,8 +93,8 @@ pub fn neighborhood_from_nodes(
                 vec![NodeDescriptor::from((
                     neighbor,
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
-                ))
-                .to_string(cryptde)],
+                    cryptde,
+                ))],
                 root.rate_pack().clone(),
             ),
         },
