@@ -219,6 +219,14 @@ impl PersistentConfigurationMock {
         self
     }
 
+    pub fn set_mnemonic_seed_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_mnemonic_seed_results.borrow_mut().push(result);
+        self
+    }
+
     pub fn consuming_wallet_public_key_result(
         self,
         result: Option<String>,

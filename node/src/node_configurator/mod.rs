@@ -1524,6 +1524,7 @@ mod tests {
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
+            .set_mnemonic_seed_result(Ok(()))
             .set_consuming_wallet_derivation_path_params(
                 &set_consuming_wallet_derivation_path_params_arc,
             )
@@ -1570,6 +1571,7 @@ mod tests {
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
+            .set_mnemonic_seed_result(Ok(()))
             .set_consuming_wallet_derivation_path_params(
                 &set_consuming_wallet_derivation_path_params_arc,
             )

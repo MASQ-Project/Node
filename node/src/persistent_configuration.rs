@@ -705,7 +705,7 @@ mod tests {
 
         let result = subject.set_mnemonic_seed(&make_meaningless_seed(), "password");
 
-        assert_eq! (result, Err(PersistentConfigError::DatabaseError("Here's your problem".to_string())));
+        assert_eq! (result, Err(PersistentConfigError::DatabaseError("Can't continue; mnemonic seed configuration is inaccessible: DatabaseError(\"Here\\'s your problem\")".to_string())));
     }
 
     #[test]

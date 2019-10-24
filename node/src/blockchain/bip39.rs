@@ -115,73 +115,14 @@ impl Bip39 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config_dao::ConfigDaoReal;
-    use crate::config_dao::{ConfigDao, ConfigDaoError};
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
-    use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn test_seed_store_and_read() {
-        let home_dir = ensure_node_home_directory_exists("blockchain", "test-seed-store-and-read");
-        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
-                .unwrap(),
-        ));
-        let persistent_config = PersistentConfigurationReal::from(config_dao);
-        let password = "You-Sh0uld-Ch4nge-Me-Now!!";
-
-        let mnemonic_value = Bip39::mnemonic(MnemonicType::Words12, Language::English);
-        let expected_seed = Bip39::seed(&mnemonic_value, "Test123!Test456!");
-
-        persistent_config.set_mnemonic_seed(&expected_seed, password).unwrap();
-
-        let actual_seed_plain_data: PlainData = persistent_config.mnemonic_seed(password).unwrap().unwrap();
-        assert_eq!(expected_seed.as_bytes(), actual_seed_plain_data.as_slice());
-    }
-
-    #[test]
-    #[should_panic(
-        expected = r#"Can't continue; mnemonic seed configuration is inaccessible: DatabaseError("one two three")"#
-    )]
-    fn storing_mnemonic_seed_panics_when_database_is_inaccessible() {
-        let set_string_params_arc =
-            Arc::new(Mutex::new(vec![("seed".to_string(), "".to_string())]));
-        let config_dao: Box<dyn ConfigDao> = Box::new(
-            ConfigDaoMock::new()
-                .set_string_params(&set_string_params_arc)
-                .set_string_result(Err(ConfigDaoError::DatabaseError(
-                    "one two three".to_string(),
-                ))),
-        );
-        let persistent_config = PersistentConfigurationReal::from(config_dao);
-        let password = "You-Sh0uld-Ch4nge-Me-Now!!";
-
-        persistent_config.set_mnemonic_seed(
-            &Bip39::seed(
-                &Bip39::mnemonic(MnemonicType::Words12, Language::English),
-                password,
-            ),
-            password,
-        ).unwrap();
-    }
 
     #[test]
     fn returns_conversion_error_for_odd_number_of_hex_digits_appropriately() {
-        let config_dao: Box<dyn ConfigDao> =
-            Box::new(ConfigDaoMock::new().get_string_result(Ok("123".to_string())));
-        let persistent_config = PersistentConfigurationReal::from(config_dao);
-
-        let result = persistent_config.mnemonic_seed("");
+        let result = Bip39::decrypt_bytes("123", "");
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::DatabaseError(
-                "blah".to_string()
-            ))
+            Err(Bip39Error::ConversionError("Invalid input length".to_string()))
         );
     }
 

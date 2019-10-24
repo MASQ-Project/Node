@@ -63,7 +63,7 @@ fn http_end_to_end_routing_test() {
     assert_eq!(
         index_of(
             &response,
-            &b"This domain is established to be used for illustrative examples in documents."[..]
+            &b"<h1>Example Domain</h1>"[..]
         )
         .is_some(),
         true,
@@ -113,7 +113,7 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
     assert_eq!(
         index_of(
             &response,
-            &b"This domain is established to be used for illustrative examples in documents."[..]
+            &b"<h1>Example Domain</h1>"[..]
         )
         .is_some(),
         true,
@@ -199,13 +199,12 @@ fn tls_end_to_end_routing_test() {
     assert_eq!(&response[9..15], &"200 OK"[..]);
     assert_eq!(
         response.contains(
-            "This domain is established to be used for illustrative examples in documents."
+            "<h1>Example Domain</h1>"
         ),
         true,
         "{}",
         response
     );
-    assert_eq!(response.contains("You may use this\n    domain in examples without prior coordination or asking for permission."), true, "{}", response);
 }
 
 #[test]
@@ -317,7 +316,7 @@ fn multiple_stream_zero_hop_test() {
     assert_eq!(
         index_of(
             &one_response,
-            &b"This domain is established to be used for illustrative examples in documents."[..]
+            &b"<h1>Example Domain</h1>"[..]
         )
         .is_some(),
         true,

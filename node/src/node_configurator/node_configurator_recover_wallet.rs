@@ -232,7 +232,7 @@ mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::bootstrapper::RealUser;
-    use crate::config_dao::{ConfigDao, ConfigDaoReal};
+    use crate::config_dao::{ConfigDaoReal};
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVcl, VirtualCommandLine};
@@ -566,8 +566,8 @@ mod tests {
         let conn = db_initializer::DbInitializerReal::new()
             .initialize(&data_directory, DEFAULT_CHAIN_ID)
             .unwrap();
-        let config_dao = ConfigDaoReal::new(conn);
-        config_dao.set_string("seed", "booga booga").unwrap();
+        let persistent_config = PersistentConfigurationReal::new (Box::new (ConfigDaoReal::new(conn)));
+        persistent_config.set_mnemonic_seed (b"booga booga", "rick-rolled").unwrap();
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
@@ -580,7 +580,7 @@ mod tests {
         subject.parse_args(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            &PersistentConfigurationReal::new(Box::new(config_dao)),
+            &persistent_config,
         );
     }
 

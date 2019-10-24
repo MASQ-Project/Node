@@ -450,7 +450,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "failed to unlock consuming wallet: DecryptionFailure(\"InvalidPassword\")"
+            "failed to unlock consuming wallet: PasswordError"
         ));
     }
 

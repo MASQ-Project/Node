@@ -27,11 +27,10 @@ fn http_through_node_integration() {
     assert_eq!(&response[9..15], &"200 OK"[..]);
     assert_eq!(
         response.contains(
-            "This domain is established to be used for illustrative examples in documents."
+            "<h1>Example Domain</h1>"
         ),
         true,
         "{}",
         response
     );
-    assert_eq!(response.contains("You may use this\n    domain in examples without prior coordination or asking for permission."), true, "{}", response);
 }

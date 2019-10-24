@@ -1280,7 +1280,9 @@ mod tests {
             ),
         );
         assert_eq!(config.ui_gateway_config.ui_port, 5335);
-        assert_eq!("Need to check neighbors", "but we're not");
+        assert_eq!(config.neighborhood_config, NeighborhoodConfig {
+            mode: NeighborhoodMode::ZeroHop // not populated on the privileged side
+        });
         assert_eq!(
             config.blockchain_bridge_config.blockchain_service_url,
             Some("http://127.0.0.1:8545".to_string()),
@@ -1365,6 +1367,15 @@ mod tests {
                 Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap()
             )),
         );
+        assert_eq!(config.neighborhood_config, NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &vec![]),
+                vec![
+                    "QmlsbA:1.2.3.4:1234;2345".to_string(),
+                    "VGVk:2.3.4.5:3456;4567".to_string(),
+                ],
+                DEFAULT_RATE_PACK.clone())
+        });
     }
 
     #[test]
@@ -1822,7 +1833,7 @@ mod tests {
             None,
             Some("m/44'/60'/1'/2/3"),
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"), None, None
-        );
+        ).check_password_result(Some(true));
         let mut config = BootstrapperConfig::new();
         let mut stdout_writer = ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
