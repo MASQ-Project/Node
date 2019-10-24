@@ -339,6 +339,19 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
+impl fmt::Display for RatePack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}+{}b route {}+{}b exit",
+            self.routing_service_rate,
+            self.routing_byte_rate,
+            self.exit_service_rate,
+            self.exit_byte_rate
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum GossipFailure {
     NoNeighbors,

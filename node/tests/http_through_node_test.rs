@@ -26,12 +26,10 @@ fn http_through_node_integration() {
     let response = String::from_utf8(buf).expect("Response is not UTF-8");
     assert_eq!(&response[9..15], &"200 OK"[..]);
     assert_eq!(
-        response.contains(
-            "This domain is established to be used for illustrative examples in documents."
-        ),
+        response.contains("This domain is for use in illustrative examples in documents."),
         true,
         "{}",
         response
     );
-    assert_eq!(response.contains("You may use this\n    domain in examples without prior coordination or asking for permission."), true, "{}", response);
+    assert_eq!(response.contains("You may use this\n    domain in literature without prior coordination or asking for permission."), true, "{}", response);
 }
