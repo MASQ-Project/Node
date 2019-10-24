@@ -308,7 +308,7 @@ mod standard {
     };
     use crate::persistent_configuration::{PersistentConfiguration, HTTP_PORT, TLS_PORT};
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
-    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde::{PlainData, PublicKey, CryptDE};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::neighborhood::{
@@ -430,7 +430,7 @@ mod standard {
             unprivileged_config,
         );
         unprivileged_config.neighborhood_config =
-            make_neighborhood_config(multi_config, persistent_config, unprivileged_config);
+            make_neighborhood_config(multi_config, streams, persistent_config, unprivileged_config);
     }
 
     pub fn configure_database(
@@ -511,67 +511,75 @@ mod standard {
 
     pub fn make_neighborhood_config(
         multi_config: &MultiConfig,
+        streams: &mut StdStreams,
         persistent_config: &dyn PersistentConfiguration,
-        unprivileged_config: &BootstrapperConfig,
+        unprivileged_config: &mut BootstrapperConfig,
     ) -> NeighborhoodConfig {
         let neighbor_configs: Vec<String> = {
             let cli_configs = values_m!(multi_config, "neighbors", String);
             if !cli_configs.is_empty() {
-                eprintln!("Found neighbors on command line: {:?}", cli_configs);
                 cli_configs
             } else {
-                eprintln!("No neighbors on command line");
-                match &unprivileged_config.db_password_opt {
-                    Some(db_password) => {
-                        eprintln!("Found db_password");
-                        match persistent_config.past_neighbors(db_password) {
-                            Ok(Some(past_neighbors)) => {
-                                eprintln!("Found past neighbors in database");
-                                let dummy_cryptde =
-                                    match value_m!(multi_config, "fake-public-key", String) {
-                                        Some(_) => unimplemented!(),
-                                        None => CryptDEReal::new(DEFAULT_CHAIN_ID),
-                                    };
-                                let result = past_neighbors
-                                    .into_iter()
-                                    .map(|nd: NodeDescriptor| nd.to_string(&dummy_cryptde))
-                                    .collect::<Vec<String>>();
-                                eprintln!("Found past neighbors in database: {:?}", result);
-                                result
-                            }
-                            Ok(None) => vec![], // TODO: Write a specific assert for this
-                            Err(e) => unimplemented!("Test-drive me: {:?}", e),
-                        }
-                    }
-                    None => vec![], // TODO: Write a specific assert for this
-                }
+                get_past_neighbors(multi_config, streams, persistent_config, unprivileged_config)
             }
         };
+        NeighborhoodConfig {
+            mode: make_neighborhood_mode (multi_config, neighbor_configs)
+        }
+    }
+
+    fn get_past_neighbors(
+        multi_config: &MultiConfig,
+        streams: &mut StdStreams,
+        persistent_config: &dyn PersistentConfiguration,
+        unprivileged_config: &mut BootstrapperConfig,
+    ) -> Vec<String> {
+        match &standard::get_db_password(multi_config, streams, unprivileged_config, persistent_config) {
+            Some(db_password) => {
+                match persistent_config.past_neighbors(db_password) {
+                    Ok(Some(past_neighbors)) => {
+                        let dummy_cryptde_box: Box<dyn CryptDE> =
+                            match value_m!(multi_config, "fake-public-key", String) {
+                                Some(_) => Box::new (CryptDENull::new(DEFAULT_CHAIN_ID)),
+                                None => Box::new (CryptDEReal::new(DEFAULT_CHAIN_ID)),
+                            };
+                        let result = past_neighbors
+                            .into_iter()
+                            .map(|nd: NodeDescriptor| nd.to_string(dummy_cryptde_box.as_ref()))
+                            .collect::<Vec<String>>();
+                        result
+                    }
+                    Ok(None) => vec![], // TODO: Write a specific assert for this
+                    Err(e) => unimplemented!("TODO: Test-drive me: {:?}", e),
+                }
+            }
+            None => vec![], // TODO: Write a specific assert for this: looked everywhere for neighbors, no neighbors, start without neighbors
+        }
+    }
+
+    fn make_neighborhood_mode(multi_config: &MultiConfig, neighbor_configs: Vec<String>) -> NeighborhoodMode {
         match value_m! (multi_config, "neighborhood-mode", String) {
-            Some (ref s) if s == "standard" => NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard (
+            Some (ref s) if s == "standard" => NeighborhoodMode::Standard (
                 NodeAddr::new (&value_m! (multi_config, "ip", IpAddr).expect ("Node cannot run as --neighborhood_mode standard without --ip specified"), &vec![]),
                 neighbor_configs,
                 DEFAULT_RATE_PACK,
-            )},
+            ),
             Some (ref s) if s == "originate-only" => {
                 if neighbor_configs.is_empty () {
                     panic! ("Node cannot run as --neighborhood_mode originate-only without --neighbors specified")
                 }
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::OriginateOnly (
+                NeighborhoodMode::OriginateOnly (
                     neighbor_configs,
                     DEFAULT_RATE_PACK,
-                )}
+                )
             },
             Some (ref s) if s == "consume-only" => {
                 if neighbor_configs.is_empty () {
                     panic! ("Node cannot run as --neighborhood_mode consume-only without --neighbors specified")
                 }
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::ConsumeOnly (
+                NeighborhoodMode::ConsumeOnly (
                     neighbor_configs,
-                )}
+                )
             },
             Some (ref s) if s == "zero-hop" => {
                 if !neighbor_configs.is_empty () {
@@ -580,7 +588,7 @@ mod standard {
                 if value_m! (multi_config, "ip", IpAddr).is_some () {
                     panic! ("Node cannot run as --neighborhood_mode zero-hop if --ip is specified")
                 }
-                NeighborhoodConfig { mode: NeighborhoodMode::ZeroHop}
+                NeighborhoodMode::ZeroHop
             },
             // These two cases are untestable
             Some (ref s) => panic! ("--neighborhood_mode {} has not been properly provided for in the code", s),
@@ -668,14 +676,14 @@ mod standard {
         }
     }
 
-    fn get_db_password(
+    pub fn get_db_password(
         multi_config: &MultiConfig,
         streams: &mut StdStreams,
         config: &mut BootstrapperConfig,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Option<String> {
-        if let Some(_db_password) = &config.db_password_opt {
-            unimplemented!("TODO: Test-drive me!")
+        if config.db_password_opt.is_some() {
+            return config.db_password_opt.clone()
         }
         let db_password_opt = match value_user_specified_m!(multi_config, "db-password", String) {
             (Some(dbp), _) => Some(dbp),
@@ -963,8 +971,9 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
+            &mut FakeStreamHolder::new().streams(),
             &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut BootstrapperConfig::new(),
         );
 
         assert_eq!(
@@ -1002,8 +1011,9 @@ mod tests {
 
         standard::make_neighborhood_config(
             &multi_config,
+            &mut FakeStreamHolder::new().streams(),
             &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut BootstrapperConfig::new(),
         );
     }
 
@@ -1024,8 +1034,9 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
+            &mut FakeStreamHolder::new().streams(),
             &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut BootstrapperConfig::new(),
         );
 
         assert_eq!(
@@ -1058,8 +1069,9 @@ mod tests {
 
         standard::make_neighborhood_config(
             &multi_config,
-            &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut FakeStreamHolder::new().streams(),
+            &make_default_persistent_configuration().check_password_result(Some(false)),
+            &mut BootstrapperConfig::new(),
         );
     }
 
@@ -1080,8 +1092,9 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
+            &mut FakeStreamHolder::new().streams(),
             &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut BootstrapperConfig::new(),
         );
 
         assert_eq!(
@@ -1111,8 +1124,9 @@ mod tests {
 
         standard::make_neighborhood_config(
             &multi_config,
-            &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut FakeStreamHolder::new().streams(),
+            &make_default_persistent_configuration().check_password_result(Some(false)),
+            &mut BootstrapperConfig::new(),
         );
     }
 
@@ -1129,8 +1143,9 @@ mod tests {
 
         let result = standard::make_neighborhood_config(
             &multi_config,
-            &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut FakeStreamHolder::new().streams(),
+            &make_default_persistent_configuration().check_password_result(Some(false)),
+            &mut BootstrapperConfig::new(),
         );
 
         assert_eq!(
@@ -1158,8 +1173,9 @@ mod tests {
 
         standard::make_neighborhood_config(
             &multi_config,
-            &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut FakeStreamHolder::new().streams(),
+            &make_default_persistent_configuration().check_password_result(Some(false)),
+            &mut BootstrapperConfig::new(),
         );
     }
 
@@ -1183,8 +1199,9 @@ mod tests {
 
         standard::make_neighborhood_config(
             &multi_config,
+            &mut FakeStreamHolder::new().streams(),
             &make_default_persistent_configuration(),
-            &BootstrapperConfig::new(),
+            &mut BootstrapperConfig::new(),
         );
     }
 
@@ -1462,7 +1479,7 @@ mod tests {
             &multi_config,
             &mut config,
             &mut FakeStreamHolder::new().streams(),
-            &make_default_persistent_configuration(),
+            &make_default_persistent_configuration().check_password_result(Some(false)),
         );
 
         assert_eq!(
@@ -1493,8 +1510,10 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--dns-servers", "12.34.56.78,23.45.67.89")
             .param("--ip", "1.2.3.4")
+            .param("--fake-public-key", "BORSCHT")
             .param("--db-password", "password");
         let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = MultiConfig::new(&app(), vcls);
@@ -1705,7 +1724,7 @@ mod tests {
             None,
             None,
             None,
-        );
+        ).check_password_result(Some(false));
         let mut config = BootstrapperConfig::new();
 
         standard::get_wallets(
@@ -1889,7 +1908,7 @@ mod tests {
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
             None,
             None,
-        );
+        ).check_password_result(Some(false));
         let mut config = BootstrapperConfig::new();
 
         standard::get_wallets(
@@ -1922,7 +1941,7 @@ mod tests {
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
             None,
             None,
-        );
+        ).check_password_result(Some(false));
         let mut config = BootstrapperConfig::new();
 
         standard::get_wallets(
@@ -1952,6 +1971,7 @@ mod tests {
             None,
             None,
         )
+        .check_password_result(Some(false))
         .check_password_result(Some(true));
         let mut config = BootstrapperConfig::new();
         let mut stdout_writer = ByteArrayWriter::new();
@@ -2034,6 +2054,7 @@ mod tests {
         let faux_environment = FauxEnvironmentVcl { vcl_args };
 
         let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(faux_environment),
             Box::new(CommandLineVcl::new(args.into())),
@@ -2134,6 +2155,33 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &PersistentConfigurationReal::from(config_dao),
         );
+    }
+
+    #[test]
+    fn get_db_password_shortcuts_if_its_already_gotten() {
+        let multi_config = MultiConfig::new(&app(), vec![]);
+        let mut holder = FakeStreamHolder::new();
+        let mut config = BootstrapperConfig::new();
+        let persistent_config = make_default_persistent_configuration()
+            .check_password_result(Some(false));
+        config.db_password_opt = Some("password".to_string());
+
+        let result = standard::get_db_password(&multi_config, &mut holder.streams(), &mut config, &persistent_config);
+
+        assert_eq! (result, Some("password".to_string()));
+    }
+
+    #[test]
+    fn get_db_password_doesnt_bother_if_database_has_no_password_yet() {
+        let multi_config = MultiConfig::new(&app(), vec![]);
+        let mut holder = FakeStreamHolder::new();
+        let mut config = BootstrapperConfig::new();
+        let persistent_config = make_default_persistent_configuration()
+            .check_password_result(None);
+
+        let result = standard::get_db_password(&multi_config, &mut holder.streams(), &mut config, &persistent_config);
+
+        assert_eq! (result, None);
     }
 
     #[test]

@@ -387,6 +387,9 @@ pub fn request_existing_db_password(
     prompt: &str,
     persistent_config: &dyn PersistentConfiguration,
 ) -> Option<String> {
+    if persistent_config.check_password("bad password") == None {
+        return None
+    }
     if let Some(preamble) = possible_preamble {
         flushed_write(streams.stdout, &format!("{}\n", preamble))
     };
@@ -395,7 +398,7 @@ pub fn request_existing_db_password(
             return Err("Password must not be blank.".to_string());
         }
         match persistent_config.check_password(password) {
-            None => unimplemented!(), //Err("No database password has yet been set"),
+            None => panic!("Database password disappeared"),
             Some(true) => Ok(()),
             Some(false) => Err("Incorrect password.".to_string()),
         }
@@ -1128,7 +1131,7 @@ mod tests {
     }
 
     #[test]
-    fn request_wallet_decryption_password_happy_path() {
+    fn request_database_password_happy_path() {
         let stdout_writer = &mut ByteArrayWriter::new();
         let streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
@@ -1136,7 +1139,9 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
         let persistent_configuration =
-            PersistentConfigurationMock::new().check_password_result(Some(true));
+            PersistentConfigurationMock::new()
+                .check_password_result(Some(false))
+                .check_password_result(Some(true));
 
         let actual = request_existing_db_password(
             streams,
@@ -1155,7 +1160,7 @@ mod tests {
     }
 
     #[test]
-    fn request_wallet_decryption_password_rejects_blank_password() {
+    fn request_database_password_rejects_blank_password() {
         let stdout_writer = &mut ByteArrayWriter::new();
         let streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"\nbooga\n"[..]),
@@ -1163,7 +1168,9 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
         let persistent_configuration =
-            PersistentConfigurationMock::new().check_password_result(Some(true));
+            PersistentConfigurationMock::new()
+                .check_password_result(Some(false))
+                .check_password_result(Some(true));
 
         let actual = request_existing_db_password(
             streams,
@@ -1184,11 +1191,11 @@ mod tests {
     }
 
     #[test]
-    fn request_wallet_decryption_password_detects_bad_passwords() {
+    fn request_database_password_detects_bad_passwords() {
         let stdout_writer = &mut ByteArrayWriter::new();
         let streams = &mut StdStreams {
             stdin: &mut Cursor::new(
-                &b"bad password\nanother bad password\nfinal bad password\n"[..],
+                &b"first bad password\nanother bad password\nfinal bad password\n"[..],
             ),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
@@ -1196,6 +1203,7 @@ mod tests {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_configuration = PersistentConfigurationMock::new()
             .check_password_params(&check_password_params_arc)
+            .check_password_result(Some(false))
             .check_password_result(Some(false))
             .check_password_result(Some(false))
             .check_password_result(Some(false));
@@ -1224,10 +1232,34 @@ mod tests {
             *check_password_params,
             vec![
                 "bad password".to_string(),
+                "first bad password".to_string(),
                 "another bad password".to_string(),
                 "final bad password".to_string()
             ]
         )
+    }
+
+    #[test]
+    fn request_database_password_aborts_before_prompting_if_database_has_no_password() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b""[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let persistent_configuration =
+            PersistentConfigurationMock::new().check_password_result(None);
+
+        let actual = request_existing_db_password(
+            streams,
+            Some("Decrypt wallet"),
+            "Enter password: ",
+            &persistent_configuration,
+        );
+
+        assert_eq!(actual, None);
+        assert_eq!(
+            stdout_writer.get_string(), "".to_string());
     }
 
     #[test]
