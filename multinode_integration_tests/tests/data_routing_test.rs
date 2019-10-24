@@ -61,11 +61,7 @@ fn http_end_to_end_routing_test() {
     // If this fails (sporadically) check if there are only 6 nodes in the network and find a better way to wait
     // for it to be 7. There have to be 7 to guarantee an exit node exists for every node in the network
     assert_eq!(
-        index_of(
-            &response,
-            &b"<h1>Example Domain</h1>"[..]
-        )
-        .is_some(),
+        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
@@ -111,11 +107,7 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
     let response = client.wait_for_chunk();
 
     assert_eq!(
-        index_of(
-            &response,
-            &b"<h1>Example Domain</h1>"[..]
-        )
-        .is_some(),
+        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
@@ -198,9 +190,7 @@ fn tls_end_to_end_routing_test() {
     let response = String::from_utf8(Vec::from(&buf[..])).expect("Response is not UTF-8");
     assert_eq!(&response[9..15], &"200 OK"[..]);
     assert_eq!(
-        response.contains(
-            "<h1>Example Domain</h1>"
-        ),
+        response.contains("<h1>Example Domain</h1>"),
         true,
         "{}",
         response
@@ -314,11 +304,7 @@ fn multiple_stream_zero_hop_test() {
     let another_response = another_client.wait_for_chunk();
 
     assert_eq!(
-        index_of(
-            &one_response,
-            &b"<h1>Example Domain</h1>"[..]
-        )
-        .is_some(),
+        index_of(&one_response, &b"<h1>Example Domain</h1>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(one_response).unwrap()

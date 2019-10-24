@@ -1,15 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigError};
+use crate::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use crate::sub_lib::neighborhood::NodeDescriptor;
 
 type MnemonicSeedParam = (Vec<u8>, String);
 
+#[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
     current_schema_version_results: RefCell<Vec<String>>,
@@ -35,7 +36,8 @@ pub struct PersistentConfigurationMock {
     set_gas_price_params: Arc<Mutex<Vec<u64>>>,
     gas_price_results: RefCell<Vec<u64>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
-    past_neighbors_results: RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
+    past_neighbors_results:
+        RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
     set_past_neighbors_params: Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>,
     set_past_neighbors_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
 }
@@ -46,11 +48,17 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn set_password(&self, db_password: &str) {
-        self.set_password_params.lock().unwrap().push(db_password.to_string());
+        self.set_password_params
+            .lock()
+            .unwrap()
+            .push(db_password.to_string());
     }
 
     fn check_password(&self, db_password: &str) -> Option<bool> {
-        self.check_password_params.lock().unwrap().push(db_password.to_string());
+        self.check_password_params
+            .lock()
+            .unwrap()
+            .push(db_password.to_string());
         self.check_password_results.borrow_mut().remove(0)
     }
 
@@ -78,7 +86,11 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.mnemonic_seed_results)
     }
 
-    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, db_password: &str) -> Result<(), PersistentConfigError> {
+    fn set_mnemonic_seed(
+        &self,
+        seed: &dyn AsRef<[u8]>,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
         self.set_mnemonic_seed_params
             .lock()
             .unwrap()
@@ -123,13 +135,26 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .push(address.to_string());
     }
 
-    fn past_neighbors(&self, db_password: &str) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
-        self.past_neighbors_params.lock().unwrap().push(db_password.to_string());
+    fn past_neighbors(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
+        self.past_neighbors_params
+            .lock()
+            .unwrap()
+            .push(db_password.to_string());
         self.past_neighbors_results.borrow_mut().remove(0)
     }
 
-    fn set_past_neighbors(&self, node_descriptors_opt: Option<Vec<NodeDescriptor>>, db_password: &str) -> Result<(), PersistentConfigError>{
-        self.set_past_neighbors_params.lock().unwrap().push((node_descriptors_opt, db_password.to_string()));
+    fn set_past_neighbors(
+        &self,
+        node_descriptors_opt: Option<Vec<NodeDescriptor>>,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_past_neighbors_params
+            .lock()
+            .unwrap()
+            .push((node_descriptors_opt, db_password.to_string()));
         self.set_past_neighbors_results.borrow_mut().remove(0)
     }
 
@@ -268,22 +293,35 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn past_neighbors_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> PersistentConfigurationMock {
+    pub fn past_neighbors_params(
+        mut self,
+        params: &Arc<Mutex<Vec<String>>>,
+    ) -> PersistentConfigurationMock {
         self.past_neighbors_params = params.clone();
         self
     }
 
-    pub fn past_neighbors_result(self, result: Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>) -> PersistentConfigurationMock {
+    pub fn past_neighbors_result(
+        self,
+        result: Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
         self.past_neighbors_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_past_neighbors_params(mut self, params: &Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>) -> PersistentConfigurationMock {
+    #[allow(clippy::type_complexity)]
+    pub fn set_past_neighbors_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>,
+    ) -> PersistentConfigurationMock {
         self.set_past_neighbors_params = params.clone();
         self
     }
 
-    pub fn set_past_neighbors_result(self, result: Result<(), PersistentConfigError>) -> PersistentConfigurationMock {
+    pub fn set_past_neighbors_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
         self.set_past_neighbors_results.borrow_mut().push(result);
         self
     }

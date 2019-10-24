@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::neighborhood::gossip::Gossip;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
@@ -20,7 +21,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -159,25 +159,20 @@ impl From<(&NodeRecord, bool)> for NodeDescriptor {
 }
 
 impl NodeDescriptor {
-    pub fn from_str(
-        cryptde: &dyn CryptDE,
-        s: &str,
-    ) -> Result<NodeDescriptor, String> {
+    pub fn from_str(cryptde: &dyn CryptDE, s: &str) -> Result<NodeDescriptor, String> {
         let (mainnet, pieces) = {
             let chain_id = chain_id_from_name("mainnet");
             let delimiter = node_descriptor_delimiter(chain_id);
             let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
             if pieces.len() == 2 {
                 (true, pieces)
-            }
-            else {
+            } else {
                 let chain_id = chain_id_from_name("testnet");
                 let delimiter = node_descriptor_delimiter(chain_id);
                 let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
                 if pieces.len() == 2 {
                     (false, pieces)
-                }
-                else {
+                } else {
                     return Err(format!(
                         "Should be <public key>[@ | :]<node address>, not '{}'",
                         s
@@ -215,7 +210,7 @@ impl NodeDescriptor {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
         };
-        let delimiter = if self.mainnet {"@"} else {":"};
+        let delimiter = if self.mainnet { "@" } else { ":" };
         format!(
             "{}{}{}",
             contact_public_key_string, delimiter, node_addr_string
@@ -360,6 +355,19 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
+impl fmt::Display for RatePack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}+{}b route {}+{}b exit",
+            self.routing_service_rate,
+            self.routing_byte_rate,
+            self.exit_service_rate,
+            self.exit_byte_rate
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum GossipFailure {
     NoNeighbors,
@@ -384,8 +392,8 @@ impl fmt::Display for GossipFailure {
 mod tests {
     use super::*;
     use crate::sub_lib::utils::localhost;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{main_cryptde};
     use actix::Actor;
     use std::str::FromStr;
 
@@ -434,10 +442,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
-        let result = NodeDescriptor::from_str(
-            main_cryptde(),
-            "bad_key:1.2.3.4:1234;2345",
-        );
+        let result = NodeDescriptor::from_str(main_cryptde(), "bad_key:1.2.3.4:1234;2345");
 
         assert_eq!(
             result,
@@ -447,26 +452,21 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result =
-            NodeDescriptor::from_str(main_cryptde(), ":1.2.3.4:1234;2345");
+        let result = NodeDescriptor::from_str(main_cryptde(), ":1.2.3.4:1234;2345");
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_node_addr() {
-        let result =
-            NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ==:BadNodeAddr");
+        let result = NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ==:BadNodeAddr");
 
         assert_eq!(result, Err(String::from("NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'BadNodeAddr'")));
     }
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path_with_node_addr() {
-        let result = NodeDescriptor::from_str(
-            main_cryptde(),
-            "R29vZEtleQ:1.2.3.4:1234;2345;3456",
-        );
+        let result = NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ:1.2.3.4:1234;2345;3456");
 
         assert_eq!(
             result.unwrap(),
@@ -497,10 +497,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_accepts_mainnet_delimiter() {
-        let result = NodeDescriptor::from_str(
-            main_cryptde(),
-            "R29vZEtleQ@1.2.3.4:1234;2345;3456",
-        );
+        let result = NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ@1.2.3.4:1234;2345;3456");
 
         assert_eq!(
             result.unwrap(),

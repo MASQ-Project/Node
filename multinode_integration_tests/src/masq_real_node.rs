@@ -722,7 +722,6 @@ impl MASQRealNode {
         docker_run_fn: Box<dyn Fn(&String, IpAddr, &String) -> Result<(), String>>,
     ) -> Self {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
-        let rate_pack = startup_config.rate_pack.clone();
         MASQNodeUtils::clean_up_existing_container(&name[..]);
         let real_startup_config = match startup_config.ip_info {
             LocalIpInfo::ZeroHop => startup_config.clone(),
@@ -782,7 +781,7 @@ impl MASQRealNode {
             node_reference,
             earning_wallet: real_startup_config.get_earning_wallet(),
             consuming_wallet_opt: real_startup_config.get_consuming_wallet(),
-            rate_pack,
+            rate_pack: DEFAULT_RATE_PACK.clone(), // replace with this when rate packs are configurable: startup_config.rate_pack.clone()
             root_dir,
             cryptde_null_pair_opt: match cryptde_null_opt {
                 None => None,

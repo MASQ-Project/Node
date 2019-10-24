@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::config_dao::{ConfigDao, ConfigDaoError};
+use crate::sub_lib::cryptde::PlainData;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use crate::sub_lib::cryptde::PlainData;
 
 #[derive(Default)]
 pub struct ConfigDaoMock {
@@ -25,7 +25,10 @@ pub struct ConfigDaoMock {
 }
 
 impl ConfigDao for ConfigDaoMock {
-    fn get_all(&self, _db_password: Option<&str>) -> Result<Vec<(String, Option<String>)>, ConfigDaoError> {
+    fn get_all(
+        &self,
+        _db_password: Option<&str>,
+    ) -> Result<Vec<(String, Option<String>)>, ConfigDaoError> {
         unimplemented!()
     }
 
@@ -33,7 +36,11 @@ impl ConfigDao for ConfigDaoMock {
         unimplemented!()
     }
 
-    fn change_password(&self, _old_password_opt: Option<&str>, _new_password: &str) -> Result<(), ConfigDaoError> {
+    fn change_password(
+        &self,
+        _old_password_opt: Option<&str>,
+        _new_password: &str,
+    ) -> Result<(), ConfigDaoError> {
         unimplemented!()
     }
 
@@ -61,11 +68,17 @@ impl ConfigDao for ConfigDaoMock {
         self.get_bytes_e_results.borrow_mut().remove(0)
     }
 
-    fn set_bytes_e(&self, name: &str, value: &PlainData, db_password: &str) -> Result<(), ConfigDaoError> {
-        self.set_bytes_e_params
-            .lock()
-            .unwrap()
-            .push((String::from(name), value.clone(), String::from(db_password)));
+    fn set_bytes_e(
+        &self,
+        name: &str,
+        value: &PlainData,
+        db_password: &str,
+    ) -> Result<(), ConfigDaoError> {
+        self.set_bytes_e_params.lock().unwrap().push((
+            String::from(name),
+            value.clone(),
+            String::from(db_password),
+        ));
         self.set_bytes_e_results.borrow_mut().remove(0)
     }
 
@@ -129,7 +142,10 @@ impl ConfigDaoMock {
         self
     }
 
-    pub fn get_bytes_e_params(mut self, params_arc: &Arc<Mutex<Vec<(String, String)>>>) -> ConfigDaoMock {
+    pub fn get_bytes_e_params(
+        mut self,
+        params_arc: &Arc<Mutex<Vec<(String, String)>>>,
+    ) -> ConfigDaoMock {
         self.get_bytes_e_params = params_arc.clone();
         self
     }
@@ -139,6 +155,7 @@ impl ConfigDaoMock {
         self
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn set_bytes_e_params(
         mut self,
         params_arc: &Arc<Mutex<Vec<(String, PlainData, String)>>>,
@@ -185,10 +202,7 @@ impl ConfigDaoMock {
         self
     }
 
-    pub fn clear_params(
-        mut self,
-        params_arc: &Arc<Mutex<Vec<String>>>,
-    ) -> ConfigDaoMock {
+    pub fn clear_params(mut self, params_arc: &Arc<Mutex<Vec<String>>>) -> ConfigDaoMock {
         self.clear_params = params_arc.clone();
         self
     }

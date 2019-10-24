@@ -3,6 +3,7 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::config_dao::ConfigDaoReal;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -49,7 +50,6 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -448,7 +448,11 @@ impl Bootstrapper {
     ) -> String {
         let descriptor = match node_addr_opt {
             Some(node_addr) => {
-                let node_descriptor = NodeDescriptor::from((cryptde.public_key(), &node_addr, chain_id == chain_id_from_name("mainnet")));
+                let node_descriptor = NodeDescriptor::from((
+                    cryptde.public_key(),
+                    &node_addr,
+                    chain_id == chain_id_from_name("mainnet"),
+                ));
                 node_descriptor.to_string(cryptde)
             }
             None => format!(
@@ -507,6 +511,7 @@ impl Bootstrapper {
 mod tests {
     use super::*;
     use crate::actor_system_factory::ActorFactory;
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::config_dao::ConfigDaoReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::discriminator::Discriminator;
@@ -552,7 +557,6 @@ mod tests {
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
 
     lazy_static! {
         static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1197,8 +1201,8 @@ mod tests {
         subject.initialize_as_privileged(
             &vec![
                 "MASQNode".to_string(),
-//                "--clandestine-port".to_string(),
-//                "1234".to_string(),
+                //                "--clandestine-port".to_string(),
+                //                "1234".to_string(),
                 "--dns-servers".to_string(),
                 "1.1.1.1".to_string(),
                 "--data-directory".to_string(),

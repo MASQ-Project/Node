@@ -5,12 +5,14 @@ pub mod node_configurator_recover_wallet;
 pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::bip39::{Bip39};
+use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_NAME};
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
+use crate::persistent_configuration::{
+    PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::wallet::Wallet;
@@ -240,10 +242,12 @@ pub fn create_wallet(
         persistent_config.set_earning_wallet_address(address)
     }
     if let Some(derivation_path_info) = &config.derivation_path_info_opt {
-        persistent_config.set_mnemonic_seed(
-            &derivation_path_info.mnemonic_seed,
-            &derivation_path_info.db_password,
-        ).expect ("Failed to set mnemonic seed");
+        persistent_config
+            .set_mnemonic_seed(
+                &derivation_path_info.mnemonic_seed,
+                &derivation_path_info.db_password,
+            )
+            .expect("Failed to set mnemonic seed");
         if let Some(consuming_derivation_path) = &derivation_path_info.consuming_derivation_path_opt
         {
             persistent_config.set_consuming_wallet_derivation_path(
@@ -270,10 +274,13 @@ pub fn initialize_database(
     Box::new(PersistentConfigurationReal::from(conn))
 }
 
-pub fn update_db_password(wallet_config: &WalletCreationConfig, persistent_config: &dyn PersistentConfiguration) {
+pub fn update_db_password(
+    wallet_config: &WalletCreationConfig,
+    persistent_config: &dyn PersistentConfiguration,
+) {
     match &wallet_config.derivation_path_info_opt {
         Some(dpwi) => persistent_config.set_password(&dpwi.db_password),
-        None => ()
+        None => (),
     }
 }
 
@@ -389,8 +396,8 @@ pub fn request_existing_db_password(
         }
         match persistent_config.check_password(password) {
             None => unimplemented!(), //Err("No database password has yet been set"),
-            Some (true) => Ok(()),
-            Some (false) => Err("Incorrect password.".to_string()),
+            Some(true) => Ok(()),
+            Some(false) => Err("Incorrect password.".to_string()),
         }
     };
     match request_password_with_retry(prompt, streams, |streams| {
@@ -966,7 +973,9 @@ mod tests {
                 .initialize(&data_dir, DEFAULT_CHAIN_ID)
                 .unwrap();
             let persistent_config = PersistentConfigurationReal::from(conn);
-            persistent_config.set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password").unwrap();
+            persistent_config
+                .set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password")
+                .unwrap();
         }
         let app = App::new("test".to_string())
             .arg(data_directory_arg())
@@ -1126,8 +1135,8 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let persistent_configuration = PersistentConfigurationMock::new()
-            .check_password_result(Some(true));
+        let persistent_configuration =
+            PersistentConfigurationMock::new().check_password_result(Some(true));
 
         let actual = request_existing_db_password(
             streams,
@@ -1153,8 +1162,8 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let persistent_configuration = PersistentConfigurationMock::new()
-            .check_password_result(Some(true));
+        let persistent_configuration =
+            PersistentConfigurationMock::new().check_password_result(Some(true));
 
         let actual = request_existing_db_password(
             streams,
@@ -1184,12 +1193,12 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let check_password_params_arc = Arc::new (Mutex::new (vec![]));
+        let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_configuration = PersistentConfigurationMock::new()
             .check_password_params(&check_password_params_arc)
-            .check_password_result(Some (false))
-            .check_password_result(Some (false))
-            .check_password_result(Some (false));
+            .check_password_result(Some(false))
+            .check_password_result(Some(false))
+            .check_password_result(Some(false));
 
         let actual = request_existing_db_password(
             streams,
@@ -1211,7 +1220,14 @@ mod tests {
                 .to_string()
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
-        assert_eq! (*check_password_params, vec!["bad password".to_string(), "another bad password".to_string(), "final bad password".to_string()])
+        assert_eq!(
+            *check_password_params,
+            vec![
+                "bad password".to_string(),
+                "another bad password".to_string(),
+                "final bad password".to_string()
+            ]
+        )
     }
 
     #[test]
@@ -1364,9 +1380,7 @@ mod tests {
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
-            stdin: &mut Cursor::new(
-                &b"a terrible db password\na terrible db password\n"[..],
-            ),
+            stdin: &mut Cursor::new(&b"a terrible db password\na terrible db password\n"[..]),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
@@ -1543,10 +1557,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *set_consuming_wallet_derivation_path_params,
-            vec![(
-                "m/44'/60'/1'/2/3".to_string(),
-                "db password".to_string()
-            )]
+            vec![("m/44'/60'/1'/2/3".to_string(), "db password".to_string())]
         );
         let set_earning_wallet_address_params =
             set_earning_wallet_address_params_arc.lock().unwrap();
@@ -1590,10 +1601,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *set_consuming_wallet_derivation_path_params,
-            vec![(
-                "m/44'/60'/1'/2/3".to_string(),
-                "db password".to_string()
-            )]
+            vec![("m/44'/60'/1'/2/3".to_string(), "db password".to_string())]
         );
         let set_earning_wallet_address_params =
             set_earning_wallet_address_params_arc.lock().unwrap();
@@ -1605,35 +1613,35 @@ mod tests {
 
     #[test]
     pub fn update_db_password_does_nothing_if_no_derivation_path_info_is_supplied() {
-        let wallet_config = WalletCreationConfig{
+        let wallet_config = WalletCreationConfig {
             earning_wallet_address_opt: None,
             derivation_path_info_opt: None,
-            real_user: RealUser::default()
+            real_user: RealUser::default(),
         };
         let set_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_password_params (&set_password_params_arc);
+        let persistent_config =
+            PersistentConfigurationMock::new().set_password_params(&set_password_params_arc);
 
         update_db_password(&wallet_config, &persistent_config);
 
         let set_password_params = set_password_params_arc.lock().unwrap();
-        assert! (set_password_params.is_empty());
+        assert!(set_password_params.is_empty());
     }
 
     #[test]
     pub fn update_db_password_sets_password_if_derivation_path_info_is_supplied() {
-        let wallet_config = WalletCreationConfig{
+        let wallet_config = WalletCreationConfig {
             earning_wallet_address_opt: None,
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
                 mnemonic_seed: PlainData::new(&[]),
                 db_password: "booga".to_string(),
-                consuming_derivation_path_opt: None
+                consuming_derivation_path_opt: None,
             }),
-            real_user: RealUser::default()
+            real_user: RealUser::default(),
         };
         let set_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_password_params (&set_password_params_arc);
+        let persistent_config =
+            PersistentConfigurationMock::new().set_password_params(&set_password_params_arc);
 
         update_db_password(&wallet_config, &persistent_config);
 

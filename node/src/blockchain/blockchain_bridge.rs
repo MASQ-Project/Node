@@ -212,18 +212,19 @@ impl BlockchainBridge {
             );
             return false;
         }
-        let consuming_wallet_derivation_path = match self
-            .persistent_config
-            .consuming_wallet_derivation_path()
-        {
-            Some(cwdp) => cwdp,
-            None => {
-                error!(self.logger, "Db password rejected: no consuming wallet derivation path has been configured");
-                return false;
-            }
-        };
+        let consuming_wallet_derivation_path =
+            match self.persistent_config.consuming_wallet_derivation_path() {
+                Some(cwdp) => cwdp,
+                None => {
+                    error!(
+                    self.logger,
+                    "Db password rejected: no consuming wallet derivation path has been configured"
+                );
+                    return false;
+                }
+            };
         match self.persistent_config.mnemonic_seed(password) {
-            Ok(Some (plain_data)) => {
+            Ok(Some(plain_data)) => {
                 let key_pair = Bip32ECKeyPair::from_raw(
                     &plain_data.as_slice(),
                     &consuming_wallet_derivation_path,
@@ -271,6 +272,7 @@ mod tests {
         contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
         Transactions,
     };
+    use crate::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::ui_gateway::UiMessage;
@@ -296,7 +298,6 @@ mod tests {
     use std::thread;
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
-    use crate::persistent_configuration::PersistentConfigError;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -340,7 +341,7 @@ mod tests {
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default()
                 // Might need a check_password_result in here
-                .mnemonic_seed_result(Ok(Some (PlainData::from(seed_bytes))))
+                .mnemonic_seed_result(Ok(Some(PlainData::from(seed_bytes))))
                 .consuming_wallet_derivation_path_result(Some(
                     DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
                 ));
@@ -449,9 +450,8 @@ mod tests {
                 data: UiMessage::SetDbPasswordResponse(false),
             }
         );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "failed to unlock consuming wallet: PasswordError"
-        ));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("failed to unlock consuming wallet: PasswordError"));
     }
 
     #[test]

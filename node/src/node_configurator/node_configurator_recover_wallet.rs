@@ -2,8 +2,15 @@
 
 use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
-use crate::node_configurator::{app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet, data_directory_arg, earning_wallet_arg, exit, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, real_user_arg, request_password_with_confirmation, request_password_with_retry, db_password_arg, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, DB_PASSWORD_HELP, update_db_password, mnemonic_seed_exists};
-use crate::persistent_configuration::{PersistentConfiguration};
+use crate::node_configurator::{
+    app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
+    data_directory_arg, db_password_arg, earning_wallet_arg, exit, flushed_write, language_arg,
+    mnemonic_passphrase_arg, mnemonic_seed_exists, prepare_initialization_mode, real_user_arg,
+    request_password_with_confirmation, request_password_with_retry, update_db_password, Either,
+    NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP,
+    EARNING_WALLET_HELP,
+};
+use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
 use bip39::{Language, Mnemonic};
@@ -232,11 +239,11 @@ mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::bootstrapper::RealUser;
-    use crate::config_dao::{ConfigDaoReal};
+    use crate::config_dao::ConfigDaoReal;
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVcl, VirtualCommandLine};
-    use crate::node_configurator::{DerivationPathWalletInfo, initialize_database};
+    use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::{
@@ -402,7 +409,7 @@ mod tests {
         let config = subject.configure(&args, &mut FakeStreamHolder::new().streams());
 
         let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
-        assert_eq!(persistent_config.check_password (password), Some (true));
+        assert_eq!(persistent_config.check_password(password), Some(true));
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::Spanish).unwrap();
         let seed = Seed::new(&expected_mnemonic, "Mortimer");
         let earning_wallet =
@@ -566,8 +573,11 @@ mod tests {
         let conn = db_initializer::DbInitializerReal::new()
             .initialize(&data_directory, DEFAULT_CHAIN_ID)
             .unwrap();
-        let persistent_config = PersistentConfigurationReal::new (Box::new (ConfigDaoReal::new(conn)));
-        persistent_config.set_mnemonic_seed (b"booga booga", "rick-rolled").unwrap();
+        let persistent_config =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
+        persistent_config
+            .set_mnemonic_seed(b"booga booga", "rick-rolled")
+            .unwrap();
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)

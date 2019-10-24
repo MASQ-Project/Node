@@ -152,13 +152,7 @@ impl DbInitializerReal {
         conn: &Connection,
         chain_id: u8,
     ) -> Result<(), InitializationError> {
-        Self::set_config_value(
-            conn,
-            "example_encrypted",
-            None,
-            false,
-            "example_encrypted",
-        );
+        Self::set_config_value(conn, "example_encrypted", None, false, "example_encrypted");
         Self::set_config_value(
             conn,
             "clandestine_port",
@@ -202,7 +196,13 @@ impl DbInitializerReal {
             false,
             format!("{} start block", chain_name_from_id(chain_id)).as_str(),
         );
-        Self::set_config_value(conn, "gas_price", Some(DEFAULT_GAS_PRICE), false, "gas price");
+        Self::set_config_value(
+            conn,
+            "gas_price",
+            Some(DEFAULT_GAS_PRICE),
+            false,
+            "gas price",
+        );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
         Ok(())
     }
@@ -311,7 +311,13 @@ impl DbInitializerReal {
         }
     }
 
-    fn set_config_value(conn: &Connection, name: &str, value: Option<&str>, encrypted: bool, readable: &str) {
+    fn set_config_value(
+        conn: &Connection,
+        name: &str,
+        value: Option<&str>,
+        encrypted: bool,
+        readable: &str,
+    ) {
         conn.execute(
             format!(
                 "insert into config (name, value, encrypted) values ('{}', {}, {})",
@@ -320,10 +326,7 @@ impl DbInitializerReal {
                     Some(value) => format!("'{}'", value),
                     None => "null".to_string(),
                 },
-                match encrypted {
-                    true => 1,
-                    false => 0
-                }
+                if encrypted { 1 } else { 0 }
             )
             .as_str(),
             NO_PARAMS,

@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::node_record::NodeRecordInner;
@@ -15,7 +16,6 @@ use crate::test_utils::*;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(
@@ -90,7 +90,11 @@ pub fn neighborhood_from_nodes(
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
                 root.node_addr_opt().expect("Test-drive me!"), // TODO: Clean this up
-                vec![NodeDescriptor::from((neighbor, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"))).to_string(cryptde)],
+                vec![NodeDescriptor::from((
+                    neighbor,
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                ))
+                .to_string(cryptde)],
                 root.rate_pack().clone(),
             ),
         },

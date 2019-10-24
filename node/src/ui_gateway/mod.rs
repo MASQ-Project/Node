@@ -5,7 +5,7 @@ pub mod ui_traffic_converter;
 mod websocket_supervisor;
 
 use crate::sub_lib::accountant::GetFinancialStatisticsMessage;
-use crate::sub_lib::blockchain_bridge::{SetGasPriceMsg, SetDbPasswordMsg};
+use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -235,8 +235,7 @@ mod tests {
                 ui_message_sub: addr.clone().recipient::<UiCarrierMessage>(),
                 blockchain_bridge_set_consuming_db_password_sub: addr
                     .clone()
-                    .recipient::<SetDbPasswordMsg>(
-                ),
+                    .recipient::<SetDbPasswordMsg>(),
                 blockchain_bridge_set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
                 accountant_get_financial_statistics_sub: addr
                     .clone()

@@ -17,7 +17,7 @@ mod neighborhood_test_utils;
 #[cfg(feature = "expose_test_privates")]
 pub mod neighborhood_test_utils;
 
-use crate::blockchain::blockchain_interface::{contract_address, chain_id_from_name};
+use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::{DotGossipEndpoint, Gossip, GossipNodeRecord};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
@@ -394,17 +394,26 @@ impl Neighborhood {
             config.earning_wallet.clone(),
             cryptde,
         );
-        let initial_neighbors = neighborhood_config.mode.neighbor_configs().iter().map (|nc|
-            match NodeDescriptor::from_str(cryptde, nc) {
+        let initial_neighbors = neighborhood_config
+            .mode
+            .neighbor_configs()
+            .iter()
+            .map(|nc| match NodeDescriptor::from_str(cryptde, nc) {
                 Ok(descriptor) => {
-                    if descriptor.mainnet != (config.blockchain_bridge_config.chain_id == chain_id_from_name("mainnet")) {
-                        unimplemented! ("Test-drive me!")
+                    if descriptor.mainnet
+                        != (config.blockchain_bridge_config.chain_id
+                            == chain_id_from_name("mainnet"))
+                    {
+                        unimplemented!("Test-drive me!")
                     }
                     descriptor
-                },
-                Err (_) => panic! ("--neighbors must be <public key>[@|:]<ip address>:<port>;<port>..., not '{}'", nc),
-            }
-        ).collect_vec();
+                }
+                Err(_) => panic!(
+                    "--neighbors must be <public key>[@|:]<ip address>:<port>;<port>..., not '{}'",
+                    nc
+                ),
+            })
+            .collect_vec();
 
         Neighborhood {
             cryptde,
@@ -564,36 +573,48 @@ impl Neighborhood {
         self.neighborhood_database
             .root_mut()
             .regenerate_signed_gossip(self.cryptde);
-        let neighbors = self.neighborhood_database.root().half_neighbor_keys();
+        let neighbors = self
+            .neighborhood_database
+            .root()
+            .half_neighbor_keys()
+            .into_iter()
+            .cloned()
+            .collect_vec();
         neighbors.iter().for_each(|neighbor| {
-            let gossip = self
+            if let Some(gossip) = self
                 .gossip_producer
-                .produce(&self.neighborhood_database, neighbor);
-            let gossip_len = gossip.node_records.len();
-            let route = self.create_single_hop_route(neighbor);
-            let package =
-                IncipientCoresPackage::new(self.cryptde, route, gossip.clone().into(), neighbor)
-                    .expect("Key magically disappeared");
-            info!(
-                self.logger,
-                "Sending update Gossip about {} Nodes to Node {}", gossip_len, neighbor
-            );
-            self.hopper
-                .as_ref()
-                .expect("unbound hopper")
-                .try_send(package)
-                .expect("hopper is dead");
-            trace!(
-                self.logger,
-                "Sent Gossip: {}",
-                gossip.to_dot_graph(
-                    self.neighborhood_database.root(),
-                    self.neighborhood_database
-                        .node_by_key(*neighbor)
-                        .expect("Node magically disappeared"),
-                )
-            );
+                .produce(&mut self.neighborhood_database, neighbor)
+            {
+                self.gossip_to_neighbor(neighbor, gossip)
+            }
         });
+    }
+
+    fn gossip_to_neighbor(&self, neighbor: &PublicKey, gossip: Gossip) {
+        let gossip_len = gossip.node_records.len();
+        let route = self.create_single_hop_route(neighbor);
+        let package =
+            IncipientCoresPackage::new(self.cryptde, route, gossip.clone().into(), neighbor)
+                .expect("Key magically disappeared");
+        info!(
+            self.logger,
+            "Sending update Gossip about {} Nodes to Node {}", gossip_len, neighbor
+        );
+        self.hopper
+            .as_ref()
+            .expect("unbound hopper")
+            .try_send(package)
+            .expect("hopper is dead");
+        trace!(
+            self.logger,
+            "Sent Gossip: {}",
+            gossip.to_dot_graph(
+                self.neighborhood_database.root(),
+                self.neighborhood_database
+                    .node_by_key(&neighbor)
+                    .expect("Node magically disappeared"),
+            )
+        );
     }
 
     fn create_single_hop_route(&self, destination: &PublicKey) -> Route {
@@ -1056,7 +1077,7 @@ pub fn regenerate_signed_gossip(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{contract_address, chain_id_from_name};
+    use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
     use crate::neighborhood::gossip::Gossip;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::*;
@@ -1232,8 +1253,11 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
-                        vec![NodeDescriptor::from((neighbor_node.public_key(), DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
-                            .to_string(cryptde)],
+                        vec![NodeDescriptor::from((
+                            neighbor_node.public_key(),
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                        ))
+                        .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -1268,10 +1292,16 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((&one_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
-                                .to_string(cryptde),
-                            NodeDescriptor::from((&another_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
-                                .to_string(cryptde),
+                            NodeDescriptor::from((
+                                &one_neighbor_node,
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            ))
+                            .to_string(cryptde),
+                            NodeDescriptor::from((
+                                &another_neighbor_node,
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            ))
+                            .to_string(cryptde),
                         ],
                         rate_pack(100),
                     ),
@@ -1299,8 +1329,14 @@ mod tests {
         assert_eq!(
             subject.initial_neighbors,
             vec![
-                NodeDescriptor::from((&one_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"))),
-                NodeDescriptor::from((&another_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
+                NodeDescriptor::from((
+                    &one_neighbor_node,
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")
+                )),
+                NodeDescriptor::from((
+                    &another_neighbor_node,
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")
+                ))
             ]
         );
     }
@@ -1321,10 +1357,16 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((&one_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
-                                .to_string(cryptde),
-                            NodeDescriptor::from((&another_neighbor_node, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
-                                .to_string(cryptde),
+                            NodeDescriptor::from((
+                                &one_neighbor_node,
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            ))
+                            .to_string(cryptde),
+                            NodeDescriptor::from((
+                                &another_neighbor_node,
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            ))
+                            .to_string(cryptde),
                         ],
                         rate_pack(100),
                     ),
@@ -1521,9 +1563,11 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
-                        vec![
-                            NodeDescriptor::from((&node_record, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"))).to_string(cryptde)
-                        ],
+                        vec![NodeDescriptor::from((
+                            &node_record,
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                        ))
+                        .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -2515,9 +2559,8 @@ mod tests {
         let produce_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_producer = GossipProducerMock::new()
             .produce_params(&produce_params_arc)
-            .produce_result(gossip.clone())
-            .produce_result(gossip.clone())
-            .produce_result(gossip.clone());
+            .produce_result(Some(gossip.clone()))
+            .produce_result(Some(gossip.clone()));
         subject.gossip_producer = Box::new(gossip_producer);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -2536,6 +2579,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package_1 = hopper_recording.get_record::<IncipientCoresPackage>(0);
         let package_2 = hopper_recording.get_record::<IncipientCoresPackage>(1);
+        assert_eq!(hopper_recording.len(), 2);
         fn digest(package: IncipientCoresPackage) -> (PublicKey, CryptData) {
             (
                 package.route.next_hop(main_cryptde()).unwrap().public_key,
@@ -2584,6 +2628,46 @@ mod tests {
         let key_as_str = format!("{}", main_cryptde().public_key());
         tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAQIDBA\\n1.2.3.4\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
         tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
+    }
+
+    #[test]
+    fn neighborhood_sends_no_gossip_when_target_does_not_exist() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+                                                                        // This is ungossippable not because of any attribute of its own, but because the
+                                                                        // GossipProducerMock is set to return None when ordered to target it.
+        let ungossippable = make_node_record(1050, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&ungossippable));
+        subject
+            .neighborhood_database
+            .add_node(ungossippable.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), ungossippable.public_key());
+        let gossip_acceptor =
+            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Accepted);
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        let produce_params_arc = Arc::new(Mutex::new(vec![]));
+        let gossip_producer = GossipProducerMock::new()
+            .produce_params(&produce_params_arc)
+            .produce_result(None);
+        subject.gossip_producer = Box::new(gossip_producer);
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+
+        let system = System::new("");
+        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+
+        subject.handle_gossip(
+            Gossip::new(vec![]),
+            SocketAddr::from_str("1.1.1.1:1111").unwrap(),
+        );
+
+        System::current().stop();
+        system.run();
+
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 0);
     }
 
     #[test]
@@ -2839,8 +2923,11 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![1234]),
-                        vec![NodeDescriptor::from((&neighbor_inside, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet")))
-                            .to_string(cryptde)],
+                        vec![NodeDescriptor::from((
+                            &neighbor_inside,
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                        ))
+                        .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -3214,9 +3301,11 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
-                        vec![
-                            NodeDescriptor::from((&node_record, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"))).to_string(cryptde)
-                        ],
+                        vec![NodeDescriptor::from((
+                            &node_record,
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                        ))
+                        .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -3274,9 +3363,11 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
-                        vec![
-                            NodeDescriptor::from((&node_record, DEFAULT_CHAIN_ID == chain_id_from_name ("mainnet"))).to_string(cryptde)
-                        ],
+                        vec![NodeDescriptor::from((
+                            &node_record,
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                        ))
+                        .to_string(cryptde)],
                         rate_pack(100),
                     ),
                 },
@@ -3689,11 +3780,15 @@ mod tests {
     #[derive(Default)]
     pub struct GossipProducerMock {
         produce_params: Arc<Mutex<Vec<(NeighborhoodDatabase, PublicKey)>>>,
-        produce_results: RefCell<Vec<Gossip>>,
+        produce_results: RefCell<Vec<Option<Gossip>>>,
     }
 
     impl GossipProducer for GossipProducerMock {
-        fn produce(&self, database: &NeighborhoodDatabase, target: &PublicKey) -> Gossip {
+        fn produce(
+            &self,
+            database: &mut NeighborhoodDatabase,
+            target: &PublicKey,
+        ) -> Option<Gossip> {
             self.produce_params
                 .lock()
                 .unwrap()
@@ -3719,7 +3814,7 @@ mod tests {
             self
         }
 
-        pub fn produce_result(self, result: Gossip) -> GossipProducerMock {
+        pub fn produce_result(self, result: Option<Gossip>) -> GossipProducerMock {
             self.produce_results.borrow_mut().push(result);
             self
         }

@@ -29,10 +29,7 @@ impl Bip39 {
         Seed::new(mnemonic, passphrase)
     }
 
-    pub fn encrypt_bytes(
-        seed: &dyn AsRef<[u8]>,
-        db_password: &str,
-    ) -> Result<String, Bip39Error> {
+    pub fn encrypt_bytes(seed: &dyn AsRef<[u8]>, db_password: &str) -> Result<String, Bip39Error> {
         match Crypto::encrypt(
             seed.as_ref(),
             &Protected::new(db_password.as_bytes()),
@@ -52,10 +49,7 @@ impl Bip39 {
         }
     }
 
-    pub fn decrypt_bytes(
-        crypt_string: &str,
-        db_password: &str,
-    ) -> Result<PlainData, Bip39Error> {
+    pub fn decrypt_bytes(crypt_string: &str, db_password: &str) -> Result<PlainData, Bip39Error> {
         match crypt_string.from_hex::<Vec<u8>>() {
             Ok(cipher_seed_slice) => match serde_cbor::from_slice::<Crypto>(&cipher_seed_slice) {
                 Ok(crypto) => match crypto.decrypt(&Protected::new(db_password)) {
@@ -122,7 +116,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(Bip39Error::ConversionError("Invalid input length".to_string()))
+            Err(Bip39Error::ConversionError(
+                "Invalid input length".to_string()
+            ))
         );
     }
 

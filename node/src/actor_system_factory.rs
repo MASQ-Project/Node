@@ -415,7 +415,7 @@ mod tests {
         ReportExitServiceConsumedMessage, ReportExitServiceProvidedMessage,
     };
     use crate::sub_lib::blockchain_bridge::{
-        BlockchainBridgeConfig, ReportAccountsPayable, SetGasPriceMsg, SetDbPasswordMsg,
+        BlockchainBridgeConfig, ReportAccountsPayable, SetDbPasswordMsg, SetGasPriceMsg,
     };
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;

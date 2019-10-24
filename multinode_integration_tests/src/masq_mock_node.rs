@@ -17,7 +17,7 @@ use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::cryptde_real::CryptDEReal;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use node_lib::sub_lib::neighborhood::{GossipFailure, RatePack, ZERO_RATE_PACK};
+use node_lib::sub_lib::neighborhood::{GossipFailure, RatePack, DEFAULT_RATE_PACK};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::utils::indicates_dead_stream;
@@ -120,7 +120,7 @@ impl MASQNode for MASQMockNode {
     }
 
     fn rate_pack(&self) -> RatePack {
-        ZERO_RATE_PACK.clone()
+        self.guts.rate_pack.clone()
     }
 
     fn chain(&self) -> Option<String> {
@@ -182,6 +182,7 @@ impl MASQMockNode {
             node_addr,
             earning_wallet,
             consuming_wallet,
+            rate_pack: DEFAULT_RATE_PACK.clone(),
             cryptde_enum: cryptde_enum,
             framer,
             chain: None,
@@ -480,6 +481,7 @@ struct MASQMockNodeGuts {
     node_addr: NodeAddr,
     earning_wallet: Wallet,
     consuming_wallet: Option<Wallet>,
+    rate_pack: RatePack,
     cryptde_enum: CryptDEEnum,
     framer: RefCell<DataHunkFramer>,
     chain: Option<String>,
