@@ -423,7 +423,10 @@ mod tests {
 
         let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
 
-        assert_eq!(result, NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234;2345").unwrap());
+        assert_eq!(
+            result,
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234;2345").unwrap()
+        );
     }
 
     #[test]
@@ -433,7 +436,10 @@ mod tests {
 
         let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
 
-        assert_eq!(result, NodeDescriptor::from_str(main_cryptde(), "AQIDBA::").unwrap());
+        assert_eq!(
+            result,
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA::").unwrap()
+        );
     }
 
     #[test]

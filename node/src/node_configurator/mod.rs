@@ -388,7 +388,7 @@ pub fn request_existing_db_password(
     persistent_config: &dyn PersistentConfiguration,
 ) -> Option<String> {
     if persistent_config.check_password("bad password") == None {
-        return None
+        return None;
     }
     if let Some(preamble) = possible_preamble {
         flushed_write(streams.stdout, &format!("{}\n", preamble))
@@ -1138,10 +1138,9 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let persistent_configuration =
-            PersistentConfigurationMock::new()
-                .check_password_result(Some(false))
-                .check_password_result(Some(true));
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_result(Some(false))
+            .check_password_result(Some(true));
 
         let actual = request_existing_db_password(
             streams,
@@ -1167,10 +1166,9 @@ mod tests {
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let persistent_configuration =
-            PersistentConfigurationMock::new()
-                .check_password_result(Some(false))
-                .check_password_result(Some(true));
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_result(Some(false))
+            .check_password_result(Some(true));
 
         let actual = request_existing_db_password(
             streams,
@@ -1258,8 +1256,7 @@ mod tests {
         );
 
         assert_eq!(actual, None);
-        assert_eq!(
-            stdout_writer.get_string(), "".to_string());
+        assert_eq!(stdout_writer.get_string(), "".to_string());
     }
 
     #[test]

@@ -137,7 +137,10 @@ impl Handler<StartMessage> for Neighborhood {
                     "Sent Gossip: {}",
                     gossip.to_dot_graph(
                         self.neighborhood_database.root(),
-                        (&node_descriptor.encryption_public_key, &node_descriptor.node_addr_opt),
+                        (
+                            &node_descriptor.encryption_public_key,
+                            &node_descriptor.node_addr_opt
+                        ),
                     )
                 );
             } else {
@@ -394,16 +397,19 @@ impl Neighborhood {
             config.earning_wallet.clone(),
             cryptde,
         );
+        let is_mainnet =
+            || config.blockchain_bridge_config.chain_id == chain_id_from_name("mainnet");
         let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
             .mode
             .neighbor_configs()
             .iter()
             .map(|nc| {
-                if nc.mainnet
-                    != (config.blockchain_bridge_config.chain_id
-                    == chain_id_from_name("mainnet"))
-                {
-                    unimplemented!("TODO: Test-drive me!")
+                if nc.mainnet != is_mainnet() {
+                    panic!(
+                        "Neighbor {} is {}on the mainnet blockchain",
+                        nc.to_string(cryptde),
+                        if nc.mainnet { "" } else { "not " }
+                    );
                 }
                 nc.clone()
             })
@@ -1110,6 +1116,48 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
+
+    #[test]
+    #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
+    fn cant_create_mainnet_neighborhood_with_non_mainnet_neighbors() {
+        let cryptde = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let mut bc = bc_from_nc_plus(
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                    cryptde,
+                    "AQIDBA:1.2.3.4:1234",
+                )
+                .unwrap()]),
+            },
+            earning_wallet.clone(),
+            None,
+        );
+        bc.blockchain_bridge_config.chain_id = chain_id_from_name("mainnet");
+
+        let _ = Neighborhood::new(cryptde, &bc);
+    }
+
+    #[test]
+    #[should_panic(expected = "Neighbor AQIDBA@1.2.3.4:1234 is on the mainnet blockchain")]
+    fn cant_create_non_mainnet_neighborhood_with_mainnet_neighbors() {
+        let cryptde = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let mut bc = bc_from_nc_plus(
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                    cryptde,
+                    "AQIDBA@1.2.3.4:1234",
+                )
+                .unwrap()]),
+            },
+            earning_wallet.clone(),
+            None,
+        );
+        bc.blockchain_bridge_config.chain_id = chain_id_from_name("testnet");
+
+        let _ = Neighborhood::new(cryptde, &bc);
+    }
 
     #[test]
     fn node_with_zero_hop_config_creates_single_node_database() {
@@ -3003,9 +3051,7 @@ mod tests {
         assert_eq!(None, failed_ip_address_query.wait().unwrap());
     }
 
-    fn node_record_to_neighbor_config(
-        node_record_ref: &NodeRecord
-    ) -> NodeDescriptor {
+    fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
         let cryptde: &dyn CryptDE = main_cryptde();
         NodeDescriptor::from((
             &node_record_ref.public_key().clone(),
@@ -3328,7 +3374,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &node_record,
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
-                            cryptde
+                            cryptde,
                         ))],
                         rate_pack(100),
                     ),

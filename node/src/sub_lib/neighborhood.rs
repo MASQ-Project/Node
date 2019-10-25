@@ -128,7 +128,11 @@ impl From<(&PublicKey, &NodeAddr, bool, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&PublicKey, &NodeAddr, bool, &dyn CryptDE)) -> Self {
         let (public_key, node_addr, mainnet, cryptde) = tuple;
         NodeDescriptor {
-            encryption_public_key: cryptde.descriptor_fragment_to_first_contact_public_key(&cryptde.public_key_to_descriptor_fragment(public_key)).expect("Internal error"),
+            encryption_public_key: cryptde
+                .descriptor_fragment_to_first_contact_public_key(
+                    &cryptde.public_key_to_descriptor_fragment(public_key),
+                )
+                .expect("Internal error"),
             mainnet,
             node_addr_opt: Some(node_addr.clone()),
         }
@@ -139,7 +143,11 @@ impl From<(&PublicKey, bool, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&PublicKey, bool, &dyn CryptDE)) -> Self {
         let (public_key, mainnet, cryptde) = tuple;
         NodeDescriptor {
-            encryption_public_key: cryptde.descriptor_fragment_to_first_contact_public_key(&cryptde.public_key_to_descriptor_fragment(public_key)).expect("Internal error"),
+            encryption_public_key: cryptde
+                .descriptor_fragment_to_first_contact_public_key(
+                    &cryptde.public_key_to_descriptor_fragment(public_key),
+                )
+                .expect("Internal error"),
             mainnet,
             node_addr_opt: None,
         }
@@ -150,7 +158,11 @@ impl From<(&NodeRecord, bool, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&NodeRecord, bool, &dyn CryptDE)) -> Self {
         let (node_record, mainnet, cryptde) = tuple;
         NodeDescriptor {
-            encryption_public_key: cryptde.descriptor_fragment_to_first_contact_public_key(&cryptde.public_key_to_descriptor_fragment(node_record.public_key())).expect("Internal error"),
+            encryption_public_key: cryptde
+                .descriptor_fragment_to_first_contact_public_key(
+                    &cryptde.public_key_to_descriptor_fragment(node_record.public_key()),
+                )
+                .expect("Internal error"),
             mainnet,
             node_addr_opt: node_record.node_addr_opt(),
         }
@@ -180,10 +192,11 @@ impl NodeDescriptor {
             }
         };
 
-        let encryption_public_key = match cryptde.descriptor_fragment_to_first_contact_public_key(pieces[0]) {
-            Err(e) => return Err(e),
-            Ok(hpk) => hpk,
-        };
+        let encryption_public_key =
+            match cryptde.descriptor_fragment_to_first_contact_public_key(pieces[0]) {
+                Err(e) => return Err(e),
+                Ok(hpk) => hpk,
+            };
 
         let node_addr_opt = {
             if pieces[1] == ":" {
@@ -204,7 +217,8 @@ impl NodeDescriptor {
     }
 
     pub fn to_string(&self, cryptde: &dyn CryptDE) -> String {
-        let contact_public_key_string = cryptde.public_key_to_descriptor_fragment(&self.encryption_public_key);
+        let contact_public_key_string =
+            cryptde.public_key_to_descriptor_fragment(&self.encryption_public_key);
         let node_addr_string = match &self.node_addr_opt {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
@@ -390,12 +404,12 @@ impl fmt::Display for GossipFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::utils::localhost;
-    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use actix::Actor;
     use std::str::FromStr;
-    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {
@@ -553,7 +567,11 @@ mod tests {
     #[test]
     fn node_descriptor_from_key_and_mainnet_flag_works_with_cryptde_real() {
         let cryptde: &dyn CryptDE = &CryptDEReal::new(DEFAULT_CHAIN_ID);
-        let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(&cryptde.public_key_to_descriptor_fragment(cryptde.public_key())).unwrap();
+        let encryption_public_key = cryptde
+            .descriptor_fragment_to_first_contact_public_key(
+                &cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),
+            )
+            .unwrap();
 
         let result = NodeDescriptor::from((cryptde.public_key(), true, cryptde));
 
@@ -615,7 +633,8 @@ mod tests {
     #[test]
     fn standard_mode_results() {
         let one_neighbor = NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234").unwrap();
-        let another_neighbor = NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap();
+        let another_neighbor =
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap();
         let subject = NeighborhoodMode::Standard(
             NodeAddr::new(&localhost(), &vec![1234, 2345]),
             vec![one_neighbor.clone(), another_neighbor.clone()],
@@ -642,7 +661,8 @@ mod tests {
     #[test]
     fn originate_only_mode_results() {
         let one_neighbor = NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234").unwrap();
-        let another_neighbor = NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap();
+        let another_neighbor =
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap();
         let subject = NeighborhoodMode::OriginateOnly(
             vec![one_neighbor.clone(), another_neighbor.clone()],
             rate_pack(100),
@@ -665,8 +685,10 @@ mod tests {
     #[test]
     fn consume_only_mode_results() {
         let one_neighbor = NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234").unwrap();
-        let another_neighbor = NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap();
-        let subject = NeighborhoodMode::ConsumeOnly(vec![one_neighbor.clone(), another_neighbor.clone()]);
+        let another_neighbor =
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap();
+        let subject =
+            NeighborhoodMode::ConsumeOnly(vec![one_neighbor.clone(), another_neighbor.clone()]);
 
         assert_eq!(subject.node_addr_opt(), None);
         assert_eq!(
