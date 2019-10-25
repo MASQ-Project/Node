@@ -66,6 +66,9 @@ use node_record::NodeRecord;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
+use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use crate::database::db_initializer::{DbInitializerReal, DbInitializer};
+use std::collections::HashSet;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -78,8 +81,10 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
-    logger: Logger,
     chain_id: u8,
+    persistent_config: Box<dyn PersistentConfiguration>,
+    db_password_opt: Option<String>,
+    logger: Logger,
 }
 
 impl Actor for Neighborhood {
@@ -414,6 +419,9 @@ impl Neighborhood {
                 nc.clone()
             })
             .collect_vec();
+        let db_initializer = DbInitializerReal::new();
+        let conn = db_initializer.initialize(&config.data_directory, config.blockchain_bridge_config.chain_id)
+            .expect ("TODO: Test-drive me");
 
         Neighborhood {
             cryptde,
@@ -426,8 +434,10 @@ impl Neighborhood {
             consuming_wallet_opt: config.consuming_wallet.clone(),
             next_return_route_id: 0,
             initial_neighbors,
-            logger: Logger::new("Neighborhood"),
             chain_id: config.blockchain_bridge_config.chain_id,
+            persistent_config: Box::new (PersistentConfigurationReal::from (conn)),
+            db_password_opt: config.db_password_opt.clone(),
+            logger: Logger::new("Neighborhood"),
         }
     }
 
@@ -463,13 +473,8 @@ impl Neighborhood {
     }
 
     fn handle_gossip(&mut self, incoming_gossip: Gossip, gossip_source: SocketAddr) {
-        info!(
-            self.logger,
-            "Processing Gossip about {} Nodes",
-            incoming_gossip.node_records.len()
-        );
-
         let record_count = incoming_gossip.node_records.len();
+        info!(self.logger, "Processing Gossip about {} Nodes", record_count);
         let agrs: Vec<AccessibleGossipRecord> = incoming_gossip
             .node_records
             .into_iter()
@@ -536,9 +541,18 @@ impl Neighborhood {
         };
     }
 
+    fn neighbor_descriptors(&self) -> HashSet<NodeDescriptor> {
+        self.neighborhood_database.root()
+            .full_neighbor_keys(&self.neighborhood_database).into_iter()
+            .map(|k| NodeDescriptor::from((self.neighborhood_database.node_by_key(k).expect("Node disappeared"), self.chain_id == chain_id_from_name("mainnet"), self.cryptde)))
+            .collect::<HashSet<NodeDescriptor>>()
+
+    }
+
     fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
         let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
         let gossip_record_count = agrs.len();
+        let node_descriptors_before = self.neighbor_descriptors();
         let acceptance_result =
             self.gossip_acceptor
                 .handle(&mut self.neighborhood_database, agrs, gossip_source);
@@ -559,6 +573,18 @@ impl Neighborhood {
             );
                 self.handle_gossip_ignored(ignored_node_name, gossip_record_count);
             }
+        }
+        let node_descriptors_after = self.neighbor_descriptors();
+        if (node_descriptors_after != node_descriptors_before) && self.db_password_opt.is_some() {
+            let node_descriptors_opt = if node_descriptors_after.is_empty() {
+                None
+            } else {
+                Some (node_descriptors_after.into_iter().collect_vec())
+            };
+            match self.persistent_config.set_past_neighbors(node_descriptors_opt, self.db_password_opt.as_ref().expect("Password disappeared")) {
+                Ok(_) => (),
+                Err(e) => error!(self.logger, "Could not persist immediate-neighbor changes: {:?}", e),
+            };
         }
     }
 
@@ -1082,7 +1108,7 @@ mod tests {
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::*;
     use crate::neighborhood::node_record::NodeRecordInner;
-    use crate::persistent_configuration::TLS_PORT;
+    use crate::persistent_configuration::{TLS_PORT, PersistentConfigError};
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1094,7 +1120,7 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::rate_pack;
+    use crate::test_utils::{rate_pack, ensure_node_home_directory_exists};
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
@@ -1116,6 +1142,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -1132,6 +1159,7 @@ mod tests {
             },
             earning_wallet.clone(),
             None,
+            "cant_create_mainnet_neighborhood_with_non_mainnet_neighbors",
         );
         bc.blockchain_bridge_config.chain_id = chain_id_from_name("mainnet");
 
@@ -1153,6 +1181,7 @@ mod tests {
             },
             earning_wallet.clone(),
             None,
+            "cant_create_non_mainnet_neighborhood_with_mainnet_neighbors",
         );
         bc.blockchain_bridge_config.chain_id = chain_id_from_name("testnet");
 
@@ -1172,6 +1201,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 None,
+                "node_with_zero_hop_config_creates_single_node_database",
             ),
         );
 
@@ -1199,6 +1229,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 None,
+                "node_with_originate_only_config_is_decentralized_with_neighbor_but_not_ip",
             ),
         );
 
@@ -1227,6 +1258,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_with_zero_hop_config_ignores_start_message",
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
@@ -1271,6 +1303,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_with_neighbor_config_having_no_node_addr_panics",
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
@@ -1316,6 +1349,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "neighborhood_adds_nodes_and_links",
             ),
         );
 
@@ -1383,6 +1417,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 None,
+                "gossip_failures_eventually_stop_the_neighborhood",
             ),
         );
         let ecp1 = ExpiredCoresPackage::new(
@@ -1456,6 +1491,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_query_responds_with_none_when_key_query_matches_no_configured_data",
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
@@ -1490,6 +1526,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_query_responds_with_result_when_key_query_matches_configured_data",
             ),
         );
         subject
@@ -1544,6 +1581,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_query_responds_with_none_when_ip_address_query_matches_no_configured_data",
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
@@ -1583,6 +1621,7 @@ mod tests {
                 },
                 node_record.earning_wallet(),
                 None,
+                "node_query_responds_with_result_when_ip_address_query_matches_configured_data",
             ),
         );
         subject
@@ -2312,6 +2351,7 @@ mod tests {
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
+                    "gossips_after_removing_a_neighbor",
                 ),
             );
             let db = &mut subject.neighborhood_database;
@@ -2538,6 +2578,148 @@ mod tests {
             payload,
             MessageType::GossipFailure(GossipFailure::NoSuitableNeighbors)
         );
+    }
+
+    struct NeighborReplacementGossipAcceptor {
+        pub new_neighbors: Vec<NodeRecord>
+    }
+
+    impl GossipAcceptor for NeighborReplacementGossipAcceptor {
+        fn handle(&self, database: &mut NeighborhoodDatabase, _agrs: Vec<AccessibleGossipRecord>, _gossip_source: SocketAddr) -> GossipAcceptanceResult {
+            let half_neighbor_keys = database.root().half_neighbor_keys().into_iter()
+                .map(|k| k.clone())
+                .collect_vec();
+            half_neighbor_keys.into_iter().for_each(|k| database.remove_node(&k));
+            let root_key = database.root().public_key().clone();
+            self.new_neighbors.iter().for_each(|nr| {
+                database.add_node (nr.clone()).unwrap();
+                database.add_arbitrary_full_neighbor(&root_key, nr.public_key());
+            });
+            GossipAcceptanceResult::Ignored
+        }
+    }
+
+    #[test]
+    fn neighborhood_updates_past_neighbors_when_neighbor_list_changes() {
+        let cryptde: &dyn CryptDE = main_cryptde();
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let old_neighbor = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&old_neighbor));
+        subject.neighborhood_database.add_node(old_neighbor.clone()).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(subject_node.public_key(), old_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![old_neighbor.clone(), new_neighbor.clone()]
+        };
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config = Box::new(persistent_config);
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        let mut set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        let (neighbors_opt, db_password) = set_past_neighbors_params.remove(0);
+        let neighbors = neighbors_opt.unwrap();
+        assert_contains (&neighbors, &NodeDescriptor::from((&old_neighbor, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"), cryptde)));
+        assert_contains (&neighbors, &NodeDescriptor::from((&new_neighbor, DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"), cryptde)));
+        assert_eq! (neighbors.len(), 2);
+        assert_eq! (db_password, "password".to_string());
+    }
+
+    #[test]
+    fn neighborhood_removes_past_neighbors_when_neighbor_list_goes_empty() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let neighbor = make_node_record(1111, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        subject.neighborhood_database.add_node(neighbor.clone()).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(subject_node.public_key(), neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![]
+        };
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config = Box::new(persistent_config);
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        let mut set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        let (neighbors_opt, db_password) = set_past_neighbors_params.remove(0);
+        assert_eq! (neighbors_opt, None);
+        assert_eq! (db_password, "password".to_string());
+    }
+
+    #[test]
+    fn neighborhood_does_not_update_past_neighbors_when_neighbor_list_does_not_change() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let steadfast_neighbor = make_node_record(1111, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&steadfast_neighbor));
+        subject.neighborhood_database.add_node(steadfast_neighbor.clone()).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(subject_node.public_key(), steadfast_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![steadfast_neighbor.clone()]
+        };
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc);
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config = Box::new(persistent_config);
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert!(set_past_neighbors_params.is_empty());
+    }
+
+    #[test]
+    fn neighborhood_does_not_updates_past_neighbors_without_password_even_when_neighbor_list_changes() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let old_neighbor = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&old_neighbor));
+        subject.neighborhood_database.add_node(old_neighbor.clone()).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(subject_node.public_key(), old_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![old_neighbor.clone(), new_neighbor.clone()]
+        };
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc);
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config = Box::new(persistent_config);
+        subject.db_password_opt = None;
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert!(set_past_neighbors_params.is_empty());
+    }
+
+    #[test]
+    fn neighborhood_logs_error_when_past_neighbors_update_fails() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let old_neighbor = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&old_neighbor));
+        subject.neighborhood_database.add_node(old_neighbor.clone()).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(subject_node.public_key(), old_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![old_neighbor.clone(), new_neighbor.clone()]
+        };
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_result (Err(PersistentConfigError::DatabaseError("Booga".to_string())));
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config = Box::new(persistent_config);
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        TestLogHandler::new().exists_log_containing("ERROR: Neighborhood: Could not persist immediate-neighbor changes: DatabaseError(\"Booga\")");
     }
 
     #[test]
@@ -2889,6 +3071,7 @@ mod tests {
                     },
                     this_node_inside.earning_wallet(),
                     None,
+                    "neighborhood_logs_received_gossip_in_dot_graph_format"
                 ),
             );
 
@@ -2943,6 +3126,7 @@ mod tests {
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
+                "node_gossips_to_neighbors_on_startup"
             ),
         );
         let this_node = subject.neighborhood_database.root().clone();
@@ -3132,6 +3316,7 @@ mod tests {
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
+                    "neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data"
                 ),
             );
             let addr: Addr<Neighborhood> = subject.start();
@@ -3192,6 +3377,7 @@ mod tests {
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
+                    "neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data"
                 ),
             );
             subject
@@ -3257,6 +3443,7 @@ mod tests {
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
+                    "neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data"
                 ),
             );
             let addr: Addr<Neighborhood> = subject.start();
@@ -3319,6 +3506,7 @@ mod tests {
                 },
                 node_record.earning_wallet(),
                 None,
+                "neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data"
             );
             let mut subject = Neighborhood::new(cryptde, &config);
             subject
@@ -3381,6 +3569,7 @@ mod tests {
                 },
                 node_record.earning_wallet(),
                 None,
+                "neighborhood_responds_with_dot_graph_when_requested_and_logs_acknowledgement"
             );
             let mut subject = Neighborhood::new(cryptde, &config);
             subject.dot_graph_recipient = Some(recipient);
@@ -3832,11 +4021,14 @@ mod tests {
         nc: NeighborhoodConfig,
         earning_wallet: Wallet,
         consuming_wallet_opt: Option<Wallet>,
+        test_name: &str,
     ) -> BootstrapperConfig {
+        let home_dir = ensure_node_home_directory_exists("neighborhood", test_name);
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = nc;
         config.earning_wallet = earning_wallet;
         config.consuming_wallet = consuming_wallet_opt;
+        config.data_directory = home_dir;
         config
     }
 

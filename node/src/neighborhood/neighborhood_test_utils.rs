@@ -104,6 +104,7 @@ pub fn neighborhood_from_nodes(
     };
     config.earning_wallet = root.earning_wallet();
     config.consuming_wallet = Some(make_paying_wallet(b"consuming"));
+    config.db_password_opt = Some("password".to_string());
     Neighborhood::new(cryptde, &config)
 }
 

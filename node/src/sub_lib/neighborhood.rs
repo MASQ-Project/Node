@@ -117,7 +117,7 @@ impl NeighborhoodMode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeDescriptor {
     pub encryption_public_key: PublicKey,
     pub mainnet: bool,
