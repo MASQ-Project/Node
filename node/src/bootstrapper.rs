@@ -1203,8 +1203,6 @@ mod tests {
         subject.initialize_as_privileged(
             &vec![
                 "MASQNode".to_string(),
-                //                "--clandestine-port".to_string(),
-                //                "1234".to_string(),
                 "--dns-servers".to_string(),
                 "1.1.1.1".to_string(),
                 "--data-directory".to_string(),

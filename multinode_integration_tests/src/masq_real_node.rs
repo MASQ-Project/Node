@@ -1382,6 +1382,8 @@ mod tests {
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
                 "--chain",
                 TEST_DEFAULT_CHAIN_NAME,
+                "--db-password",
+                "password",
             ))
         );
     }
