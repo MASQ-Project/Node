@@ -790,7 +790,6 @@ mod tests {
     };
     use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
-    use crate::database::db_initializer;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::multi_config::tests::FauxEnvironmentVcl;
     use crate::multi_config::{
@@ -814,15 +813,12 @@ mod tests {
     };
     use crate::test_utils::{make_default_persistent_configuration, DEFAULT_CHAIN_ID};
     use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
-    use ethsign::keyfile::Crypto;
-    use ethsign::Protected;
     use rustc_hex::{FromHex, ToHex};
     use std::fs::File;
     use std::io::Cursor;
     use std::io::Write;
     use std::net::IpAddr;
     use std::net::SocketAddr;
-    use std::num::NonZeroU32;
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -2201,79 +2197,6 @@ mod tests {
             "0x8e4d2317e56c8fd1fc9f13ba2aa62df1c5a542a7".to_string()
         );
         assert_eq!(captured_output, expected_output);
-    }
-
-    #[test]
-    //    #[should_panic(
-    //        expected = "Could not verify password: ConversionError(\"Invalid character \\'o\\' at position 1\")"
-    //    )]
-    fn invalid_mnemonic_seed_causes_conversion_error_and_panics() {
-        let data_directory = ensure_node_home_directory_exists(
-            "node_configurator",
-            "invalid_mnemonic_seed_causes_conversion_error_and_panics",
-        );
-
-        let conn = db_initializer::DbInitializerReal::new()
-            .initialize(&data_directory, DEFAULT_CHAIN_ID)
-            .unwrap();
-        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(conn));
-        config_dao.set_string("seed", "booga booga").unwrap();
-        let args = make_default_cli_params()
-            .param("--data-directory", data_directory.to_str().unwrap())
-            .param("--db-password", "rick-rolled");
-        let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::new(&app(), vec![vcl]);
-
-        standard::unprivileged_parse_args(
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-            &PersistentConfigurationReal::from(config_dao),
-        );
-    }
-
-    #[test]
-    //    #[should_panic(
-    //        expected = "Could not verify password: DeserializationFailure(\"trailing data at offset 324\")"
-    //    )]
-    fn mnemonic_seed_deserialization_failure_aborts_as_expected() {
-        let data_directory = ensure_node_home_directory_exists(
-            "node_configurator",
-            "mnemonic_seed_deserialization_failure_aborts_as_expected",
-        );
-
-        let conn = db_initializer::DbInitializerReal::new()
-            .initialize(&data_directory, DEFAULT_CHAIN_ID)
-            .unwrap();
-        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(conn));
-
-        let crypto = Crypto::encrypt(
-            b"never gonna give you up",
-            &Protected::new("ricked rolled"),
-            NonZeroU32::new(1024).unwrap(),
-        )
-        .unwrap();
-        let mut crypto_seed = serde_cbor::to_vec(&crypto).unwrap();
-        crypto_seed.extend_from_slice(&b"choke on these extra bytes"[..]);
-        let mnemonic_seed_with_extras = crypto_seed.to_hex::<String>();
-
-        config_dao
-            .set_string("seed", &mnemonic_seed_with_extras)
-            .unwrap();
-        let args = make_default_cli_params()
-            .param("--data-directory", data_directory.to_str().unwrap())
-            .param("--db-password", "ricked rolled");
-        let mut config = BootstrapperConfig::new();
-        let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::new(&app(), vec![vcl]);
-
-        standard::unprivileged_parse_args(
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-            &PersistentConfigurationReal::from(config_dao),
-        );
     }
 
     #[test]

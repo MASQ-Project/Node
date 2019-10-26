@@ -591,22 +591,27 @@ impl Neighborhood {
             }
         }
         let node_descriptors_after = self.neighbor_descriptors();
-        if (node_descriptors_after != node_descriptors_before) && self.db_password_opt.is_some() {
-            let node_descriptors_opt = if node_descriptors_after.is_empty() {
-                None
-            } else {
-                Some(node_descriptors_after.into_iter().collect_vec())
-            };
-            match self.persistent_config.set_past_neighbors(
-                node_descriptors_opt,
-                self.db_password_opt.as_ref().expect("Password disappeared"),
-            ) {
-                Ok(_) => (),
-                Err(e) => error!(
-                    self.logger,
-                    "Could not persist immediate-neighbor changes: {:?}", e
-                ),
-            };
+        if node_descriptors_after != node_descriptors_before {
+            if let Some(db_password) = &self.db_password_opt {
+                let node_descriptors_opt = if node_descriptors_after.is_empty() {
+                    None
+                } else {
+                    Some(node_descriptors_after.into_iter().collect_vec())
+                };
+                match self.persistent_config.set_past_neighbors(node_descriptors_opt, db_password) {
+                    Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
+                    Err(e) => error!(
+                        self.logger,
+                        "Could not persist immediate-neighbor changes: {:?}", e
+                    ),
+                };
+            }
+            else {
+                info!(self.logger, "Declining to persist neighbor changes for next run: no database password supplied")
+            }
+        }
+        else {
+            debug!(self.logger, "No neighbor changes; database is unchanged")
         }
     }
 

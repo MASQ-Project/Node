@@ -312,6 +312,7 @@ impl BootstrapperConfig {
         self.neighborhood_config = unprivileged.neighborhood_config;
         self.earning_wallet = unprivileged.earning_wallet;
         self.consuming_wallet = unprivileged.consuming_wallet;
+        self.db_password_opt = unprivileged.db_password_opt;
     }
 }
 
