@@ -2,10 +2,13 @@
 
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::multinode_gossip::{MultinodeGossip, SingleNode, Standard, parse_gossip};
-use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use multinode_integration_tests_lib::multinode_gossip::GossipType;
+use multinode_integration_tests_lib::multinode_gossip::{
+    parse_gossip, MultinodeGossip, SingleNode, Standard,
+};
+use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::neighborhood::gossip::GossipBuilder;
+use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::neighborhood::AccessibleGossipRecord;
@@ -14,7 +17,6 @@ use node_lib::sub_lib::neighborhood::GossipFailure;
 use node_lib::test_utils::vec_to_set;
 use std::convert::TryInto;
 use std::time::Duration;
-use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 
 #[test]
 fn debut_target_does_not_introduce_known_neighbors() {
@@ -142,6 +144,6 @@ fn node_remembers_its_neighbors_across_a_bounce() {
     let (gossip, ip_addr) = relay1.wait_for_gossip(Duration::from_millis(2000)).unwrap();
     match parse_gossip(&gossip, ip_addr) {
         GossipType::DebutGossip(_) => (),
-        gt=> panic! ("Expected GossipType::Debut, but found {:?}", gt),
+        gt => panic!("Expected GossipType::Debut, but found {:?}", gt),
     }
 }

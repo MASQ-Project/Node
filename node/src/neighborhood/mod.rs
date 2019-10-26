@@ -598,19 +598,20 @@ impl Neighborhood {
                 } else {
                     Some(node_descriptors_after.into_iter().collect_vec())
                 };
-                match self.persistent_config.set_past_neighbors(node_descriptors_opt, db_password) {
+                match self
+                    .persistent_config
+                    .set_past_neighbors(node_descriptors_opt, db_password)
+                {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
                     Err(e) => error!(
                         self.logger,
                         "Could not persist immediate-neighbor changes: {:?}", e
                     ),
                 };
-            }
-            else {
+            } else {
                 info!(self.logger, "Declining to persist neighbor changes for next run: no database password supplied")
             }
-        }
-        else {
+        } else {
             debug!(self.logger, "No neighbor changes; database is unchanged")
         }
     }

@@ -586,8 +586,8 @@ impl NodeStartupConfigBuilder {
 
     pub fn db_password(mut self, value: Option<&str>) -> Self {
         self.db_password = match value {
-            Some(s) => Some (s.to_string()),
-            None => None
+            Some(s) => Some(s.to_string()),
+            None => None,
         };
         self
     }
@@ -828,9 +828,8 @@ impl MASQRealNode {
     }
 
     pub fn kill_node(&self) {
-        let _ = Self::exec_command_on_container_and_wait(&self.guts.name, vec![
-            "pkill", "MASQNode"
-        ]);
+        let _ =
+            Self::exec_command_on_container_and_wait(&self.guts.name, vec!["pkill", "MASQNode"]);
     }
 
     pub fn restart_node(&self, startup_config: NodeStartupConfig) {
