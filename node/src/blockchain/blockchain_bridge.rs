@@ -208,21 +208,23 @@ impl BlockchainBridge {
         if self.consuming_wallet.is_some() {
             error!(
                 self.logger,
-                "Db password rejected: consuming wallet already active"
+                "Database password rejected: consuming wallet already active"
             );
             return false;
         }
-        let consuming_wallet_derivation_path =
-            match self.persistent_config.consuming_wallet_derivation_path() {
-                Some(cwdp) => cwdp,
-                None => {
-                    error!(
+        let consuming_wallet_derivation_path = match self
+            .persistent_config
+            .consuming_wallet_derivation_path()
+        {
+            Some(cwdp) => cwdp,
+            None => {
+                error!(
                     self.logger,
-                    "Db password rejected: no consuming wallet derivation path has been configured"
+                    "Database password rejected: no consuming wallet derivation path has been configured"
                 );
-                    return false;
-                }
-            };
+                return false;
+            }
+        };
         match self.persistent_config.mnemonic_seed(password) {
             Ok(Some(plain_data)) => {
                 let key_pair = Bip32ECKeyPair::from_raw(
@@ -251,7 +253,7 @@ impl BlockchainBridge {
             Ok(None) => {
                 error!(
                     self.logger,
-                    "Db password rejected: no mnemonic phrase has been configured"
+                    "Database password rejected: no mnemonic phrase has been configured"
                 );
                 false
             }
@@ -340,7 +342,6 @@ mod tests {
 
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default()
-                // Might need a check_password_result in here
                 .mnemonic_seed_result(Ok(Some(PlainData::from(seed_bytes))))
                 .consuming_wallet_derivation_path_result(Some(
                     DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
@@ -497,7 +498,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "Db password rejected: consuming wallet already active"
+            "Database password rejected: consuming wallet already active"
         ));
     }
 
@@ -542,7 +543,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "Db password rejected: no consuming wallet derivation path has been configured"
+            "Database password rejected: no consuming wallet derivation path has been configured"
         ));
     }
 
@@ -589,7 +590,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "Db password rejected: no mnemonic phrase has been configured"
+            "Database password rejected: no mnemonic phrase has been configured"
         ));
     }
 

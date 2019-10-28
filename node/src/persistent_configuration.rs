@@ -42,7 +42,7 @@ pub trait PersistentConfiguration: Send {
     ) -> Result<(), PersistentConfigError>;
     fn consuming_wallet_public_key(&self) -> Option<String>;
     fn consuming_wallet_derivation_path(&self) -> Option<String>;
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, db_password: &str); // TODO: Why db_password?
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, db_password: &str);
     fn set_consuming_wallet_public_key(&self, public_key: &PlainData);
     fn earning_wallet_from_address(&self) -> Option<Wallet>;
     fn earning_wallet_address(&self) -> Option<String>;
