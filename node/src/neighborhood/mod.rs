@@ -69,6 +69,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -82,7 +83,8 @@ pub struct Neighborhood {
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
     chain_id: u8,
-    persistent_config: Box<dyn PersistentConfiguration>,
+    data_directory: PathBuf,
+    persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
     db_password_opt: Option<String>,
     logger: Logger,
 }
@@ -114,47 +116,7 @@ impl Handler<StartMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if self.initial_neighbors.is_empty() {
-            info!(self.logger, "Empty. No Nodes to report to; continuing");
-            return;
-        }
-
-        let gossip = self
-            .gossip_producer
-            .produce_debut(&self.neighborhood_database);
-        self.initial_neighbors.iter().for_each(|node_descriptor| {
-            if let Some(node_addr) = &node_descriptor.node_addr_opt {
-                self.hopper_no_lookup
-                    .as_ref()
-                    .expect("unbound hopper")
-                    .try_send(
-                        NoLookupIncipientCoresPackage::new(
-                            self.cryptde,
-                            &node_descriptor.encryption_public_key,
-                            &node_addr,
-                            MessageType::Gossip(gossip.clone()),
-                        )
-                        .expect("Key magically disappeared"),
-                    )
-                    .expect("hopper is dead");
-                trace!(
-                    self.logger,
-                    "Sent Gossip: {}",
-                    gossip.to_dot_graph(
-                        self.neighborhood_database.root(),
-                        (
-                            &node_descriptor.encryption_public_key,
-                            &node_descriptor.node_addr_opt
-                        ),
-                    )
-                );
-            } else {
-                panic!(
-                    "--neighbors node descriptors must have IP address and port list, not '{}'",
-                    node_descriptor.to_string(self.cryptde)
-                )
-            }
-        });
+        self.handle_start_message();
     }
 }
 
@@ -419,13 +381,6 @@ impl Neighborhood {
                 nc.clone()
             })
             .collect_vec();
-        let db_initializer = DbInitializerReal::new();
-        let conn = db_initializer
-            .initialize(
-                &config.data_directory,
-                config.blockchain_bridge_config.chain_id,
-            )
-            .expect("TODO: Test-drive me");
 
         Neighborhood {
             cryptde,
@@ -439,7 +394,8 @@ impl Neighborhood {
             next_return_route_id: 0,
             initial_neighbors,
             chain_id: config.blockchain_bridge_config.chain_id,
-            persistent_config: Box::new(PersistentConfigurationReal::from(conn)),
+            data_directory: config.data_directory.clone(),
+            persistent_config_opt: None,
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
         }
@@ -462,6 +418,58 @@ impl Neighborhood {
             set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
             from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
         }
+    }
+
+    fn handle_start_message(&mut self) {
+        if self.persistent_config_opt.is_none() {
+            let db_initializer = DbInitializerReal::new();
+            let conn = db_initializer
+                .initialize(&self.data_directory, self.chain_id)
+                .expect("TODO: Test-drive me");
+            self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
+        }
+
+        if self.initial_neighbors.is_empty() {
+            info!(self.logger, "Empty. No Nodes to report to; continuing");
+            return;
+        }
+
+        let gossip = self
+            .gossip_producer
+            .produce_debut(&self.neighborhood_database);
+        self.initial_neighbors.iter().for_each(|node_descriptor| {
+            if let Some(node_addr) = &node_descriptor.node_addr_opt {
+                self.hopper_no_lookup
+                    .as_ref()
+                    .expect("unbound hopper")
+                    .try_send(
+                        NoLookupIncipientCoresPackage::new(
+                            self.cryptde,
+                            &node_descriptor.encryption_public_key,
+                            &node_addr,
+                            MessageType::Gossip(gossip.clone()),
+                        )
+                        .expect("Key magically disappeared"),
+                    )
+                    .expect("hopper is dead");
+                trace!(
+                    self.logger,
+                    "Sent Gossip: {}",
+                    gossip.to_dot_graph(
+                        self.neighborhood_database.root(),
+                        (
+                            &node_descriptor.encryption_public_key,
+                            &node_descriptor.node_addr_opt
+                        ),
+                    )
+                );
+            } else {
+                panic!(
+                    "--neighbors node descriptors must have IP address and port list, not '{}'",
+                    node_descriptor.to_string(self.cryptde)
+                )
+            }
+        });
     }
 
     fn log_incoming_gossip(&self, incoming_gossip: &Gossip, gossip_source: SocketAddr) {
@@ -599,7 +607,9 @@ impl Neighborhood {
                     Some(node_descriptors_after.into_iter().collect_vec())
                 };
                 match self
-                    .persistent_config
+                    .persistent_config_opt
+                    .as_ref()
+                    .expect("PersistentConfig was not set by StartMessage")
                     .set_past_neighbors(node_descriptors_opt, db_password)
                 {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
@@ -2659,7 +2669,7 @@ mod tests {
             .set_past_neighbors_params(&set_past_neighbors_params_arc)
             .set_past_neighbors_result(Ok(()));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config = Box::new(persistent_config);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
 
         subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
@@ -2706,7 +2716,7 @@ mod tests {
             .set_past_neighbors_params(&set_past_neighbors_params_arc)
             .set_past_neighbors_result(Ok(()));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config = Box::new(persistent_config);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
 
         subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
@@ -2737,7 +2747,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .set_past_neighbors_params(&set_past_neighbors_params_arc);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config = Box::new(persistent_config);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
 
         subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
@@ -2766,7 +2776,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .set_past_neighbors_params(&set_past_neighbors_params_arc);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config = Box::new(persistent_config);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
         subject.db_password_opt = None;
 
         subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
@@ -2796,7 +2806,7 @@ mod tests {
             PersistentConfigError::DatabaseError("Booga".to_string()),
         ));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config = Box::new(persistent_config);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
 
         subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
@@ -3969,7 +3979,10 @@ mod tests {
     fn make_standard_subject() -> Neighborhood {
         let root_node = make_global_cryptde_node_record(9999, true);
         let neighbor_node = make_node_record(9998, true);
-        neighborhood_from_nodes(&root_node, Some(&neighbor_node))
+        let mut subject = neighborhood_from_nodes(&root_node, Some(&neighbor_node));
+        let persistent_config = PersistentConfigurationMock::new();
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject
     }
 
     fn make_o_r_e_subject() -> (NodeRecord, NodeRecord, NodeRecord, Neighborhood) {
