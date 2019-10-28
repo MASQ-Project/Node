@@ -421,14 +421,21 @@ impl Neighborhood {
     }
 
     fn handle_start_message(&mut self) {
+        self.connect_database();
+        self.send_debut_gossip();
+    }
+
+    fn connect_database(&mut self) {
         if self.persistent_config_opt.is_none() {
             let db_initializer = DbInitializerReal::new();
             let conn = db_initializer
                 .initialize(&self.data_directory, self.chain_id)
-                .expect("TODO: Test-drive me");
+                .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }
+    }
 
+    fn send_debut_gossip(&mut self) {
         if self.initial_neighbors.is_empty() {
             info!(self.logger, "Empty. No Nodes to report to; continuing");
             return;
