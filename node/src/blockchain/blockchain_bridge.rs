@@ -2,14 +2,13 @@
 
 use crate::accountant::payable_dao::Payment;
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::bip39::Bip39Error;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, Transaction,
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use crate::sub_lib::blockchain_bridge::SetWalletPasswordMsg;
+use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -163,17 +162,17 @@ impl Handler<SetGasPriceMsg> for BlockchainBridge {
     }
 }
 
-impl Handler<SetWalletPasswordMsg> for BlockchainBridge {
+impl Handler<SetDbPasswordMsg> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: SetWalletPasswordMsg, _ctx: &mut Self::Context) -> Self::Result {
-        let password_accepted = self.accept_wallet_password(&msg.password);
+    fn handle(&mut self, msg: SetDbPasswordMsg, _ctx: &mut Self::Context) -> Self::Result {
+        let password_accepted = self.accept_db_password(&msg.password);
         self.ui_carrier_message_sub
             .as_ref()
             .expect("UiGateway is unbound")
             .try_send(UiCarrierMessage {
                 client_id: msg.client_id,
-                data: UiMessage::SetWalletPasswordResponse(password_accepted),
+                data: UiMessage::SetDbPasswordResponse(password_accepted),
             })
             .expect("UiGateway is dead")
     }
@@ -201,15 +200,15 @@ impl BlockchainBridge {
             report_accounts_payable: recipient!(addr, ReportAccountsPayable),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
-            set_consuming_wallet_password_sub: recipient!(addr, SetWalletPasswordMsg),
+            set_consuming_db_password_sub: recipient!(addr, SetDbPasswordMsg),
         }
     }
 
-    fn accept_wallet_password(&mut self, password: &str) -> bool {
+    fn accept_db_password(&mut self, password: &str) -> bool {
         if self.consuming_wallet.is_some() {
             error!(
                 self.logger,
-                "Wallet password rejected: consuming wallet already active"
+                "Database password rejected: consuming wallet already active"
             );
             return false;
         }
@@ -219,12 +218,15 @@ impl BlockchainBridge {
         {
             Some(cwdp) => cwdp,
             None => {
-                error!(self.logger, "Wallet password rejected: no consuming wallet derivation path has been configured");
+                error!(
+                    self.logger,
+                    "Database password rejected: no consuming wallet derivation path has been configured"
+                );
                 return false;
             }
         };
         match self.persistent_config.mnemonic_seed(password) {
-            Ok(plain_data) => {
+            Ok(Some(plain_data)) => {
                 let key_pair = Bip32ECKeyPair::from_raw(
                     &plain_data.as_slice(),
                     &consuming_wallet_derivation_path,
@@ -248,10 +250,10 @@ impl BlockchainBridge {
                 );
                 true
             }
-            Err(Bip39Error::NotPresent) => {
+            Ok(None) => {
                 error!(
                     self.logger,
-                    "Wallet password rejected: no mnemonic phrase has been configured"
+                    "Database password rejected: no mnemonic phrase has been configured"
                 );
                 false
             }
@@ -268,11 +270,11 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::bip39::{Bip39, Bip39Error};
     use crate::blockchain::blockchain_interface::{
         contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
         Transactions,
     };
+    use crate::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::ui_gateway::UiMessage;
@@ -340,10 +342,7 @@ mod tests {
 
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default()
-                .encrypted_mnemonic_seed_result(Some(
-                    Bip39::encrypt_bytes(&seed_bytes, password).unwrap(),
-                ))
-                .mnemonic_seed_result(Ok(PlainData::from(seed_bytes)))
+                .mnemonic_seed_result(Ok(Some(PlainData::from(seed_bytes))))
                 .consuming_wallet_derivation_path_result(Some(
                     DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
                 ));
@@ -365,7 +364,7 @@ mod tests {
                     .build(),
             })
             .unwrap();
-            addr.try_send(SetWalletPasswordMsg {
+            addr.try_send(SetDbPasswordMsg {
                 client_id: 42,
                 password: password.to_string(),
             })
@@ -381,7 +380,7 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(true),
+                data: UiMessage::SetDbPasswordResponse(true),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -415,9 +414,7 @@ mod tests {
 
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::default()
-                .mnemonic_seed_result(Err(Bip39Error::DecryptionFailure(
-                    "InvalidPassword".to_string(),
-                )))
+                .mnemonic_seed_result(Err(PersistentConfigError::PasswordError))
                 .consuming_wallet_derivation_path_result(Some(
                     DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
                 ));
@@ -435,7 +432,7 @@ mod tests {
                 peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
             })
             .unwrap();
-            addr.try_send(SetWalletPasswordMsg {
+            addr.try_send(SetDbPasswordMsg {
                 client_id: 42,
                 password: "ihatecheetos".to_string(),
             })
@@ -451,16 +448,15 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(false),
+                data: UiMessage::SetDbPasswordResponse(false),
             }
         );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "failed to unlock consuming wallet: DecryptionFailure(\"InvalidPassword\")"
-        ));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("failed to unlock consuming wallet: PasswordError"));
     }
 
     #[test]
-    fn blockchain_bridge_logs_error_when_setting_wallet_password_when_wallet_already_exists() {
+    fn blockchain_bridge_logs_error_when_setting_db_password_when_wallet_already_exists() {
         init_test_logging();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
         thread::spawn(move || {
@@ -474,7 +470,7 @@ mod tests {
             );
 
             let system = System::new(
-                "blockchain_bridge_logs_error_when_setting_wallet_password_when_wallet_already_exists",
+                "blockchain_bridge_logs_error_when_setting_db_password_when_wallet_already_exists",
             );
             let addr = subject.start();
 
@@ -482,7 +478,7 @@ mod tests {
                 peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
             })
             .unwrap();
-            addr.try_send(SetWalletPasswordMsg {
+            addr.try_send(SetDbPasswordMsg {
                 client_id: 42,
                 password: "ilikecheetos".to_string(),
             })
@@ -498,16 +494,16 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(false),
+                data: UiMessage::SetDbPasswordResponse(false),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "Wallet password rejected: consuming wallet already active"
+            "Database password rejected: consuming wallet already active"
         ));
     }
 
     #[test]
-    fn blockchain_bridge_logs_error_when_setting_wallet_password_when_no_consuming_wallet_derivation_path(
+    fn blockchain_bridge_logs_error_when_setting_db_password_when_no_consuming_wallet_derivation_path(
     ) {
         init_test_logging();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
@@ -520,14 +516,14 @@ mod tests {
                 Box::new(persistent_config_mock),
             );
 
-            let system = System::new("blockchain_bridge_logs_error_when_setting_wallet_password_when_no_consuming_wallet_derivation_path");
+            let system = System::new("blockchain_bridge_logs_error_when_setting_db_password_when_no_consuming_wallet_derivation_path");
             let addr = subject.start();
 
             addr.try_send(BindMessage {
                 peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
             })
             .unwrap();
-            addr.try_send(SetWalletPasswordMsg {
+            addr.try_send(SetDbPasswordMsg {
                 client_id: 42,
                 password: "ilikecheetos".to_string(),
             })
@@ -543,22 +539,22 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(false),
+                data: UiMessage::SetDbPasswordResponse(false),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "Wallet password rejected: no consuming wallet derivation path has been configured"
+            "Database password rejected: no consuming wallet derivation path has been configured"
         ));
     }
 
     #[test]
-    fn blockchain_bridge_logs_error_when_setting_wallet_password_when_no_mnemonic_seed() {
+    fn blockchain_bridge_logs_error_when_setting_db_password_when_no_mnemonic_seed() {
         init_test_logging();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
         thread::spawn(move || {
             let persistent_config_mock = PersistentConfigurationMock::new()
                 .consuming_wallet_derivation_path_result(Some("m/44'/60'/1'/2/3".to_string()))
-                .mnemonic_seed_result(Err(Bip39Error::NotPresent));
+                .mnemonic_seed_result(Ok(None));
             let subject = BlockchainBridge::new(
                 &bc_from_wallet(None),
                 stub_bi(),
@@ -566,7 +562,7 @@ mod tests {
             );
 
             let system = System::new(
-                "blockchain_bridge_logs_error_when_setting_wallet_password_when_no_mnemonic_seed",
+                "blockchain_bridge_logs_error_when_setting_db_password_when_no_mnemonic_seed",
             );
             let addr = subject.start();
 
@@ -574,7 +570,7 @@ mod tests {
                 peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
             })
             .unwrap();
-            addr.try_send(SetWalletPasswordMsg {
+            addr.try_send(SetDbPasswordMsg {
                 client_id: 42,
                 password: "ilikecheetos".to_string(),
             })
@@ -590,11 +586,11 @@ mod tests {
             ui_gateway_recording.get_record::<UiCarrierMessage>(0),
             &UiCarrierMessage {
                 client_id: 42,
-                data: UiMessage::SetWalletPasswordResponse(false),
+                data: UiMessage::SetDbPasswordResponse(false),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "Wallet password rejected: no mnemonic phrase has been configured"
+            "Database password rejected: no mnemonic phrase has been configured"
         ));
     }
 

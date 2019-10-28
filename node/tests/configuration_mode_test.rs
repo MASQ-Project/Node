@@ -80,7 +80,7 @@ fn create_database_recovering_both_derivation_paths_integration() {
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD)
+            .pair("--db-password", PASSWORD)
             .pair("--earning-wallet", EARNING_PATH)
             .pair("--consuming-wallet", CONSUMING_PATH),
     );
@@ -89,7 +89,11 @@ fn create_database_recovering_both_derivation_paths_integration() {
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
+        persistent_config
+            .mnemonic_seed(PASSWORD)
+            .unwrap()
+            .unwrap()
+            .as_ref(),
         expected_seed.as_ref()
     );
     assert_eq!(
@@ -110,7 +114,7 @@ fn create_database_recovering_neither_derivation_path_integration() {
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD),
+            .pair("--db-password", PASSWORD),
     );
 
     let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
@@ -132,7 +136,7 @@ fn create_database_recovering_only_earning_derivation_path_integration() {
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD)
+            .pair("--db-password", PASSWORD)
             .pair("--earning-wallet", EARNING_PATH),
     );
 
@@ -140,7 +144,11 @@ fn create_database_recovering_only_earning_derivation_path_integration() {
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
+        persistent_config
+            .mnemonic_seed(PASSWORD)
+            .unwrap()
+            .unwrap()
+            .as_ref(),
         expected_seed.as_ref()
     );
     assert_eq!(
@@ -161,7 +169,7 @@ fn create_database_recovering_only_earning_address_integration() {
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD)
+            .pair("--db-password", PASSWORD)
             .pair("--earning-wallet", EARNING_ADDRESS),
     );
 
@@ -169,7 +177,11 @@ fn create_database_recovering_only_earning_address_integration() {
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
+        persistent_config
+            .mnemonic_seed(PASSWORD)
+            .unwrap()
+            .unwrap()
+            .as_ref(),
         expected_seed.as_ref()
     );
     assert_eq!(
@@ -190,7 +202,7 @@ fn create_database_recovering_only_consuming_derivation_path_integration() {
         CommandConfig::new()
             .pair("--mnemonic", PHRASE)
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD)
+            .pair("--db-password", PASSWORD)
             .pair("--consuming-wallet", CONSUMING_PATH),
     );
 
@@ -198,7 +210,11 @@ fn create_database_recovering_only_consuming_derivation_path_integration() {
     let mnemonic = Mnemonic::from_phrase(PHRASE, Language::English).unwrap();
     let expected_seed = Seed::new(&mnemonic, PASSPHRASE);
     assert_eq!(
-        persistent_config.mnemonic_seed(PASSWORD).unwrap().as_ref(),
+        persistent_config
+            .mnemonic_seed(PASSWORD)
+            .unwrap()
+            .unwrap()
+            .as_ref(),
         expected_seed.as_ref()
     );
     assert_eq!(
@@ -219,7 +235,7 @@ fn create_database_generating_both_derivation_paths_integration() {
     let console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD)
+            .pair("--db-password", PASSWORD)
             .pair("--earning-wallet", EARNING_PATH)
             .pair("--consuming-wallet", CONSUMING_PATH),
     );
@@ -244,7 +260,7 @@ fn create_database_generating_neither_derivation_path_integration() {
     let console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD),
+            .pair("--db-password", PASSWORD),
     );
 
     let phrase = phrase_from_console_log(&console_log);
@@ -269,7 +285,7 @@ fn create_database_generating_only_earning_derivation_path_integration() {
     let console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD)
+            .pair("--db-password", PASSWORD)
             .pair("--earning-wallet", EARNING_PATH),
     );
 
@@ -292,7 +308,7 @@ fn create_database_generating_only_earning_address_integration() {
     let _console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD)
+            .pair("--db-password", PASSWORD)
             .pair("--earning-wallet", EARNING_ADDRESS),
     );
 
@@ -314,7 +330,7 @@ fn create_database_generating_only_consuming_derivation_path_integration() {
     let console_log = MASQNode::run_generate(
         CommandConfig::new()
             .pair("--mnemonic-passphrase", PASSPHRASE)
-            .pair("--wallet-password", PASSWORD)
+            .pair("--db-password", PASSWORD)
             .pair("--consuming-wallet", CONSUMING_PATH),
     );
 

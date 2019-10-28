@@ -309,7 +309,8 @@ pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
         .earning_wallet_from_address_result(None)
         .consuming_wallet_derivation_path_result(None)
         .consuming_wallet_public_key_result(None)
-        .encrypted_mnemonic_seed_result(None)
+        .mnemonic_seed_result(Ok(None))
+        .past_neighbors_result(Ok(None))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {

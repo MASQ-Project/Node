@@ -196,14 +196,14 @@ impl MASQNodeCluster {
     }
 
     fn cleanup() -> Result<(), String> {
-        MASQNodeCluster::stop_running_nodes()?;
+        MASQNodeCluster::stop_running_containers()?;
         if Self::is_in_jenkins() {
             Self::disconnect_network()
         }
         MASQNodeCluster::remove_network_if_running()
     }
 
-    fn stop_running_nodes() -> Result<(), String> {
+    fn stop_running_containers() -> Result<(), String> {
         let mut command = Command::new(
             "docker",
             Command::strings(vec!["ps", "-q", "--filter", "ancestor=test_node_image"]),

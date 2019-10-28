@@ -415,7 +415,7 @@ mod tests {
         ReportExitServiceConsumedMessage, ReportExitServiceProvidedMessage,
     };
     use crate::sub_lib::blockchain_bridge::{
-        BlockchainBridgeConfig, ReportAccountsPayable, SetGasPriceMsg, SetWalletPasswordMsg,
+        BlockchainBridgeConfig, ReportAccountsPayable, SetDbPasswordMsg, SetGasPriceMsg,
     };
     use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
@@ -672,7 +672,7 @@ mod tests {
                 report_accounts_payable: addr.clone().recipient::<ReportAccountsPayable>(),
                 retrieve_transactions: addr.clone().recipient::<RetrieveTransactions>(),
                 set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
-                set_consuming_wallet_password_sub: addr.clone().recipient::<SetWalletPasswordMsg>(),
+                set_consuming_db_password_sub: addr.clone().recipient::<SetDbPasswordMsg>(),
             }
         }
     }
@@ -949,13 +949,6 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            neighborhood_config: NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &vec![]),
-                    vec![],
-                    rate_pack(100),
-                ),
-            },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
@@ -971,6 +964,7 @@ mod tests {
                 gas_price: None,
             },
             port_configurations: HashMap::new(),
+            db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
@@ -978,6 +972,13 @@ mod tests {
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
+            neighborhood_config: NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &vec![]),
+                    vec![],
+                    rate_pack(100),
+                ),
+            },
         };
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             &Some(main_cryptde().clone()),
@@ -1012,9 +1013,6 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            neighborhood_config: NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop,
-            },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
@@ -1030,6 +1028,7 @@ mod tests {
                 gas_price: None,
             },
             port_configurations: HashMap::new(),
+            db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
@@ -1037,6 +1036,9 @@ mod tests {
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
+            neighborhood_config: NeighborhoodConfig {
+                mode: NeighborhoodMode::ZeroHop,
+            },
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("MASQNode");
@@ -1121,13 +1123,6 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            neighborhood_config: NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &vec![]),
-                    vec![],
-                    rate_pack(100),
-                ),
-            },
             accountant_config: AccountantConfig {
                 payable_scan_interval: Duration::from_secs(100),
                 payment_received_scan_interval: Duration::from_secs(100),
@@ -1143,6 +1138,7 @@ mod tests {
                 gas_price: None,
             },
             port_configurations: HashMap::new(),
+            db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
             consuming_wallet: None,
@@ -1150,6 +1146,13 @@ mod tests {
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
+            neighborhood_config: NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &vec![]),
+                    vec![],
+                    rate_pack(100),
+                ),
+            },
         };
         let (tx, _) = mpsc::channel();
         let system = System::new("MASQNode");

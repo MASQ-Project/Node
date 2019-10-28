@@ -5,7 +5,9 @@ use crate::config_dao::ConfigDaoError;
 use crate::config_dao::{ConfigDao, ConfigDaoReal};
 use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
+use rand::Rng;
 use rusqlite::Transaction;
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -17,22 +19,43 @@ pub const HIGHEST_USABLE_PORT: u16 = 65535;
 pub const HTTP_PORT: u16 = 80;
 pub const TLS_PORT: u16 = 443;
 
+#[derive(Clone, PartialEq, Debug)]
+pub enum PersistentConfigError {
+    PasswordError,
+    TranslationError(String),
+    DatabaseError(String),
+}
+
 pub trait PersistentConfiguration: Send {
     fn current_schema_version(&self) -> String;
+    fn set_password(&self, db_password: &str);
+    fn check_password(&self, db_password: &str) -> Option<bool>;
     fn clandestine_port(&self) -> u16;
     fn set_clandestine_port(&self, port: u16);
     fn gas_price(&self) -> u64;
     fn set_gas_price(&self, gas_price: u64);
-    fn encrypted_mnemonic_seed(&self) -> Option<String>;
-    fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error>;
-    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, wallet_password: &str);
+    fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
+    fn set_mnemonic_seed(
+        &self,
+        seed: &dyn AsRef<[u8]>,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError>;
     fn consuming_wallet_public_key(&self) -> Option<String>;
     fn consuming_wallet_derivation_path(&self) -> Option<String>;
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str);
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, db_password: &str);
     fn set_consuming_wallet_public_key(&self, public_key: &PlainData);
     fn earning_wallet_from_address(&self) -> Option<Wallet>;
     fn earning_wallet_address(&self) -> Option<String>;
     fn set_earning_wallet_address(&self, address: &str);
+    fn past_neighbors(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>;
+    fn set_past_neighbors(
+        &self,
+        node_descriptors_opt: Option<Vec<NodeDescriptor>>,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> u64;
     fn set_start_block_transactionally(&self, tx: &Transaction, value: u64) -> Result<(), String>;
 }
@@ -47,6 +70,33 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             Ok(s) => s,
             Err(e) => panic!(
                 "Can't continue; current schema version is inaccessible: {:?}",
+                e
+            ),
+        }
+    }
+
+    fn set_password(&self, db_password: &str) {
+        let example_data: Vec<u8> = [0..32]
+            .iter()
+            .map(|_| rand::thread_rng().gen::<u8>())
+            .collect();
+        let example_encrypted =
+            Bip39::encrypt_bytes(&example_data, db_password).expect("Encryption failed");
+        self.dao
+            .set_string("example_encrypted", &example_encrypted)
+            .expect("Can't continue; example_encrypted could not be set");
+    }
+
+    fn check_password(&self, db_password: &str) -> Option<bool> {
+        match self.dao.get_string("example_encrypted") {
+            Ok(value) => match Bip39::decrypt_bytes(&value, db_password) {
+                Ok(_) => Some(true),
+                Err(Bip39Error::DecryptionFailure(_)) => Some(false),
+                Err(e) => panic!("{:?}", e),
+            },
+            Err(ConfigDaoError::NotPresent) => None,
+            Err(e) => panic!(
+                "Can't continue; example_encrypted could not be read: {:?}",
                 e
             ),
         }
@@ -114,30 +164,28 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             });
     }
 
-    fn encrypted_mnemonic_seed(&self) -> Option<String> {
-        match self.dao.get_string("seed") {
-            Ok(ems) => Some(ems),
-            Err(ConfigDaoError::NotPresent) => None,
-            Err(e) => panic!("Database corruption error seeking mnemonic seed: {:?}", e),
+    fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError> {
+        match self.dao.get_bytes_e("seed", db_password) {
+            Ok(mnemonic_seed) => Ok(Some(mnemonic_seed)),
+            Err(ConfigDaoError::NotPresent) => Ok(None),
+            Err(ConfigDaoError::PasswordError) => Err(PersistentConfigError::PasswordError),
+            Err(e) => Err(PersistentConfigError::DatabaseError(format!("{:?}", e))),
         }
     }
 
-    fn mnemonic_seed(&self, wallet_password: &str) -> Result<PlainData, Bip39Error> {
-        match self.encrypted_mnemonic_seed() {
-            None => Err(Bip39Error::NotPresent),
-            Some(ems) => Ok(Bip39::decrypt_bytes(&ems, wallet_password)?),
-        }
-    }
-
-    fn set_mnemonic_seed(&self, seed: &dyn AsRef<[u8]>, wallet_password: &str) {
-        let encrypted_mnemonic_seed = Bip39::encrypt_bytes(seed, wallet_password)
+    fn set_mnemonic_seed(
+        &self,
+        seed: &dyn AsRef<[u8]>,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        let encrypted_mnemonic_seed = Bip39::encrypt_bytes(seed, db_password)
             .expect("Can't continue; encryption of mnemonic seed failed");
         match self.dao.set_string("seed", &encrypted_mnemonic_seed) {
-            Ok(_) => (),
-            Err(e) => panic!(
+            Ok(_) => Ok(()),
+            Err(e) => Err(PersistentConfigError::DatabaseError(format!(
                 "Can't continue; mnemonic seed configuration is inaccessible: {:?}",
                 e
-            ),
+            ))),
         }
     }
 
@@ -175,7 +223,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, wallet_password: &str) {
+    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, db_password: &str) {
         match (
             self.dao.get_string("consuming_wallet_public_key"),
             self.dao.get_string("consuming_wallet_derivation_path"),
@@ -185,12 +233,12 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 .set_string("consuming_wallet_derivation_path", derivation_path)
                 .expect("Database is corrupt"),
             (Ok(private_public_key), Err(ConfigDaoError::NotPresent)) => {
-                let seed = match self.mnemonic_seed(wallet_password) {
-                    Ok(seed) => seed,
-                    Err(Bip39Error::NotPresent) => {
+                let seed = match self.mnemonic_seed(db_password) {
+                    Ok(Some(seed)) => seed,
+                    Ok(None) => {
                         panic!("Can't set consuming wallet derivation path without a mnemonic seed")
                     }
-                    Err(e) => panic!("Can't read mnemonic seed: {:?}", e),
+                    Err(e) => panic!("Can't get mnemonic seed: {:?}", e),
                 };
                 let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), derivation_path)
                     .unwrap_or_else(|_| {
@@ -278,6 +326,54 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
+    fn past_neighbors(
+        &self,
+        db_password: &str,
+    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
+        match self.dao.get_bytes_e("past_neighbors", db_password) {
+            Ok(plain_data) => {
+                let neighbors = serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(&plain_data.as_slice())
+                    .expect ("Can't continue; past neighbors configuration is corrupt and cannot be deserialized.");
+                Ok(Some(neighbors))
+            }
+            Err(ConfigDaoError::NotPresent) => Ok(None),
+            Err(ConfigDaoError::PasswordError) => Err(PersistentConfigError::PasswordError),
+            Err(e) => Err(PersistentConfigError::DatabaseError(format!(
+                "Can't continue; past neighbors configuration is inaccessible: {:?}",
+                e
+            ))),
+        }
+    }
+
+    fn set_past_neighbors(
+        &self,
+        node_descriptors_opt: Option<Vec<NodeDescriptor>>,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        match node_descriptors_opt {
+            Some(node_descriptors) => {
+                let plain_data = PlainData::new(
+                    &serde_cbor::ser::to_vec(&node_descriptors).expect("Serialization failed"),
+                );
+                match self
+                    .dao
+                    .set_bytes_e("past_neighbors", &plain_data, db_password)
+                {
+                    Ok(_) => Ok(()),
+                    Err(ConfigDaoError::PasswordError) => Err(PersistentConfigError::PasswordError),
+                    Err(e) => Err(PersistentConfigError::DatabaseError(format!(
+                        "Can't continue; past neighbors configuration is inaccessible: {:?}",
+                        e
+                    ))),
+                }
+            }
+            None => match self.dao.clear("past_neighbors") {
+                Ok(_) => Ok(()),
+                Err(_) => unimplemented!(),
+            },
+        }
+    }
+
     fn start_block(&self) -> u64 {
         self.dao.get_u64("start_block").unwrap_or_else(|e| {
             panic!(
@@ -295,7 +391,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 ConfigDaoError::NotPresent => {
                     panic!("Unable to update start_block, maybe missing from the database")
                 }
-                ConfigDaoError::TypeError => panic!("Unknown error: TypeError"),
+                e => panic!("{:?}", e),
             })
     }
 }
@@ -352,13 +448,12 @@ mod tests {
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::{ensure_node_home_directory_exists, find_free_port, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{
+        ensure_node_home_directory_exists, find_free_port, main_cryptde, DEFAULT_CHAIN_ID,
+    };
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
-    use ethsign::keyfile::Crypto;
-    use ethsign::Protected;
     use rustc_hex::FromHex;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
-    use std::num::NonZeroU32;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
@@ -383,8 +478,99 @@ mod tests {
 
         assert_eq!("1.2.3".to_string(), result);
         let get_string_params = get_string_params_arc.lock().unwrap();
-        assert_eq!("schema_version".to_string(), get_string_params[0]);
+        assert_eq!(get_string_params[0], "schema_version".to_string());
         assert_eq!(1, get_string_params.len());
+    }
+
+    #[test]
+    fn set_password_works_if_set_string_succeeds() {
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_string_params(&set_string_params_arc)
+            .set_string_result(Ok(()));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_password("password");
+
+        let set_string_params = set_string_params_arc.lock().unwrap();
+        assert_eq!(set_string_params[0].0, "example_encrypted".to_string());
+        let encrypted_string = set_string_params[0].1.clone();
+        // If this doesn't panic, the test passes
+        Bip39::decrypt_bytes(&encrypted_string, "password").unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't continue; example_encrypted could not be set")]
+    fn set_password_panics_if_set_string_fails() {
+        let set_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_string_params(&set_string_params_arc)
+            .set_string_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_password("password");
+    }
+
+    #[test]
+    fn check_password_works_if_there_is_none() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_string_params(&get_string_params_arc)
+            .get_string_result(Err(ConfigDaoError::NotPresent));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.check_password("password");
+
+        assert_eq!(result, None);
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(1, get_string_params.len());
+    }
+
+    #[test]
+    fn check_password_works_if_password_is_wrong() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let data = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_data = Bip39::encrypt_bytes(&data, "password").unwrap();
+        let config_dao = ConfigDaoMock::new()
+            .get_string_params(&get_string_params_arc)
+            .get_string_result(Ok(encrypted_data));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.check_password("drowssap");
+
+        assert_eq!(result, Some(false));
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(1, get_string_params.len());
+    }
+
+    #[test]
+    fn check_password_works_if_password_is_right() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let data = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_data = Bip39::encrypt_bytes(&data, "password").unwrap();
+        let config_dao = ConfigDaoMock::new()
+            .get_string_params(&get_string_params_arc)
+            .get_string_result(Ok(encrypted_data));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.check_password("password");
+
+        assert_eq!(result, Some(true));
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(1, get_string_params.len());
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't continue; example_encrypted could not be read")]
+    fn check_password_panics_if_get_string_fails() {
+        let config_dao = ConfigDaoMock::new()
+            .get_string_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.check_password("password");
     }
 
     #[test]
@@ -490,121 +676,95 @@ mod tests {
     #[test]
     fn mnemonic_seed_success() {
         let seed = PlainData::new(b"example seed");
-        let encrypted_seed = Bip39::encrypt_bytes(&seed, "booga").unwrap();
-        let config_dao = ConfigDaoMock::new().get_string_result(Ok(encrypted_seed));
+        let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_bytes_e_params(&get_bytes_e_params_arc)
+            .get_bytes_e_result(Ok(seed.clone()));
 
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
         let possible_seed = subject.mnemonic_seed("booga");
 
-        assert_eq!(possible_seed, Ok(seed));
+        assert_eq!(possible_seed, Ok(Some(seed)));
+        let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_bytes_e_params,
+            vec![("seed".to_string(), "booga".to_string())]
+        )
     }
 
     #[test]
     fn mnemonic_seed_none_when_not_present() {
-        let get_string_params_arc = Arc::new(Mutex::new(vec!["seed".to_string()]));
+        let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
-            .get_string_result(Err(ConfigDaoError::NotPresent))
-            .get_string_params(&get_string_params_arc);
+            .get_bytes_e_result(Err(ConfigDaoError::NotPresent))
+            .get_bytes_e_params(&get_bytes_e_params_arc);
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.mnemonic_seed("booga");
 
-        assert_eq!(result, Err(Bip39Error::NotPresent));
-    }
-
-    #[test]
-    fn returns_deserialization_failure_for_empty_data_appropriately() {
-        let config_dao: Box<dyn ConfigDao> =
-            Box::new(ConfigDaoMock::new().get_string_result(Ok("".to_string())));
-        let subject = PersistentConfigurationReal::from(config_dao);
-        let password = "You-Sh0uld-Ch4nge-Me-Now!!";
-
-        let result = subject.mnemonic_seed(password);
-
+        assert_eq!(result, Ok(None));
+        let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
         assert_eq!(
-            result,
-            Err(Bip39Error::DeserializationFailure(
-                "EOF while parsing a value".to_string()
-            ))
-        );
+            *get_bytes_e_params,
+            vec![("seed".to_string(), "booga".to_string())]
+        )
     }
 
     #[test]
-    fn returns_conversion_error_for_bad_seed_appropriately() {
-        let config_dao: Box<dyn ConfigDao> =
-            Box::new(ConfigDaoMock::new().get_string_result(Ok("0x123".to_string())));
+    fn returns_database_error_for_seed_appropriately() {
+        let config_dao: Box<dyn ConfigDao> = Box::new(
+            ConfigDaoMock::new()
+                .get_bytes_e_result(Err(ConfigDaoError::DatabaseError("blah".to_string()))),
+        );
         let subject = PersistentConfigurationReal::from(config_dao);
 
         let result = subject.mnemonic_seed("");
 
         assert_eq!(
             result,
-            Err(Bip39Error::ConversionError(
-                "Invalid character 'x' at position 1".to_string()
+            Err(PersistentConfigError::DatabaseError(
+                "DatabaseError(\"blah\")".to_string()
             ))
         );
     }
 
     #[test]
     fn returns_decryption_failure_for_invalid_password_appropriately() {
-        let crypto = Crypto::encrypt(
-            b"One small step for man, one giant leap for mankind!",
-            &Protected::new(b"Test123!456!".to_vec()),
-            NonZeroU32::new(10240).unwrap(),
-        )
-        .unwrap();
-        let mnemonic_seed = serde_cbor::to_vec(&crypto).unwrap().to_hex::<String>();
-        let get_string_params_arc = Arc::new(Mutex::new(vec!["seed".to_string()]));
+        let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao: Box<dyn ConfigDao> = Box::new(
             ConfigDaoMock::new()
-                .get_string_params(&get_string_params_arc)
-                .get_string_result(Ok(mnemonic_seed)),
+                .get_bytes_e_params(&get_bytes_e_params_arc)
+                .get_bytes_e_result(Err(ConfigDaoError::PasswordError)),
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
         let result = subject.mnemonic_seed("Invalid password");
 
+        assert_eq!(result, Err(PersistentConfigError::PasswordError));
+        let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
         assert_eq!(
-            result,
-            Err(Bip39Error::DecryptionFailure("InvalidPassword".to_string()))
-        );
+            *get_bytes_e_params,
+            vec![("seed".to_string(), "Invalid password".to_string())]
+        )
     }
 
     #[test]
-    fn returns_conversion_error_for_invalid_length_appropriately() {
-        let config_dao: Box<dyn ConfigDao> =
-            Box::new(ConfigDaoMock::new().get_string_result(Ok("123".to_string())));
-        let persistent_config = PersistentConfigurationReal::from(config_dao);
-        let password = "You-Sh0uld-Ch4nge-Me-Now!!";
-
-        let result = persistent_config.mnemonic_seed(password);
-
-        assert_eq!(
-            result,
-            Err(Bip39Error::ConversionError(
-                "Invalid input length".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = r#"Can't continue; mnemonic seed configuration is inaccessible: DatabaseError("Here\'s your problem")"#
-    )]
-    fn set_mnemonic_seed_panics_if_dao_error() {
+    fn set_mnemonic_seed_reports_dao_error() {
         let config_dao = ConfigDaoMock::new().set_string_result(Err(
             ConfigDaoError::DatabaseError("Here's your problem".to_string()),
         ));
-
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-        subject.set_mnemonic_seed(&make_meaningless_seed(), "password");
+
+        let result = subject.set_mnemonic_seed(&make_meaningless_seed(), "password");
+
+        assert_eq! (result, Err(PersistentConfigError::DatabaseError("Can't continue; mnemonic seed configuration is inaccessible: DatabaseError(\"Here\\'s your problem\")".to_string())));
     }
 
     #[test]
     fn set_mnemonic_seed_succeeds() {
         let seed = make_meaningless_seed();
-        let wallet_password = "seed password";
-        let encrypted_seed = Bip39::encrypt_bytes(&seed, wallet_password).unwrap();
+        let db_password = "seed password";
+        let encrypted_seed = Bip39::encrypt_bytes(&seed, db_password).unwrap();
         let expected_params = ("seed".to_string(), encrypted_seed);
         let set_string_params_arc = Arc::new(Mutex::new(vec![expected_params.clone()]));
         let config_dao = ConfigDaoMock::new()
@@ -612,7 +772,7 @@ mod tests {
             .set_string_result(Ok(()));
 
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-        subject.set_mnemonic_seed(&seed, wallet_password);
+        subject.set_mnemonic_seed(&seed, db_password).unwrap();
 
         let set_string_params = set_string_params_arc.lock().unwrap();
 
@@ -707,6 +867,127 @@ mod tests {
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         subject.set_gas_price(3);
+    }
+
+    #[test]
+    fn past_neighbors_reports_dao_error() {
+        let config_dao = ConfigDaoMock::new().get_bytes_e_result(Err(ConfigDaoError::TypeError));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.past_neighbors("password");
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::DatabaseError(
+                "Can't continue; past neighbors configuration is inaccessible: TypeError"
+                    .to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn past_neighbors_reports_crypto_error() {
+        let config_dao = ConfigDaoMock::new()
+            .get_bytes_e_result(Err(ConfigDaoError::CryptoError("blah".to_string())));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.past_neighbors("password");
+
+        assert_eq! (result, Err(PersistentConfigError::DatabaseError("Can't continue; past neighbors configuration is inaccessible: CryptoError(\"blah\")".to_string())))
+    }
+
+    #[test]
+    fn past_neighbors_success() {
+        let node_descriptors = vec![
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+        ];
+        let node_descriptors_bytes =
+            PlainData::new(&serde_cbor::ser::to_vec(&node_descriptors).unwrap());
+        let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_bytes_e_params(&get_bytes_e_params_arc)
+            .get_bytes_e_result(Ok(node_descriptors_bytes));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.past_neighbors("password");
+
+        assert_eq!(result, Ok(Some(node_descriptors)));
+        let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
+        assert_eq!(
+            ("past_neighbors".to_string(), "password".to_string()),
+            get_bytes_e_params[0]
+        );
+        assert_eq!(get_bytes_e_params.len(), 1);
+    }
+
+    #[test]
+    fn set_past_neighbors_reports_dao_error() {
+        let config_dao = ConfigDaoMock::new().set_bytes_e_result(Err(ConfigDaoError::TypeError));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_past_neighbors(Some(vec![]), "password");
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::DatabaseError(
+                "Can't continue; past neighbors configuration is inaccessible: TypeError"
+                    .to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn set_past_neighbors_reports_password_error() {
+        let config_dao =
+            ConfigDaoMock::new().set_bytes_e_result(Err(ConfigDaoError::PasswordError));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_past_neighbors(Some(vec![]), "password");
+
+        assert_eq!(result, Err(PersistentConfigError::PasswordError))
+    }
+
+    #[test]
+    fn set_past_neighbors_none_success() {
+        let clear_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .clear_params(&clear_params_arc)
+            .clear_result(Ok(()));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_past_neighbors(None, "password").unwrap();
+
+        let clear_params = clear_params_arc.lock().unwrap();
+        assert_eq!(clear_params[0], "past_neighbors".to_string());
+        assert_eq!(1, clear_params.len());
+    }
+
+    #[test]
+    fn set_past_neighbors_some_success() {
+        let node_descriptors = vec![
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+        ];
+        let set_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_bytes_e_params(&set_bytes_e_params_arc)
+            .set_bytes_e_result(Ok(()));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject
+            .set_past_neighbors(Some(node_descriptors.clone()), "password")
+            .unwrap();
+
+        let set_bytes_e_params = set_bytes_e_params_arc.lock().unwrap();
+        assert_eq!(set_bytes_e_params[0].0, "past_neighbors".to_string());
+        let serialized_node_descriptors = set_bytes_e_params[0].1.clone();
+        let actual_node_descriptors = serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(
+            &serialized_node_descriptors.as_slice(),
+        )
+        .unwrap();
+        assert_eq!(actual_node_descriptors, node_descriptors);
+        assert_eq!(set_bytes_e_params.len(), 1);
     }
 
     #[test]
@@ -955,18 +1236,19 @@ mod tests {
         let consuming_path = "m/44'/60'/1'/2/3";
         let password = "password";
         let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
-        let seed = Seed::new(&mnemonic, "passphrase");
-        let encrypted_seed = Bip39::encrypt_bytes(&seed, password).unwrap();
+        let seed = PlainData::from(Seed::new(&mnemonic, "passphrase").as_bytes());
         let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), consuming_path).unwrap();
         let private_public_key = keypair.secret().public().bytes().to_hex::<String>();
         let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
         let set_string_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao: Box<dyn ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_params(&get_string_params_arc)
                 .get_string_result(Ok(private_public_key))
                 .get_string_result(Err(ConfigDaoError::NotPresent))
-                .get_string_result(Ok(encrypted_seed))
+                .get_bytes_e_params(&get_bytes_e_params_arc)
+                .get_bytes_e_result(Ok(seed))
                 .set_string_params(&set_string_params_arc)
                 .set_string_result(Ok(())),
         );
@@ -980,8 +1262,12 @@ mod tests {
             vec![
                 "consuming_wallet_public_key".to_string(),
                 "consuming_wallet_derivation_path".to_string(),
-                "seed".to_string(),
             ]
+        );
+        let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_bytes_e_params,
+            vec![("seed".to_string(), password.to_string())]
         );
         let set_string_params = set_string_params_arc.lock().unwrap();
         assert_eq!(set_string_params.len(), 0)
@@ -996,12 +1282,11 @@ mod tests {
         let password = "password";
         let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
         let seed = Seed::new(&mnemonic, "passphrase");
-        let encrypted_seed = Bip39::encrypt_bytes(&seed, password).unwrap();
         let config_dao: Box<dyn ConfigDao> = Box::new(
             ConfigDaoMock::new()
                 .get_string_result(Ok("consuming private key".to_string()))
                 .get_string_result(Err(ConfigDaoError::NotPresent))
-                .get_string_result(Ok(encrypted_seed.to_string())),
+                .get_bytes_e_result(Ok(PlainData::from(seed.as_bytes()))),
         );
         let subject = PersistentConfigurationReal::from(config_dao);
 
@@ -1302,7 +1587,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unknown error: TypeError")]
+    #[should_panic(expected = "TypeError")]
     fn set_start_block_transactionally_panics_for_type_error() {
         let config_dao =
             ConfigDaoMock::new().set_u64_transactional_result(Err(ConfigDaoError::TypeError));

@@ -10,7 +10,7 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, GetFinancialStatisticsMessage};
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetWalletPasswordMsg};
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
@@ -107,7 +107,7 @@ recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceConsumedMessage);
-recorder_message_handler!(SetWalletPasswordMsg);
+recorder_message_handler!(SetDbPasswordMsg);
 recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(DnsResolveFailure);
@@ -418,7 +418,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
         report_accounts_payable: recipient!(addr, ReportAccountsPayable),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
-        set_consuming_wallet_password_sub: recipient!(addr, SetWalletPasswordMsg),
+        set_consuming_db_password_sub: recipient!(addr, SetDbPasswordMsg),
     }
 }
 

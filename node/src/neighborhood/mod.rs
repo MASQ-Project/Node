@@ -17,11 +17,13 @@ mod neighborhood_test_utils;
 #[cfg(feature = "expose_test_privates")]
 pub mod neighborhood_test_utils;
 
-use crate::blockchain::blockchain_interface::contract_address;
+use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::neighborhood::gossip::{DotGossipEndpoint, Gossip, GossipNodeRecord};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner;
+use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
@@ -64,8 +66,10 @@ use itertools::Itertools;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -78,8 +82,11 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
-    logger: Logger,
     chain_id: u8,
+    data_directory: PathBuf,
+    persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
+    db_password_opt: Option<String>,
+    logger: Logger,
 }
 
 impl Actor for Neighborhood {
@@ -109,44 +116,7 @@ impl Handler<StartMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if self.initial_neighbors.is_empty() {
-            info!(self.logger, "Empty. No Nodes to report to; continuing");
-            return;
-        }
-
-        let gossip = self
-            .gossip_producer
-            .produce_debut(&self.neighborhood_database);
-        self.initial_neighbors.iter().for_each(|node_descriptor| {
-            if let Some(node_addr) = &node_descriptor.node_addr_opt {
-                self.hopper_no_lookup
-                    .as_ref()
-                    .expect("unbound hopper")
-                    .try_send(
-                        NoLookupIncipientCoresPackage::new(
-                            self.cryptde,
-                            &node_descriptor.public_key,
-                            &node_addr,
-                            MessageType::Gossip(gossip.clone()),
-                        )
-                        .expect("Key magically disappeared"),
-                    )
-                    .expect("hopper is dead");
-                trace!(
-                    self.logger,
-                    "Sent Gossip: {}",
-                    gossip.to_dot_graph(
-                        self.neighborhood_database.root(),
-                        (&node_descriptor.public_key, &node_descriptor.node_addr_opt),
-                    )
-                );
-            } else {
-                panic!(
-                    "--neighbors node descriptors must have IP address and port list, not '{}'",
-                    node_descriptor.to_string(self.cryptde, self.chain_id)
-                )
-            }
-        });
+        self.handle_start_message();
     }
 }
 
@@ -394,12 +364,23 @@ impl Neighborhood {
             config.earning_wallet.clone(),
             cryptde,
         );
-        let initial_neighbors = neighborhood_config.mode.neighbor_configs().iter().map (|nc|
-            match NodeDescriptor::from_str(cryptde, nc, config.blockchain_bridge_config.chain_id) {
-                Ok(descriptor) => descriptor,
-                Err (_) => panic! ("--neighbors must be <public key>[@|:]<ip address>:<port>;<port>..., not '{}'", nc),
-            }
-        ).collect_vec();
+        let is_mainnet =
+            || config.blockchain_bridge_config.chain_id == chain_id_from_name("mainnet");
+        let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
+            .mode
+            .neighbor_configs()
+            .iter()
+            .map(|nc| {
+                if nc.mainnet != is_mainnet() {
+                    panic!(
+                        "Neighbor {} is {}on the mainnet blockchain",
+                        nc.to_string(cryptde),
+                        if nc.mainnet { "" } else { "not " }
+                    );
+                }
+                nc.clone()
+            })
+            .collect_vec();
 
         Neighborhood {
             cryptde,
@@ -412,8 +393,11 @@ impl Neighborhood {
             consuming_wallet_opt: config.consuming_wallet.clone(),
             next_return_route_id: 0,
             initial_neighbors,
-            logger: Logger::new("Neighborhood"),
             chain_id: config.blockchain_bridge_config.chain_id,
+            data_directory: config.data_directory.clone(),
+            persistent_config_opt: None,
+            db_password_opt: config.db_password_opt.clone(),
+            logger: Logger::new("Neighborhood"),
         }
     }
 
@@ -436,6 +420,65 @@ impl Neighborhood {
         }
     }
 
+    fn handle_start_message(&mut self) {
+        self.connect_database();
+        self.send_debut_gossip();
+    }
+
+    fn connect_database(&mut self) {
+        if self.persistent_config_opt.is_none() {
+            let db_initializer = DbInitializerReal::new();
+            let conn = db_initializer
+                .initialize(&self.data_directory, self.chain_id)
+                .expect("Neighborhood could not connect to database");
+            self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
+        }
+    }
+
+    fn send_debut_gossip(&mut self) {
+        if self.initial_neighbors.is_empty() {
+            info!(self.logger, "Empty. No Nodes to report to; continuing");
+            return;
+        }
+
+        let gossip = self
+            .gossip_producer
+            .produce_debut(&self.neighborhood_database);
+        self.initial_neighbors.iter().for_each(|node_descriptor| {
+            if let Some(node_addr) = &node_descriptor.node_addr_opt {
+                self.hopper_no_lookup
+                    .as_ref()
+                    .expect("unbound hopper")
+                    .try_send(
+                        NoLookupIncipientCoresPackage::new(
+                            self.cryptde,
+                            &node_descriptor.encryption_public_key,
+                            &node_addr,
+                            MessageType::Gossip(gossip.clone()),
+                        )
+                        .expect("Key magically disappeared"),
+                    )
+                    .expect("hopper is dead");
+                trace!(
+                    self.logger,
+                    "Sent Gossip: {}",
+                    gossip.to_dot_graph(
+                        self.neighborhood_database.root(),
+                        (
+                            &node_descriptor.encryption_public_key,
+                            &node_descriptor.node_addr_opt
+                        ),
+                    )
+                );
+            } else {
+                panic!(
+                    "--neighbors node descriptors must have IP address and port list, not '{}'",
+                    node_descriptor.to_string(self.cryptde)
+                )
+            }
+        });
+    }
+
     fn log_incoming_gossip(&self, incoming_gossip: &Gossip, gossip_source: SocketAddr) {
         let source = match self.neighborhood_database.node_by_ip(&gossip_source.ip()) {
             Some(node) => DotGossipEndpoint::from(node),
@@ -449,13 +492,11 @@ impl Neighborhood {
     }
 
     fn handle_gossip(&mut self, incoming_gossip: Gossip, gossip_source: SocketAddr) {
+        let record_count = incoming_gossip.node_records.len();
         info!(
             self.logger,
-            "Processing Gossip about {} Nodes",
-            incoming_gossip.node_records.len()
+            "Processing Gossip about {} Nodes", record_count
         );
-
-        let record_count = incoming_gossip.node_records.len();
         let agrs: Vec<AccessibleGossipRecord> = incoming_gossip
             .node_records
             .into_iter()
@@ -522,9 +563,27 @@ impl Neighborhood {
         };
     }
 
+    fn neighbor_descriptors(&self) -> HashSet<NodeDescriptor> {
+        self.neighborhood_database
+            .root()
+            .full_neighbor_keys(&self.neighborhood_database)
+            .into_iter()
+            .map(|k| {
+                NodeDescriptor::from((
+                    self.neighborhood_database
+                        .node_by_key(k)
+                        .expect("Node disappeared"),
+                    self.chain_id == chain_id_from_name("mainnet"),
+                    self.cryptde,
+                ))
+            })
+            .collect::<HashSet<NodeDescriptor>>()
+    }
+
     fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
         let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
         let gossip_record_count = agrs.len();
+        let node_descriptors_before = self.neighbor_descriptors();
         let acceptance_result =
             self.gossip_acceptor
                 .handle(&mut self.neighborhood_database, agrs, gossip_source);
@@ -545,6 +604,32 @@ impl Neighborhood {
             );
                 self.handle_gossip_ignored(ignored_node_name, gossip_record_count);
             }
+        }
+        let node_descriptors_after = self.neighbor_descriptors();
+        if node_descriptors_after != node_descriptors_before {
+            if let Some(db_password) = &self.db_password_opt {
+                let node_descriptors_opt = if node_descriptors_after.is_empty() {
+                    None
+                } else {
+                    Some(node_descriptors_after.into_iter().collect_vec())
+                };
+                match self
+                    .persistent_config_opt
+                    .as_ref()
+                    .expect("PersistentConfig was not set by StartMessage")
+                    .set_past_neighbors(node_descriptors_opt, db_password)
+                {
+                    Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
+                    Err(e) => error!(
+                        self.logger,
+                        "Could not persist immediate-neighbor changes: {:?}", e
+                    ),
+                };
+            } else {
+                info!(self.logger, "Declining to persist neighbor changes for next run: no database password supplied")
+            }
+        } else {
+            debug!(self.logger, "No neighbor changes; database is unchanged")
         }
     }
 
@@ -1063,12 +1148,12 @@ pub fn regenerate_signed_gossip(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
+    use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
     use crate::neighborhood::gossip::Gossip;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::neighborhood_test_utils::*;
     use crate::neighborhood::node_record::NodeRecordInner;
-    use crate::persistent_configuration::TLS_PORT;
+    use crate::persistent_configuration::{PersistentConfigError, TLS_PORT};
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1080,7 +1165,7 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::rate_pack;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
@@ -1088,6 +1173,7 @@ mod tests {
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{assert_contains, make_wallet};
     use crate::test_utils::{assert_matches, make_meaningless_route};
+    use crate::test_utils::{ensure_node_home_directory_exists, rate_pack};
     use crate::test_utils::{main_cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
     use actix::dev::{MessageResponse, ResponseChannel};
     use actix::Message;
@@ -1104,6 +1190,50 @@ mod tests {
     use tokio::prelude::Future;
 
     #[test]
+    #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
+    fn cant_create_mainnet_neighborhood_with_non_mainnet_neighbors() {
+        let cryptde = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let mut bc = bc_from_nc_plus(
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                    cryptde,
+                    "AQIDBA:1.2.3.4:1234",
+                )
+                .unwrap()]),
+            },
+            earning_wallet.clone(),
+            None,
+            "cant_create_mainnet_neighborhood_with_non_mainnet_neighbors",
+        );
+        bc.blockchain_bridge_config.chain_id = chain_id_from_name("mainnet");
+
+        let _ = Neighborhood::new(cryptde, &bc);
+    }
+
+    #[test]
+    #[should_panic(expected = "Neighbor AQIDBA@1.2.3.4:1234 is on the mainnet blockchain")]
+    fn cant_create_non_mainnet_neighborhood_with_mainnet_neighbors() {
+        let cryptde = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let mut bc = bc_from_nc_plus(
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
+                    cryptde,
+                    "AQIDBA@1.2.3.4:1234",
+                )
+                .unwrap()]),
+            },
+            earning_wallet.clone(),
+            None,
+            "cant_create_non_mainnet_neighborhood_with_mainnet_neighbors",
+        );
+        bc.blockchain_bridge_config.chain_id = chain_id_from_name("testnet");
+
+        let _ = Neighborhood::new(cryptde, &bc);
+    }
+
+    #[test]
     fn node_with_zero_hop_config_creates_single_node_database() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
@@ -1116,6 +1246,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 None,
+                "node_with_zero_hop_config_creates_single_node_database",
             ),
         );
 
@@ -1128,7 +1259,7 @@ mod tests {
 
     #[test]
     fn node_with_originate_only_config_is_decentralized_with_neighbor_but_not_ip() {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let neighbor: NodeRecord = make_node_record(1234, true);
         let earning_wallet = make_wallet("earning");
 
@@ -1137,12 +1268,13 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::OriginateOnly(
-                        vec![neighbor.node_descriptor(cryptde, DEFAULT_CHAIN_ID)],
+                        vec![neighbor.node_descriptor(DEFAULT_CHAIN_ID, cryptde)],
                         DEFAULT_RATE_PACK.clone(),
                     ),
                 },
                 earning_wallet.clone(),
                 None,
+                "node_with_originate_only_config_is_decentralized_with_neighbor_but_not_ip",
             ),
         );
 
@@ -1171,6 +1303,7 @@ mod tests {
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_with_zero_hop_config_ignores_start_message",
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
@@ -1191,44 +1324,10 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "--neighbors must be <public key>[@|:]<ip address>:<port>;<port>..., not 'ooga'"
-    )]
-    fn node_with_bad_neighbor_config_panics() {
-        let cryptde = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system = System::new("node_with_bad_neighbor_config_panics");
-        let subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
-                        vec![String::from("ooga"), String::from("booga")],
-                        rate_pack(100),
-                    ),
-                },
-                earning_wallet.clone(),
-                consuming_wallet.clone(),
-            ),
-        );
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub = addr.clone().recipient::<StartMessage>();
-        let peer_actors = peer_actors_builder().build();
-        addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        sub.try_send(StartMessage {}).unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
-    }
-
-    #[test]
-    #[should_panic(
         expected = "--neighbors node descriptors must have IP address and port list, not 'AwQFBg::'"
     )]
     fn node_with_neighbor_config_having_no_node_addr_panics() {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let neighbor_node = make_node_record(3456, true);
@@ -1239,13 +1338,17 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
-                        vec![NodeDescriptor::from(neighbor_node.public_key())
-                            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                        vec![NodeDescriptor::from((
+                            neighbor_node.public_key(),
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            cryptde,
+                        ))],
                         rate_pack(100),
                     ),
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_with_neighbor_config_having_no_node_addr_panics",
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
@@ -1261,7 +1364,7 @@ mod tests {
 
     #[test]
     fn neighborhood_adds_nodes_and_links() {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let one_neighbor_node = make_node_record(3456, true);
@@ -1275,16 +1378,23 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from(&one_neighbor_node)
-                                .to_string(cryptde, DEFAULT_CHAIN_ID),
-                            NodeDescriptor::from(&another_neighbor_node)
-                                .to_string(cryptde, DEFAULT_CHAIN_ID),
+                            NodeDescriptor::from((
+                                &one_neighbor_node,
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                cryptde,
+                            )),
+                            NodeDescriptor::from((
+                                &another_neighbor_node,
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                cryptde,
+                            )),
                         ],
                         rate_pack(100),
                     ),
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "neighborhood_adds_nodes_and_links",
             ),
         );
 
@@ -1306,8 +1416,16 @@ mod tests {
         assert_eq!(
             subject.initial_neighbors,
             vec![
-                NodeDescriptor::from(&one_neighbor_node),
-                NodeDescriptor::from(&another_neighbor_node)
+                NodeDescriptor::from((
+                    &one_neighbor_node,
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    cryptde,
+                )),
+                NodeDescriptor::from((
+                    &another_neighbor_node,
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    cryptde,
+                ))
             ]
         );
     }
@@ -1315,7 +1433,7 @@ mod tests {
     #[test]
     fn gossip_failures_eventually_stop_the_neighborhood() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let one_neighbor_node: NodeRecord = make_node_record(3456, true);
         let another_neighbor_node: NodeRecord = make_node_record(4567, true);
@@ -1328,16 +1446,23 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from(&one_neighbor_node)
-                                .to_string(cryptde, DEFAULT_CHAIN_ID),
-                            NodeDescriptor::from(&another_neighbor_node)
-                                .to_string(cryptde, DEFAULT_CHAIN_ID),
+                            NodeDescriptor::from((
+                                &one_neighbor_node,
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                cryptde,
+                            )),
+                            NodeDescriptor::from((
+                                &another_neighbor_node,
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                cryptde,
+                            )),
                         ],
                         rate_pack(100),
                     ),
                 },
                 earning_wallet.clone(),
                 None,
+                "gossip_failures_eventually_stop_the_neighborhood",
             ),
         );
         let ecp1 = ExpiredCoresPackage::new(
@@ -1386,7 +1511,7 @@ mod tests {
 
     #[test]
     fn node_query_responds_with_none_when_key_query_matches_no_configured_data() {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
@@ -1403,13 +1528,15 @@ mod tests {
                                 &IpAddr::from_str("1.2.3.4").unwrap(),
                                 &vec![1234, 2345],
                             ),
-                        ))
-                        .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            cryptde,
+                        ))],
                         rate_pack(100),
                     ),
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_query_responds_with_none_when_key_query_matches_no_configured_data",
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
@@ -1438,12 +1565,13 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
-                        vec![node_record_to_neighbor_config(&one_neighbor, cryptde)],
+                        vec![node_record_to_neighbor_config(&one_neighbor)],
                         rate_pack(100),
                     ),
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_query_responds_with_result_when_key_query_matches_configured_data",
             ),
         );
         subject
@@ -1472,7 +1600,7 @@ mod tests {
 
     #[test]
     fn node_query_responds_with_none_when_ip_address_query_matches_no_configured_data() {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system = System::new(
@@ -1490,13 +1618,15 @@ mod tests {
                                 &IpAddr::from_str("1.2.3.4").unwrap(),
                                 &vec![1234, 2345],
                             ),
-                        ))
-                        .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            cryptde,
+                        ))],
                         rate_pack(100),
                     ),
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
+                "node_query_responds_with_none_when_ip_address_query_matches_no_configured_data",
             ),
         );
         let addr: Addr<Neighborhood> = subject.start();
@@ -1514,7 +1644,7 @@ mod tests {
 
     #[test]
     fn node_query_responds_with_result_when_ip_address_query_matches_configured_data() {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let system = System::new(
             "node_query_responds_with_result_when_ip_address_query_matches_configured_data",
         );
@@ -1526,14 +1656,17 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
-                        vec![
-                            NodeDescriptor::from(&node_record).to_string(cryptde, DEFAULT_CHAIN_ID)
-                        ],
+                        vec![NodeDescriptor::from((
+                            &node_record,
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            cryptde,
+                        ))],
                         rate_pack(100),
                     ),
                 },
                 node_record.earning_wallet(),
                 None,
+                "node_query_responds_with_result_when_ip_address_query_matches_configured_data",
             ),
         );
         subject
@@ -2263,6 +2396,7 @@ mod tests {
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
+                    "gossips_after_removing_a_neighbor",
                 ),
             );
             let db = &mut subject.neighborhood_database;
@@ -2489,6 +2623,201 @@ mod tests {
             payload,
             MessageType::GossipFailure(GossipFailure::NoSuitableNeighbors)
         );
+    }
+
+    struct NeighborReplacementGossipAcceptor {
+        pub new_neighbors: Vec<NodeRecord>,
+    }
+
+    impl GossipAcceptor for NeighborReplacementGossipAcceptor {
+        fn handle(
+            &self,
+            database: &mut NeighborhoodDatabase,
+            _agrs: Vec<AccessibleGossipRecord>,
+            _gossip_source: SocketAddr,
+        ) -> GossipAcceptanceResult {
+            let half_neighbor_keys = database
+                .root()
+                .half_neighbor_keys()
+                .into_iter()
+                .map(|k| k.clone())
+                .collect_vec();
+            half_neighbor_keys
+                .into_iter()
+                .for_each(|k| database.remove_node(&k));
+            let root_key = database.root().public_key().clone();
+            self.new_neighbors.iter().for_each(|nr| {
+                database.add_node(nr.clone()).unwrap();
+                database.add_arbitrary_full_neighbor(&root_key, nr.public_key());
+            });
+            GossipAcceptanceResult::Ignored
+        }
+    }
+
+    #[test]
+    fn neighborhood_updates_past_neighbors_when_neighbor_list_changes() {
+        let cryptde: &dyn CryptDE = main_cryptde();
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let old_neighbor = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&old_neighbor));
+        subject
+            .neighborhood_database
+            .add_node(old_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), old_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![old_neighbor.clone(), new_neighbor.clone()],
+        };
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        let mut set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        let (neighbors_opt, db_password) = set_past_neighbors_params.remove(0);
+        let neighbors = neighbors_opt.unwrap();
+        assert_contains(
+            &neighbors,
+            &NodeDescriptor::from((
+                &old_neighbor,
+                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                cryptde,
+            )),
+        );
+        assert_contains(
+            &neighbors,
+            &NodeDescriptor::from((
+                &new_neighbor,
+                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                cryptde,
+            )),
+        );
+        assert_eq!(neighbors.len(), 2);
+        assert_eq!(db_password, "password".to_string());
+    }
+
+    #[test]
+    fn neighborhood_removes_past_neighbors_when_neighbor_list_goes_empty() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let neighbor = make_node_record(1111, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        subject
+            .neighborhood_database
+            .add_node(neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![],
+        };
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        let mut set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        let (neighbors_opt, db_password) = set_past_neighbors_params.remove(0);
+        assert_eq!(neighbors_opt, None);
+        assert_eq!(db_password, "password".to_string());
+    }
+
+    #[test]
+    fn neighborhood_does_not_update_past_neighbors_when_neighbor_list_does_not_change() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let steadfast_neighbor = make_node_record(1111, true);
+        let mut subject: Neighborhood =
+            neighborhood_from_nodes(&subject_node, Some(&steadfast_neighbor));
+        subject
+            .neighborhood_database
+            .add_node(steadfast_neighbor.clone())
+            .unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            subject_node.public_key(),
+            steadfast_neighbor.public_key(),
+        );
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![steadfast_neighbor.clone()],
+        };
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc);
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert!(set_past_neighbors_params.is_empty());
+    }
+
+    #[test]
+    fn neighborhood_does_not_updates_past_neighbors_without_password_even_when_neighbor_list_changes(
+    ) {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let old_neighbor = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&old_neighbor));
+        subject
+            .neighborhood_database
+            .add_node(old_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), old_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![old_neighbor.clone(), new_neighbor.clone()],
+        };
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc);
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject.db_password_opt = None;
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert!(set_past_neighbors_params.is_empty());
+    }
+
+    #[test]
+    fn neighborhood_logs_error_when_past_neighbors_update_fails() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let old_neighbor = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&old_neighbor));
+        subject
+            .neighborhood_database
+            .add_node(old_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), old_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![old_neighbor.clone(), new_neighbor.clone()],
+        };
+        let persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(Err(
+            PersistentConfigError::DatabaseError("Booga".to_string()),
+        ));
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+
+        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        TestLogHandler::new().exists_log_containing("ERROR: Neighborhood: Could not persist immediate-neighbor changes: DatabaseError(\"Booga\")");
     }
 
     #[test]
@@ -2840,6 +3169,7 @@ mod tests {
                     },
                     this_node_inside.earning_wallet(),
                     None,
+                    "neighborhood_logs_received_gossip_in_dot_graph_format",
                 ),
             );
 
@@ -2872,7 +3202,7 @@ mod tests {
 
     #[test]
     fn node_gossips_to_neighbors_on_startup() {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let neighbor = make_node_record(1234, true);
         let hopper = Recorder::new();
         let hopper_awaiter = hopper.get_awaiter();
@@ -2884,13 +3214,17 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![1234]),
-                        vec![NodeDescriptor::from(&neighbor_inside)
-                            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                        vec![NodeDescriptor::from((
+                            &neighbor_inside,
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            cryptde,
+                        ))],
                         rate_pack(100),
                     ),
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
+                "node_gossips_to_neighbors_on_startup",
             ),
         );
         let this_node = subject.neighborhood_database.root().clone();
@@ -2999,15 +3333,14 @@ mod tests {
         assert_eq!(None, failed_ip_address_query.wait().unwrap());
     }
 
-    fn node_record_to_neighbor_config(
-        node_record_ref: &NodeRecord,
-        cryptde: &dyn CryptDE,
-    ) -> String {
+    fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
+        let cryptde: &dyn CryptDE = main_cryptde();
         NodeDescriptor::from((
             &node_record_ref.public_key().clone(),
             &node_record_ref.node_addr_opt().unwrap().clone(),
+            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+            cryptde,
         ))
-        .to_string(cryptde, DEFAULT_CHAIN_ID)
     }
 
     #[test]
@@ -3051,7 +3384,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data()
     {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -3073,13 +3406,15 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &vec![1234, 2345],
                                 ),
-                            ))
-                            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                cryptde,
+                            ))],
                             rate_pack(100),
                         ),
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
+                    "neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data"
                 ),
             );
             let addr: Addr<Neighborhood> = subject.start();
@@ -3134,12 +3469,13 @@ mod tests {
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
                             NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
-                            vec![node_record_to_neighbor_config(&one_neighbor, cryptde)],
+                            vec![node_record_to_neighbor_config(&one_neighbor)],
                             rate_pack(100),
                         ),
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
+                    "neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data"
                 ),
             );
             subject
@@ -3176,7 +3512,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data(
     ) {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -3197,13 +3533,15 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &vec![1234, 2345],
                                 ),
-                            ))
-                            .to_string(cryptde, DEFAULT_CHAIN_ID)],
+                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                cryptde,
+                            ))],
                             rate_pack(100),
                         ),
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
+                    "neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data"
                 ),
             );
             let addr: Addr<Neighborhood> = subject.start();
@@ -3235,7 +3573,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data(
     ) {
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
         let (recorder, awaiter, recording_arc) = make_recorder();
         let node_record = make_node_record(1234, true);
         let another_node_record = make_node_record(2345, true);
@@ -3256,14 +3594,17 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
-                        vec![
-                            NodeDescriptor::from(&node_record).to_string(cryptde, DEFAULT_CHAIN_ID)
-                        ],
+                        vec![NodeDescriptor::from((
+                            &node_record,
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            cryptde,
+                        ))],
                         rate_pack(100),
                     ),
                 },
                 node_record.earning_wallet(),
                 None,
+                "neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data"
             );
             let mut subject = Neighborhood::new(cryptde, &config);
             subject
@@ -3301,7 +3642,7 @@ mod tests {
     #[test]
     fn neighborhood_responds_with_dot_graph_when_requested_and_logs_acknowledgement() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde();
 
         let (recorder, awaiter, recording_arc) = make_recorder();
         let node_record = make_node_record(1234, true);
@@ -3316,14 +3657,17 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         node_record.node_addr_opt().unwrap(),
-                        vec![
-                            NodeDescriptor::from(&node_record).to_string(cryptde, DEFAULT_CHAIN_ID)
-                        ],
+                        vec![NodeDescriptor::from((
+                            &node_record,
+                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            cryptde,
+                        ))],
                         rate_pack(100),
                     ),
                 },
                 node_record.earning_wallet(),
                 None,
+                "neighborhood_responds_with_dot_graph_when_requested_and_logs_acknowledgement",
             );
             let mut subject = Neighborhood::new(cryptde, &config);
             subject.dot_graph_recipient = Some(recipient);
@@ -3642,7 +3986,10 @@ mod tests {
     fn make_standard_subject() -> Neighborhood {
         let root_node = make_global_cryptde_node_record(9999, true);
         let neighbor_node = make_node_record(9998, true);
-        neighborhood_from_nodes(&root_node, Some(&neighbor_node))
+        let mut subject = neighborhood_from_nodes(&root_node, Some(&neighbor_node));
+        let persistent_config = PersistentConfigurationMock::new();
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject
     }
 
     fn make_o_r_e_subject() -> (NodeRecord, NodeRecord, NodeRecord, Neighborhood) {
@@ -3775,11 +4122,14 @@ mod tests {
         nc: NeighborhoodConfig,
         earning_wallet: Wallet,
         consuming_wallet_opt: Option<Wallet>,
+        test_name: &str,
     ) -> BootstrapperConfig {
+        let home_dir = ensure_node_home_directory_exists("neighborhood", test_name);
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = nc;
         config.earning_wallet = earning_wallet;
         config.consuming_wallet = consuming_wallet_opt;
+        config.data_directory = home_dir;
         config
     }
 

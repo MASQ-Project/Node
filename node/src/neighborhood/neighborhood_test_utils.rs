@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabase;
 use super::node_record::NodeRecord;
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::node_record::NodeRecordInner;
@@ -80,7 +81,7 @@ pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,
 ) -> Neighborhood {
-    let cryptde = main_cryptde();
+    let cryptde: &dyn CryptDE = main_cryptde();
     if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }
@@ -88,8 +89,12 @@ pub fn neighborhood_from_nodes(
     config.neighborhood_config = match neighbor_opt {
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                root.node_addr_opt().expect("Test-drive me!"),
-                vec![NodeDescriptor::from(neighbor).to_string(cryptde, DEFAULT_CHAIN_ID)],
+                root.node_addr_opt().expect("Test-drive me!"), // TODO: Clean this up
+                vec![NodeDescriptor::from((
+                    neighbor,
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    cryptde,
+                ))],
                 root.rate_pack().clone(),
             ),
         },
@@ -99,6 +104,7 @@ pub fn neighborhood_from_nodes(
     };
     config.earning_wallet = root.earning_wallet();
     config.consuming_wallet = Some(make_paying_wallet(b"consuming"));
+    config.db_password_opt = Some("password".to_string());
     Neighborhood::new(cryptde, &config)
 }
 
