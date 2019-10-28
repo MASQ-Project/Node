@@ -66,7 +66,6 @@ use itertools::Itertools;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -76,6 +75,7 @@ pub struct Neighborhood {
     hopper: Option<Recipient<IncipientCoresPackage>>,
     hopper_no_lookup: Option<Recipient<NoLookupIncipientCoresPackage>>,
     dot_graph_recipient: Option<Recipient<UiCarrierMessage>>,
+//    connected_signal: Vec<Recipient<StartMessage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
@@ -530,7 +530,7 @@ impl Neighborhood {
             return;
         }
 
-        self.handle_agrs(agrs, gossip_source);
+        self.handle_gossip_agrs(agrs, gossip_source);
         self.announce_gossip_handling_completion(record_count);
     }
 
@@ -563,11 +563,8 @@ impl Neighborhood {
         };
     }
 
-    fn neighbor_descriptors(&self) -> HashSet<NodeDescriptor> {
-        self.neighborhood_database
-            .root()
-            .full_neighbor_keys(&self.neighborhood_database)
-            .into_iter()
+    fn to_node_descriptors(&self, keys: &Vec<PublicKey>) -> Vec<NodeDescriptor> {
+        keys.iter()
             .map(|k| {
                 NodeDescriptor::from((
                     self.neighborhood_database
@@ -577,13 +574,29 @@ impl Neighborhood {
                     self.cryptde,
                 ))
             })
-            .collect::<HashSet<NodeDescriptor>>()
+            .collect()
+    }
+
+    fn handle_gossip_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
+        let neighbor_keys_before = self.neighbor_keys();
+        self.handle_agrs(agrs, gossip_source);
+        let neighbor_keys_after = self.neighbor_keys();
+        self.handle_database_changes(&neighbor_keys_before, &neighbor_keys_after);
+    }
+
+    fn neighbor_keys (&self) -> Vec<PublicKey> {
+        self
+            .neighborhood_database
+            .root()
+            .full_neighbor_keys(&self.neighborhood_database)
+            .into_iter()
+            .map(|kr| kr.clone())
+            .collect()
     }
 
     fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
         let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
         let gossip_record_count = agrs.len();
-        let node_descriptors_before = self.neighbor_descriptors();
         let acceptance_result =
             self.gossip_acceptor
                 .handle(&mut self.neighborhood_database, agrs, gossip_source);
@@ -605,26 +618,34 @@ impl Neighborhood {
                 self.handle_gossip_ignored(ignored_node_name, gossip_record_count);
             }
         }
-        let node_descriptors_after = self.neighbor_descriptors();
-        if node_descriptors_after != node_descriptors_before {
+    }
+
+    fn handle_database_changes(&self, neighbor_keys_before: &Vec<PublicKey>, neighbor_keys_after: &Vec<PublicKey>) {
+        self.curate_past_neighbors (neighbor_keys_before, neighbor_keys_after);
+    }
+
+    fn curate_past_neighbors (&self, neighbor_keys_before: &Vec<PublicKey>, neighbor_keys_after: &Vec<PublicKey>) {
+        if neighbor_keys_after != neighbor_keys_before {
             if let Some(db_password) = &self.db_password_opt {
-                let node_descriptors_opt = if node_descriptors_after.is_empty() {
+                let nds = self.to_node_descriptors(neighbor_keys_after);
+                let node_descriptors_opt = if nds.is_empty() {
                     None
-                } else {
-                    Some(node_descriptors_after.into_iter().collect_vec())
+                }
+                else {
+                    Some (nds.into_iter().collect_vec())
                 };
                 match self
                     .persistent_config_opt
                     .as_ref()
                     .expect("PersistentConfig was not set by StartMessage")
                     .set_past_neighbors(node_descriptors_opt, db_password)
-                {
-                    Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
-                    Err(e) => error!(
-                        self.logger,
-                        "Could not persist immediate-neighbor changes: {:?}", e
-                    ),
-                };
+                    {
+                        Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
+                        Err(e) => error!(
+                            self.logger,
+                            "Could not persist immediate-neighbor changes: {:?}", e
+                        ),
+                    };
             } else {
                 info!(self.logger, "Declining to persist neighbor changes for next run: no database password supplied")
             }
@@ -2606,7 +2627,7 @@ mod tests {
         subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
 
-        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         System::current().stop();
         system.run();
@@ -2678,7 +2699,7 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         let mut set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         let (neighbors_opt, db_password) = set_past_neighbors_params.remove(0);
@@ -2725,7 +2746,7 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         let mut set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         let (neighbors_opt, db_password) = set_past_neighbors_params.remove(0);
@@ -2756,7 +2777,7 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert!(set_past_neighbors_params.is_empty());
@@ -2786,7 +2807,7 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(persistent_config));
         subject.db_password_opt = None;
 
-        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert!(set_past_neighbors_params.is_empty());
@@ -2815,7 +2836,7 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         TestLogHandler::new().exists_log_containing("ERROR: Neighborhood: Could not persist immediate-neighbor changes: DatabaseError(\"Booga\")");
     }
