@@ -59,16 +59,16 @@ function copy_binaries() {
 
 function copy_windows_binaries() {
   mkdir generated/bin
-  cp ../dns_utility/target/release/dns_utility.exe generated/bin
-  cp ../dns_utility/target/release/dns_utilityw.exe generated/bin
-  cp ../node/target/release/MASQNode.exe generated/bin
-  cp ../node/target/release/MASQNodeW.exe generated/bin
+  cp ../dns_utility/target/release/dns_utility.exe generated/bin || echo "No console dns_utility binary"
+  cp ../dns_utility/target/release/dns_utilityw.exe generated/bin || echo "No non-console dns_utility binary"
+  cp ../node/target/release/MASQNode.exe generated/bin || echo "No console MASQNode binary"
+  cp ../node/target/release/MASQNodeW.exe generated/bin || echo "No non-console MASQNode binary"
 }
 
 function copy_non_windows_binaries() {
   mkdir generated/bin
-  cp ../dns_utility/target/release/dns_utility generated/bin
-  cp ../node/target/release/MASQNode generated/bin
+  cp ../dns_utility/target/release/dns_utility generated/bin || echo "No dns_utility binary"
+  cp ../node/target/release/MASQNode generated/bin || echo "No MASQNode binary"
 }
 
 mkdir -p "$CI_DIR/../results"
