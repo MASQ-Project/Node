@@ -3,7 +3,7 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
-use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
+use multinode_integration_tests_lib::masq_node::{MASQNodeUtils, MASQNode};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfigBuilder,
@@ -30,8 +30,8 @@ use web3::types::{Address, Bytes};
 use web3::Web3;
 
 #[test]
-#[ignore]
 fn verify_bill_payment() {
+eprintln! ("Beginning test");
     let mut cluster = match MASQNodeCluster::start() {
         Ok(cluster) => cluster,
         Err(_) => panic!(""),
@@ -43,6 +43,7 @@ fn verify_bill_payment() {
     cluster.chain_id = 2u8;
     blockchain_server.start();
     blockchain_server.wait_until_ready();
+eprintln! ("Blockchain server is ready");
     let (_event_loop_handle, http) = Http::new(blockchain_server.service_url().as_ref()).unwrap();
     let web3 = Web3::new(http.clone());
     let derivation_path = "m/44'/60'/0'/0/0";
@@ -57,6 +58,7 @@ fn verify_bill_payment() {
         "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
         contract_addr
     );
+eprintln! ("Smart contract is deployed");
     let blockchain_interface =
         BlockchainInterfaceNonClandestine::new(http, _event_loop_handle, cluster.chain_id);
     assert_balances(
@@ -65,6 +67,7 @@ fn verify_bill_payment() {
         "99998043204000000000",
         "472000000000000000000000000",
     );
+eprintln! ("Owner balance is asserted");
     let consuming_config = NodeStartupConfigBuilder::standard()
         .blockchain_service_url(blockchain_server.service_url())
         .chain("dev")
@@ -110,6 +113,7 @@ fn verify_bill_payment() {
             serving_node_3_wallet.clone()
         )))
         .build();
+eprintln! ("Configs are constructed");
 
     let amount = 10u64
         * u64::try_from(node_lib::accountant::PAYMENT_CURVES.permanent_debt_allowed_gwub).unwrap();
@@ -205,13 +209,22 @@ fn verify_bill_payment() {
         "100000000000000000000",
         "0",
     );
+eprintln! ("Preparations are complete");
 
-    let _real_consuming_node =
+    let real_consuming_node =
         cluster.start_named_real_node(consuming_node_name, consuming_node_index, consuming_config);
+eprintln! ("real_consuming_node is started");
+    for _ in 0..4 {
+        cluster.start_real_node (NodeStartupConfigBuilder::standard()
+            .neighbor(real_consuming_node.node_reference())
+            .build());
+    }
+eprintln! ("Auxiliary Nodes are started");
 
     while !consuming_payable_dao.non_pending_payables().is_empty() {
         thread::sleep(Duration::from_millis(300));
     }
+eprintln! ("We have cleared the non-pending payables");
 
     assert_balances(
         &contract_owner_wallet,
@@ -240,6 +253,7 @@ fn verify_bill_payment() {
         "100000000000000000000",
         (1_000_000_000 * amount).to_string().as_str(),
     );
+eprintln! ("Balances are asserted");
 
     let _serving_node_1 = cluster.start_named_real_node(
         serving_node_1_name,
@@ -256,6 +270,7 @@ fn verify_bill_payment() {
         serving_node_3_index,
         serving_node_3_config,
     );
+eprintln! ("Serving nodes are started");
 
     test_utils::wait_for(Some(1000), Some(15000), || {
         let serving_node_1_account_status =
@@ -271,6 +286,7 @@ fn verify_bill_payment() {
             && serving_node_2_account_status.clone().unwrap().balance == 0
             && serving_node_3_account_status.clone().unwrap().balance == 0
     });
+eprintln! ("Checks are complete");
 }
 
 fn assert_balances(
