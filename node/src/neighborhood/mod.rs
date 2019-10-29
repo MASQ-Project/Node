@@ -69,6 +69,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -193,27 +194,8 @@ impl Handler<RouteQueryMessage> for Neighborhood {
         msg: RouteQueryMessage,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RouteQueryMessage>>::Result {
-        let msg_str = format!("{:?}", msg);
-        let result = if msg.minimum_hop_count == 0 {
-            Ok(self.zero_hop_route_response())
-        } else {
-            self.make_round_trip_route(msg)
-        };
-        MessageResult(match result {
-            Ok(response) => {
-                debug!(
-                    self.logger,
-                    "Processed {} into {}-hop response",
-                    msg_str,
-                    response.route.hops.len(),
-                );
-                Some(response)
-            }
-            Err(msg) => {
-                error!(self.logger, "Unsatisfied route query: {}", msg);
-                None
-            }
-        })
+        let response = self.handle_route_query_message (msg);
+        MessageResult(response)
     }
 }
 
@@ -429,6 +411,30 @@ impl Neighborhood {
         self.send_debut_gossip();
     }
 
+    fn handle_route_query_message (&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
+        let msg_str = format!("{:?}", msg);
+        let route_result = if msg.minimum_hop_count == 0 {
+            Ok(self.zero_hop_route_response())
+        } else {
+            self.make_round_trip_route(msg)
+        };
+        match route_result {
+            Ok(response) => {
+                debug!(
+                    self.logger,
+                    "Processed {} into {}-hop response",
+                    msg_str,
+                    response.route.hops.len(),
+                );
+                Some(response)
+            }
+            Err(msg) => {
+                error!(self.logger, "Unsatisfied route query: {}", msg);
+                None
+            }
+        }
+    }
+
     fn connect_database(&mut self) {
         if self.persistent_config_opt.is_none() {
             let db_initializer = DbInitializerReal::new();
@@ -546,7 +552,7 @@ impl Neighborhood {
                 None => false,
                 Some(node_addr) => node_addr.ip_addr() == failure_source.ip(),
             }) {
-            None => unimplemented!(),
+            None => unimplemented!("TODO: Test-drive me (or replace me with a panic)"),
             Some((position, node_descriptor)) => {
                 warning!(
                     self.logger,
@@ -660,7 +666,20 @@ impl Neighborhood {
     }
 
     fn check_connectedness(&mut self) {
-        unimplemented!()
+        if self.is_connected {return}
+        let msg = RouteQueryMessage {
+            target_key_opt: None,
+            target_component: Component::ProxyClient,
+            minimum_hop_count: DEFAULT_MINIMUM_HOP_COUNT,
+            return_component_opt: Some (Component::ProxyServer),
+        };
+        match self.handle_route_query_message(msg) {
+            Some(_) => {
+                self.is_connected = true;
+                self.connected_signal.as_ref().expect ("Accountant was not bound").try_send (StartMessage{}).expect ("Accountant is dead")
+            },
+            None => ()
+        }
     }
 
     fn announce_gossip_handling_completion(&self, record_count: usize) {
@@ -1170,7 +1189,7 @@ pub fn regenerate_signed_gossip(
         PlainData::from(serde_cbor::ser::to_vec(&inner).expect("Serialization failed"));
     let signature = match cryptde.sign(&signed_gossip) {
         Ok(sig) => sig,
-        Err(e) => unimplemented!("Signing error: {:?}", e),
+        Err(e) => unimplemented!("TODO: Signing error: {:?}", e),
     };
     (signed_gossip, signature)
 }
@@ -1218,6 +1237,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
+    use crate::sub_lib::peer_actors::PeerActors;
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -2655,49 +2675,124 @@ mod tests {
         );
     }
 
+    struct DatabaseReplacementGossipAcceptor {
+        pub replacement_database: NeighborhoodDatabase,
+    }
+
+    impl GossipAcceptor for DatabaseReplacementGossipAcceptor {
+        fn handle(
+            &self,
+            database: &mut NeighborhoodDatabase,
+            _agrs: Vec<AccessibleGossipRecord>,
+            _gossip_source: SocketAddr,
+        ) -> GossipAcceptanceResult {
+            let non_root_database_keys = database.keys().into_iter()
+                .filter (|k| *k != database.root().public_key())
+                .map (|k| k.clone())
+                .collect_vec();
+            non_root_database_keys.into_iter()
+                .for_each (|k| database.remove_node (&k));
+            let database_root_neighbor_keys = database.root().half_neighbor_keys().into_iter()
+                .map (|k| k.clone())
+                .collect_vec();
+            database_root_neighbor_keys.into_iter()
+                .for_each (|k| {database.root_mut().remove_half_neighbor_key(&k);});
+            self.replacement_database.keys().into_iter()
+                .filter (|k| *k != self.replacement_database.root().public_key())
+                .for_each(|k| {database.add_node (self.replacement_database.node_by_key(k).unwrap().clone()).unwrap();});
+            self.replacement_database.keys().into_iter()
+                .for_each(|k| {
+                    let node_record = self.replacement_database.node_by_key(k).unwrap();
+                    node_record.half_neighbor_keys().into_iter()
+                        .for_each (|n| {database.add_arbitrary_half_neighbor (k, n);});
+                });
+            GossipAcceptanceResult::Ignored
+        }
+    }
+
+    fn bind_subject (subject: &mut Neighborhood, peer_actors: PeerActors) {
+        subject.hopper = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.dot_graph_recipient = Some(peer_actors.ui_gateway.ui_message_sub);
+        subject.connected_signal = Some(peer_actors.accountant.start);
+    }
+
     #[test]
     fn neighborhood_does_not_start_accountant_if_no_route_can_be_made() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
-        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let mut replacement_database = subject.neighborhood_database.clone();
+        replacement_database.add_node (neighbor.clone()).unwrap();
+        replacement_database.add_arbitrary_half_neighbor(subject_node.public_key(), neighbor.public_key());
+        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {replacement_database});
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
-        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
 
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         System::current().stop();
         system.run();
-        let hopper_recording = hopper_recording_arc.lock().unwrap();
-        let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
-        assert_eq!(1, hopper_recording.len());
-        assert_eq!(package.node_addr, node_addr);
-        let payload = decodex::<MessageType>(
-            &CryptDENull::from(&public_key, DEFAULT_CHAIN_ID),
-            &package.payload,
-        )
-            .unwrap();
-        assert_eq!(
-            payload,
-            MessageType::GossipFailure(GossipFailure::NoSuitableNeighbors)
-        );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+        assert_eq!(subject.is_connected, false);
     }
 
     #[test]
     fn neighborhood_does_not_start_accountant_if_already_connected() {
-        unimplemented!()
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let neighbor = make_node_record(1111, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        let replacement_database = subject.neighborhood_database.clone();
+        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {replacement_database});
+        subject.is_connected = true;
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        bind_subject(&mut subject, peer_actors);
+
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        System::current().stop();
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+        assert_eq!(subject.is_connected, true);
     }
 
     #[test]
-    fn neighborhood_does_not_start_accountant_in_zero_hop_mode() {
-        unimplemented!()
-    }
+    fn neighborhood_starts_accountant_when_first_route_can_be_made() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let relay1 = make_node_record(1111, true);
+        let relay2 = make_node_record(2222, false);
+        let exit = make_node_record(3333, false);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
+        let mut replacement_database = subject.neighborhood_database.clone();
+        replacement_database.add_node(relay1.clone()).unwrap();
+        replacement_database.add_node(relay2.clone()).unwrap();
+        replacement_database.add_node(exit.clone()).unwrap();
+        replacement_database.add_arbitrary_full_neighbor(subject_node.public_key(), relay1.public_key());
+        replacement_database.add_arbitrary_full_neighbor(relay1.public_key(), relay2.public_key());
+        replacement_database.add_arbitrary_full_neighbor(relay2.public_key(), exit.public_key());
+        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {replacement_database});
+        subject.persistent_config_opt = Some (Box::new (PersistentConfigurationMock::new()
+            .set_past_neighbors_result(Ok(()))
+        ));
+        subject.is_connected = false;
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        bind_subject(&mut subject, peer_actors);
 
-    #[test]
-    fn neighborhood_starts_accountant_in_when_first_route_can_be_made() {
-        unimplemented!()
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        System::current().stop();
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 1);
+        assert_eq!(subject.is_connected, true);
     }
 
     struct NeighborReplacementGossipAcceptor {
