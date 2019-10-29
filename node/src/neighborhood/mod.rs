@@ -31,7 +31,7 @@ use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::ExpectedService;
+use crate::sub_lib::neighborhood::{ExpectedService};
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -52,7 +52,7 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
-use actix::Addr;
+use actix::{Addr};
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
@@ -75,7 +75,8 @@ pub struct Neighborhood {
     hopper: Option<Recipient<IncipientCoresPackage>>,
     hopper_no_lookup: Option<Recipient<NoLookupIncipientCoresPackage>>,
     dot_graph_recipient: Option<Recipient<UiCarrierMessage>>,
-//    connected_signal: Vec<Recipient<StartMessage>>,
+    is_connected: bool,
+    connected_signal: Option<Recipient<StartMessage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
@@ -100,15 +101,8 @@ impl Handler<BindMessage> for Neighborhood {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         self.hopper_no_lookup = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
-        self.dot_graph_recipient = Some(msg.peer_actors.ui_gateway.ui_message_sub)
-    }
-}
-
-impl Handler<SetConsumingWalletMessage> for Neighborhood {
-    type Result = ();
-
-    fn handle(&mut self, msg: SetConsumingWalletMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.consuming_wallet_opt = Some(msg.wallet);
+        self.dot_graph_recipient = Some(msg.peer_actors.ui_gateway.ui_message_sub);
+        self.connected_signal = Some(msg.peer_actors.accountant.start);
     }
 }
 
@@ -117,6 +111,14 @@ impl Handler<StartMessage> for Neighborhood {
 
     fn handle(&mut self, _msg: StartMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.handle_start_message();
+    }
+}
+
+impl Handler<SetConsumingWalletMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: SetConsumingWalletMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.consuming_wallet_opt = Some(msg.wallet);
     }
 }
 
@@ -387,6 +389,8 @@ impl Neighborhood {
             hopper: None,
             hopper_no_lookup: None,
             dot_graph_recipient: None,
+            connected_signal: None,
+            is_connected: false,
             gossip_acceptor,
             gossip_producer,
             neighborhood_database,
@@ -620,8 +624,9 @@ impl Neighborhood {
         }
     }
 
-    fn handle_database_changes(&self, neighbor_keys_before: &Vec<PublicKey>, neighbor_keys_after: &Vec<PublicKey>) {
+    fn handle_database_changes(&mut self, neighbor_keys_before: &Vec<PublicKey>, neighbor_keys_after: &Vec<PublicKey>) {
         self.curate_past_neighbors (neighbor_keys_before, neighbor_keys_after);
+        self.check_connectedness ();
     }
 
     fn curate_past_neighbors (&self, neighbor_keys_before: &Vec<PublicKey>, neighbor_keys_after: &Vec<PublicKey>) {
@@ -652,6 +657,10 @@ impl Neighborhood {
         } else {
             debug!(self.logger, "No neighbor changes; database is unchanged")
         }
+    }
+
+    fn check_connectedness(&mut self) {
+        unimplemented!()
     }
 
     fn announce_gossip_handling_completion(&self, record_count: usize) {
@@ -2644,6 +2653,51 @@ mod tests {
             payload,
             MessageType::GossipFailure(GossipFailure::NoSuitableNeighbors)
         );
+    }
+
+    #[test]
+    fn neighborhood_does_not_start_accountant_if_no_route_can_be_made() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let neighbor = make_node_record(1111, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        bind_subject(&mut subject, peer_actors);
+
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        System::current().stop();
+        system.run();
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
+        assert_eq!(1, hopper_recording.len());
+        assert_eq!(package.node_addr, node_addr);
+        let payload = decodex::<MessageType>(
+            &CryptDENull::from(&public_key, DEFAULT_CHAIN_ID),
+            &package.payload,
+        )
+            .unwrap();
+        assert_eq!(
+            payload,
+            MessageType::GossipFailure(GossipFailure::NoSuitableNeighbors)
+        );
+    }
+
+    #[test]
+    fn neighborhood_does_not_start_accountant_if_already_connected() {
+        unimplemented!()
+    }
+
+    #[test]
+    fn neighborhood_does_not_start_accountant_in_zero_hop_mode() {
+        unimplemented!()
+    }
+
+    #[test]
+    fn neighborhood_starts_accountant_in_when_first_route_can_be_made() {
+        unimplemented!()
     }
 
     struct NeighborReplacementGossipAcceptor {
