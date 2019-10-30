@@ -31,7 +31,7 @@ use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::{ExpectedService};
+use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -45,6 +45,7 @@ use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
+use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -52,7 +53,7 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
-use actix::{Addr};
+use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
@@ -69,7 +70,6 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -194,7 +194,7 @@ impl Handler<RouteQueryMessage> for Neighborhood {
         msg: RouteQueryMessage,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RouteQueryMessage>>::Result {
-        let response = self.handle_route_query_message (msg);
+        let response = self.handle_route_query_message(msg);
         MessageResult(response)
     }
 }
@@ -411,7 +411,7 @@ impl Neighborhood {
         self.send_debut_gossip();
     }
 
-    fn handle_route_query_message (&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
+    fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         let msg_str = format!("{:?}", msg);
         let route_result = if msg.minimum_hop_count == 0 {
             Ok(self.zero_hop_route_response())
@@ -594,13 +594,12 @@ impl Neighborhood {
         self.handle_database_changes(&neighbor_keys_before, &neighbor_keys_after);
     }
 
-    fn neighbor_keys (&self) -> Vec<PublicKey> {
-        self
-            .neighborhood_database
+    fn neighbor_keys(&self) -> Vec<PublicKey> {
+        self.neighborhood_database
             .root()
             .full_neighbor_keys(&self.neighborhood_database)
             .into_iter()
-            .map(|kr| kr.clone())
+            .cloned()
             .collect()
     }
 
@@ -630,33 +629,40 @@ impl Neighborhood {
         }
     }
 
-    fn handle_database_changes(&mut self, neighbor_keys_before: &Vec<PublicKey>, neighbor_keys_after: &Vec<PublicKey>) {
-        self.curate_past_neighbors (neighbor_keys_before, neighbor_keys_after);
-        self.check_connectedness ();
+    fn handle_database_changes(
+        &mut self,
+        neighbor_keys_before: &Vec<PublicKey>,
+        neighbor_keys_after: &Vec<PublicKey>,
+    ) {
+        self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
+        self.check_connectedness();
     }
 
-    fn curate_past_neighbors (&self, neighbor_keys_before: &Vec<PublicKey>, neighbor_keys_after: &Vec<PublicKey>) {
+    fn curate_past_neighbors(
+        &self,
+        neighbor_keys_before: &Vec<PublicKey>,
+        neighbor_keys_after: &Vec<PublicKey>,
+    ) {
         if neighbor_keys_after != neighbor_keys_before {
             if let Some(db_password) = &self.db_password_opt {
                 let nds = self.to_node_descriptors(neighbor_keys_after);
                 let node_descriptors_opt = if nds.is_empty() {
                     None
-                }
-                else {
-                    Some (nds.into_iter().collect_vec())
+                } else {
+                    Some(nds.into_iter().collect_vec())
                 };
                 match self
                     .persistent_config_opt
                     .as_ref()
                     .expect("PersistentConfig was not set by StartMessage")
                     .set_past_neighbors(node_descriptors_opt, db_password)
-                    {
-                        Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
-                        Err(e) => error!(
-                            self.logger,
-                            "Could not persist immediate-neighbor changes: {:?}", e
-                        ),
-                    };
+                {
+                    Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
+                    Err(e) => error!(
+                        self.logger,
+                        "Could not persist immediate-neighbor changes: {:?}", e
+                    ),
+                };
             } else {
                 info!(self.logger, "Declining to persist neighbor changes for next run: no database password supplied")
             }
@@ -666,19 +672,22 @@ impl Neighborhood {
     }
 
     fn check_connectedness(&mut self) {
-        if self.is_connected {return}
+        if self.is_connected {
+            return;
+        }
         let msg = RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
             minimum_hop_count: DEFAULT_MINIMUM_HOP_COUNT,
-            return_component_opt: Some (Component::ProxyServer),
+            return_component_opt: Some(Component::ProxyServer),
         };
-        match self.handle_route_query_message(msg) {
-            Some(_) => {
-                self.is_connected = true;
-                self.connected_signal.as_ref().expect ("Accountant was not bound").try_send (StartMessage{}).expect ("Accountant is dead")
-            },
-            None => ()
+        if self.handle_route_query_message(msg).is_some() {
+            self.is_connected = true;
+            self.connected_signal
+                .as_ref()
+                .expect("Accountant was not bound")
+                .try_send(StartMessage {})
+                .expect("Accountant is dead")
         }
     }
 
@@ -1211,6 +1220,7 @@ mod tests {
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::{ExpectedServices, NeighborhoodMode};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
+    use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -1237,7 +1247,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
-    use crate::sub_lib::peer_actors::PeerActors;
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -2686,31 +2695,44 @@ mod tests {
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
         ) -> GossipAcceptanceResult {
-            let non_root_database_keys = database.keys().into_iter()
-                .filter (|k| *k != database.root().public_key())
-                .map (|k| k.clone())
+            let non_root_database_keys = database
+                .keys()
+                .into_iter()
+                .filter(|k| *k != database.root().public_key())
+                .map(|k| k.clone())
                 .collect_vec();
-            non_root_database_keys.into_iter()
-                .for_each (|k| database.remove_node (&k));
-            let database_root_neighbor_keys = database.root().half_neighbor_keys().into_iter()
-                .map (|k| k.clone())
+            non_root_database_keys
+                .into_iter()
+                .for_each(|k| database.remove_node(&k));
+            let database_root_neighbor_keys = database
+                .root()
+                .half_neighbor_keys()
+                .into_iter()
+                .map(|k| k.clone())
                 .collect_vec();
-            database_root_neighbor_keys.into_iter()
-                .for_each (|k| {database.root_mut().remove_half_neighbor_key(&k);});
-            self.replacement_database.keys().into_iter()
-                .filter (|k| *k != self.replacement_database.root().public_key())
-                .for_each(|k| {database.add_node (self.replacement_database.node_by_key(k).unwrap().clone()).unwrap();});
-            self.replacement_database.keys().into_iter()
+            database_root_neighbor_keys.into_iter().for_each(|k| {
+                database.root_mut().remove_half_neighbor_key(&k);
+            });
+            self.replacement_database
+                .keys()
+                .into_iter()
+                .filter(|k| *k != self.replacement_database.root().public_key())
                 .for_each(|k| {
-                    let node_record = self.replacement_database.node_by_key(k).unwrap();
-                    node_record.half_neighbor_keys().into_iter()
-                        .for_each (|n| {database.add_arbitrary_half_neighbor (k, n);});
+                    database
+                        .add_node(self.replacement_database.node_by_key(k).unwrap().clone())
+                        .unwrap();
                 });
+            self.replacement_database.keys().into_iter().for_each(|k| {
+                let node_record = self.replacement_database.node_by_key(k).unwrap();
+                node_record.half_neighbor_keys().into_iter().for_each(|n| {
+                    database.add_arbitrary_half_neighbor(k, n);
+                });
+            });
             GossipAcceptanceResult::Ignored
         }
     }
 
-    fn bind_subject (subject: &mut Neighborhood, peer_actors: PeerActors) {
+    fn bind_subject(subject: &mut Neighborhood, peer_actors: PeerActors) {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
         subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.dot_graph_recipient = Some(peer_actors.ui_gateway.ui_message_sub);
@@ -2723,9 +2745,12 @@ mod tests {
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let mut replacement_database = subject.neighborhood_database.clone();
-        replacement_database.add_node (neighbor.clone()).unwrap();
-        replacement_database.add_arbitrary_half_neighbor(subject_node.public_key(), neighbor.public_key());
-        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {replacement_database});
+        replacement_database.add_node(neighbor.clone()).unwrap();
+        replacement_database
+            .add_arbitrary_half_neighbor(subject_node.public_key(), neighbor.public_key());
+        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {
+            replacement_database,
+        });
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -2746,7 +2771,9 @@ mod tests {
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let replacement_database = subject.neighborhood_database.clone();
-        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {replacement_database});
+        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {
+            replacement_database,
+        });
         subject.is_connected = true;
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
@@ -2773,12 +2800,15 @@ mod tests {
         replacement_database.add_node(relay1.clone()).unwrap();
         replacement_database.add_node(relay2.clone()).unwrap();
         replacement_database.add_node(exit.clone()).unwrap();
-        replacement_database.add_arbitrary_full_neighbor(subject_node.public_key(), relay1.public_key());
+        replacement_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), relay1.public_key());
         replacement_database.add_arbitrary_full_neighbor(relay1.public_key(), relay2.public_key());
         replacement_database.add_arbitrary_full_neighbor(relay2.public_key(), exit.public_key());
-        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {replacement_database});
-        subject.persistent_config_opt = Some (Box::new (PersistentConfigurationMock::new()
-            .set_past_neighbors_result(Ok(()))
+        subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {
+            replacement_database,
+        });
+        subject.persistent_config_opt = Some(Box::new(
+            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
         ));
         subject.is_connected = false;
         let (accountant, _, accountant_recording_arc) = make_recorder();
