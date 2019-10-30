@@ -214,17 +214,18 @@ eprintln! ("Preparations are complete");
     let real_consuming_node =
         cluster.start_named_real_node(consuming_node_name, consuming_node_index, consuming_config);
 eprintln! ("real_consuming_node is started");
-    for _ in 0..4 {
+    for _ in 0..6 {
         cluster.start_real_node (NodeStartupConfigBuilder::standard()
+            .chain("dev")
             .neighbor(real_consuming_node.node_reference())
             .build());
     }
-eprintln! ("Auxiliary Nodes are started");
+eprintln! ("Auxiliary Nodes are started after {}", real_consuming_node.name());
 
     while !consuming_payable_dao.non_pending_payables().is_empty() {
         thread::sleep(Duration::from_millis(300));
     }
-eprintln! ("We have cleared the non-pending payables");
+eprintln! ("We have at least one non-pending payable");
 
     assert_balances(
         &contract_owner_wallet,
