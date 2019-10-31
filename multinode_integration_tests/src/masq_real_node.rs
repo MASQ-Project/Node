@@ -1089,7 +1089,7 @@ impl MASQRealNode {
 
     fn extract_node_reference(name: &String) -> Result<NodeReference, String> {
         let regex = Regex::new(r"MASQ Node local descriptor: ([^:]+[:@][\d.]*:[\d,]*)").unwrap();
-        let mut retries_left = 5;
+        let mut retries_left = 10;
         loop {
             println!("Checking for {} startup", name);
             thread::sleep(Duration::from_millis(100));
