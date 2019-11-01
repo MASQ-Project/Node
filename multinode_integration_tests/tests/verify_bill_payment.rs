@@ -3,7 +3,7 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
-use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
+use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfigBuilder,
@@ -205,8 +205,16 @@ fn verify_bill_payment() {
         "0",
     );
 
-    let _real_consuming_node =
+    let real_consuming_node =
         cluster.start_named_real_node(consuming_node_name, consuming_node_index, consuming_config);
+    for _ in 0..6 {
+        cluster.start_real_node(
+            NodeStartupConfigBuilder::standard()
+                .chain("dev")
+                .neighbor(real_consuming_node.node_reference())
+                .build(),
+        );
+    }
 
     while !consuming_payable_dao.non_pending_payables().is_empty() {
         thread::sleep(Duration::from_millis(300));
@@ -240,35 +248,52 @@ fn verify_bill_payment() {
         (1_000_000_000 * amount).to_string().as_str(),
     );
 
-    let _serving_node_1 = cluster.start_named_real_node(
+    let serving_node_1 = cluster.start_named_real_node(
         serving_node_1_name,
         serving_node_1_index,
         serving_node_1_config,
     );
-    let _serving_node_2 = cluster.start_named_real_node(
+    let serving_node_2 = cluster.start_named_real_node(
         serving_node_2_name,
         serving_node_2_index,
         serving_node_2_config,
     );
-    let _serving_node_3 = cluster.start_named_real_node(
+    let serving_node_3 = cluster.start_named_real_node(
         serving_node_3_name,
         serving_node_3_index,
         serving_node_3_config,
     );
+    for _ in 0..6 {
+        cluster.start_real_node(
+            NodeStartupConfigBuilder::standard()
+                .chain("dev")
+                .neighbor(serving_node_1.node_reference())
+                .neighbor(serving_node_2.node_reference())
+                .neighbor(serving_node_3.node_reference())
+                .build(),
+        );
+    }
 
     test_utils::wait_for(Some(1000), Some(15000), || {
-        let serving_node_1_account_status =
-            serving_node_1_receivable_dao.account_status(&contract_owner_wallet);
-        let serving_node_2_account_status =
-            serving_node_2_receivable_dao.account_status(&contract_owner_wallet);
-        let serving_node_3_account_status =
-            serving_node_3_receivable_dao.account_status(&contract_owner_wallet);
-        serving_node_1_account_status.clone().is_some()
-            && serving_node_2_account_status.clone().is_some()
-            && serving_node_3_account_status.clone().is_some()
-            && serving_node_1_account_status.clone().unwrap().balance == 0
-            && serving_node_2_account_status.clone().unwrap().balance == 0
-            && serving_node_3_account_status.clone().unwrap().balance == 0
+        if let Some(status) = serving_node_1_receivable_dao.account_status(&contract_owner_wallet) {
+            status.balance == 0
+        } else {
+            false
+        }
+    });
+    test_utils::wait_for(Some(1000), Some(15000), || {
+        if let Some(status) = serving_node_2_receivable_dao.account_status(&contract_owner_wallet) {
+            status.balance == 0
+        } else {
+            false
+        }
+    });
+    test_utils::wait_for(Some(1000), Some(15000), || {
+        if let Some(status) = serving_node_3_receivable_dao.account_status(&contract_owner_wallet) {
+            status.balance == 0
+        } else {
+            false
+        }
     });
 }
 

@@ -112,6 +112,16 @@ pub struct Transaction {
     pub gwei_amount: u64,
 }
 
+impl fmt::Display for Transaction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}gw from {} ({})",
+            self.gwei_amount, self.from, self.block_number
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockchainError {
     InvalidUrl,
@@ -160,6 +170,7 @@ pub trait BlockchainInterface {
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
 }
 
+// TODO: This probably should go away
 pub struct BlockchainInterfaceClandestine {
     logger: Logger,
     chain_id: u8,
@@ -186,8 +197,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 
     fn retrieve_transactions(&self, _start_block: u64, _recipient: &Wallet) -> Transactions {
-        let msg = "Could not retrieve transactions since blockchain_service_url was not specified"
-            .to_string();
+        let msg = "Can't retrieve transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
         Err(BlockchainError::TransactionFailed(msg))
     }
@@ -200,27 +210,18 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _nonce: U256,
         _gas_price: u64,
     ) -> BlockchainResult<H256> {
-        let msg =
-            "Could not send transaction since blockchain_service_url was not specified".to_string();
+        let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
         Err(BlockchainError::TransactionFailed(msg))
     }
 
-    fn get_eth_balance(&self, address: &Wallet) -> Balance {
-        error!(
-            self.logger,
-            "Could not get eth balance for {:?} since blockchain_service_url was not specified",
-            address
-        );
+    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+        error!(self.logger, "Can't get eth balance clandestinely yet",);
         Ok(0.into())
     }
 
-    fn get_token_balance(&self, address: &Wallet) -> Balance {
-        error!(
-            self.logger,
-            "Could not get token balance for {:?} since blockchain_service_url was not specified",
-            address
-        );
+    fn get_token_balance(&self, _address: &Wallet) -> Balance {
+        error!(self.logger, "Can't get token balance clandestinely yet",);
         Ok(0.into())
     }
 
@@ -279,6 +280,7 @@ where
             .build();
 
         let log_request = self.web3.eth().logs(filter);
+        let logger = self.logger.clone();
         log_request
             .then(|logs| {
                 future::result::<Vec<Transaction>, BlockchainError>(match logs {
@@ -289,7 +291,7 @@ where
                         {
                             Err(BlockchainError::InvalidResponse)
                         } else {
-                            Ok(logs
+                            let transactions = logs
                                 .iter()
                                 .filter_map(|log: &Log| match log.block_number {
                                     Some(block_number) => {
@@ -304,7 +306,9 @@ where
                                     }
                                     None => None,
                                 })
-                                .collect())
+                                .collect();
+                            debug!(logger, "Retrieved transactions: {:?}", transactions);
+                            Ok(transactions)
                         }
                     }
                     Err(_) => Err(BlockchainError::QueryFailed),
