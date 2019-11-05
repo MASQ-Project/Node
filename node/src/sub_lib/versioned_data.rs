@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::cmp::Ordering;
-use std::cell::RefCell;
 
 pub const FUTURE_VERSION: DataVersion = DataVersion {major: 0xFFFF, minor: 0xFFFF};
 
@@ -60,7 +59,7 @@ pub enum StepError {
 
 }
 
-pub type MigrationStep = dyn Fn(&Vec<u8>) -> Result<Vec<u8>, StepError> + Send + Sync;
+pub type MigrationStep = dyn Fn(Vec<u8>) -> Result<Vec<u8>, StepError> + Send + Sync;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MigrationError {
@@ -70,14 +69,14 @@ pub enum MigrationError {
 // NOT THREAD-SAFE!
 pub struct Migrations {
     current_version: DataVersion,
-    table: RefCell<HashMap<DataVersion, HashMap<DataVersion, Box<MigrationStep>>>>,
+    table: HashMap<DataVersion, HashMap<DataVersion, Box<MigrationStep>>>,
 }
 
 impl Migrations {
     pub fn new(current_version: DataVersion) -> Migrations {
         Migrations {
             current_version,
-            table: RefCell::new(HashMap::new()),
+            table: HashMap::new(),
         }
     }
 
@@ -88,22 +87,20 @@ impl Migrations {
     pub fn migration(&self, from_version: DataVersion) -> Option<&Box<MigrationStep>> {
         let mut new_chain: Option<Box<MigrationStep>> = None;
         let result: Option<&Box<MigrationStep>> = {
-            let table = self.table.borrow();
-            match table.get(&from_version) {
+            match self.table.get(&from_version) {
                 None => None,
                 Some(from_map) => match from_map.get(&self.current_version) {
                     None => {
-                        let elements = Self::find_migration_chain(&table, from_version, self.current_version);
+                        let elements = self.find_migration_chain(from_version, self.current_version);
                         if elements.is_empty() {
                             None
                         } else {
-                            new_chain = Some(Box::new (|bytes_ref: &Vec<u8>| {
-                                let bytes = bytes_ref.clone();
+                            new_chain = Some(Box::new (|bytes: Vec<u8>| {
                                 elements.into_iter ()
                                     .fold(Ok(bytes), |sofar, step| {
                                         match sofar {
                                             Err(e) => Err(e),
-                                            Ok (input) => step(&input)
+                                            Ok (input) => step(input)
                                         }
                                     })
                             }));
@@ -118,8 +115,7 @@ impl Migrations {
             None => result,
             Some(chain) => {
                 {
-                    let mut table = self.table.borrow_mut();
-                    let _ = table.get_mut(&from_version).expect("From version disappeared").insert(self.current_version, chain).expect("Chain insertion failed");
+                    let _ = self.table.get(&from_version).expect("From version disappeared").insert(self.current_version, chain).expect("Chain insertion failed");
                 }
                 self.migration(from_version)
             }
@@ -127,11 +123,10 @@ impl Migrations {
     }
 
     pub fn add_step(&mut self, from: DataVersion, to: DataVersion, step: Box<MigrationStep>) {
-        let mut table = self.table.borrow_mut();
-        match table.get_mut(&from) {
+        match self.table.get_mut(&from) {
             None => {
-                let _ = table.insert (from, HashMap::new());
-                let from_map = table.get_mut(&from).expect ("Disappeared");
+                let _ = self.table.insert (from, HashMap::new());
+                let from_map = self.table.get_mut(&from).expect ("Disappeared");
                 let _ = from_map.insert (to, step);
             },
             Some(from_map) => {
@@ -140,8 +135,8 @@ impl Migrations {
         }
     }
 
-    fn find_migration_chain(table: &HashMap<DataVersion, HashMap<DataVersion, Box<MigrationStep>>>, from: DataVersion, to: DataVersion) -> Vec<&Box<MigrationStep>> {
-        let from_map = table.get(&from).expect ("From disappeared");
+    fn find_migration_chain(&self, from: DataVersion, to: DataVersion) -> Vec<&Box<MigrationStep>> {
+        let from_map = self.table.get(&from).expect ("From disappeared");
         from_map.keys().into_iter()
             .flat_map (|next_key| {
                 let migration = from_map.get(next_key).expect ("Intermediate disappeared");
@@ -149,7 +144,7 @@ impl Migrations {
                     Some (vec![migration])
                 }
                 else {
-                    match Self::find_migration_chain(table, *next_key, to) {
+                    match self.find_migration_chain(*next_key, to) {
                         tail if (&tail).is_empty() => None,
                         tail => {
                             let mut list = vec![migration];
@@ -168,19 +163,6 @@ impl Migrations {
                 }
             })
     }
-//
-//    fn chain_migrations<'a>(&'a self, chain: Vec<&'a Box<MigrationStep>>) -> Box<MigrationStep> {
-//        Box::new (|bytes_ref: &'a Vec<u8>| {
-//            let bytes = bytes_ref.clone();
-//            chain.into_iter ()
-//                .fold(Ok(bytes), |sofar, step| {
-//                    match sofar {
-//                        Err(e) => Err(e),
-//                        Ok (input) => step(&input)
-//                    }
-//                })
-//        })
-//    }
 }
 
 #[cfg(test)]
@@ -251,7 +233,7 @@ mod tests {
 
         let in_data = PersonV44{name: "Billy".to_string()};
         let serialized = serde_cbor::ser::to_vec(&in_data).unwrap();
-        let migrated = result(&serialized).unwrap();
+        let migrated = result(serialized).unwrap();
         let out_data = serde_cbor::de::from_slice::<PersonV45>(&migrated).unwrap();
         assert_eq! (out_data, PersonV45 {
             name: "Billy".to_string(),
@@ -269,7 +251,7 @@ mod tests {
 
         let in_data = PersonV44{name: "Billy".to_string()};
         let serialized = serde_cbor::ser::to_vec(&in_data).unwrap();
-        let migrated = result(&serialized).unwrap();
+        let migrated = result(serialized).unwrap();
         let out_data = serde_cbor::de::from_slice::<PersonV46>(&migrated).unwrap();
         assert_eq! (out_data, PersonV46 {
             name: "Billy".to_string(),
