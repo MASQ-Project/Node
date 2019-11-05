@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::cmp::Ordering;
+use itertools::Itertools;
+use std::sync::RwLock;
 
 pub const FUTURE_VERSION: DataVersion = DataVersion {major: 0xFFFF, minor: 0xFFFF};
 
@@ -49,7 +51,7 @@ impl<T> VersionedData<T> where T: Serialize + DeserializeOwned {
         self.version
     }
 
-    pub fn extract(&self, migrations: &Migrations) -> Result<T, MigrationError> {
+    pub fn extract(&self, _migrations: &Migrations) -> Result<T, MigrationError> {
         Ok(serde_cbor::de::from_slice::<T>(&self.bytes).expect("Test-drive me"))
     }
 }
@@ -59,24 +61,53 @@ pub enum StepError {
 
 }
 
-pub type MigrationStep = dyn Fn(Vec<u8>) -> Result<Vec<u8>, StepError> + Send + Sync;
+pub trait MigrationStep: Send + Sync {
+    fn migrate(&self, data: Vec<u8>) -> Result<Vec<u8>, StepError>;
+    fn dup(&self) -> Box<dyn MigrationStep>;
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MigrationError {
 
 }
 
-// NOT THREAD-SAFE!
 pub struct Migrations {
     current_version: DataVersion,
-    table: HashMap<DataVersion, HashMap<DataVersion, Box<MigrationStep>>>,
+    table: RwLock<HashMap<DataVersion, HashMap<DataVersion, Box<dyn MigrationStep>>>>,
+}
+
+struct ComboStep {
+    substeps: Vec<Box<dyn MigrationStep>>
+}
+impl MigrationStep for ComboStep {
+    fn migrate(&self, data: Vec<u8>) -> Result<Vec<u8>, StepError> {
+        self.substeps.iter ()
+            .fold(Ok(data), |sofar, substep| {
+                match sofar {
+                    Err(e) => Err(e),
+                    Ok (input) => substep.migrate(input)
+                }
+            })
+    }
+    fn dup(&self) -> Box<dyn MigrationStep> {
+        Box::new (ComboStep {
+            substeps: self.substeps.iter().map(|x| x.dup()).collect_vec()
+        })
+    }
+}
+impl ComboStep {
+    fn new (substeps: Vec<Box<dyn MigrationStep>>) -> ComboStep {
+        ComboStep {
+            substeps
+        }
+    }
 }
 
 impl Migrations {
     pub fn new(current_version: DataVersion) -> Migrations {
         Migrations {
             current_version,
-            table: HashMap::new(),
+            table: RwLock::new (HashMap::new()),
         }
     }
 
@@ -84,49 +115,43 @@ impl Migrations {
         self.current_version
     }
 
-    pub fn migration(&self, from_version: DataVersion) -> Option<&Box<MigrationStep>> {
-        let mut new_chain: Option<Box<MigrationStep>> = None;
-        let result: Option<&Box<MigrationStep>> = {
-            match self.table.get(&from_version) {
+    pub fn migration(&self, from_version: DataVersion) -> Option<Box<dyn MigrationStep>> {
+        let mut new_step: Option<Box<dyn MigrationStep>> = None;
+        let result: Option<Box<dyn MigrationStep>> = {
+            let table = self.table.read().expect("Migrations poisoned");
+            match table.get(&from_version) {
                 None => None,
                 Some(from_map) => match from_map.get(&self.current_version) {
                     None => {
-                        let elements = self.find_migration_chain(from_version, self.current_version);
+                        let elements = self
+                            .find_migration_chain(from_version, self.current_version);
                         if elements.is_empty() {
                             None
                         } else {
-                            new_chain = Some(Box::new (|bytes: Vec<u8>| {
-                                elements.into_iter ()
-                                    .fold(Ok(bytes), |sofar, step| {
-                                        match sofar {
-                                            Err(e) => Err(e),
-                                            Ok (input) => step(input)
-                                        }
-                                    })
-                            }));
+                            new_step = Some(Box::new (ComboStep::new (elements)));
                             None
                         }
                     },
-                    Some(boxed_step) => Some(boxed_step)
+                    Some(boxed_step) => Some(boxed_step.dup())
                 }
             }
         };
-        match new_chain {
+        match new_step {
             None => result,
-            Some(chain) => {
-                {
-                    let _ = self.table.get(&from_version).expect("From version disappeared").insert(self.current_version, chain).expect("Chain insertion failed");
-                }
+            Some(combo_step) => {
+                let mut table = self.table.write().expect("Migrations poisoned");
+                let _ = table.get_mut(&from_version).expect("From version disappeared").insert(self.current_version, combo_step).expect("Chain insertion failed");
                 self.migration(from_version)
             }
         }
     }
 
-    pub fn add_step(&mut self, from: DataVersion, to: DataVersion, step: Box<MigrationStep>) {
-        match self.table.get_mut(&from) {
+    pub fn add_step(&mut self, from: DataVersion, to: DataVersion, step: Box<dyn MigrationStep>) {
+        let mut table = self.table.write().expect("Migrations poisoned");
+        match table.get_mut(&from) {
             None => {
-                let _ = self.table.insert (from, HashMap::new());
-                let from_map = self.table.get_mut(&from).expect ("Disappeared");
+                let _ = table.insert (from, HashMap::new());
+                let from_map = table.get_mut(&from).expect ("Disappeared");
                 let _ = from_map.insert (to, step);
             },
             Some(from_map) => {
@@ -135,17 +160,18 @@ impl Migrations {
         }
     }
 
-    fn find_migration_chain(&self, from: DataVersion, to: DataVersion) -> Vec<&Box<MigrationStep>> {
-        let from_map = self.table.get(&from).expect ("From disappeared");
+    fn find_migration_chain(&self, from: DataVersion, to: DataVersion) -> Vec<Box<dyn MigrationStep>> {
+        let table = self.table.read().expect("Migrations poisoned");
+        let from_map = table.get(&from).expect ("From disappeared");
         from_map.keys().into_iter()
             .flat_map (|next_key| {
-                let migration = from_map.get(next_key).expect ("Intermediate disappeared");
+                let migration = from_map.get(next_key).expect ("Intermediate disappeared").dup();
                 if *next_key == to {
                     Some (vec![migration])
                 }
                 else {
                     match self.find_migration_chain(*next_key, to) {
-                        tail if (&tail).is_empty() => None,
+                        ref tail if (tail).is_empty() => None,
                         tail => {
                             let mut list = vec![migration];
                             list.extend(tail);
@@ -187,20 +213,24 @@ mod tests {
         address: String,
     }
 
-    fn add_44_to_45_step (migrations: &mut Migrations) {
-        migrations.add_step (DataVersion::new(4, 4), DataVersion::new(4, 5), Box::new(|bytes| {
-            let in_item = serde_cbor::de::from_slice::<PersonV44>(&bytes).unwrap();
+    struct PersonM44v45 {}
+    impl MigrationStep for PersonM44v45 {
+        fn migrate(&self, data: Vec<u8>) -> Result<Vec<u8>, StepError> {
+            let in_item = serde_cbor::de::from_slice::<PersonV44>(&data).unwrap();
             let out_item = PersonV45 {name: in_item.name, weight: 170};
             Ok(serde_cbor::ser::to_vec(&out_item).unwrap())
-        }));
+        }
+        fn dup(&self) -> Box<dyn MigrationStep> {Box::new(PersonM44v45{})}
     }
 
-    fn add_45_to_46_step (migrations: &mut Migrations) {
-        migrations.add_step (DataVersion::new(4, 5), DataVersion::new(4, 6), Box::new(|bytes| {
-            let in_item = serde_cbor::de::from_slice::<PersonV45>(&bytes).unwrap();
+    struct PersonM45v46 {}
+    impl MigrationStep for PersonM45v46 {
+        fn migrate(&self, data: Vec<u8>) -> Result<Vec<u8>, StepError> {
+            let in_item = serde_cbor::de::from_slice::<PersonV45>(&data).unwrap();
             let out_item = PersonV46 {name: in_item.name, weight: in_item.weight, address: "Unknown".to_string()};
             Ok(serde_cbor::ser::to_vec(&out_item).unwrap())
-        }));
+        }
+        fn dup(&self) -> Box<dyn MigrationStep> {Box::new(PersonM45v46{})}
     }
 
     #[test]
@@ -227,13 +257,13 @@ mod tests {
     #[test]
     fn migrations_can_find_specified_migration_step() {
         let mut migrations = Migrations::new(DataVersion::new(4, 5));
-        add_44_to_45_step(&mut migrations);
+        migrations.add_step (DataVersion::new (4, 4), DataVersion::new (4, 5), Box::new (PersonM44v45{}));
 
         let result = migrations.migration(DataVersion::new(4, 4)).unwrap();
 
         let in_data = PersonV44{name: "Billy".to_string()};
         let serialized = serde_cbor::ser::to_vec(&in_data).unwrap();
-        let migrated = result(serialized).unwrap();
+        let migrated = result.migrate(serialized).unwrap();
         let out_data = serde_cbor::de::from_slice::<PersonV45>(&migrated).unwrap();
         assert_eq! (out_data, PersonV45 {
             name: "Billy".to_string(),
@@ -244,14 +274,14 @@ mod tests {
     #[test]
     fn migrations_can_construct_chained_migration_step() {
         let mut migrations = Migrations::new(DataVersion::new(4, 5));
-        add_44_to_45_step(&mut migrations);
-        add_45_to_46_step(&mut migrations);
+        migrations.add_step (DataVersion::new (4, 4), DataVersion::new (4, 5), Box::new (PersonM44v45{}));
+        migrations.add_step (DataVersion::new (4, 5), DataVersion::new (4, 6), Box::new (PersonM45v46{}));
 
         let result = migrations.migration(DataVersion::new(4, 6)).unwrap();
 
         let in_data = PersonV44{name: "Billy".to_string()};
         let serialized = serde_cbor::ser::to_vec(&in_data).unwrap();
-        let migrated = result(serialized).unwrap();
+        let migrated = result.migrate(serialized).unwrap();
         let out_data = serde_cbor::de::from_slice::<PersonV46>(&migrated).unwrap();
         assert_eq! (out_data, PersonV46 {
             name: "Billy".to_string(),
@@ -272,7 +302,7 @@ mod tests {
     #[test]
     fn migrations_cannot_find_nonexistent_minor_migration_step() {
         let mut migrations = Migrations::new(DataVersion::new(4, 5));
-        add_44_to_45_step(&mut migrations);
+        migrations.add_step (DataVersion::new (4, 4), DataVersion::new (4, 5), Box::new (PersonM44v45{}));
 
         let result = migrations.migration(DataVersion::new(4, 3));
 
@@ -296,7 +326,7 @@ mod tests {
     fn versioned_data_can_be_serialized_and_deserialized_a_version_later() {
         let in_migrations = Migrations::new(DataVersion::new(4, 4));
         let mut out_migrations = Migrations::new(DataVersion::new(4, 5));
-        add_44_to_45_step(&mut out_migrations);
+        out_migrations.add_step (DataVersion::new (4, 4), DataVersion::new (4, 5), Box::new (PersonM44v45{}));
 
         let in_data = PersonV44{name: "Billy".to_string()};
         let in_vd = VersionedData::new(&in_migrations, &in_data);
