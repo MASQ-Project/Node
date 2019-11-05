@@ -87,12 +87,18 @@ impl<T> VersionedData<T> where T: Serialize + DeserializeOwned {
     }
 
     pub fn extract(self, migrations: &Migrations) -> Result<T, MigrationError> {
-        let migrated_bytes = if self.version == migrations.current_version {
+        let from_version = if self.version > migrations.current_version {
+            FUTURE_VERSION
+        }
+        else {
+            self.version
+        };
+        let migrated_bytes = if from_version == migrations.current_version {
             self.bytes
         }
         else {
-            match migrations.migration(self.version) {
-                None => return Err(MigrationError::MigrationNotFound(self.version, migrations.current_version)),
+            match migrations.migration(from_version) {
+                None => return Err(MigrationError::MigrationNotFound(from_version, migrations.current_version)),
                 Some(step) => match step.migrate(self.bytes) {
                     Err(e) => return Err(MigrationError::MigrationFailed(e)),
                     Ok(bytes) => bytes,
@@ -100,7 +106,7 @@ impl<T> VersionedData<T> where T: Serialize + DeserializeOwned {
             }
         };
         match serde_cbor::de::from_slice::<T>(&migrated_bytes) {
-            Err(e) => Err (MigrationError::MigrationFailed(StepError::DeserializationError(migrations.current_version, migrations.current_version))),
+            Err(_) => Err (MigrationError::MigrationFailed(StepError::DeserializationError(migrations.current_version, migrations.current_version))),
             Ok(item) => Ok (item),
         }
     }
@@ -202,6 +208,15 @@ impl Migrations {
     }
 
     pub fn add_step(&mut self, from: DataVersion, to: DataVersion, step: Box<dyn MigrationStep>) {
+        if from == to {
+            panic! ("A migration step from {} to {} is useless and can't be added", from, to);
+        }
+        if (from > to) && (from != FUTURE_VERSION) {
+            panic! ("A migration step from {} to {} steps backward from a known version and can't be added", from, to);
+        }
+        if (from.major != to.major) && (from != FUTURE_VERSION) {
+            panic! ("A migration step from {} to {} crosses a breaking change and can't be added", from, to);
+        }
         let mut table = self.table.write().expect("Migrations poisoned");
         match table.get_mut(&from) {
             None => {
@@ -249,6 +264,7 @@ impl Migrations {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_cbor::Value;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq)]
     struct PersonV44 {
@@ -278,6 +294,27 @@ mod tests {
         fn dup(&self) -> Box<dyn MigrationStep> {Box::new(PersonM44v45{})}
     }
 
+    struct PersonMFv44 {}
+    impl MigrationStep for PersonMFv44 {
+        fn migrate(&self, data: Vec<u8>) -> Result<Vec<u8>, StepError> {
+            let mut out_item = PersonV44{name: String::new()};
+            let value: Value = serde_cbor::de::from_slice(&data).unwrap();
+            match value {
+                Value::Map(map) => {
+                    map.keys().for_each(|k| match (k, map.get(k)) {
+                        (Value::Text(field_name), Some(Value::Text(field_value))) => if field_name == "name" {
+                            out_item.name = field_value.clone()
+                        }
+                        _ => (),
+                    })
+                },
+                _ => (),
+            };
+            Ok(serde_cbor::ser::to_vec(&out_item).unwrap())
+        }
+        fn dup(&self) -> Box<dyn MigrationStep> {Box::new(PersonMFv44{})}
+    }
+
     struct PersonM44v45Err {}
     impl MigrationStep for PersonM44v45Err {
         fn migrate(&self, _data: Vec<u8>) -> Result<Vec<u8>, StepError> {
@@ -302,6 +339,18 @@ mod tests {
             Ok(serde_cbor::ser::to_vec(&out_item).unwrap())
         }
         fn dup(&self) -> Box<dyn MigrationStep> {Box::new(PersonM45v46{})}
+    }
+
+    #[test]
+    #[should_panic (expected = "DataVersion major and minor components range from 0-4095, not '4096.0'")]
+    fn dataversions_cant_have_major_too_big() {
+        let _ = DataVersion::new(4096, 0);
+    }
+
+    #[test]
+    #[should_panic (expected = "DataVersion major and minor components range from 0-4095, not '0.4096'")]
+    fn dataversions_cant_have_minor_too_big() {
+        let _ = DataVersion::new(0, 4096);
     }
 
     #[test]
@@ -370,15 +419,34 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "DataVersion major and minor components range from 0-4095, not '4096.0'")]
-    fn dataversions_cant_have_major_too_big() {
-        let _ = DataVersion::new(4096, 0);
+    #[should_panic (expected = "A migration step from 1.1 to 1.1 is useless and can't be added")]
+    fn migration_steps_cant_be_added_from_and_to_the_same_version() {
+        let mut subject = Migrations::new (DataVersion::new(4, 5));
+
+        subject.add_step (DataVersion::new (1, 1), DataVersion::new (1, 1), Box::new(PersonM44v45{}));
     }
 
     #[test]
-    #[should_panic (expected = "DataVersion major and minor components range from 0-4095, not '0.4096'")]
-    fn dataversions_cant_have_minor_too_big() {
-        let _ = DataVersion::new(0, 4096);
+    #[should_panic (expected = "A migration step from 1.2 to 1.1 steps backward from a known version and can't be added")]
+    fn migration_steps_cant_go_backward_from_a_known_version() {
+        let mut subject = Migrations::new (DataVersion::new(4, 5));
+
+        subject.add_step (DataVersion::new (1, 2), DataVersion::new (1, 1), Box::new(PersonM44v45{}));
+    }
+
+    #[test]
+    #[should_panic (expected = "A migration step from 1.2 to 2.1 crosses a breaking change and can't be added")]
+    fn migration_steps_cant_cross_breaking_changes() {
+        let mut subject = Migrations::new (DataVersion::new(4, 5));
+
+        subject.add_step (DataVersion::new (1, 2), DataVersion::new (2, 1), Box::new(PersonM44v45{}));
+    }
+
+    #[test]
+    fn migration_steps_backward_from_unknown_version_works_fine() {
+        let mut subject = Migrations::new (DataVersion::new(4, 5));
+
+        subject.add_step (FUTURE_VERSION, DataVersion::new (4, 5), Box::new(PersonM44v45{}));
     }
 
     #[test]
@@ -485,6 +553,49 @@ mod tests {
             name: "Billy".to_string(),
             weight: 170,
             address: "Unknown".to_string()
+        })
+    }
+
+    #[test]
+    fn versioned_data_can_be_serialized_and_deserialized_to_previous_version() {
+        let in_migrations = Migrations::new(DataVersion::new(4, 5));
+        let mut out_migrations = Migrations::new(DataVersion::new(4, 4));
+        out_migrations.add_step (FUTURE_VERSION, DataVersion::new (4, 4), Box::new (PersonMFv44{}));
+
+        let in_data = PersonV45{
+            name: "Billy".to_string(),
+            weight: 280,
+        };
+        let in_vd = VersionedData::new(&in_migrations, &in_data);
+
+        let serialized = serde_cbor::ser::to_vec(&in_vd).unwrap();
+        let out_vd = serde_cbor::de::from_slice::<VersionedData<PersonV44>>(&serialized).unwrap();
+
+        let out_data = out_vd.extract(&out_migrations).unwrap();
+        assert_eq! (out_data, PersonV44 {
+            name: "Billy".to_string(),
+        })
+    }
+
+    #[test]
+    fn versioned_data_can_be_serialized_and_deserialized_to_much_earlier_version() {
+        let in_migrations = Migrations::new(DataVersion::new(4, 5));
+        let mut out_migrations = Migrations::new(DataVersion::new(4, 4));
+        out_migrations.add_step (FUTURE_VERSION, DataVersion::new (4, 4), Box::new (PersonMFv44{}));
+
+        let in_data = PersonV46{
+            name: "Billy".to_string(),
+            weight: 280,
+            address: "123 Main St.".to_string(),
+        };
+        let in_vd = VersionedData::new(&in_migrations, &in_data);
+
+        let serialized = serde_cbor::ser::to_vec(&in_vd).unwrap();
+        let out_vd = serde_cbor::de::from_slice::<VersionedData<PersonV44>>(&serialized).unwrap();
+
+        let out_data = out_vd.extract(&out_migrations).unwrap();
+        assert_eq! (out_data, PersonV44 {
+            name: "Billy".to_string(),
         })
     }
 
