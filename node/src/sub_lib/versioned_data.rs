@@ -234,21 +234,7 @@ impl Migrations {
     }
 
     pub fn add_step(&mut self, from: DataVersion, to: DataVersion, step: Box<dyn MigrationStep>) {
-        if from == to {
-            panic!(
-                "A migration step from {} to {} is useless and can't be added",
-                from, to
-            );
-        }
-        if (from > to) && (from != FUTURE_VERSION) {
-            panic! ("A migration step from {} to {} steps backward from a known version and can't be added", from, to);
-        }
-        if (from.major != to.major) && (from != FUTURE_VERSION) {
-            panic!(
-                "A migration step from {} to {} crosses a breaking change and can't be added",
-                from, to
-            );
-        }
+        self.validate_step(from, to);
         let mut table = self.table.write().expect("Migrations poisoned");
         match table.get_mut(&from) {
             None => {
@@ -258,6 +244,40 @@ impl Migrations {
             }
             Some(from_map) => {
                 let _ = from_map.insert(to, step);
+            }
+        }
+    }
+
+    fn validate_step(&self, from: DataVersion, to: DataVersion) {
+        if from == to {
+            panic!(
+                "A migration step from {} to {} is useless and can't be added",
+                from, to
+            );
+        }
+        if to == FUTURE_VERSION {
+            panic!("A migration step that migrates to FUTURE_VERSION cannot be added");
+        }
+        if from != FUTURE_VERSION {
+            if from > to {
+                panic! ("A migration step from {} to {} steps backward from a known version and can't be added", from, to);
+            }
+            if to > self.current_version() {
+                panic! ("A migration step from {} to {} migrates past the current version {} and can't be added", from, to, self.current_version());
+            }
+            if from.major != to.major {
+                panic!(
+                    "A migration step from {} to {} crosses a breaking change and can't be added",
+                    from, to
+                );
+            }
+            if (from.major != self.current_version.major)
+                || (to.major != self.current_version.major)
+            {
+                panic!(
+                    "A migration step from {} to {} can't be added to migrations within {}.x",
+                    from, to, self.current_version.major
+                )
             }
         }
     }
@@ -365,14 +385,10 @@ macro_rules! migrate_item {
 /// type to another. An instance of this struct should be added to a `Migrations` object once it is
 /// defined.
 ///
-/// You should use this macro if you're migrating versions downward, or if you otherwise have no struct
+/// You should use this macro if you're migrating versions downward; that is, if you have no struct
 /// that can hold the incoming data (because it comes from a version later than yours). In that case,
 /// the macro cannot deserialize the incoming bytes into a purpose-built struct for you, but it can
 /// produce a `serde_cbor::Value` object that you can explore for fields that you know about.
-///
-/// In most cases, you should pass `FUTURE_VERSION` for `$fv`.
-///
-/// `$fv` - from version - `DataVersion` for the version from which this migration migrates.
 ///
 /// `$tv` - to version - `DataVersion` for the version to which this migration migrates.
 ///
@@ -384,7 +400,7 @@ macro_rules! migrate_item {
 ///                an item of type `$tt`, returning a `Result<$tt, StepError>`.
 #[macro_export]
 macro_rules! migrate_value {
-    ($fv:expr, $tv:expr, $tt:ty, $mt:ident, $b:block) => {
+    ($tv:expr, $tt:ty, $mt:ident, $b:block) => {
         struct $mt {}
         impl crate::sub_lib::versioned_data::MigrationStep for $mt {
             fn migrate(
@@ -396,7 +412,8 @@ macro_rules! migrate_value {
                     Err(_) => {
                         return Err(
                             crate::sub_lib::versioned_data::StepError::DeserializationError(
-                                $fv, $tv,
+                                FUTURE_VERSION,
+                                $tv,
                             ),
                         )
                     }
@@ -454,7 +471,7 @@ mod tests {
         })
     }}
 
-    migrate_value! {FUTURE_VERSION, dv! (4, 4), PersonV44, PersonMFv44, {|value: Value| {
+    migrate_value! {dv! (4, 4), PersonV44, PersonMFv44, {|value: Value| {
         let mut out_item = PersonV44{name: String::new()};
         match value {
             Value::Map(map) => {
@@ -605,6 +622,24 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "A migration step that migrates to FUTURE_VERSION cannot be added")]
+    fn migration_steps_cant_go_to_future_version() {
+        let mut subject = Migrations::new(dv!(4, 5));
+
+        subject.add_step(dv!(4, 4), FUTURE_VERSION, Box::new(PersonM44v45 {}));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "A migration step from 4.4 to 4.6 migrates past the current version 4.5 and can't be added"
+    )]
+    fn migration_steps_cant_go_past_current_version() {
+        let mut subject = Migrations::new(dv!(4, 5));
+
+        subject.add_step(dv!(4, 4), dv!(4, 6), Box::new(PersonM44v45 {}));
+    }
+
+    #[test]
     #[should_panic(
         expected = "A migration step from 1.2 to 2.1 crosses a breaking change and can't be added"
     )]
@@ -612,6 +647,16 @@ mod tests {
         let mut subject = Migrations::new(dv!(4, 5));
 
         subject.add_step(dv!(1, 2), dv!(2, 1), Box::new(PersonM44v45 {}));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "A migration step from 1.2 to 1.3 can't be added to migrations within 4.x"
+    )]
+    fn migration_steps_must_match_migrations_major_version() {
+        let mut subject = Migrations::new(dv!(4, 5));
+
+        subject.add_step(dv!(1, 2), dv!(1, 3), Box::new(PersonM44v45 {}));
     }
 
     #[test]
