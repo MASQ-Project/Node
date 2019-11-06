@@ -404,7 +404,7 @@ mod tests {
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
-    use crate::neighborhood::gossip::Gossip;
+    use crate::neighborhood::gossip::Gossip_CV;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
@@ -562,7 +562,7 @@ mod tests {
                 node_query: recipient!(addr, NodeQueryMessage),
                 route_query: recipient!(addr, RouteQueryMessage),
                 update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
-                from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
+                from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_CV>>(),
                 gossip_failure: addr
                     .clone()
                     .recipient::<ExpiredCoresPackage<GossipFailure>>(),

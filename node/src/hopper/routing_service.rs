@@ -11,9 +11,11 @@ use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::neighborhood::gossip::Gossip_CV;
 use actix::Recipient;
 use std::borrow::Borrow;
 use std::net::SocketAddr;
+use std::convert::TryFrom;
 
 pub struct RoutingServiceSubs {
     pub proxy_client_subs: ProxyClientSubs,
@@ -296,18 +298,24 @@ impl RoutingService {
                     expired_package.payload_len,
                 ))
                 .expect("ProxyServer is dead"),
-            (Component::Neighborhood, MessageType::Gossip(gossip)) => self
-                .routing_service_subs
-                .neighborhood_subs
-                .from_hopper
-                .try_send(ExpiredCoresPackage::new(
-                    expired_package.immediate_neighbor,
-                    expired_package.paying_wallet,
-                    expired_package.remaining_route,
-                    gossip,
-                    expired_package.payload_len,
-                ))
-                .expect("Neighborhood is dead"),
+            (Component::Neighborhood, MessageType::Gossip(vd)) => {
+                let gossip = match Gossip_CV::try_from(vd) {
+                    Ok(g) => g,
+                    Err(e) => unimplemented!("Test-drive me! {:?}", e),
+                };
+                self
+                    .routing_service_subs
+                    .neighborhood_subs
+                    .from_hopper
+                    .try_send(ExpiredCoresPackage::new(
+                        expired_package.immediate_neighbor,
+                        expired_package.paying_wallet,
+                        expired_package.remaining_route,
+                        gossip,
+                        expired_package.payload_len,
+                    ))
+                    .expect("Neighborhood is dead")
+            },
             (Component::Neighborhood, MessageType::GossipFailure(failure)) => self
                 .routing_service_subs
                 .neighborhood_subs
@@ -434,7 +442,7 @@ mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
     use crate::blockchain::blockchain_interface::contract_address;
-    use crate::neighborhood::gossip::{Gossip, GossipBuilder};
+    use crate::neighborhood::gossip::{Gossip_CV, GossipBuilder};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -611,7 +619,7 @@ mod tests {
             encodex(
                 main_cryptde,
                 &main_cryptde.public_key(),
-                &MessageType::Gossip(payload),
+                &MessageType::Gossip(payload.into()),
             )
             .unwrap(),
         );
@@ -845,7 +853,7 @@ mod tests {
         System::current().stop();
         system.run();
         let component_recording = component_recording_arc.lock().unwrap();
-        let record = component_recording.get_record::<ExpiredCoresPackage<Gossip>>(0);
+        let record = component_recording.get_record::<ExpiredCoresPackage<Gossip_CV>>(0);
         let expected_ecp = lcp_a
             .to_expired(
                 SocketAddr::from_str("1.3.2.4:5678").unwrap(),

@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use super::gossip::Gossip;
+use super::gossip::Gossip_CV;
 use super::gossip::GossipBuilder;
 use super::neighborhood_database::NeighborhoodDatabase;
 use crate::sub_lib::cryptde::PublicKey;
@@ -11,8 +11,8 @@ use std::cell::Cell;
 pub const DEAD_NODE_CHECK_INTERVAL_SECS: u32 = 60;
 
 pub trait GossipProducer: Send {
-    fn produce(&self, database: &mut NeighborhoodDatabase, target: &PublicKey) -> Option<Gossip>;
-    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip;
+    fn produce(&self, database: &mut NeighborhoodDatabase, target: &PublicKey) -> Option<Gossip_CV>;
+    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_CV;
 }
 
 pub struct GossipProducerReal {
@@ -33,7 +33,7 @@ impl GossipProducer for GossipProducerReal {
         returns:
             a Gossip message representing the current neighborhood for a target Node
     */
-    fn produce(&self, database: &mut NeighborhoodDatabase, target: &PublicKey) -> Option<Gossip> {
+    fn produce(&self, database: &mut NeighborhoodDatabase, target: &PublicKey) -> Option<Gossip_CV> {
         if time_t_timestamp() - self.last_dead_node_check.get() >= DEAD_NODE_CHECK_INTERVAL_SECS {
             debug!(self.logger, "Checking for dead Nodes");
             database.cull_dead_nodes();
@@ -68,7 +68,7 @@ impl GossipProducer for GossipProducerReal {
         Some(builder.build())
     }
 
-    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip {
+    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_CV {
         GossipBuilder::new(database)
             .node(database.root().public_key(), true)
             .build()
@@ -321,7 +321,7 @@ mod tests {
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 
-        let result_gossip: Gossip = subject.produce_debut(&db);
+        let result_gossip: Gossip_CV = subject.produce_debut(&db);
 
         assert_eq!(result_gossip.node_records.len(), 1);
         let result_gossip_record = result_gossip.node_records.first().unwrap();
@@ -349,7 +349,7 @@ mod tests {
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 
-        let result_gossip: Gossip = subject.produce_debut(&db);
+        let result_gossip: Gossip_CV = subject.produce_debut(&db);
 
         assert_eq!(result_gossip.node_records.len(), 1);
         let result_gossip_record = result_gossip.node_records.first().unwrap();

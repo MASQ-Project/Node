@@ -7,7 +7,7 @@ use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
 use crate::multinode_gossip::{Standard, StandardBuilder};
 use node_lib::blockchain::blockchain_interface::chain_name_from_id;
-use node_lib::neighborhood::gossip::Gossip;
+use node_lib::neighborhood::gossip::Gossip_CV;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::neighborhood_test_utils::db_from_node;

@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::neighborhood::gossip::{Gossip, GossipBuilder};
+use crate::neighborhood::gossip::{Gossip_CV, GossipBuilder};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::AccessibleGossipRecord;
@@ -21,7 +21,7 @@ pub enum GossipAcceptanceResult {
     // The incoming Gossip produced database changes. Generate standard Gossip and broadcast.
     Accepted,
     // Don't generate Gossip from the database: instead, send this Gossip to the provided key and NodeAddr.
-    Reply(Gossip, PublicKey, NodeAddr),
+    Reply(Gossip_CV, PublicKey, NodeAddr),
     // The incoming Gossip was proper, and we tried to accept it, but couldn't.
     Failed(GossipFailure, PublicKey, NodeAddr),
     // The incoming Gossip contained nothing we didn't know. Don't send out any Gossip because of it.
@@ -319,7 +319,7 @@ impl DebutHandler {
         database: &NeighborhoodDatabase,
         debuting_agr: &AccessibleGossipRecord,
         gossip_source: SocketAddr,
-    ) -> Option<(Gossip, PublicKey, NodeAddr)> {
+    ) -> Option<(Gossip_CV, PublicKey, NodeAddr)> {
         if let Some(lcn_key) =
             Self::find_least_connected_full_neighbor_excluding(database, debuting_agr)
         {
@@ -438,7 +438,7 @@ impl DebutHandler {
         !debuting_agr.inner.neighbors.is_empty()
     }
 
-    fn make_pass_gossip(database: &NeighborhoodDatabase, pass_target: &PublicKey) -> Gossip {
+    fn make_pass_gossip(database: &NeighborhoodDatabase, pass_target: &PublicKey) -> Gossip_CV {
         GossipBuilder::new(database).node(pass_target, true).build()
     }
 }
@@ -1087,7 +1087,7 @@ impl<'a> GossipAcceptorReal<'a> {
     fn make_debut_triple(
         database: &NeighborhoodDatabase,
         debut_target: &AccessibleGossipRecord,
-    ) -> Result<(Gossip, PublicKey, NodeAddr), String> {
+    ) -> Result<(Gossip_CV, PublicKey, NodeAddr), String> {
         let debut_target_node_addr = match &debut_target.node_addr_opt {
             None => {
                 return Err(format!(
@@ -3075,7 +3075,7 @@ mod tests {
             .for_each(|n| db.node_by_key_mut(n.public_key()).unwrap().resign());
     }
 
-    fn make_debut(n: u16, mode: Mode) -> (Gossip, NodeRecord, SocketAddr) {
+    fn make_debut(n: u16, mode: Mode) -> (Gossip_CV, NodeRecord, SocketAddr) {
         let (gossip, debut_node) = make_single_node_gossip(n, mode);
         let gossip_source: SocketAddr = match debut_node.node_addr_opt() {
             Some(node_addr) => node_addr.into(),
@@ -3084,7 +3084,7 @@ mod tests {
         (gossip, debut_node, gossip_source)
     }
 
-    fn make_pass(n: u16) -> (Gossip, NodeRecord, SocketAddr) {
+    fn make_pass(n: u16) -> (Gossip_CV, NodeRecord, SocketAddr) {
         let (gossip, debut_node) = make_single_node_gossip(n, Mode::Standard);
         (
             gossip,
@@ -3093,7 +3093,7 @@ mod tests {
         )
     }
 
-    fn make_single_node_gossip(n: u16, mode: Mode) -> (Gossip, NodeRecord) {
+    fn make_single_node_gossip(n: u16, mode: Mode) -> (Gossip_CV, NodeRecord) {
         let mut debut_node = make_node_record(n, true);
         adjust_for_mode(&mut debut_node, mode);
         let src_db = db_from_node(&debut_node);
@@ -3103,7 +3103,7 @@ mod tests {
         (gossip, debut_node)
     }
 
-    fn make_introduction(introducer_n: u16, introducee_n: u16) -> (Gossip, SocketAddr) {
+    fn make_introduction(introducer_n: u16, introducee_n: u16) -> (Gossip_CV, SocketAddr) {
         let mut introducer_node: NodeRecord = make_node_record(introducer_n, true);
         adjust_for_mode(&mut introducer_node, Mode::Standard);
         introducer_node.set_version(10);

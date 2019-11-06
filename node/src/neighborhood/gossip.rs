@@ -7,7 +7,6 @@ use crate::neighborhood::dot_graph::{
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
-use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::node_addr::NodeAddr;
 use pretty_hex::PrettyHex;
@@ -19,6 +18,16 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::iter::FromIterator;
 use std::net::{IpAddr, SocketAddr};
+use lazy_static::lazy_static;
+use crate::sub_lib::versioned_data::{Migrations, VersionedData, DataVersion, MigrationError};
+
+lazy_static! {
+    static ref MIGRATIONS: Migrations = {
+        let result = Migrations::new(DataVersion::new(0, 1));
+        // add steps here
+        result
+    };
+}
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
@@ -118,18 +127,24 @@ impl GossipNodeRecord {
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-pub struct Gossip {
-    pub version: DataVersion,
+#[allow (non_camel_case_types)]
+pub struct Gossip_CV {
     pub node_records: Vec<GossipNodeRecord>,
 }
 
-impl Into<MessageType> for Gossip {
+impl Into<MessageType> for Gossip_CV {
     fn into(self) -> MessageType {
-        MessageType::Gossip(self)
+        MessageType::Gossip(self.into ())
     }
 }
 
-impl TryInto<Vec<AccessibleGossipRecord>> for Gossip {
+impl Into<VersionedData<Gossip_CV>> for Gossip_CV {
+    fn into(self) -> VersionedData<Gossip_CV> {
+        VersionedData::new (&MIGRATIONS, &self)
+    }
+}
+
+impl TryInto<Vec<AccessibleGossipRecord>> for Gossip_CV {
     type Error = String;
 
     fn try_into(self) -> Result<Vec<AccessibleGossipRecord>, Self::Error> {
@@ -145,6 +160,14 @@ impl TryInto<Vec<AccessibleGossipRecord>> for Gossip {
             .into_iter()
             .map(|result| result.expect("Success suddenly turned bad"))
             .collect())
+    }
+}
+
+impl TryFrom<VersionedData<Gossip_CV>> for Gossip_CV {
+    type Error = MigrationError;
+
+    fn try_from(vd: VersionedData<Gossip_CV>) -> Result<Self, Self::Error> {
+        vd.extract (&MIGRATIONS)
     }
 }
 
@@ -288,14 +311,9 @@ impl DotRenderable for SrcDestEdgeRenderable {
     }
 }
 
-impl Gossip {
-    pub fn version() -> DataVersion {
-        DataVersion::new(0, 0).expect("Internal Error")
-    }
-
+impl Gossip_CV {
     pub fn new(node_records: Vec<GossipNodeRecord>) -> Self {
         Self {
-            version: Self::version(),
             node_records,
         }
     }
@@ -392,7 +410,7 @@ impl Gossip {
 
 pub struct GossipBuilder<'a> {
     db: &'a NeighborhoodDatabase,
-    gossip: Gossip,
+    gossip: Gossip_CV,
     keys_so_far: HashSet<PublicKey>,
 }
 
@@ -400,13 +418,13 @@ impl<'a> GossipBuilder<'a> {
     pub fn new(db: &NeighborhoodDatabase) -> GossipBuilder {
         GossipBuilder {
             db,
-            gossip: Gossip::new(vec![]),
+            gossip: Gossip_CV::new(vec![]),
             keys_so_far: HashSet::new(),
         }
     }
 
-    pub fn empty() -> Gossip {
-        Gossip::new(vec![])
+    pub fn empty() -> Gossip_CV {
+        Gossip_CV::new(vec![])
     }
 
     pub fn node(mut self, public_key_ref: &PublicKey, reveal_node_addr: bool) -> GossipBuilder<'a> {
@@ -430,7 +448,7 @@ impl<'a> GossipBuilder<'a> {
         self
     }
 
-    pub fn build(self) -> Gossip {
+    pub fn build(self) -> Gossip_CV {
         self.gossip
     }
 }
@@ -680,8 +698,7 @@ Length: 4 (0x4) bytes
         db.root_mut().resign();
         let neighbor_gnr = GossipNodeRecord::from((&db, neighbor.public_key(), true));
 
-        let gossip = Gossip {
-            version: Gossip::version(),
+        let gossip = Gossip_CV {
             node_records: vec![
                 GossipNodeRecord::from((&db, db.root().public_key(), true)),
                 GossipNodeRecord::from((&db, target_node.public_key(), true)),

@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::masq_node::MASQNode;
-use node_lib::neighborhood::gossip::{Gossip, GossipNodeRecord};
+use node_lib::neighborhood::gossip::{Gossip_CV, GossipNodeRecord};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -107,7 +107,7 @@ impl MultinodeGossip for SingleNode {
     }
 }
 
-impl From<Gossip> for SingleNode {
+impl From<Gossip_CV> for SingleNode {
     fn from(gossip: Gossip) -> Self {
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         if agrs.len() != 1 {

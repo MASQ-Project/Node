@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::neighborhood::gossip::Gossip;
+use crate::neighborhood::gossip::Gossip_CV;
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -17,6 +17,7 @@ use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use crate::sub_lib::versioned_data::VersionedData;
 
 /// Special-case hack to avoid extending a Card From Hell. I'm not sure what the right way to do
 /// this is, but this doesn't feel like it. The intent here is to provide a way to send a CORES
@@ -66,7 +67,7 @@ pub struct IncipientCoresPackage {
 pub enum MessageType {
     ClientRequest(ClientRequestPayload),
     ClientResponse(ClientResponsePayload),
-    Gossip(Gossip),
+    Gossip(VersionedData<Gossip_CV>),
     GossipFailure(GossipFailure),
     DnsResolveFailed(DnsResolveFailure),
 }

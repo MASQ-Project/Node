@@ -9,7 +9,7 @@ use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
-use node_lib::neighborhood::gossip::Gossip;
+use node_lib::neighborhood::gossip::Gossip_CV;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde::{encodex, CryptDE};
 use node_lib::sub_lib::cryptde::{CodexError, CryptData, CryptdecError};

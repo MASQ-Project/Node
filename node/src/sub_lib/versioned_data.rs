@@ -71,7 +71,7 @@ impl FromStr for DataVersion {
 }
 
 impl DataVersion {
-    fn new(major: u16, minor: u16) -> DataVersion {
+    pub fn new(major: u16, minor: u16) -> DataVersion {
         if (major > 4095) || (minor > 4095) {
             panic!(
                 "DataVersion major and minor components range from 0-4095, not '{}.{}'",
@@ -82,11 +82,11 @@ impl DataVersion {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct VersionedData<T: Serialize + DeserializeOwned> {
     version: DataVersion,
     bytes: Vec<u8>,
-    phantom: PhantomData<*const T>,
+    phantom: PhantomData<fn() -> T>,
 }
 
 impl<T> VersionedData<T>
