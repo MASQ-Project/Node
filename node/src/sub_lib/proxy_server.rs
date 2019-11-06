@@ -15,6 +15,8 @@ use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 
+pub const DEFAULT_MINIMUM_HOP_COUNT: usize = 3;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ProxyProtocol {
     HTTP,

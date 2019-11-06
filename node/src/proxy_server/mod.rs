@@ -30,7 +30,9 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage};
+use crate::sub_lib::proxy_server::{
+    AddReturnRouteMessage, AddRouteMessage, DEFAULT_MINIMUM_HOP_COUNT,
+};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -446,7 +448,11 @@ impl ProxyServer {
             }
         };
         let logger = self.logger.clone();
-        let minimum_hop_count = if self.is_decentralized { 3 } else { 0 };
+        let minimum_hop_count = if self.is_decentralized {
+            DEFAULT_MINIMUM_HOP_COUNT
+        } else {
+            0
+        };
         let cryptde = self.main_cryptde.dup();
         match self.stream_key_routes.get(&stream_key) {
             Some(route_query_response) => {

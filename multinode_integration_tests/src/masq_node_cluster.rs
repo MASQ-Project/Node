@@ -56,6 +56,7 @@ impl MASQNodeCluster {
     pub fn prepare_real_node(&mut self, config: &NodeStartupConfig) -> (String, usize) {
         let index = self.startup_configs.len() + 1;
         let name = MASQRealNode::make_name(index);
+        self.next_index = index + 1;
         self.startup_configs
             .insert((name.clone(), index), config.clone());
         MASQRealNode::prepare(&name);

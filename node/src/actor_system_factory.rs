@@ -175,7 +175,6 @@ impl ActorSystemFactoryReal {
 
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
-        send_start_message!(peer_actors.accountant);
 
         //send out the stream handler pool subs (to be bound to listeners)
         tx.send(stream_handler_pool_subs).ok();
@@ -1060,7 +1059,7 @@ mod tests {
         check_bind_message(&recordings.neighborhood);
         check_bind_message(&recordings.ui_gateway);
         check_bind_message(&recordings.accountant);
-        check_start_message(&recordings.accountant);
+        check_start_message(&recordings.neighborhood);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.main_cryptde);
         assert_eq!(hopper_config.per_routing_service, 0);

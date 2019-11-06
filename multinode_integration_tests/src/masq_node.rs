@@ -46,6 +46,15 @@ impl FromStr for NodeReference {
     }
 }
 
+impl From<&dyn MASQNode> for NodeReference {
+    fn from(masq_node: &dyn MASQNode) -> Self {
+        NodeReference {
+            public_key: masq_node.main_public_key().clone(),
+            node_addr_opt: Some(masq_node.node_addr()),
+        }
+    }
+}
+
 impl fmt::Display for NodeReference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let public_key_string = base64::encode_config(&self.public_key.as_slice(), STANDARD_NO_PAD);
