@@ -249,14 +249,18 @@ impl Migrations {
     }
 
     fn validate_step(&self, from: DataVersion, to: DataVersion) {
+        // Some of these restrictions are specifically to prevent cycles in the Migrations table,
+        // along with the consequent infinite recursion. The trick is that a step must always be
+        // from a lower version to a higher version, unless it's from FUTURE_VERSION, and no
+        // migration step can ever migrate to FUTURE_VERSION. Hence, no cycles.
+        if to == FUTURE_VERSION {
+            panic!("A migration step that migrates to FUTURE_VERSION cannot be added");
+        }
         if from == to {
             panic!(
                 "A migration step from {} to {} is useless and can't be added",
                 from, to
             );
-        }
-        if to == FUTURE_VERSION {
-            panic!("A migration step that migrates to FUTURE_VERSION cannot be added");
         }
         if from != FUTURE_VERSION {
             if from > to {
