@@ -262,12 +262,12 @@ impl Migrations {
                 from, to
             );
         }
+        if to > self.current_version() {
+            panic! ("A migration step from {} to {} migrates past the current version {} and can't be added", from, to, self.current_version());
+        }
         if from != FUTURE_VERSION {
             if from > to {
                 panic! ("A migration step from {} to {} steps backward from a known version and can't be added", from, to);
-            }
-            if to > self.current_version() {
-                panic! ("A migration step from {} to {} migrates past the current version {} and can't be added", from, to, self.current_version());
             }
             if from.major != to.major {
                 panic!(
