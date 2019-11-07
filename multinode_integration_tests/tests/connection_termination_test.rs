@@ -12,7 +12,6 @@ use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::cryptde::{decodex, CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -29,6 +28,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use node_lib::test_utils::neighborhood_test_utils::{make_node_record, db_from_node};
 
 const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =

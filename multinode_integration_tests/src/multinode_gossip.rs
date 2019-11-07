@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::masq_node::MASQNode;
-use node_lib::neighborhood::gossip::{Gossip_CV, GossipNodeRecord};
+use node_lib::neighborhood::gossip::{GossipNodeRecord, Gossip_0v1};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -22,7 +22,7 @@ pub enum GossipType {
 /// "introducee" of an Introduction pair is already there or not; therefore, it may misidentify
 /// two-Node Standard Gossip as an Introduction. If you know the Gossip you're getting is Standard
 /// Gossip, even though it has two Nodes, use Standard::from(gossip.try_into().unwrap()) to wrap it.
-pub fn parse_gossip(gossip: &Gossip, sender: IpAddr) -> GossipType {
+pub fn parse_gossip(gossip: &Gossip_0v1, sender: IpAddr) -> GossipType {
     let agrs = gossip
         .node_records
         .iter()
@@ -57,7 +57,7 @@ pub trait MultinodeGossip {
     fn gnr(&self, key: &PublicKey) -> Option<GossipNodeRecord>;
     fn agr(&self, key: &PublicKey) -> Option<AccessibleGossipRecord>;
     fn agr_mut(&mut self, key: &PublicKey) -> Option<&mut AccessibleGossipRecord>;
-    fn render(&self) -> Gossip;
+    fn render(&self) -> Gossip_0v1;
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -102,13 +102,13 @@ impl MultinodeGossip for SingleNode {
         }
     }
 
-    fn render(&self) -> Gossip {
-        Gossip::new(vec![GossipNodeRecord::from(self.node.clone())])
+    fn render(&self) -> Gossip_0v1 {
+        Gossip_0v1::new(vec![GossipNodeRecord::from(self.node.clone())])
     }
 }
 
-impl From<Gossip_CV> for SingleNode {
-    fn from(gossip: Gossip) -> Self {
+impl From<Gossip_0v1> for SingleNode {
+    fn from(gossip: Gossip_0v1) -> Self {
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         if agrs.len() != 1 {
             panic! ("Can't create SingleNode from Gossip with {} records, only from Gossip with 1 record", agrs.len())
@@ -192,9 +192,8 @@ impl MultinodeGossip for Introduction {
         }
     }
 
-    fn render(&self) -> Gossip {
-        Gossip {
-            version: Gossip::version(),
+    fn render(&self) -> Gossip_0v1 {
+        Gossip_0v1 {
             node_records: vec![
                 GossipNodeRecord::from(self.introducer.clone()),
                 GossipNodeRecord::from(self.introducee.clone()),
@@ -281,8 +280,8 @@ impl MultinodeGossip for Standard {
         }
     }
 
-    fn render(&self) -> Gossip {
-        Gossip::new(
+    fn render(&self) -> Gossip_0v1 {
+        Gossip_0v1::new(
             self.nodes
                 .iter()
                 .map(|agr| GossipNodeRecord::from(agr.clone()))

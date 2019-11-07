@@ -10,17 +10,10 @@ pub mod gossip_producer;
 pub mod neighborhood_database;
 pub mod node_record;
 
-#[cfg(not(feature = "expose_test_privates"))]
-#[cfg(test)]
-mod neighborhood_test_utils;
-
-#[cfg(feature = "expose_test_privates")]
-pub mod neighborhood_test_utils;
-
 use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::neighborhood::gossip::{DotGossipEndpoint, Gossip_CV, GossipNodeRecord};
+use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner;
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
@@ -199,12 +192,12 @@ impl Handler<RouteQueryMessage> for Neighborhood {
     }
 }
 
-impl Handler<ExpiredCoresPackage<Gossip_CV>> for Neighborhood {
+impl Handler<ExpiredCoresPackage<Gossip_0v1>> for Neighborhood {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ExpiredCoresPackage<Gossip_CV>,
+        msg: ExpiredCoresPackage<Gossip_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let incoming_gossip = msg.payload;
@@ -394,7 +387,7 @@ impl Neighborhood {
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
             update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
-            from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_CV>>(),
+            from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
             gossip_failure: addr
                 .clone()
                 .recipient::<ExpiredCoresPackage<GossipFailure>>(),
@@ -489,7 +482,7 @@ impl Neighborhood {
         });
     }
 
-    fn log_incoming_gossip(&self, incoming_gossip: &Gossip_CV, gossip_source: SocketAddr) {
+    fn log_incoming_gossip(&self, incoming_gossip: &Gossip_0v1, gossip_source: SocketAddr) {
         let source = match self.neighborhood_database.node_by_ip(&gossip_source.ip()) {
             Some(node) => DotGossipEndpoint::from(node),
             None => DotGossipEndpoint::from(gossip_source),
@@ -501,7 +494,7 @@ impl Neighborhood {
         );
     }
 
-    fn handle_gossip(&mut self, incoming_gossip: Gossip_CV, gossip_source: SocketAddr) {
+    fn handle_gossip(&mut self, incoming_gossip: Gossip_0v1, gossip_source: SocketAddr) {
         let record_count = incoming_gossip.node_records.len();
         info!(
             self.logger,
@@ -719,7 +712,7 @@ impl Neighborhood {
         });
     }
 
-    fn gossip_to_neighbor(&self, neighbor: &PublicKey, gossip: Gossip_CV) {
+    fn gossip_to_neighbor(&self, neighbor: &PublicKey, gossip: Gossip_0v1) {
         let gossip_len = gossip.node_records.len();
         let route = self.create_single_hop_route(neighbor);
         let package =
@@ -1078,7 +1071,7 @@ impl Neighborhood {
 
     fn handle_gossip_reply(
         &self,
-        gossip: Gossip_CV,
+        gossip: Gossip_0v1,
         target_key: &PublicKey,
         target_node_addr: &NodeAddr,
     ) {
@@ -1207,9 +1200,8 @@ pub fn regenerate_signed_gossip(
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
-    use crate::neighborhood::gossip::Gossip_CV;
     use crate::neighborhood::gossip::GossipBuilder;
-    use crate::neighborhood::neighborhood_test_utils::*;
+    use crate::neighborhood::gossip::Gossip_0v1;
     use crate::neighborhood::node_record::NodeRecordInner;
     use crate::persistent_configuration::{PersistentConfigError, TLS_PORT};
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
@@ -1224,6 +1216,10 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_global_cryptde_node_record, make_node_record, make_node_record_f,
+        neighborhood_from_nodes,
+    };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -2494,7 +2490,7 @@ mod tests {
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
         let gossip = match decodex(&other_neighbor_cryptde, &package.payload).unwrap() {
-            MessageType::Gossip(vd) => Gossip_CV::try_from (vd).unwrap(),
+            MessageType::Gossip(vd) => Gossip_0v1::try_from(vd).unwrap(),
             x => panic!("Expected MessageType::Gossip, got {:?}", x),
         };
         type Digest = (PublicKey, Vec<u8>, bool, u32, Vec<PublicKey>);
@@ -2578,7 +2574,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let sub = addr.recipient::<ExpiredCoresPackage<Gossip_CV>>();
+        let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
 
         sub.try_send(cores_package).unwrap();
 
@@ -2626,7 +2622,7 @@ mod tests {
         subject.hopper_no_lookup = Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
         subject.handle_gossip(
-            Gossip_CV::new(vec![]),
+            Gossip_0v1::new(vec![]),
             SocketAddr::from_str("1.1.1.1:1111").unwrap(),
         );
 
@@ -2640,7 +2636,7 @@ mod tests {
             &CryptDENull::from(introduction_target_node.public_key(), DEFAULT_CHAIN_ID),
             &package.payload,
         ) {
-            Ok(MessageType::Gossip(vd)) => Gossip_CV::try_from(vd).unwrap(),
+            Ok(MessageType::Gossip(vd)) => Gossip_0v1::try_from(vd).unwrap(),
             x => panic!("Wanted Gossip, found {:?}", x),
         };
         assert_eq!(debut, gossip);
@@ -3045,7 +3041,7 @@ mod tests {
         let gossip_acceptor =
             GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Accepted);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        let gossip = Gossip_CV::new(vec![]);
+        let gossip = Gossip_0v1::new(vec![]);
         let produce_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_producer = GossipProducerMock::new()
             .produce_params(&produce_params_arc)
@@ -3059,7 +3055,7 @@ mod tests {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
-            Gossip_CV::new(vec![]),
+            Gossip_0v1::new(vec![]),
             SocketAddr::from_str("1.1.1.1:1111").unwrap(),
         );
 
@@ -3149,7 +3145,7 @@ mod tests {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
-            Gossip_CV::new(vec![]),
+            Gossip_0v1::new(vec![]),
             SocketAddr::from_str("1.1.1.1:1111").unwrap(),
         );
 
@@ -3184,7 +3180,7 @@ mod tests {
 
         subject.handle_gossip(
             // In real life this would be Relay Gossip from gossip_source to debut_node.
-            Gossip_CV::new(vec![]),
+            Gossip_0v1::new(vec![]),
             gossip_source,
         );
 
@@ -3204,7 +3200,7 @@ mod tests {
                 &CryptDENull::from(debut_node.public_key(), DEFAULT_CHAIN_ID),
                 &package.payload,
             ) {
-                Ok(MessageType::Gossip(vd)) => Gossip_CV::try_from(vd).unwrap(),
+                Ok(MessageType::Gossip(vd)) => Gossip_0v1::try_from(vd).unwrap(),
                 x => panic!("Expected Gossip, but found {:?}", x),
             },
         );
@@ -3225,7 +3221,7 @@ mod tests {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
-            Gossip_CV::new(vec![]),
+            Gossip_0v1::new(vec![]),
             subject_node.node_addr_opt().unwrap().into(),
         );
 
@@ -3251,7 +3247,7 @@ mod tests {
         subject.hopper = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
-            Gossip_CV::new(vec![]),
+            Gossip_0v1::new(vec![]),
             subject_node.node_addr_opt().unwrap().into(),
         );
 
@@ -3377,7 +3373,7 @@ mod tests {
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub = addr.recipient::<ExpiredCoresPackage<Gossip_CV>>();
+            let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
             sub.try_send(cores_package).unwrap();
 
             system.run();
@@ -3446,7 +3442,7 @@ mod tests {
         let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key(), DEFAULT_CHAIN_ID);
         let decrypted_payload = neighbor_node_cryptde.decode(&package_ref.payload).unwrap();
         let gossip = match serde_cbor::de::from_slice(decrypted_payload.as_slice()).unwrap() {
-            MessageType::Gossip(vd) => Gossip_CV::try_from(vd).unwrap(),
+            MessageType::Gossip(vd) => Gossip_0v1::try_from(vd).unwrap(),
             x => panic!("Should have been MessageType::Gossip, but was {:?}", x),
         };
         let temp_db = db_from_node(&this_node);
@@ -4278,7 +4274,7 @@ mod tests {
     #[derive(Default)]
     pub struct GossipProducerMock {
         produce_params: Arc<Mutex<Vec<(NeighborhoodDatabase, PublicKey)>>>,
-        produce_results: RefCell<Vec<Option<Gossip_CV>>>,
+        produce_results: RefCell<Vec<Option<Gossip_0v1>>>,
     }
 
     impl GossipProducer for GossipProducerMock {
@@ -4286,7 +4282,7 @@ mod tests {
             &self,
             database: &mut NeighborhoodDatabase,
             target: &PublicKey,
-        ) -> Option<Gossip_CV> {
+        ) -> Option<Gossip_0v1> {
             self.produce_params
                 .lock()
                 .unwrap()
@@ -4294,7 +4290,7 @@ mod tests {
             self.produce_results.borrow_mut().remove(0)
         }
 
-        fn produce_debut(&self, _database: &NeighborhoodDatabase) -> Gossip_CV {
+        fn produce_debut(&self, _database: &NeighborhoodDatabase) -> Gossip_0v1 {
             unimplemented!()
         }
     }
@@ -4312,7 +4308,7 @@ mod tests {
             self
         }
 
-        pub fn produce_result(self, result: Option<Gossip_CV>) -> GossipProducerMock {
+        pub fn produce_result(self, result: Option<Gossip_0v1>) -> GossipProducerMock {
             self.produce_results.borrow_mut().push(result);
             self
         }

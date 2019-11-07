@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::neighborhood::gossip::Gossip_CV;
+use crate::neighborhood::gossip::Gossip_0v1;
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
@@ -11,13 +11,13 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
 use crate::sub_lib::proxy_server::ClientRequestPayload;
 use crate::sub_lib::route::Route;
+use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use crate::sub_lib::versioned_data::VersionedData;
 
 /// Special-case hack to avoid extending a Card From Hell. I'm not sure what the right way to do
 /// this is, but this doesn't feel like it. The intent here is to provide a way to send a CORES
@@ -67,7 +67,7 @@ pub struct IncipientCoresPackage {
 pub enum MessageType {
     ClientRequest(ClientRequestPayload),
     ClientResponse(ClientResponsePayload),
-    Gossip(VersionedData<Gossip_CV>),
+    Gossip(VersionedData<Gossip_0v1>),
     GossipFailure(GossipFailure),
     DnsResolveFailed(DnsResolveFailure),
 }

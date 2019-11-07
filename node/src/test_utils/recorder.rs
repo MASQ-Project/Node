@@ -3,7 +3,7 @@ use crate::accountant::payable_dao::Payment;
 use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
-use crate::neighborhood::gossip::Gossip_CV;
+use crate::neighborhood::gossip::Gossip_0v1;
 use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -89,7 +89,7 @@ recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload>);
 recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload>);
 recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure>);
 recorder_message_handler!(ExpiredCoresPackage<GossipFailure>);
-recorder_message_handler!(ExpiredCoresPackage<Gossip_CV>);
+recorder_message_handler!(ExpiredCoresPackage<Gossip_0v1>);
 recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(TransmitDataMsg);
 recorder_message_handler!(BindMessage);
@@ -374,7 +374,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         node_query: recipient!(addr, NodeQueryMessage),
         route_query: recipient!(addr, RouteQueryMessage),
         update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
-        from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_CV>>(),
+        from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
         gossip_failure: addr
             .clone()
             .recipient::<ExpiredCoresPackage<GossipFailure>>(),

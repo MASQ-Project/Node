@@ -9,7 +9,6 @@ use multinode_integration_tests_lib::multinode_gossip::{
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::neighborhood::gossip::GossipBuilder;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
@@ -17,6 +16,7 @@ use node_lib::sub_lib::neighborhood::GossipFailure;
 use node_lib::test_utils::vec_to_set;
 use std::convert::TryInto;
 use std::time::Duration;
+use node_lib::test_utils::neighborhood_test_utils::{make_node_record, db_from_node};
 
 #[test]
 fn debut_target_does_not_introduce_known_neighbors() {

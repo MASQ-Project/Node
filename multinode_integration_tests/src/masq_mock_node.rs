@@ -9,7 +9,6 @@ use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
-use node_lib::neighborhood::gossip::Gossip_CV;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde::{encodex, CryptDE};
 use node_lib::sub_lib::cryptde::{CodexError, CryptData, CryptdecError};
@@ -37,6 +36,8 @@ use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
+use node_lib::neighborhood::gossip::Gossip_0v1;
+use std::convert::TryFrom;
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,
@@ -231,7 +232,7 @@ impl MASQMockNode {
     pub fn transmit_gossip(
         &self,
         transmit_port: u16,
-        gossip: Gossip,
+        gossip: Gossip_0v1,
         target_key: &PublicKey,
         target_addr: SocketAddr,
     ) -> Result<(), io::Error> {
@@ -240,7 +241,7 @@ impl MASQMockNode {
         let package = IncipientCoresPackage::new(
             self.signing_cryptde().unwrap(),
             route,
-            MessageType::Gossip(gossip),
+            MessageType::Gossip(gossip.into()),
             target_key,
         )
         .unwrap();
@@ -358,7 +359,7 @@ impl MASQMockNode {
         Ok((from_opt.unwrap(), to_opt.unwrap(), live_cores_package))
     }
 
-    pub fn wait_for_gossip(&self, timeout: Duration) -> Option<(Gossip, IpAddr)> {
+    pub fn wait_for_gossip(&self, timeout: Duration) -> Option<(Gossip_0v1, IpAddr)> {
         let masquerader = JsonMasquerader::new();
         match self.wait_for_package(&masquerader, timeout) {
             Ok((from, _, package)) => {
@@ -380,7 +381,7 @@ impl MASQMockNode {
                     Err(e) => panic!("Couldn't expire LiveCoresPackage: {:?}", e),
                 };
                 match incoming_cores_package.payload {
-                    MessageType::Gossip(g) => Some((g, from.ip())),
+                    MessageType::Gossip(vd) => Some((Gossip_0v1::try_from(vd).expect("Couldn't deserialize Gossip"), from.ip())),
                     _ => panic!("Expected Gossip, got something else"),
                 }
             }

@@ -1,10 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::neighborhood_database::NeighborhoodDatabase;
-use super::node_record::NodeRecord;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
-use crate::neighborhood::node_record::NodeRecordInner;
+use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
+use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner};
 use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -27,18 +26,18 @@ impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord 
 }
 
 pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
-    let a = ((n / 1000) % 10) as u8;
-    let b = ((n / 100) % 10) as u8;
-    let c = ((n / 10) % 10) as u8;
-    let d = (n % 10) as u8;
-    let key = PublicKey::new(&[a, b, c, d]);
-    let ip_addr = IpAddr::V4(Ipv4Addr::new(a, b, c, d));
+    let seg1 = ((n / 1000) % 10) as u8;
+    let seg2 = ((n / 100) % 10) as u8;
+    let seg3 = ((n / 10) % 10) as u8;
+    let seg4 = (n % 10) as u8;
+    let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
+    let ip_addr = IpAddr::V4(Ipv4Addr::new(seg1, seg2, seg3, seg4));
     let node_addr = NodeAddr::new(&ip_addr, &vec![n % 10000]);
 
     NodeRecord::new_for_tests(
         &key,
         if has_ip { Some(&node_addr) } else { None },
-        n as u64,
+        u64::from(n),
         true,
         true,
     )

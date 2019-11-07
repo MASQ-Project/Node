@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::blockchain_interface::chain_id_from_name;
-use crate::neighborhood::gossip::Gossip_CV;
+use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -247,7 +247,7 @@ pub struct NeighborhoodSubs {
     pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
-    pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_CV>>,
+    pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_0v1>>,
     pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
@@ -430,7 +430,7 @@ mod tests {
             node_query: recipient!(recorder, NodeQueryMessage),
             route_query: recipient!(recorder, RouteQueryMessage),
             update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
-            from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_CV>),
+            from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_0v1>),
             gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),

@@ -354,6 +354,7 @@ macro_rules! dv {
 #[macro_export]
 macro_rules! migrate_item {
     ($fv:expr, $ft:ty, $tv:expr, $tt:ty, $mt:ident, $b:block) => {
+        #[allow(non_camel_case_types)]
         struct $mt {}
         impl crate::sub_lib::versioned_data::MigrationStep for $mt {
             fn migrate(
@@ -405,6 +406,7 @@ macro_rules! migrate_item {
 #[macro_export]
 macro_rules! migrate_value {
     ($tv:expr, $tt:ty, $mt:ident, $b:block) => {
+        #[allow(non_camel_case_types)]
         struct $mt {}
         impl crate::sub_lib::versioned_data::MigrationStep for $mt {
             fn migrate(

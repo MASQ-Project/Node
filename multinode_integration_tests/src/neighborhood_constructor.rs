@@ -7,18 +7,18 @@ use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
 use crate::multinode_gossip::{Standard, StandardBuilder};
 use node_lib::blockchain::blockchain_interface::chain_name_from_id;
-use node_lib::neighborhood::gossip::Gossip_CV;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use node_lib::neighborhood::neighborhood_test_utils::db_from_node;
 use node_lib::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::utils::time_t_timestamp;
 use std::collections::{BTreeSet, HashMap};
-use std::convert::TryInto;
 use std::time::Duration;
+use node_lib::neighborhood::gossip::Gossip_0v1;
+use std::convert::TryInto;
+use node_lib::test_utils::neighborhood_test_utils::db_from_node;
 
 /// Construct a neighborhood for testing that corresponds to a provided NeighborhoodDatabase, with a MASQRealNode
 /// corresponding to the root of the database, MASQMockNodes corresponding to all the root's immediate neighbors,
@@ -160,7 +160,7 @@ fn make_and_send_final_setup_gossip(
             cloned_node.resign();
             gossip_db.add_node(cloned_node).unwrap();
         });
-    let gossip: Gossip = GossipProducerReal::new()
+    let gossip: Gossip_0v1 = GossipProducerReal::new()
         .produce(&mut gossip_db, real_node.main_public_key())
         .unwrap();
     gossip_source_mock_node

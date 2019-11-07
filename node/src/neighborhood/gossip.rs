@@ -9,7 +9,9 @@ use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::versioned_data::StepError;
 use pretty_hex::PrettyHex;
+use serde_cbor::Value;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
@@ -18,16 +20,6 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::iter::FromIterator;
 use std::net::{IpAddr, SocketAddr};
-use lazy_static::lazy_static;
-use crate::sub_lib::versioned_data::{Migrations, VersionedData, DataVersion, MigrationError};
-
-lazy_static! {
-    static ref MIGRATIONS: Migrations = {
-        let result = Migrations::new(DataVersion::new(0, 1));
-        // add steps here
-        result
-    };
-}
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
@@ -91,6 +83,18 @@ impl From<NodeRecord> for GossipNodeRecord {
     }
 }
 
+impl TryFrom<&Value> for GossipNodeRecord {
+    type Error = StepError;
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        let reserialized = serde_cbor::ser::to_vec(value).expect("Serialization error");
+        match serde_cbor::de::from_slice::<Self>(&reserialized) {
+            Ok(gnr) => Ok(gnr),
+            Err(_) => unimplemented!(),
+        }
+    }
+}
+
 impl GossipNodeRecord {
     fn to_human_readable(&self) -> String {
         let mut human_readable = String::new();
@@ -127,24 +131,18 @@ impl GossipNodeRecord {
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[allow (non_camel_case_types)]
-pub struct Gossip_CV {
+#[allow(non_camel_case_types)]
+pub struct Gossip_0v1 {
     pub node_records: Vec<GossipNodeRecord>,
 }
 
-impl Into<MessageType> for Gossip_CV {
+impl Into<MessageType> for Gossip_0v1 {
     fn into(self) -> MessageType {
-        MessageType::Gossip(self.into ())
+        MessageType::Gossip(self.into())
     }
 }
 
-impl Into<VersionedData<Gossip_CV>> for Gossip_CV {
-    fn into(self) -> VersionedData<Gossip_CV> {
-        VersionedData::new (&MIGRATIONS, &self)
-    }
-}
-
-impl TryInto<Vec<AccessibleGossipRecord>> for Gossip_CV {
+impl TryInto<Vec<AccessibleGossipRecord>> for Gossip_0v1 {
     type Error = String;
 
     fn try_into(self) -> Result<Vec<AccessibleGossipRecord>, Self::Error> {
@@ -160,14 +158,6 @@ impl TryInto<Vec<AccessibleGossipRecord>> for Gossip_CV {
             .into_iter()
             .map(|result| result.expect("Success suddenly turned bad"))
             .collect())
-    }
-}
-
-impl TryFrom<VersionedData<Gossip_CV>> for Gossip_CV {
-    type Error = MigrationError;
-
-    fn try_from(vd: VersionedData<Gossip_CV>) -> Result<Self, Self::Error> {
-        vd.extract (&MIGRATIONS)
     }
 }
 
@@ -311,11 +301,9 @@ impl DotRenderable for SrcDestEdgeRenderable {
     }
 }
 
-impl Gossip_CV {
+impl Gossip_0v1 {
     pub fn new(node_records: Vec<GossipNodeRecord>) -> Self {
-        Self {
-            node_records,
-        }
+        Self { node_records }
     }
 
     // Pass in:
@@ -410,7 +398,7 @@ impl Gossip_CV {
 
 pub struct GossipBuilder<'a> {
     db: &'a NeighborhoodDatabase,
-    gossip: Gossip_CV,
+    gossip: Gossip_0v1,
     keys_so_far: HashSet<PublicKey>,
 }
 
@@ -418,13 +406,13 @@ impl<'a> GossipBuilder<'a> {
     pub fn new(db: &NeighborhoodDatabase) -> GossipBuilder {
         GossipBuilder {
             db,
-            gossip: Gossip_CV::new(vec![]),
+            gossip: Gossip_0v1::new(vec![]),
             keys_so_far: HashSet::new(),
         }
     }
 
-    pub fn empty() -> Gossip_CV {
-        Gossip_CV::new(vec![])
+    pub fn empty() -> Gossip_0v1 {
+        Gossip_0v1::new(vec![])
     }
 
     pub fn node(mut self, public_key_ref: &PublicKey, reveal_node_addr: bool) -> GossipBuilder<'a> {
@@ -448,7 +436,7 @@ impl<'a> GossipBuilder<'a> {
         self
     }
 
-    pub fn build(self) -> Gossip_CV {
+    pub fn build(self) -> Gossip_0v1 {
         self.gossip
     }
 }
@@ -456,10 +444,10 @@ impl<'a> GossipBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use super::super::gossip::GossipBuilder;
-    use super::super::neighborhood_test_utils::make_node_record;
-    use super::super::neighborhood_test_utils::make_node_record_f;
     use super::*;
-    use crate::neighborhood::neighborhood_test_utils::db_from_node;
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_node_record, make_node_record_f,
+    };
     use crate::test_utils::{assert_string_contains, vec_to_btset};
     use std::str::FromStr;
 
@@ -698,7 +686,7 @@ Length: 4 (0x4) bytes
         db.root_mut().resign();
         let neighbor_gnr = GossipNodeRecord::from((&db, neighbor.public_key(), true));
 
-        let gossip = Gossip_CV {
+        let gossip = Gossip_0v1 {
             node_records: vec![
                 GossipNodeRecord::from((&db, db.root().public_key(), true)),
                 GossipNodeRecord::from((&db, target_node.public_key(), true)),

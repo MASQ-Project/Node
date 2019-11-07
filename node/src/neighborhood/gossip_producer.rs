@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use super::gossip::Gossip_CV;
 use super::gossip::GossipBuilder;
+use super::gossip::Gossip_0v1;
 use super::neighborhood_database::NeighborhoodDatabase;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::logger::Logger;
@@ -11,8 +11,12 @@ use std::cell::Cell;
 pub const DEAD_NODE_CHECK_INTERVAL_SECS: u32 = 60;
 
 pub trait GossipProducer: Send {
-    fn produce(&self, database: &mut NeighborhoodDatabase, target: &PublicKey) -> Option<Gossip_CV>;
-    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_CV;
+    fn produce(
+        &self,
+        database: &mut NeighborhoodDatabase,
+        target: &PublicKey,
+    ) -> Option<Gossip_0v1>;
+    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_0v1;
 }
 
 pub struct GossipProducerReal {
@@ -33,7 +37,11 @@ impl GossipProducer for GossipProducerReal {
         returns:
             a Gossip message representing the current neighborhood for a target Node
     */
-    fn produce(&self, database: &mut NeighborhoodDatabase, target: &PublicKey) -> Option<Gossip_CV> {
+    fn produce(
+        &self,
+        database: &mut NeighborhoodDatabase,
+        target: &PublicKey,
+    ) -> Option<Gossip_0v1> {
         if time_t_timestamp() - self.last_dead_node_check.get() >= DEAD_NODE_CHECK_INTERVAL_SECS {
             debug!(self.logger, "Checking for dead Nodes");
             database.cull_dead_nodes();
@@ -68,7 +76,7 @@ impl GossipProducer for GossipProducerReal {
         Some(builder.build())
     }
 
-    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_CV {
+    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_0v1 {
         GossipBuilder::new(database)
             .node(database.root().public_key(), true)
             .build()
@@ -89,13 +97,12 @@ mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::*;
     use crate::neighborhood::neighborhood_database::ISOLATED_NODE_GRACE_PERIOD_SECS;
-    use crate::neighborhood::neighborhood_test_utils::db_from_node;
-    use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner};
     use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
+    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use crate::test_utils::{assert_contains, DEFAULT_CHAIN_ID};
     use itertools::Itertools;
     use std::collections::btree_set::BTreeSet;
@@ -321,7 +328,7 @@ mod tests {
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 
-        let result_gossip: Gossip_CV = subject.produce_debut(&db);
+        let result_gossip: Gossip_0v1 = subject.produce_debut(&db);
 
         assert_eq!(result_gossip.node_records.len(), 1);
         let result_gossip_record = result_gossip.node_records.first().unwrap();
@@ -349,7 +356,7 @@ mod tests {
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 
-        let result_gossip: Gossip_CV = subject.produce_debut(&db);
+        let result_gossip: Gossip_0v1 = subject.produce_debut(&db);
 
         assert_eq!(result_gossip.node_records.len(), 1);
         let result_gossip_record = result_gossip.node_records.first().unwrap();
