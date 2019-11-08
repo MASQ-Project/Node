@@ -9,6 +9,7 @@ use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
+use node_lib::neighborhood::gossip::Gossip_0v1;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde::{encodex, CryptDE};
 use node_lib::sub_lib::cryptde::{CodexError, CryptData, CryptdecError};
@@ -26,6 +27,7 @@ use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
 use node_lib::test_utils::{make_paying_wallet, make_wallet};
 use serde_cbor;
 use std::cell::RefCell;
+use std::convert::TryFrom;
 use std::io;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::net::Ipv4Addr;
@@ -36,8 +38,6 @@ use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
-use node_lib::neighborhood::gossip::Gossip_0v1;
-use std::convert::TryFrom;
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,
@@ -381,7 +381,10 @@ impl MASQMockNode {
                     Err(e) => panic!("Couldn't expire LiveCoresPackage: {:?}", e),
                 };
                 match incoming_cores_package.payload {
-                    MessageType::Gossip(vd) => Some((Gossip_0v1::try_from(vd).expect("Couldn't deserialize Gossip"), from.ip())),
+                    MessageType::Gossip(vd) => Some((
+                        Gossip_0v1::try_from(vd).expect("Couldn't deserialize Gossip"),
+                        from.ip(),
+                    )),
                     _ => panic!("Expected Gossip, got something else"),
                 }
             }

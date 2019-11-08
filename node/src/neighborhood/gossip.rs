@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::node_record::NodeRecord;
-use super::node_record::NodeRecordInner;
+use super::node_record::NodeRecordInner_0v1;
 use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,
 };
@@ -49,8 +49,8 @@ impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for GossipNodeRecord {
     }
 }
 
-impl From<(NodeRecordInner, Option<NodeAddr>, &dyn CryptDE)> for GossipNodeRecord {
-    fn from(triple: (NodeRecordInner, Option<NodeAddr>, &dyn CryptDE)) -> Self {
+impl From<(NodeRecordInner_0v1, Option<NodeAddr>, &dyn CryptDE)> for GossipNodeRecord {
+    fn from(triple: (NodeRecordInner_0v1, Option<NodeAddr>, &dyn CryptDE)) -> Self {
         let (inner, node_addr_opt, cryptde) = triple;
         let signed_data =
             PlainData::from(serde_cbor::to_vec(&inner).expect("Serialization failed"));
@@ -99,9 +99,9 @@ impl GossipNodeRecord {
     fn to_human_readable(&self) -> String {
         let mut human_readable = String::new();
         human_readable.push_str("\nGossipNodeRecord {");
-        match NodeRecordInner::try_from(self) {
+        match NodeRecordInner_0v1::try_from(self) {
             Ok(nri) => {
-                human_readable.push_str("\n\tinner: NodeRecordInner {");
+                human_readable.push_str("\n\tinner: NodeRecordInner_0v1 {");
                 human_readable.push_str(&format!("\n\t\tpublic_key: {:?},", &nri.public_key));
                 human_readable.push_str(&format!("\n\t\tnode_addr_opt: {:?},", self.node_addr_opt));
                 human_readable
@@ -339,11 +339,11 @@ impl Gossip_0v1 {
         let mut present: HashSet<PublicKey> = HashSet::new();
         let mut node_renderables: Vec<NodeRenderable> = vec![];
         let mut edge_renderables: Vec<EdgeRenderable> = vec![];
-        let inners_and_addrs: Vec<(NodeRecordInner, Option<NodeAddr>)> = self
+        let inners_and_addrs: Vec<(NodeRecordInner_0v1, Option<NodeAddr>)> = self
             .node_records
             .iter()
             .map(|gnr| {
-                let nri = match NodeRecordInner::try_from(gnr) {
+                let nri = match NodeRecordInner_0v1::try_from(gnr) {
                     Ok(nri) => nri,
                     Err(_e) => unimplemented!(),
                 };
@@ -595,7 +595,7 @@ mod tests {
 
         assert_eq!(
             Err(String::from(
-                "invalid type: integer `1`, expected struct NodeRecordInner"
+                "invalid type: integer `1`, expected struct NodeRecordInner_0v1"
             )),
             result
         );
@@ -613,30 +613,29 @@ mod tests {
         let result = format!("{:?}", gossip);
         let expected = format!(
             "\nGossipNodeRecord {{{}{}{}{}\n}}",
-            "\n\tinner: NodeRecordInner {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
+            "\n\tinner: NodeRecordInner_0v1 {\n\t\tpublic_key: AQIDBA,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1236, exit_byte_rate: 1237, exit_service_rate: 1238 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
             "\n\tsigned_data:
-Length: 246 (0xf6) bytes
-0000:   a8 6c 64 61  74 61 5f 76  65 72 73 69  6f 6e 83 00   .ldata_version..
-0010:   10 00 6a 70  75 62 6c 69  63 5f 6b 65  79 44 01 02   ..jpublic_keyD..
-0020:   03 04 6e 65  61 72 6e 69  6e 67 5f 77  61 6c 6c 65   ..nearning_walle
-0030:   74 a1 67 61  64 64 72 65  73 73 94 18  54 18 69 00   t.gaddress..T.i.
-0040:   18 db 18 8d  18 6e 09 18  37 18 49 18  71 18 33 18   .....n..7.I.q.3.
-0050:   d1 18 ae 18  6f 18 df 18  5f 18 4b 18  75 18 bc 18   ....o..._.K.u...
-0060:   d0 69 72 61  74 65 5f 70  61 63 6b a4  71 72 6f 75   .irate_pack.qrou
-0070:   74 69 6e 67  5f 62 79 74  65 5f 72 61  74 65 19 04   ting_byte_rate..
-0080:   d3 74 72 6f  75 74 69 6e  67 5f 73 65  72 76 69 63   .trouting_servic
-0090:   65 5f 72 61  74 65 19 04  d4 6e 65 78  69 74 5f 62   e_rate...nexit_b
-00a0:   79 74 65 5f  72 61 74 65  19 04 d5 71  65 78 69 74   yte_rate...qexit
-00b0:   5f 73 65 72  76 69 63 65  5f 72 61 74  65 19 04 d6   _service_rate...
-00c0:   69 6e 65 69  67 68 62 6f  72 73 80 73  61 63 63 65   ineighbors.sacce
-00d0:   70 74 73 5f  63 6f 6e 6e  65 63 74 69  6f 6e 73 f5   pts_connections.
-00e0:   6b 72 6f 75  74 65 73 5f  64 61 74 61  f5 67 76 65   kroutes_data.gve
-00f0:   72 73 69 6f  6e 02                                   rsion.",
-            "\n\tsignature:
+Length: 229 (0xe5) bytes
+0000:   a7 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
+0010:   04 6e 65 61  72 6e 69 6e  67 5f 77 61  6c 6c 65 74   .nearning_wallet
+0020:   a1 67 61 64  64 72 65 73  73 94 18 54  18 69 00 18   .gaddress..T.i..
+0030:   db 18 8d 18  6e 09 18 37  18 49 18 71  18 33 18 d1   ....n..7.I.q.3..
+0040:   18 ae 18 6f  18 df 18 5f  18 4b 18 75  18 bc 18 d0   ...o..._.K.u....
+0050:   69 72 61 74  65 5f 70 61  63 6b a4 71  72 6f 75 74   irate_pack.qrout
+0060:   69 6e 67 5f  62 79 74 65  5f 72 61 74  65 19 04 d3   ing_byte_rate...
+0070:   74 72 6f 75  74 69 6e 67  5f 73 65 72  76 69 63 65   trouting_service
+0080:   5f 72 61 74  65 19 04 d4  6e 65 78 69  74 5f 62 79   _rate...nexit_by
+0090:   74 65 5f 72  61 74 65 19  04 d5 71 65  78 69 74 5f   te_rate...qexit_
+00a0:   73 65 72 76  69 63 65 5f  72 61 74 65  19 04 d6 69   service_rate...i
+00b0:   6e 65 69 67  68 62 6f 72  73 80 73 61  63 63 65 70   neighbors.saccep
+00c0:   74 73 5f 63  6f 6e 6e 65  63 74 69 6f  6e 73 f5 6b   ts_connections.k
+00d0:   72 6f 75 74  65 73 5f 64  61 74 61 f5  67 76 65 72   routes_data.gver
+00e0:   73 69 6f 6e  02                                      sion.",
+	        "\n\tsignature:
 Length: 24 (0x18) bytes
-0000:   01 02 03 04  67 5b 38 53  63 59 ad a8  3d e1 d5 96   ....g[8ScY..=...
-0010:   89 59 88 be  09 86 64 ae                             .Y....d.",
+0000:   01 02 03 04  8a 93 2b df  1d 8d f3 e3  e5 8c 70 b6   ......+.......p.
+0010:   f9 31 f0 97  5c c1 ce d8                             .1..\\..."
         );
 
         assert_eq!(result, expected);

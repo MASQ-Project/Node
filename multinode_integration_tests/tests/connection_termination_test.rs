@@ -23,12 +23,12 @@ use node_lib::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
 use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
+use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::test_utils::{find_free_port, make_meaningless_stream_key, DEFAULT_CHAIN_ID};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use node_lib::test_utils::neighborhood_test_utils::{make_node_record, db_from_node};
 
 const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =

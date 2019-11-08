@@ -10,9 +10,9 @@ use multinode_integration_tests_lib::neighborhood_constructor::construct_neighbo
 use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 use node_lib::neighborhood::gossip_acceptor::MAX_DEGREE;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::thread;
 use std::time::Duration;
-use node_lib::test_utils::neighborhood_test_utils::{make_node_record, db_from_node};
 
 #[test]
 fn graph_connects_but_does_not_over_connect() {

@@ -105,6 +105,10 @@ where
         self.version
     }
 
+    pub fn bytes(&self) -> &Vec<u8> {
+        unimplemented!()
+    }
+
     pub fn extract(self, migrations: &Migrations) -> Result<T, MigrationError> {
         let from_version = if self.version > migrations.current_version {
             FUTURE_VERSION
@@ -128,10 +132,11 @@ where
             }
         };
         match serde_cbor::de::from_slice::<T>(&migrated_bytes) {
-            Err(_) => Err(MigrationError::MigrationFailed(
+            Err(e) => Err(MigrationError::MigrationFailed(
                 StepError::DeserializationError(
                     migrations.current_version,
                     migrations.current_version,
+                    format!("{:?}", e),
                 ),
             )),
             Ok(item) => Ok(item),
@@ -141,7 +146,7 @@ where
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StepError {
-    DeserializationError(DataVersion, DataVersion),
+    DeserializationError(DataVersion, DataVersion, String),
     SemanticError(String),
 }
 
@@ -366,7 +371,9 @@ macro_rules! migrate_item {
                     Err(_) => {
                         return Err(
                             crate::sub_lib::versioned_data::StepError::DeserializationError(
-                                $fv, $tv,
+                                $fv,
+                                $tv,
+                                "Fibble".to_string(),
                             ),
                         )
                     }
@@ -420,6 +427,7 @@ macro_rules! migrate_value {
                             crate::sub_lib::versioned_data::StepError::DeserializationError(
                                 FUTURE_VERSION,
                                 $tv,
+                                "Wampum".to_string(),
                             ),
                         )
                     }
@@ -910,7 +918,7 @@ mod tests {
         assert_eq!(
             result,
             Err(MigrationError::MigrationFailed(
-                StepError::DeserializationError(dv!(4, 5), dv!(4, 5))
+                StepError::DeserializationError(dv!(4, 5), dv!(4, 5), "ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct PersonV45\"), offset: 0 }".to_string())
             ))
         );
     }

@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::masq_node::MASQNode;
-use node_lib::neighborhood::node_record::NodeRecordInner;
+use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptData, PlainData};
 use std::collections::BTreeSet;
@@ -68,8 +68,7 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
     fn from(masq_node: &dyn MASQNode) -> Self {
         let cryptde = masq_node.signing_cryptde().unwrap_or_else (|| panic! ("You can only make an AccessibleGossipRecord from a MASQRealNode if it has a CryptDENull, not a CryptDEReal."));
         let mut agr = AccessibleGossipRecord {
-            inner: NodeRecordInner {
-                data_version: NodeRecordInner::data_version(),
+            inner: NodeRecordInner_0v1 {
                 public_key: masq_node.main_public_key().clone(),
                 earning_wallet: masq_node.earning_wallet(),
                 rate_pack: masq_node.rate_pack(),

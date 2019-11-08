@@ -3,7 +3,7 @@ use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner};
+use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
 use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -197,9 +197,9 @@ impl PartialEq for NodeRecord {
         if self.signature != other.signature {
             return false;
         }
-        let self_nri: NodeRecordInner =
+        let self_nri: NodeRecordInner_0v1 =
             serde_cbor::de::from_slice(self.signed_gossip.as_slice()).unwrap();
-        let other_nri: NodeRecordInner =
+        let other_nri: NodeRecordInner_0v1 =
             serde_cbor::de::from_slice(other.signed_gossip.as_slice()).unwrap();
         self_nri == other_nri
     }

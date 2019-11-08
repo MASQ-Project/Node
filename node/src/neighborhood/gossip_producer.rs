@@ -97,7 +97,7 @@ mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::*;
     use crate::neighborhood::neighborhood_database::ISOLATED_NODE_GRACE_PERIOD_SECS;
-    use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner};
+    use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
     use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -158,7 +158,7 @@ mod tests {
         type Digest = (PublicKey, Vec<u8>, bool, BTreeSet<PublicKey>);
         let gnr_digest = |gnr: GossipNodeRecord| {
             let has_ip = gnr.node_addr_opt.is_some();
-            let nri = NodeRecordInner::try_from(gnr).unwrap();
+            let nri = NodeRecordInner_0v1::try_from(gnr).unwrap();
             (
                 nri.public_key.clone(),
                 nri.public_key.into(),
@@ -336,7 +336,7 @@ mod tests {
             result_gossip_record.node_addr_opt,
             Some(our_node_record.metadata.node_addr_opt.clone().unwrap())
         );
-        let result_node_record_inner = NodeRecordInner::try_from(result_gossip_record).unwrap();
+        let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
         assert_eq!(result_node_record_inner, our_node_record.inner);
         let our_cryptde = CryptDENull::from(our_node_record.public_key(), DEFAULT_CHAIN_ID);
         assert_eq!(
@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(result_gossip.node_records.len(), 1);
         let result_gossip_record = result_gossip.node_records.first().unwrap();
         assert_eq!(result_gossip_record.node_addr_opt, None);
-        let result_node_record_inner = NodeRecordInner::try_from(result_gossip_record).unwrap();
+        let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
         assert_eq!(result_node_record_inner, our_node_record.inner);
         let our_cryptde = CryptDENull::from(our_node_record.public_key(), DEFAULT_CHAIN_ID);
         assert_eq!(

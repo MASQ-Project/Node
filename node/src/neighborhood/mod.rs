@@ -15,7 +15,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
-use crate::neighborhood::node_record::NodeRecordInner;
+use crate::neighborhood::node_record::NodeRecordInner_0v1;
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
@@ -290,7 +290,7 @@ pub struct AccessibleGossipRecord {
     pub signed_gossip: PlainData,
     pub signature: CryptData,
     pub node_addr_opt: Option<NodeAddr>,
-    pub inner: NodeRecordInner,
+    pub inner: NodeRecordInner_0v1,
 }
 
 impl AccessibleGossipRecord {
@@ -1184,7 +1184,7 @@ impl Neighborhood {
 }
 
 pub fn regenerate_signed_gossip(
-    inner: &NodeRecordInner,
+    inner: &NodeRecordInner_0v1,
     cryptde: &dyn CryptDE, // Must be the correct CryptDE for the Node from which inner came: used for signing
 ) -> (PlainData, CryptData) {
     let signed_gossip =
@@ -1202,7 +1202,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::gossip::Gossip_0v1;
-    use crate::neighborhood::node_record::NodeRecordInner;
+    use crate::neighborhood::node_record::NodeRecordInner_0v1;
     use crate::persistent_configuration::{PersistentConfigError, TLS_PORT};
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
@@ -2496,7 +2496,7 @@ mod tests {
         type Digest = (PublicKey, Vec<u8>, bool, u32, Vec<PublicKey>);
         let to_actual_digest = |gnr: GossipNodeRecord| {
             let node_addr_opt = gnr.node_addr_opt.clone();
-            let inner = NodeRecordInner::try_from(gnr).unwrap();
+            let inner = NodeRecordInner_0v1::try_from(gnr).unwrap();
             let neighbors_vec = inner.neighbors.into_iter().collect::<Vec<PublicKey>>();
             (
                 inner.public_key.clone(),
