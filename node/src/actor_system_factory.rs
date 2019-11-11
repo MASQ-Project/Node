@@ -430,10 +430,10 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::proxy_client::{
-        ClientResponsePayload, DnsResolveFailure, InboundServerData,
+        ClientResponsePayload_0v1, DnsResolveFailure, InboundServerData,
     };
     use crate::sub_lib::proxy_server::{
-        AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload,
+        AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
     };
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -517,7 +517,7 @@ mod tests {
                 from_dispatcher: recipient!(addr, InboundClientData),
                 from_hopper: addr
                     .clone()
-                    .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
+                    .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
                 dns_failure_from_hopper: addr
                     .clone()
                     .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
@@ -649,7 +649,7 @@ mod tests {
                 bind: recipient!(addr, BindMessage),
                 from_hopper: addr
                     .clone()
-                    .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
+                    .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
                 inbound_server_data: recipient!(addr, InboundServerData),
                 dns_resolve_failed: recipient!(addr, DnsResolveFailure),
             }

@@ -447,8 +447,8 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType, MessageType::ClientRequest};
     use crate::sub_lib::neighborhood::GossipFailure;
-    use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-    use crate::sub_lib::proxy_server::ClientRequestPayload;
+    use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+    use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
     use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
@@ -707,7 +707,8 @@ mod tests {
         System::current().stop();
         system.run();
         let component_recording = component_recording_arc.lock().unwrap();
-        let record = component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload>>(0);
+        let record =
+            component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(0);
         let expected_ecp = lcp_a
             .to_expired(
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -775,7 +776,7 @@ mod tests {
         system.run();
         let component_recording = component_recording_arc.lock().unwrap();
         let record =
-            component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload>>(0);
+            component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(0);
         let expected_ecp = lcp_a
             .to_expired(
                 SocketAddr::from_str("1.3.2.4:5678").unwrap(),

@@ -6,7 +6,7 @@ use crate::sub_lib::dispatcher::StreamShutdownMsg;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_key::StreamKey;
@@ -27,8 +27,8 @@ pub enum ProxyProtocol {
 // struct that contains all the small, quickly-cloned things, and the other the big,
 // expensively-cloned SequencedPacket.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-pub struct ClientRequestPayload {
-    pub version: DataVersion,
+#[allow(non_camel_case_types)]
+pub struct ClientRequestPayload_0v1 {
     pub stream_key: StreamKey,
     pub sequenced_packet: SequencedPacket,
     pub target_hostname: Option<String>,
@@ -37,13 +37,13 @@ pub struct ClientRequestPayload {
     pub originator_public_key: PublicKey,
 }
 
-impl Into<MessageType> for ClientRequestPayload {
+impl Into<MessageType> for ClientRequestPayload_0v1 {
     fn into(self) -> MessageType {
         MessageType::ClientRequest(self)
     }
 }
 
-impl ClientRequestPayload {
+impl ClientRequestPayload_0v1 {
     pub fn version() -> DataVersion {
         DataVersion::new(0, 0).expect("Internal Error")
     }
@@ -68,7 +68,7 @@ pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
     pub bind: Recipient<BindMessage>,
     pub from_dispatcher: Recipient<InboundClientData>,
-    pub from_hopper: Recipient<ExpiredCoresPackage<ClientResponsePayload>>,
+    pub from_hopper: Recipient<ExpiredCoresPackage<ClientResponsePayload_0v1>>,
     pub dns_failure_from_hopper: Recipient<ExpiredCoresPackage<DnsResolveFailure>>,
     pub add_return_route: Recipient<AddReturnRouteMessage>,
     pub add_route: Recipient<AddRouteMessage>,
@@ -96,7 +96,7 @@ mod tests {
         let subject = ProxyServerSubs {
             bind: recipient!(recorder, BindMessage),
             from_dispatcher: recipient!(recorder, InboundClientData),
-            from_hopper: recipient!(recorder, ExpiredCoresPackage<ClientResponsePayload>),
+            from_hopper: recipient!(recorder, ExpiredCoresPackage<ClientResponsePayload_0v1>),
             dns_failure_from_hopper: recipient!(recorder, ExpiredCoresPackage<DnsResolveFailure>),
             add_return_route: recipient!(recorder, AddReturnRouteMessage),
             add_route: recipient!(recorder, AddRouteMessage),

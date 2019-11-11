@@ -31,8 +31,8 @@ use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-use crate::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -369,9 +369,8 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
     data
 }
 
-pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload {
-    ClientRequestPayload {
-        version: ClientRequestPayload::version(),
+pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
+    ClientRequestPayload_0v1 {
         stream_key: StreamKey::new(
             cryptde.public_key().clone(),
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -384,9 +383,8 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
     }
 }
 
-pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload {
-    ClientResponsePayload {
-        version: ClientResponsePayload::version(),
+pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload_0v1 {
+    ClientResponsePayload_0v1 {
         stream_key: StreamKey::new(
             cryptde.public_key().clone(),
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),

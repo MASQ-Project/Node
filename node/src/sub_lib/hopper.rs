@@ -8,8 +8,8 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::neighborhood::GossipFailure;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
@@ -65,8 +65,8 @@ pub struct IncipientCoresPackage {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MessageType {
-    ClientRequest(ClientRequestPayload),
-    ClientResponse(ClientResponsePayload),
+    ClientRequest(ClientRequestPayload_0v1),
+    ClientResponse(ClientResponsePayload_0v1),
     Gossip(VersionedData<Gossip_0v1>),
     GossipFailure(GossipFailure),
     DnsResolveFailed(DnsResolveFailure),

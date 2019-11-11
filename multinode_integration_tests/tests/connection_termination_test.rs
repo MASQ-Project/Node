@@ -18,8 +18,8 @@ use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::data_version::DataVersion;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use node_lib::sub_lib::proxy_client::ClientResponsePayload;
-use node_lib::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
+use node_lib::sub_lib::proxy_client::ClientResponsePayload_0v1;
+use node_lib::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
@@ -322,7 +322,7 @@ fn create_request_icp(
             Some(contract_address(chain_id)),
         )
         .unwrap(),
-        MessageType::ClientRequest(ClientRequestPayload {
+        MessageType::ClientRequest(ClientRequestPayload_0v1 {
             version: DataVersion::new(0, 0).unwrap(),
             stream_key,
             sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
@@ -365,7 +365,7 @@ fn create_meaningless_icp(
             Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap(),
-        MessageType::ClientRequest(ClientRequestPayload {
+        MessageType::ClientRequest(ClientRequestPayload_0v1 {
             version: DataVersion::new(0, 0).unwrap(),
             stream_key,
             sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
@@ -409,7 +409,7 @@ fn create_server_drop_report(
     route
         .shift(originating_node.main_cryptde_null().unwrap())
         .unwrap();
-    let payload = MessageType::ClientResponse(ClientResponsePayload {
+    let payload = MessageType::ClientResponse(ClientResponsePayload_0v1 {
         version: DataVersion::new(0, 0).unwrap(),
         stream_key,
         sequenced_packet: SequencedPacket::new(vec![], 0, true),
@@ -451,7 +451,7 @@ fn create_client_drop_report(
         Some(contract_address(DEFAULT_CHAIN_ID)),
     )
     .unwrap();
-    let payload = MessageType::ClientRequest(ClientRequestPayload {
+    let payload = MessageType::ClientRequest(ClientRequestPayload_0v1 {
         version: DataVersion::new(0, 0).unwrap(),
         stream_key,
         sequenced_packet: SequencedPacket::new(vec![], 1, true),

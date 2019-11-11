@@ -27,8 +27,8 @@ use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, DEFAULT_RATE_PACK};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, DEFAULT_MINIMUM_HOP_COUNT,
@@ -177,12 +177,12 @@ impl Handler<ExpiredCoresPackage<DnsResolveFailure>> for ProxyServer {
     }
 }
 
-impl Handler<ExpiredCoresPackage<ClientResponsePayload>> for ProxyServer {
+impl Handler<ExpiredCoresPackage<ClientResponsePayload_0v1>> for ProxyServer {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ExpiredCoresPackage<ClientResponsePayload>,
+        msg: ExpiredCoresPackage<ClientResponsePayload_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         self.handle_client_response_payload(&msg)
@@ -227,7 +227,7 @@ impl ProxyServer {
             from_dispatcher: addr.clone().recipient::<InboundClientData>(),
             from_hopper: addr
                 .clone()
-                .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
+                .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
             dns_failure_from_hopper: addr
                 .clone()
                 .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
@@ -311,7 +311,10 @@ impl ProxyServer {
         }
     }
 
-    fn handle_client_response_payload(&mut self, msg: &ExpiredCoresPackage<ClientResponsePayload>) {
+    fn handle_client_response_payload(
+        &mut self,
+        msg: &ExpiredCoresPackage<ClientResponsePayload_0v1>,
+    ) {
         debug!(
             self.logger,
             "ExpiredCoresPackage remaining_route: {}",
@@ -619,7 +622,7 @@ impl ProxyServer {
         &mut self,
         ibcd: InboundClientData,
         stream_key: &StreamKey,
-    ) -> Result<ClientRequestPayload, ()> {
+    ) -> Result<ClientRequestPayload_0v1, ()> {
         let tunnelled_host = self.tunneled_hosts.get(stream_key);
         let new_ibcd = match tunnelled_host {
             Some(_) => InboundClientData {
@@ -639,8 +642,7 @@ impl ProxyServer {
                 Err(())
             }
             Some(payload) => match tunnelled_host {
-                Some(hostname) => Ok(ClientRequestPayload {
-                    version: ClientRequestPayload::version(),
+                Some(hostname) => Ok(ClientRequestPayload_0v1 {
                     target_hostname: Some(hostname.clone()),
                     ..payload
                 }),
@@ -653,7 +655,7 @@ impl ProxyServer {
         cryptde: Box<dyn CryptDE>,
         hopper: &Recipient<IncipientCoresPackage>,
         route_query_response: RouteQueryResponse,
-        payload: ClientRequestPayload,
+        payload: ClientRequestPayload_0v1,
         logger: Logger,
         source_addr: SocketAddr,
         dispatcher: &Recipient<TransmitDataMsg>,
@@ -737,7 +739,7 @@ impl ProxyServer {
     fn report_exit_service(
         accountant_exit_sub: &Recipient<ReportExitServiceConsumedMessage>,
         expected_services: Vec<ExpectedService>,
-        payload: &ClientRequestPayload,
+        payload: &ClientRequestPayload_0v1,
         logger: &Logger,
     ) {
         match expected_services
@@ -767,7 +769,7 @@ impl ProxyServer {
     fn transmit_to_hopper(
         cryptde: Box<dyn CryptDE>,
         hopper: &Recipient<IncipientCoresPackage>,
-        payload: ClientRequestPayload,
+        payload: ClientRequestPayload_0v1,
         route: &Route,
         expected_services: Vec<ExpectedService>,
         logger: &Logger,
@@ -837,7 +839,7 @@ impl ProxyServer {
     }
 
     fn handle_route_failure(
-        payload: ClientRequestPayload,
+        payload: ClientRequestPayload_0v1,
         logger: &Logger,
         source_addr: SocketAddr,
         dispatcher: &Recipient<TransmitDataMsg>,
@@ -848,7 +850,7 @@ impl ProxyServer {
     }
 
     fn send_route_failure(
-        payload: ClientRequestPayload,
+        payload: ClientRequestPayload_0v1,
         source_addr: SocketAddr,
         dispatcher: &Recipient<TransmitDataMsg>,
     ) {
@@ -864,7 +866,7 @@ impl ProxyServer {
         dispatcher.try_send(msg).expect("Dispatcher is dead");
     }
 
-    fn hostname(payload: &ClientRequestPayload) -> String {
+    fn hostname(payload: &ClientRequestPayload_0v1) -> String {
         match payload.target_hostname {
             Some(ref thn) => thn.clone(),
             None => "<unknown>".to_string(),
@@ -957,14 +959,13 @@ mod tests {
     use crate::sub_lib::cryptde::{decodex, CryptData};
     use crate::sub_lib::cryptde::{encodex, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::data_version::DataVersion;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::ExpectedServices;
     use crate::sub_lib::neighborhood::{ExpectedService, DEFAULT_RATE_PACK};
-    use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-    use crate::sub_lib::proxy_server::ClientRequestPayload;
+    use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+    use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
@@ -1136,8 +1137,7 @@ mod tests {
         };
         let expected_http_request = PlainData::new(http_request);
         let route = zero_hop_route_response(main_cryptde.public_key(), main_cryptde).route;
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_http_request.into(),
@@ -1242,8 +1242,7 @@ mod tests {
             data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
         };
 
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: b"client hello".to_vec(),
@@ -1352,8 +1351,7 @@ mod tests {
             data: request_data,
         };
 
-        let client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -1362,7 +1360,7 @@ mod tests {
             },
         };
 
-        let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
+        let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -1708,8 +1706,7 @@ mod tests {
             &IncipientCoresPackage::new(
                 main_cryptde,
                 expected_route.route,
-                MessageType::ClientRequest(ClientRequestPayload {
-                    version: ClientRequestPayload::version(),
+                MessageType::ClientRequest(ClientRequestPayload_0v1 {
                     stream_key,
                     sequenced_packet: SequencedPacket::new(expected_data, 0, true),
                     target_hostname: Some("nowhere.com".to_string()),
@@ -1784,8 +1781,7 @@ mod tests {
             &IncipientCoresPackage::new(
                 main_cryptde,
                 expected_route.route,
-                MessageType::ClientRequest(ClientRequestPayload {
-                    version: ClientRequestPayload::version(),
+                MessageType::ClientRequest(ClientRequestPayload_0v1 {
                     stream_key,
                     sequenced_packet: SequencedPacket::new(expected_data, 0, true),
                     target_hostname: None,
@@ -1824,8 +1820,7 @@ mod tests {
         };
         let expected_http_request = PlainData::new(http_request);
         let route = zero_hop_route_response(main_cryptde.public_key(), main_cryptde).route;
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_http_request.into(),
@@ -1898,8 +1893,7 @@ mod tests {
         };
         let expected_http_request = PlainData::new(http_request);
         let route = zero_hop_route_response(main_cryptde.public_key(), main_cryptde).route;
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_http_request.into(),
@@ -2016,8 +2010,7 @@ mod tests {
             data: expected_data.clone(),
         };
         let expected_http_request = PlainData::new(http_request);
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_http_request.into(),
@@ -2154,8 +2147,7 @@ mod tests {
             is_clandestine: false,
             data: expected_data.clone(),
         };
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: PlainData::new(http_request).into(),
@@ -2268,8 +2260,7 @@ mod tests {
             .hopper(hopper_mock)
             .proxy_server(proxy_server_mock)
             .build();
-        let payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let payload = ClientRequestPayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket::new(expected_data, 0, false),
             target_hostname: Some("nowhere.com".to_string()),
@@ -2346,8 +2337,7 @@ mod tests {
         let peer_actors = peer_actors_builder()
             .proxy_server(proxy_server_mock)
             .build();
-        let payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let payload = ClientRequestPayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket::new(expected_data, 0, false),
             target_hostname: Some("nowhere.com".to_string()),
@@ -2659,8 +2649,7 @@ mod tests {
                 ),
             ]),
         };
-        let payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let payload = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: vec![],
@@ -2807,8 +2796,7 @@ mod tests {
         };
         let expected_tls_request = PlainData::new(tls_request);
         let route = zero_hop_route_response(main_cryptde.public_key(), main_cryptde).route;
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_tls_request.into(),
@@ -2886,8 +2874,7 @@ mod tests {
         };
         let expected_tls_request = PlainData::new(tls_request);
         let route = zero_hop_route_response(main_cryptde.public_key(), main_cryptde).route;
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_tls_request.into(),
@@ -2963,8 +2950,7 @@ mod tests {
         };
         let expected_tls_request = PlainData::new(tls_request);
         let route = zero_hop_route_response(main_cryptde.public_key(), main_cryptde).route;
-        let expected_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: expected_tls_request.into(),
@@ -3114,8 +3100,7 @@ mod tests {
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let remaining_route = return_route_with_id(cryptde, 1234);
-        let client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let client_response_payload = ClientResponsePayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: b"16 bytes of data".to_vec(),
@@ -3185,8 +3170,7 @@ mod tests {
             },
         );
 
-        let client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let client_response_payload = ClientResponsePayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket::new(vec![], 1, true),
         };
@@ -3197,7 +3181,7 @@ mod tests {
 
         subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
 
-        let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
+        let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -3290,8 +3274,7 @@ mod tests {
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let first_client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let first_client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -3300,7 +3283,7 @@ mod tests {
             },
         };
         let first_exit_size = first_client_response_payload.sequenced_packet.data.len();
-        let first_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
+        let first_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -3310,8 +3293,7 @@ mod tests {
             );
         let routing_size = first_expired_cores_package.payload_len;
 
-        let second_client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let second_client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"other data".to_vec(),
@@ -3320,7 +3302,7 @@ mod tests {
             },
         };
         let second_exit_size = second_client_response_payload.sequenced_packet.data.len();
-        let second_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload> =
+        let second_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.5:1235").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -3869,8 +3851,7 @@ mod tests {
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"data".to_vec(),
@@ -3940,8 +3921,7 @@ mod tests {
             .accountant(accountant)
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        let client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -3991,8 +3971,7 @@ mod tests {
             .accountant(accountant)
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        let client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -4063,8 +4042,7 @@ mod tests {
 
         thread::sleep(Duration::from_millis(300));
 
-        let client_response_payload = ClientResponsePayload {
-            version: ClientResponsePayload::version(),
+        let client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: b"some data".to_vec(),
@@ -4219,8 +4197,7 @@ mod tests {
         match payload {
             MessageType::ClientRequest(payload) => assert_eq!(
                 payload,
-                ClientRequestPayload {
-                    version: DataVersion::new(0, 0).unwrap(),
+                ClientRequestPayload_0v1 {
                     stream_key: affected_stream_key,
                     sequenced_packet: SequencedPacket::new(vec![], 1234, true),
                     target_hostname: Some(String::from("tunneled.com")),
@@ -4335,8 +4312,7 @@ mod tests {
         match payload {
             MessageType::ClientRequest(payload) => assert_eq!(
                 payload,
-                ClientRequestPayload {
-                    version: DataVersion::new(0, 0).unwrap(),
+                ClientRequestPayload_0v1 {
                     stream_key: affected_stream_key,
                     sequenced_packet: SequencedPacket::new(vec![], 1234, true),
                     target_hostname: None,

@@ -28,10 +28,12 @@ use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::proxy_client::{ClientResponsePayload, InboundServerData};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload};
+use crate::sub_lib::proxy_server::{
+    AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
+};
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -85,8 +87,8 @@ macro_rules! recorder_message_handler {
 }
 
 recorder_message_handler!(ExpiredCoresPackage<MessageType>);
-recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload>);
-recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload>);
+recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload_0v1>);
+recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure>);
 recorder_message_handler!(ExpiredCoresPackage<GossipFailure>);
 recorder_message_handler!(ExpiredCoresPackage<Gossip_0v1>);
@@ -327,7 +329,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         from_dispatcher: recipient!(addr, InboundClientData),
         from_hopper: addr
             .clone()
-            .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
+            .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
         dns_failure_from_hopper: addr
             .clone()
             .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
@@ -361,7 +363,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
         bind: recipient!(addr, BindMessage),
         from_hopper: addr
             .clone()
-            .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
+            .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
         inbound_server_data: recipient!(addr, InboundServerData),
         dns_resolve_failed: recipient!(addr, DnsResolveFailure),
     }

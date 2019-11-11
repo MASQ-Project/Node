@@ -3,7 +3,7 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use actix::Message;
@@ -27,8 +27,8 @@ pub struct ProxyClientConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-pub struct ClientResponsePayload {
-    pub version: DataVersion,
+#[allow(non_camel_case_types)]
+pub struct ClientResponsePayload_0v1 {
     pub stream_key: StreamKey,
     pub sequenced_packet: SequencedPacket,
 }
@@ -52,7 +52,7 @@ impl DnsResolveFailure {
     }
 }
 
-impl Into<MessageType> for ClientResponsePayload {
+impl Into<MessageType> for ClientResponsePayload_0v1 {
     fn into(self) -> MessageType {
         MessageType::ClientResponse(self)
     }
@@ -67,7 +67,7 @@ impl Into<MessageType> for DnsResolveFailure {
 #[derive(Clone)]
 pub struct ProxyClientSubs {
     pub bind: Recipient<BindMessage>,
-    pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload>>,
+    pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload_0v1>>,
     pub inbound_server_data: Recipient<InboundServerData>,
     pub dns_resolve_failed: Recipient<DnsResolveFailure>,
 }
@@ -78,10 +78,9 @@ impl Debug for ProxyClientSubs {
     }
 }
 
-impl ClientResponsePayload {
-    pub fn make_terminating_payload(stream_key: StreamKey) -> ClientResponsePayload {
-        ClientResponsePayload {
-            version: Self::version(),
+impl ClientResponsePayload_0v1 {
+    pub fn make_terminating_payload(stream_key: StreamKey) -> ClientResponsePayload_0v1 {
+        ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: vec![],
@@ -89,10 +88,6 @@ impl ClientResponsePayload {
                 last_data: true,
             },
         }
-    }
-
-    pub fn version() -> DataVersion {
-        DataVersion::new(0, 0).expect("Internal Error")
     }
 }
 
@@ -117,12 +112,11 @@ mod tests {
     fn make_terminating_payload_makes_terminating_payload() {
         let stream_key: StreamKey = make_meaningless_stream_key();
 
-        let payload = ClientResponsePayload::make_terminating_payload(stream_key);
+        let payload = ClientResponsePayload_0v1::make_terminating_payload(stream_key);
 
         assert_eq!(
             payload,
-            ClientResponsePayload {
-                version: ClientResponsePayload::version(),
+            ClientResponsePayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket {
                     data: vec!(),
@@ -139,7 +133,7 @@ mod tests {
 
         let subject = ProxyClientSubs {
             bind: recipient!(recorder, BindMessage),
-            from_hopper: recipient!(recorder, ExpiredCoresPackage<ClientRequestPayload>),
+            from_hopper: recipient!(recorder, ExpiredCoresPackage<ClientRequestPayload_0v1>),
             inbound_server_data: recipient!(recorder, InboundServerData),
             dns_resolve_failed: recipient!(recorder, DnsResolveFailure),
         };
