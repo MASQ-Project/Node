@@ -407,7 +407,11 @@ impl MASQMockNode {
                     )
                     .unwrap();
                 match incoming_cores_package.payload {
-                    MessageType::GossipFailure(g) => Some((g.extract(&node_lib::sub_lib::migrations::gossip_failure::MIGRATIONS).unwrap(), from.ip())),
+                    MessageType::GossipFailure(g) => Some((
+                        g.extract(&node_lib::sub_lib::migrations::gossip_failure::MIGRATIONS)
+                            .unwrap(),
+                        from.ip(),
+                    )),
                     _ => panic!("Expected GossipFailure, got something else"),
                 }
             }
