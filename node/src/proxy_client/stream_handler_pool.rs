@@ -9,7 +9,7 @@ use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_client::{error_socket_addr, ProxyClientSubs};
-use crate::sub_lib::proxy_client::{DnsResolveFailure, InboundServerData};
+use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, InboundServerData};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
@@ -304,7 +304,7 @@ impl StreamHandlerPoolReal {
                 .lookup_ip(&fqdn)
                 .map_err(move |err| {
                     dns_resolve_failed_sub
-                        .try_send(DnsResolveFailure::new(stream_key))
+                        .try_send(DnsResolveFailure_0v1::new(stream_key))
                         .expect("ProxyClient is poisoned");
                     err
                 })
@@ -602,11 +602,11 @@ mod tests {
         proxy_client_awaiter.await_message_count(1);
 
         assert_eq!(
-            &DnsResolveFailure::new(stream_key),
+            &DnsResolveFailure_0v1::new(stream_key),
             proxy_client_recording
                 .lock()
                 .unwrap()
-                .get_record::<DnsResolveFailure>(0),
+                .get_record::<DnsResolveFailure_0v1>(0),
         );
     }
 

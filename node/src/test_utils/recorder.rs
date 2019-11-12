@@ -25,11 +25,11 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure};
+use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
-use crate::sub_lib::proxy_client::{DnsResolveFailure, ProxyClientSubs};
+use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
@@ -89,8 +89,8 @@ macro_rules! recorder_message_handler {
 recorder_message_handler!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure>);
-recorder_message_handler!(ExpiredCoresPackage<GossipFailure>);
+recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure_0v1>);
+recorder_message_handler!(ExpiredCoresPackage<GossipFailure_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<Gossip_0v1>);
 recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(TransmitDataMsg);
@@ -112,7 +112,7 @@ recorder_message_handler!(ReportExitServiceConsumedMessage);
 recorder_message_handler!(SetDbPasswordMsg);
 recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(SetConsumingWalletMessage);
-recorder_message_handler!(DnsResolveFailure);
+recorder_message_handler!(DnsResolveFailure_0v1);
 recorder_message_handler!(NodeRecordMetadataMessage);
 recorder_message_handler!(ReceivedPayments);
 recorder_message_handler!(SentPayments);
@@ -332,7 +332,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
             .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
         dns_failure_from_hopper: addr
             .clone()
-            .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
+            .recipient::<ExpiredCoresPackage<DnsResolveFailure_0v1>>(),
         add_return_route: recipient!(addr, AddReturnRouteMessage),
         add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -365,7 +365,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
             .clone()
             .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
         inbound_server_data: recipient!(addr, InboundServerData),
-        dns_resolve_failed: recipient!(addr, DnsResolveFailure),
+        dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
     }
 }
 
@@ -379,7 +379,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
         gossip_failure: addr
             .clone()
-            .recipient::<ExpiredCoresPackage<GossipFailure>>(),
+            .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),

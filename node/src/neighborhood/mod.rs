@@ -35,7 +35,7 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure};
+use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
@@ -45,6 +45,7 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Addr;
 use actix::Context;
@@ -206,12 +207,12 @@ impl Handler<ExpiredCoresPackage<Gossip_0v1>> for Neighborhood {
     }
 }
 
-impl Handler<ExpiredCoresPackage<GossipFailure>> for Neighborhood {
+impl Handler<ExpiredCoresPackage<GossipFailure_0v1>> for Neighborhood {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ExpiredCoresPackage<GossipFailure>,
+        msg: ExpiredCoresPackage<GossipFailure_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         self.handle_gossip_failure(msg.immediate_neighbor, msg.payload);
@@ -390,7 +391,7 @@ impl Neighborhood {
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
             gossip_failure: addr
                 .clone()
-                .recipient::<ExpiredCoresPackage<GossipFailure>>(),
+                .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
@@ -537,7 +538,7 @@ impl Neighborhood {
         self.announce_gossip_handling_completion(record_count);
     }
 
-    fn handle_gossip_failure(&mut self, failure_source: SocketAddr, failure: GossipFailure) {
+    fn handle_gossip_failure(&mut self, failure_source: SocketAddr, failure: GossipFailure_0v1) {
         match self
             .initial_neighbors
             .iter()
@@ -1092,16 +1093,19 @@ impl Neighborhood {
 
     fn handle_gossip_failed(
         &self,
-        gossip_failure: GossipFailure,
+        gossip_failure: GossipFailure_0v1,
         target_key: &PublicKey,
         target_node_addr: &NodeAddr,
     ) {
         self.send_no_lookup_package(
-            MessageType::GossipFailure(gossip_failure.clone()),
+            MessageType::GossipFailure(VersionedData::new(
+                &crate::sub_lib::migrations::gossip_failure::MIGRATIONS,
+                &gossip_failure,
+            )),
             target_key,
             target_node_addr,
         );
-        trace!(self.logger, "Sent GossipFailure: {}", gossip_failure);
+        trace!(self.logger, "Sent GossipFailure_0v1: {}", gossip_failure);
     }
 
     fn handle_gossip_ignored(&self, _ignored_node_name: String, _gossip_record_count: usize) {
@@ -1214,6 +1218,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+    use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::neighborhood_test_utils::{
@@ -1524,19 +1529,19 @@ mod tests {
             one_neighbor_node.node_addr_opt().unwrap().into(),
             None,
             make_meaningless_route(),
-            GossipFailure::NoNeighbors,
+            GossipFailure_0v1::NoNeighbors,
             0,
         );
         let ecp2 = ExpiredCoresPackage::new(
             another_neighbor_node.node_addr_opt().unwrap().into(),
             None,
             make_meaningless_route(),
-            GossipFailure::ManualRejection,
+            GossipFailure_0v1::ManualRejection,
             0,
         );
         let system = System::new("responds_with_none_when_initially_configured_with_no_data");
         let addr: Addr<Neighborhood> = subject.start();
-        let sub = addr.recipient::<ExpiredCoresPackage<GossipFailure>>();
+        let sub = addr.recipient::<ExpiredCoresPackage<GossipFailure_0v1>>();
 
         sub.try_send(ecp1).unwrap();
         sub.try_send(ecp2).unwrap();
@@ -2650,7 +2655,7 @@ mod tests {
         let node_addr = NodeAddr::from_str("1.2.3.4:1234").unwrap();
         let gossip_acceptor =
             GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Failed(
-                GossipFailure::NoSuitableNeighbors,
+                GossipFailure_0v1::NoSuitableNeighbors,
                 public_key.clone(),
                 node_addr.clone(),
             ));
@@ -2676,7 +2681,10 @@ mod tests {
         .unwrap();
         assert_eq!(
             payload,
-            MessageType::GossipFailure(GossipFailure::NoSuitableNeighbors)
+            MessageType::GossipFailure(VersionedData::new(
+                &crate::sub_lib::migrations::gossip_failure::MIGRATIONS,
+                &GossipFailure_0v1::NoSuitableNeighbors
+            ))
         );
     }
 

@@ -31,7 +31,7 @@ use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
@@ -273,7 +273,7 @@ pub fn make_meaningless_stream_key() -> StreamKey {
 }
 
 pub fn make_meaningless_message_type() -> MessageType {
-    DnsResolveFailure::new(make_meaningless_stream_key()).into()
+    DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
 }
 
 pub fn make_meaningless_route() -> Route {

@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -35,21 +34,14 @@ pub struct ClientResponsePayload_0v1 {
 }
 
 #[derive(Message, Clone, Debug, PartialEq, Deserialize, Serialize)]
-pub struct DnsResolveFailure {
-    pub version: DataVersion,
+#[allow(non_camel_case_types)]
+pub struct DnsResolveFailure_0v1 {
     pub stream_key: StreamKey,
 }
 
-impl DnsResolveFailure {
-    pub fn version() -> DataVersion {
-        DataVersion::new(0, 0).expect("Internal Error")
-    }
-
+impl DnsResolveFailure_0v1 {
     pub fn new(stream_key: StreamKey) -> Self {
-        Self {
-            version: Self::version(),
-            stream_key,
-        }
+        Self { stream_key }
     }
 }
 
@@ -62,9 +54,12 @@ impl Into<MessageType> for ClientResponsePayload_0v1 {
     }
 }
 
-impl Into<MessageType> for DnsResolveFailure {
+impl Into<MessageType> for DnsResolveFailure_0v1 {
     fn into(self) -> MessageType {
-        MessageType::DnsResolveFailed(self)
+        MessageType::DnsResolveFailed(VersionedData::new(
+            &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
+            &self,
+        ))
     }
 }
 
@@ -73,7 +68,7 @@ pub struct ProxyClientSubs {
     pub bind: Recipient<BindMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload_0v1>>,
     pub inbound_server_data: Recipient<InboundServerData>,
-    pub dns_resolve_failed: Recipient<DnsResolveFailure>,
+    pub dns_resolve_failed: Recipient<DnsResolveFailure_0v1>,
 }
 
 impl Debug for ProxyClientSubs {
@@ -139,7 +134,7 @@ mod tests {
             bind: recipient!(recorder, BindMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<ClientRequestPayload_0v1>),
             inbound_server_data: recipient!(recorder, InboundServerData),
-            dns_resolve_failed: recipient!(recorder, DnsResolveFailure),
+            dns_resolve_failed: recipient!(recorder, DnsResolveFailure_0v1),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyClientSubs");

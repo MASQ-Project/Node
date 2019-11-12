@@ -23,7 +23,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
-use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -169,10 +169,10 @@ impl Handler<InboundServerData> for ProxyClient {
     }
 }
 
-impl Handler<DnsResolveFailure> for ProxyClient {
+impl Handler<DnsResolveFailure_0v1> for ProxyClient {
     type Result = ();
 
-    fn handle(&mut self, msg: DnsResolveFailure, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DnsResolveFailure_0v1, _ctx: &mut Self::Context) -> Self::Result {
         let stream_key = msg.stream_key;
         let stream_context_opt = self.stream_contexts.get(&stream_key);
         match stream_context_opt {
@@ -180,7 +180,10 @@ impl Handler<DnsResolveFailure> for ProxyClient {
                 let package = IncipientCoresPackage::new(
                     self.cryptde,
                     stream_context.return_route.clone(),
-                    MessageType::DnsResolveFailed(msg),
+                    MessageType::DnsResolveFailed(VersionedData::new(
+                        &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
+                        &msg,
+                    )),
                     &stream_context.payload_destination_key,
                 )
                 .expect("Failed to create IncipientCoresPackage");
@@ -230,7 +233,7 @@ impl ProxyClient {
                 .clone()
                 .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
             inbound_server_data: addr.clone().recipient::<InboundServerData>(),
-            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure>(),
+            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure_0v1>(),
         }
     }
 
@@ -588,7 +591,7 @@ mod tests {
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             system.run();
@@ -637,12 +640,12 @@ mod tests {
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             system.run();
@@ -650,7 +653,7 @@ mod tests {
 
         hopper_awaiter.await_message_count(1);
 
-        let message_type: MessageType = DnsResolveFailure::new(stream_key).into();
+        let message_type: MessageType = DnsResolveFailure_0v1::new(stream_key).into();
         assert_eq!(
             &IncipientCoresPackage::new(cryptde, return_route, message_type, &originator_key)
                 .unwrap(),

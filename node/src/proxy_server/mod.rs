@@ -27,7 +27,7 @@ use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, DEFAULT_RATE_PACK};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
@@ -165,12 +165,12 @@ impl Handler<AddRouteMessage> for ProxyServer {
     }
 }
 
-impl Handler<ExpiredCoresPackage<DnsResolveFailure>> for ProxyServer {
+impl Handler<ExpiredCoresPackage<DnsResolveFailure_0v1>> for ProxyServer {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ExpiredCoresPackage<DnsResolveFailure>,
+        msg: ExpiredCoresPackage<DnsResolveFailure_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         self.handle_dns_resolve_failure(&msg)
@@ -230,7 +230,7 @@ impl ProxyServer {
                 .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
             dns_failure_from_hopper: addr
                 .clone()
-                .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
+                .recipient::<ExpiredCoresPackage<DnsResolveFailure_0v1>>(),
             add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
             add_route: addr.clone().recipient::<AddRouteMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
@@ -238,7 +238,7 @@ impl ProxyServer {
         }
     }
 
-    fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure>) {
+    fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure_0v1>) {
         let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
             Some(rri) => rri,
             None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
@@ -964,7 +964,7 @@ mod tests {
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::ExpectedServices;
     use crate::sub_lib::neighborhood::{ExpectedService, DEFAULT_RATE_PACK};
-    use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+    use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
     use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::sub_lib::route::Route;
@@ -3411,9 +3411,9 @@ mod tests {
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
 
-        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -3508,9 +3508,9 @@ mod tests {
         );
 
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let dns_resolve_failure_payload = DnsResolveFailure::new(stream_key);
+        let dns_resolve_failure_payload = DnsResolveFailure_0v1::new(stream_key);
 
-        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -3587,9 +3587,9 @@ mod tests {
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
 
-        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -3659,9 +3659,9 @@ mod tests {
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
 
-        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -3733,9 +3733,9 @@ mod tests {
 
         let subject_addr: Addr<ProxyServer> = subject.start();
 
-        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
 
-        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),
@@ -3812,9 +3812,9 @@ mod tests {
                 server_name: None,
             },
         );
-        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
 
-        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure> =
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("irrelevant")),

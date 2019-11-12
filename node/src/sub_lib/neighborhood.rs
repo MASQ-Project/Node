@@ -248,7 +248,7 @@ pub struct NeighborhoodSubs {
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_0v1>>,
-    pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure>>,
+    pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure_0v1>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
@@ -382,20 +382,23 @@ impl fmt::Display for RatePack {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum GossipFailure {
+#[allow(non_camel_case_types)]
+pub enum GossipFailure_0v1 {
     NoNeighbors,
     NoSuitableNeighbors,
     ManualRejection,
+    Unknown,
 }
 
-impl fmt::Display for GossipFailure {
+impl fmt::Display for GossipFailure_0v1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let msg = match self {
-            GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
-            GossipFailure::NoSuitableNeighbors => {
+            GossipFailure_0v1::NoNeighbors => "No neighbors for Introduction or Pass",
+            GossipFailure_0v1::NoSuitableNeighbors => {
                 "No neighbors were suitable for Introduction or Pass"
             }
-            GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
+            GossipFailure_0v1::ManualRejection => "Node owner manually rejected your Debut",
+            GossipFailure_0v1::Unknown => "Unknown Debut failure",
         };
         write!(f, "{}", msg)
     }
@@ -431,7 +434,7 @@ mod tests {
             route_query: recipient!(recorder, RouteQueryMessage),
             update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_0v1>),
-            gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure>),
+            gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure_0v1>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
@@ -721,21 +724,22 @@ mod tests {
 
     #[test]
     fn gossip_failure_display() {
-        // Structured this way so that modifications to GossipFailure will draw attention here
+        // Structured this way so that modifications to GossipFailure_0v1 will draw attention here
         // so that the test can be updated
         vec![
-            GossipFailure::NoNeighbors,
-            GossipFailure::NoSuitableNeighbors,
-            GossipFailure::ManualRejection,
+            GossipFailure_0v1::NoNeighbors,
+            GossipFailure_0v1::NoSuitableNeighbors,
+            GossipFailure_0v1::ManualRejection,
         ]
         .into_iter()
         .for_each(|gf| {
             let expected_string = match gf {
-                GossipFailure::NoNeighbors => "No neighbors for Introduction or Pass",
-                GossipFailure::NoSuitableNeighbors => {
+                GossipFailure_0v1::NoNeighbors => "No neighbors for Introduction or Pass",
+                GossipFailure_0v1::NoSuitableNeighbors => {
                     "No neighbors were suitable for Introduction or Pass"
                 }
-                GossipFailure::ManualRejection => "Node owner manually rejected your Debut",
+                GossipFailure_0v1::ManualRejection => "Node owner manually rejected your Debut",
+                GossipFailure_0v1::Unknown => "Unknown Debut failure",
             };
             assert_eq!(&gf.to_string(), expected_string);
         });

@@ -422,7 +422,7 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
     use crate::sub_lib::neighborhood::{
-        DispatcherNodeQueryMessage, GossipFailure, NodeRecordMetadataMessage,
+        DispatcherNodeQueryMessage, GossipFailure_0v1, NodeRecordMetadataMessage,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodDotGraphRequest, RouteQueryMessage};
@@ -430,7 +430,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::proxy_client::{
-        ClientResponsePayload_0v1, DnsResolveFailure, InboundServerData,
+        ClientResponsePayload_0v1, DnsResolveFailure_0v1, InboundServerData,
     };
     use crate::sub_lib::proxy_server::{
         AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
@@ -520,7 +520,7 @@ mod tests {
                     .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
                 dns_failure_from_hopper: addr
                     .clone()
-                    .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
+                    .recipient::<ExpiredCoresPackage<DnsResolveFailure_0v1>>(),
                 add_return_route: recipient!(addr, AddReturnRouteMessage),
                 add_route: recipient!(addr, AddRouteMessage),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -565,7 +565,7 @@ mod tests {
                 from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
                 gossip_failure: addr
                     .clone()
-                    .recipient::<ExpiredCoresPackage<GossipFailure>>(),
+                    .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
                 dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
                 remove_neighbor: recipient!(addr, RemoveNeighborMessage),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -651,7 +651,7 @@ mod tests {
                     .clone()
                     .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
                 inbound_server_data: recipient!(addr, InboundServerData),
-                dns_resolve_failed: recipient!(addr, DnsResolveFailure),
+                dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
             }
         }
 

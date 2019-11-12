@@ -5,10 +5,10 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
-use crate::sub_lib::neighborhood::GossipFailure;
+use crate::sub_lib::neighborhood::GossipFailure_0v1;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::versioned_data::VersionedData;
@@ -68,8 +68,8 @@ pub enum MessageType {
     ClientRequest(VersionedData<ClientRequestPayload_0v1>),
     ClientResponse(VersionedData<ClientResponsePayload_0v1>),
     Gossip(VersionedData<Gossip_0v1>),
-    GossipFailure(GossipFailure),
-    DnsResolveFailed(DnsResolveFailure),
+    GossipFailure(VersionedData<GossipFailure_0v1>),
+    DnsResolveFailed(VersionedData<DnsResolveFailure_0v1>),
 }
 
 impl IncipientCoresPackage {
