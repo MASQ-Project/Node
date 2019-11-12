@@ -542,7 +542,9 @@ mod tests {
     ) {
         let paying_wallet = package.paying_wallet.clone();
         let payload = match package.payload {
-            MessageType::ClientRequest(r) => r,
+            MessageType::ClientRequest(vd) => vd
+                .extract(&crate::sub_lib::migrations::client_request_payload::MIGRATIONS)
+                .unwrap(),
             _ => panic!("Expected MessageType::ClientRequest, got something else"),
         };
         actix::run(move || {

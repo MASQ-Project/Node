@@ -2,28 +2,26 @@
 
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::migrations::utils::value_to_type;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::versioned_data::{
     MigrationError, Migrations, StepError, VersionedData, FUTURE_VERSION,
 };
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use serde_cbor::Value;
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
-use std::fmt::Debug;
 
 lazy_static! {
-    static ref MIGRATIONS: Migrations = {
+    pub static ref MIGRATIONS: Migrations = {
         let current_version = dv!(0, 1);
         let mut migrations = Migrations::new(current_version);
 
-        migrate_value!(dv!(0, 1), NodeRecordInner_0v1, NodeRecordInner_0v1MF_0v1, {|value: serde_cbor::Value| {
+        migrate_value!(dv!(0, 1), NodeRecordInner_0v1, NodeRecordInnerMF_0v1, {|value: serde_cbor::Value| {
             NodeRecordInner_0v1::try_from (&value)
         }});
-        migrations.add_step (FUTURE_VERSION, dv!(0, 1), Box::new (NodeRecordInner_0v1MF_0v1{}));
+        migrations.add_step (FUTURE_VERSION, dv!(0, 1), Box::new (NodeRecordInnerMF_0v1{}));
 
         // add more steps here
 
@@ -63,10 +61,8 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
                     let v = map.get(k).expect("Disappeared");
                     match (k, v) {
                         (Value::Text(field_name), Value::Map(_)) => match field_name.as_str() {
-                            "earning_wallet" => {
-                                earning_wallet_opt = Self::value_to_type::<Wallet>(v)
-                            }
-                            "rate_pack" => rate_pack_opt = Self::value_to_type::<RatePack>(v),
+                            "earning_wallet" => earning_wallet_opt = value_to_type::<Wallet>(v),
+                            "rate_pack" => rate_pack_opt = value_to_type::<RatePack>(v),
                             _ => (),
                         },
                         (Value::Text(field_name), Value::Array(field_value)) => {
@@ -139,7 +135,10 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
                     version: version_opt.expect("public_key disappeared"),
                 })
             }
-            _ => unimplemented!("Test-drive me"), //Err(StepError::DeserializationError(FUTURE_VERSION, MIGRATIONS.current_version()))
+            _ => Err(StepError::SemanticError(format!(
+                "Expected Value::Map; found {:?}",
+                value
+            ))),
         }
     }
 }
@@ -148,20 +147,12 @@ impl NodeRecordInner_0v1 {
     fn public_keys_to_btree_set(field_value: &Vec<Value>) -> Option<BTreeSet<PublicKey>> {
         let mut output: BTreeSet<PublicKey> = BTreeSet::new();
         for value in field_value {
-            match Self::value_to_type::<PublicKey>(value) {
+            match value_to_type::<PublicKey>(value) {
                 None => return None,
                 Some(public_key) => output.insert(public_key),
             };
         }
         Some(output)
-    }
-
-    fn value_to_type<T: Serialize + DeserializeOwned + Debug>(value: &Value) -> Option<T> {
-        let serialized = serde_cbor::ser::to_vec(value).expect("Serialization error");
-        match serde_cbor::de::from_slice::<T>(&serialized) {
-            Err(_) => None,
-            Ok(t) => Some(t),
-        }
     }
 }
 
@@ -218,5 +209,19 @@ mod tests {
         let actual_nri = NodeRecordInner_0v1::try_from(future_vd).unwrap();
 
         assert_eq!(actual_nri, expected_nri);
+    }
+
+    #[test]
+    fn cannot_migrate_from_value_other_than_map() {
+        let value = Value::Bool(true);
+
+        let result = NodeRecordInner_0v1::try_from(&value);
+
+        assert_eq!(
+            result,
+            Err(StepError::SemanticError(
+                "Expected Value::Map; found Bool(true)".to_string()
+            ))
+        )
     }
 }

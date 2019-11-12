@@ -6,6 +6,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
+use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
@@ -54,7 +55,10 @@ impl DnsResolveFailure {
 
 impl Into<MessageType> for ClientResponsePayload_0v1 {
     fn into(self) -> MessageType {
-        MessageType::ClientResponse(self)
+        MessageType::ClientResponse(VersionedData::new(
+            &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+            &self,
+        ))
     }
 }
 

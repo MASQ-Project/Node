@@ -65,8 +65,8 @@ pub struct IncipientCoresPackage {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MessageType {
-    ClientRequest(ClientRequestPayload_0v1),
-    ClientResponse(ClientResponsePayload_0v1),
+    ClientRequest(VersionedData<ClientRequestPayload_0v1>),
+    ClientResponse(VersionedData<ClientResponsePayload_0v1>),
     Gossip(VersionedData<Gossip_0v1>),
     GossipFailure(GossipFailure),
     DnsResolveFailed(DnsResolveFailure),

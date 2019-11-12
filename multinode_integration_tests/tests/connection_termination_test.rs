@@ -15,7 +15,6 @@ use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::cryptde::{decodex, CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::data_version::DataVersion;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::proxy_client::ClientResponsePayload_0v1;
@@ -29,6 +28,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use node_lib::sub_lib::versioned_data::VersionedData;
 
 const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =
@@ -56,7 +56,7 @@ fn actual_client_drop() {
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
     let payload = match decodex::<MessageType>(&exit_cryptde, &lcp.payload).unwrap() {
-        MessageType::ClientRequest(p) => p,
+        MessageType::ClientRequest(vd) => vd.extract(&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS).unwrap(),
         mt => panic!("Unexpected: {:?}", mt),
     };
     assert!(payload.sequenced_packet.data.is_empty());
@@ -148,7 +148,7 @@ fn actual_server_drop() {
     let payload = match decodex::<MessageType>(mock_node.main_cryptde_null().unwrap(), &lcp.payload)
         .unwrap()
     {
-        MessageType::ClientResponse(p) => p,
+        MessageType::ClientResponse(vd) => vd.extract (&node_lib::sub_lib::migrations::client_response_payload::MIGRATIONS).unwrap(),
         mt => panic!("Unexpected: {:?}", mt),
     };
     assert!(payload.sequenced_packet.data.is_empty());
@@ -279,7 +279,7 @@ fn context_from_request_lcp(
     exit_cryptde: &dyn CryptDE,
 ) -> (StreamKey, u32) {
     let payload = match decodex::<MessageType>(exit_cryptde, &lcp.payload).unwrap() {
-        MessageType::ClientRequest(p) => p,
+        MessageType::ClientRequest(vd) => vd.extract (&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS).unwrap(),
         mt => panic!("Unexpected: {:?}", mt),
     };
     let stream_key = payload.stream_key;
@@ -322,15 +322,17 @@ fn create_request_icp(
             Some(contract_address(chain_id)),
         )
         .unwrap(),
-        MessageType::ClientRequest(ClientRequestPayload_0v1 {
-            version: DataVersion::new(0, 0).unwrap(),
-            stream_key,
-            sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
-            target_hostname: Some(format!("{}", server.socket_addr().ip())),
-            target_port: server.socket_addr().port(),
-            protocol: ProxyProtocol::HTTP,
-            originator_public_key: originating_node.main_public_key().clone(),
-        }),
+        MessageType::ClientRequest(VersionedData::new (
+            &node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS,
+            &ClientRequestPayload_0v1 {
+                stream_key,
+                sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
+                target_hostname: Some(format!("{}", server.socket_addr().ip())),
+                target_port: server.socket_addr().port(),
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: originating_node.main_public_key().clone(),
+            }
+        )),
         exit_node.main_public_key(),
     )
     .unwrap()
@@ -365,15 +367,17 @@ fn create_meaningless_icp(
             Some(contract_address(DEFAULT_CHAIN_ID)),
         )
         .unwrap(),
-        MessageType::ClientRequest(ClientRequestPayload_0v1 {
-            version: DataVersion::new(0, 0).unwrap(),
-            stream_key,
-            sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
-            target_hostname: Some(format!("nowhere.com")),
-            target_port: socket_addr.port(),
-            protocol: ProxyProtocol::HTTP,
-            originator_public_key: originating_node.main_public_key().clone(),
-        }),
+        MessageType::ClientRequest(VersionedData::new (
+            &node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS,
+            &ClientRequestPayload_0v1 {
+                stream_key,
+                sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
+                target_hostname: Some(format!("nowhere.com")),
+                target_port: socket_addr.port(),
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: originating_node.main_public_key().clone(),
+            }
+        )),
         exit_node.main_public_key(),
     )
     .unwrap()
@@ -409,11 +413,13 @@ fn create_server_drop_report(
     route
         .shift(originating_node.main_cryptde_null().unwrap())
         .unwrap();
-    let payload = MessageType::ClientResponse(ClientResponsePayload_0v1 {
-        version: DataVersion::new(0, 0).unwrap(),
-        stream_key,
-        sequenced_packet: SequencedPacket::new(vec![], 0, true),
-    });
+    let payload = MessageType::ClientResponse(VersionedData::new (
+        &node_lib::sub_lib::migrations::client_response_payload::MIGRATIONS,
+        &ClientResponsePayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket::new(vec![], 0, true),
+        }
+    ));
 
     IncipientCoresPackage::new(
         exit_node.main_cryptde_null().unwrap(),
@@ -451,15 +457,17 @@ fn create_client_drop_report(
         Some(contract_address(DEFAULT_CHAIN_ID)),
     )
     .unwrap();
-    let payload = MessageType::ClientRequest(ClientRequestPayload_0v1 {
-        version: DataVersion::new(0, 0).unwrap(),
-        stream_key,
-        sequenced_packet: SequencedPacket::new(vec![], 1, true),
-        target_hostname: Some(String::from("doesnt.matter.com")),
-        target_port: 80,
-        protocol: ProxyProtocol::HTTP,
-        originator_public_key: originating_node.main_public_key().clone(),
-    });
+    let payload = MessageType::ClientRequest(VersionedData::new (
+            &node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS,
+            &ClientRequestPayload_0v1 {
+                stream_key,
+                sequenced_packet: SequencedPacket::new(vec![], 1, true),
+                target_hostname: Some(String::from("doesnt.matter.com")),
+                target_port: 80,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: originating_node.main_public_key().clone(),
+            }
+    ));
 
     IncipientCoresPackage::new(
         originating_node.main_cryptde_null().unwrap(),

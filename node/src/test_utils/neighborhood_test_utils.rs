@@ -88,7 +88,7 @@ pub fn neighborhood_from_nodes(
     config.neighborhood_config = match neighbor_opt {
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                root.node_addr_opt().expect("Test-drive me!"), // TODO: Clean this up
+                root.node_addr_opt().unwrap(),
                 vec![NodeDescriptor::from((
                     neighbor,
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),

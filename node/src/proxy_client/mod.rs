@@ -29,6 +29,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
@@ -242,14 +243,17 @@ impl ProxyClient {
         let msg_data_len = msg.data.len() as u32;
         let msg_source = msg.source;
         let msg_sequence_number = msg.sequence_number;
-        let payload = MessageType::ClientResponse(ClientResponsePayload_0v1 {
-            stream_key: msg.stream_key,
-            sequenced_packet: SequencedPacket {
-                data: msg.data,
-                sequence_number: msg.sequence_number,
-                last_data: msg.last_data,
+        let payload = MessageType::ClientResponse(VersionedData::new(
+            &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+            &ClientResponsePayload_0v1 {
+                stream_key: msg.stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: msg.data,
+                    sequence_number: msg.sequence_number,
+                    last_data: msg.last_data,
+                },
             },
-        });
+        ));
         debug!(
             self.logger,
             "Sending ClientResponsePayload to Hopper: stream {}, sequence {}, length {}",
@@ -328,6 +332,7 @@ mod tests {
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::sequence_buffer::SequencedPacket;
+    use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -912,14 +917,17 @@ mod tests {
             &IncipientCoresPackage::new(
                 main_cryptde(),
                 make_meaningless_route(),
-                MessageType::ClientResponse(ClientResponsePayload_0v1 {
-                    stream_key: stream_key.clone(),
-                    sequenced_packet: SequencedPacket {
-                        data: Vec::from(data),
-                        sequence_number: 1234,
-                        last_data: false,
-                    },
-                }),
+                MessageType::ClientResponse(VersionedData::new(
+                    &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                    &ClientResponsePayload_0v1 {
+                        stream_key: stream_key.clone(),
+                        sequenced_packet: SequencedPacket {
+                            data: Vec::from(data),
+                            sequence_number: 1234,
+                            last_data: false,
+                        },
+                    }
+                )),
                 &PublicKey::new(&b"abcd"[..]),
             )
             .unwrap()
@@ -929,14 +937,17 @@ mod tests {
             &IncipientCoresPackage::new(
                 main_cryptde(),
                 make_meaningless_route(),
-                MessageType::ClientResponse(ClientResponsePayload_0v1 {
-                    stream_key: stream_key.clone(),
-                    sequenced_packet: SequencedPacket {
-                        data: Vec::from(data),
-                        sequence_number: 1235,
-                        last_data: true,
-                    },
-                }),
+                MessageType::ClientResponse(VersionedData::new(
+                    &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                    &ClientResponsePayload_0v1 {
+                        stream_key: stream_key.clone(),
+                        sequenced_packet: SequencedPacket {
+                            data: Vec::from(data),
+                            sequence_number: 1235,
+                            last_data: true,
+                        },
+                    }
+                )),
                 &PublicKey::new(&b"abcd"[..]),
             )
             .unwrap()
@@ -1145,14 +1156,17 @@ mod tests {
         let expected_icp = IncipientCoresPackage::new(
             cryptde,
             new_return_route,
-            MessageType::ClientResponse(ClientResponsePayload_0v1 {
-                stream_key,
-                sequenced_packet: SequencedPacket {
-                    data: Vec::from(data.clone()),
-                    sequence_number: 1234,
-                    last_data: false,
+            MessageType::ClientResponse(VersionedData::new(
+                &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                &ClientResponsePayload_0v1 {
+                    stream_key,
+                    sequenced_packet: SequencedPacket {
+                        data: Vec::from(data.clone()),
+                        sequence_number: 1234,
+                        last_data: false,
+                    },
                 },
-            }),
+            )),
             &originator_public_key,
         )
         .unwrap();

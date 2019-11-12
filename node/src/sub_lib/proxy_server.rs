@@ -10,6 +10,7 @@ use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure}
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_key::StreamKey;
+use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
@@ -39,7 +40,10 @@ pub struct ClientRequestPayload_0v1 {
 
 impl Into<MessageType> for ClientRequestPayload_0v1 {
     fn into(self) -> MessageType {
-        MessageType::ClientRequest(self)
+        MessageType::ClientRequest(VersionedData::new(
+            &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
+            &self,
+        ))
     }
 }
 

@@ -971,6 +971,7 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
+    use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -1706,14 +1707,17 @@ mod tests {
             &IncipientCoresPackage::new(
                 main_cryptde,
                 expected_route.route,
-                MessageType::ClientRequest(ClientRequestPayload_0v1 {
-                    stream_key,
-                    sequenced_packet: SequencedPacket::new(expected_data, 0, true),
-                    target_hostname: Some("nowhere.com".to_string()),
-                    target_port: 80,
-                    protocol: ProxyProtocol::HTTP,
-                    originator_public_key: alias_cryptde.public_key().clone(),
-                }),
+                MessageType::ClientRequest(VersionedData::new(
+                    &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
+                    &ClientRequestPayload_0v1 {
+                        stream_key,
+                        sequenced_packet: SequencedPacket::new(expected_data, 0, true),
+                        target_hostname: Some("nowhere.com".to_string()),
+                        target_port: 80,
+                        protocol: ProxyProtocol::HTTP,
+                        originator_public_key: alias_cryptde.public_key().clone(),
+                    }
+                )),
                 alias_cryptde.public_key()
             )
             .unwrap()
@@ -1781,14 +1785,17 @@ mod tests {
             &IncipientCoresPackage::new(
                 main_cryptde,
                 expected_route.route,
-                MessageType::ClientRequest(ClientRequestPayload_0v1 {
-                    stream_key,
-                    sequenced_packet: SequencedPacket::new(expected_data, 0, true),
-                    target_hostname: None,
-                    target_port: 443,
-                    protocol: ProxyProtocol::TLS,
-                    originator_public_key: alias_cryptde.public_key().clone(),
-                }),
+                MessageType::ClientRequest(VersionedData::new(
+                    &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
+                    &ClientRequestPayload_0v1 {
+                        stream_key,
+                        sequenced_packet: SequencedPacket::new(expected_data, 0, true),
+                        target_hostname: None,
+                        target_port: 443,
+                        protocol: ProxyProtocol::TLS,
+                        originator_public_key: alias_cryptde.public_key().clone(),
+                    }
+                ),),
                 alias_cryptde.public_key()
             )
             .unwrap()
@@ -4195,8 +4202,9 @@ mod tests {
         assert_eq!(record.route, affected_route);
         let payload = decodex::<MessageType>(&affected_cryptde, &record.payload).unwrap();
         match payload {
-            MessageType::ClientRequest(payload) => assert_eq!(
-                payload,
+            MessageType::ClientRequest(vd) => assert_eq!(
+                vd.extract(&crate::sub_lib::migrations::client_request_payload::MIGRATIONS)
+                    .unwrap(),
                 ClientRequestPayload_0v1 {
                     stream_key: affected_stream_key,
                     sequenced_packet: SequencedPacket::new(vec![], 1234, true),
@@ -4310,8 +4318,9 @@ mod tests {
         assert_eq!(record.route, affected_route);
         let payload = decodex::<MessageType>(&affected_cryptde, &record.payload).unwrap();
         match payload {
-            MessageType::ClientRequest(payload) => assert_eq!(
-                payload,
+            MessageType::ClientRequest(vd) => assert_eq!(
+                vd.extract(&crate::sub_lib::migrations::client_request_payload::MIGRATIONS)
+                    .unwrap(),
                 ClientRequestPayload_0v1 {
                     stream_key: affected_stream_key,
                     sequenced_packet: SequencedPacket::new(vec![], 1234, true),

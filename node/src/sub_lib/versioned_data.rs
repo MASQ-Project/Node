@@ -93,6 +93,15 @@ impl<T> VersionedData<T>
 where
     T: Serialize + DeserializeOwned,
 {
+    #[cfg(test)]
+    pub fn test_new(version: DataVersion, bytes: Vec<u8>) -> VersionedData<T> {
+        VersionedData {
+            version,
+            bytes,
+            phantom: PhantomData,
+        }
+    }
+
     pub fn new(migrations: &Migrations, data: &T) -> VersionedData<T> {
         VersionedData {
             version: migrations.current_version(),
