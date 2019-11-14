@@ -4,7 +4,7 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 
@@ -22,7 +22,7 @@ impl ClientRequestPayloadFactory {
         stream_key: StreamKey,
         cryptde: &dyn CryptDE,
         logger: &Logger,
-    ) -> Option<ClientRequestPayload> {
+    ) -> Option<ClientRequestPayload_0v1> {
         let protocol_pack = from_ibcd(&ibcd, logger)?;
         let sequence_number = match ibcd.sequence_number {
             Some(sequence_number) => sequence_number,
@@ -44,8 +44,7 @@ impl ClientRequestPayloadFactory {
             },
             None => (None, protocol_pack.standard_port()),
         };
-        Some(ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        Some(ClientRequestPayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
                 data: ibcd.data.clone(),
@@ -90,8 +89,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            Some(ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
@@ -125,8 +123,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            Some(ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
@@ -180,8 +177,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            Some(ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
@@ -228,8 +224,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            Some(ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),

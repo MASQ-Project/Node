@@ -9,11 +9,11 @@ use multinode_integration_tests_lib::multinode_gossip::{
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::neighborhood::gossip::GossipBuilder;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use node_lib::neighborhood::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
-use node_lib::sub_lib::neighborhood::GossipFailure;
+use node_lib::sub_lib::neighborhood::GossipFailure_0v1;
+use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::test_utils::vec_to_set;
 use std::convert::TryInto;
 use std::time::Duration;
@@ -116,7 +116,7 @@ fn debut_target_does_not_pass_to_known_neighbors() {
         .unwrap();
     let result = debuter_mock_node.wait_for_gossip_failure(Duration::from_secs(2));
 
-    assert_eq!(result.unwrap().0, GossipFailure::NoSuitableNeighbors);
+    assert_eq!(result.unwrap().0, GossipFailure_0v1::NoSuitableNeighbors);
 }
 
 #[test]

@@ -1,12 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::neighborhood::gossip::{Gossip, GossipBuilder};
+use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::GossipFailure;
+use crate::sub_lib::neighborhood::GossipFailure_0v1;
 use crate::sub_lib::node_addr::NodeAddr;
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
@@ -21,9 +21,9 @@ pub enum GossipAcceptanceResult {
     // The incoming Gossip produced database changes. Generate standard Gossip and broadcast.
     Accepted,
     // Don't generate Gossip from the database: instead, send this Gossip to the provided key and NodeAddr.
-    Reply(Gossip, PublicKey, NodeAddr),
+    Reply(Gossip_0v1, PublicKey, NodeAddr),
     // The incoming Gossip was proper, and we tried to accept it, but couldn't.
-    Failed(GossipFailure, PublicKey, NodeAddr),
+    Failed(GossipFailure_0v1, PublicKey, NodeAddr),
     // The incoming Gossip contained nothing we didn't know. Don't send out any Gossip because of it.
     Ignored,
     // Gossip was ignored because it was evil: ban the sender of the Gossip as a malefactor.
@@ -170,7 +170,7 @@ impl GossipHandler for DebutHandler {
                     source_key, source_node_addr
                 );
                 return GossipAcceptanceResult::Failed(
-                    GossipFailure::NoSuitableNeighbors,
+                    GossipFailure_0v1::NoSuitableNeighbors,
                     (&source_agr.inner.public_key).clone(),
                     (&source_agr
                         .node_addr_opt
@@ -319,7 +319,7 @@ impl DebutHandler {
         database: &NeighborhoodDatabase,
         debuting_agr: &AccessibleGossipRecord,
         gossip_source: SocketAddr,
-    ) -> Option<(Gossip, PublicKey, NodeAddr)> {
+    ) -> Option<(Gossip_0v1, PublicKey, NodeAddr)> {
         if let Some(lcn_key) =
             Self::find_least_connected_full_neighbor_excluding(database, debuting_agr)
         {
@@ -438,7 +438,7 @@ impl DebutHandler {
         !debuting_agr.inner.neighbors.is_empty()
     }
 
-    fn make_pass_gossip(database: &NeighborhoodDatabase, pass_target: &PublicKey) -> Gossip {
+    fn make_pass_gossip(database: &NeighborhoodDatabase, pass_target: &PublicKey) -> Gossip_0v1 {
         GossipBuilder::new(database).node(pass_target, true).build()
     }
 }
@@ -1087,7 +1087,7 @@ impl<'a> GossipAcceptorReal<'a> {
     fn make_debut_triple(
         database: &NeighborhoodDatabase,
         debut_target: &AccessibleGossipRecord,
-    ) -> Result<(Gossip, PublicKey, NodeAddr), String> {
+    ) -> Result<(Gossip_0v1, PublicKey, NodeAddr), String> {
         let debut_target_node_addr = match &debut_target.node_addr_opt {
             None => {
                 return Err(format!(
@@ -1122,12 +1122,12 @@ mod tests {
     use super::*;
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
-    use crate::neighborhood::neighborhood_test_utils::{
-        db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
-    };
     use crate::neighborhood::node_record::NodeRecord;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
+    };
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set, DEFAULT_CHAIN_ID};
     use std::convert::TryInto;
     use std::str::FromStr;
@@ -1269,7 +1269,7 @@ mod tests {
         assert_eq!(
             result,
             GossipAcceptanceResult::Failed(
-                GossipFailure::NoSuitableNeighbors,
+                GossipFailure_0v1::NoSuitableNeighbors,
                 src_root.public_key().clone(),
                 src_root.node_addr_opt().unwrap(),
             )
@@ -3075,7 +3075,7 @@ mod tests {
             .for_each(|n| db.node_by_key_mut(n.public_key()).unwrap().resign());
     }
 
-    fn make_debut(n: u16, mode: Mode) -> (Gossip, NodeRecord, SocketAddr) {
+    fn make_debut(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord, SocketAddr) {
         let (gossip, debut_node) = make_single_node_gossip(n, mode);
         let gossip_source: SocketAddr = match debut_node.node_addr_opt() {
             Some(node_addr) => node_addr.into(),
@@ -3084,7 +3084,7 @@ mod tests {
         (gossip, debut_node, gossip_source)
     }
 
-    fn make_pass(n: u16) -> (Gossip, NodeRecord, SocketAddr) {
+    fn make_pass(n: u16) -> (Gossip_0v1, NodeRecord, SocketAddr) {
         let (gossip, debut_node) = make_single_node_gossip(n, Mode::Standard);
         (
             gossip,
@@ -3093,7 +3093,7 @@ mod tests {
         )
     }
 
-    fn make_single_node_gossip(n: u16, mode: Mode) -> (Gossip, NodeRecord) {
+    fn make_single_node_gossip(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord) {
         let mut debut_node = make_node_record(n, true);
         adjust_for_mode(&mut debut_node, mode);
         let src_db = db_from_node(&debut_node);
@@ -3103,7 +3103,7 @@ mod tests {
         (gossip, debut_node)
     }
 
-    fn make_introduction(introducer_n: u16, introducee_n: u16) -> (Gossip, SocketAddr) {
+    fn make_introduction(introducer_n: u16, introducee_n: u16) -> (Gossip_0v1, SocketAddr) {
         let mut introducer_node: NodeRecord = make_node_record(introducer_n, true);
         adjust_for_mode(&mut introducer_node, Mode::Standard);
         introducer_node.set_version(10);

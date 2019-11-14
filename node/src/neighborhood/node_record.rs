@@ -5,7 +5,6 @@ use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
-use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -18,8 +17,8 @@ use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct NodeRecordInner {
-    pub data_version: DataVersion,
+#[allow(non_camel_case_types)]
+pub struct NodeRecordInner_0v1 {
     pub public_key: PublicKey,
     pub earning_wallet: Wallet,
     pub rate_pack: RatePack,
@@ -29,13 +28,7 @@ pub struct NodeRecordInner {
     pub version: u32,
 }
 
-impl NodeRecordInner {
-    pub fn data_version() -> DataVersion {
-        DataVersion::new(1, 0).expect("Internal Error")
-    }
-}
-
-impl TryFrom<GossipNodeRecord> for NodeRecordInner {
+impl TryFrom<GossipNodeRecord> for NodeRecordInner_0v1 {
     type Error = String;
 
     fn try_from(gnr: GossipNodeRecord) -> Result<Self, Self::Error> {
@@ -46,11 +39,11 @@ impl TryFrom<GossipNodeRecord> for NodeRecordInner {
     }
 }
 
-impl TryFrom<&GossipNodeRecord> for NodeRecordInner {
+impl TryFrom<&GossipNodeRecord> for NodeRecordInner_0v1 {
     type Error = String;
 
     fn try_from(gnr_addr_ref: &GossipNodeRecord) -> Result<Self, Self::Error> {
-        NodeRecordInner::try_from(gnr_addr_ref.clone())
+        NodeRecordInner_0v1::try_from(gnr_addr_ref.clone())
     }
 }
 
@@ -61,7 +54,7 @@ pub enum NodeRecordError {
 
 #[derive(Clone, Debug)]
 pub struct NodeRecord {
-    pub inner: NodeRecordInner,
+    pub inner: NodeRecordInner_0v1,
     pub metadata: NodeRecordMetadata,
     pub signed_gossip: PlainData,
     pub signature: CryptData,
@@ -79,8 +72,7 @@ impl NodeRecord {
     ) -> NodeRecord {
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),
-            inner: NodeRecordInner {
-                data_version: NodeRecordInner::data_version(),
+            inner: NodeRecordInner_0v1 {
                 public_key: public_key.clone(),
                 earning_wallet,
                 rate_pack,
@@ -321,7 +313,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
     type Error = String;
 
     fn try_from(gnr: &GossipNodeRecord) -> Result<Self, Self::Error> {
-        let inner = NodeRecordInner::try_from(gnr)?;
+        let inner = NodeRecordInner_0v1::try_from(gnr)?;
         let mut node_record = NodeRecord {
             inner,
             metadata: NodeRecordMetadata::new(),
@@ -334,6 +326,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+#[allow(non_camel_case_types)]
 pub struct NodeRecordMetadata {
     pub desirable: bool,
     pub last_update: u32,
@@ -354,10 +347,9 @@ impl NodeRecordMetadata {
 mod tests {
     use super::*;
     use crate::neighborhood::gossip::GossipBuilder;
-    use crate::neighborhood::neighborhood_test_utils::db_from_node;
-    use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
+    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use crate::test_utils::{
         assert_contains, main_cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID,
     };
@@ -970,9 +962,9 @@ mod tests {
             node_addr_opt: None,
         };
 
-        let result = NodeRecordInner::try_from(corrupt_gnr);
+        let result = NodeRecordInner_0v1::try_from(corrupt_gnr);
 
-        assert_eq!(Err(String::from ("ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct NodeRecordInner\"), offset: 0 }")), result);
+        assert_eq!(Err(String::from ("ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct NodeRecordInner_0v1\"), offset: 0 }")), result);
     }
 
     #[test]

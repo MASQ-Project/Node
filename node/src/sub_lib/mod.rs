@@ -1,12 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+// These must be before the rest of the modules
+// in order to be able to use the macros.
 #[macro_use]
 pub mod logger;
-
-// This must be before the rest of the modules
-// in order to be able to use the recipient macro!
 #[macro_use]
 pub mod utils;
+#[macro_use]
+pub mod versioned_data;
 
 pub mod accountant;
 pub mod bidi_hashmap;
@@ -27,6 +28,7 @@ pub mod http_packet_framer;
 pub mod http_response_start_finder;
 pub mod limiter;
 pub mod main_tools;
+pub mod migrations;
 pub mod neighborhood;
 pub mod node_addr;
 pub mod peer_actors;
@@ -46,5 +48,4 @@ pub mod tokio_wrappers;
 pub mod ttl_hashmap;
 pub mod udp_socket_wrapper;
 pub mod ui_gateway;
-pub mod versioned_data;
 pub mod wallet;

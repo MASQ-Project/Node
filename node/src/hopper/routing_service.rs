@@ -1,18 +1,22 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::live_cores_package::LiveCoresPackage;
 use crate::blockchain::payer::Payer;
+use crate::neighborhood::gossip::Gossip_0v1;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::cryptde::{decodex, encodex, CodexError, CryptDE, CryptData, CryptdecError};
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::proxy_client::ProxyClientSubs;
-use crate::sub_lib::proxy_server::ProxyServerSubs;
+use crate::sub_lib::neighborhood::{GossipFailure_0v1, NeighborhoodSubs};
+use crate::sub_lib::proxy_client::{
+    ClientResponsePayload_0v1, DnsResolveFailure_0v1, ProxyClientSubs,
+};
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyServerSubs};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use std::borrow::Borrow;
+use std::convert::TryFrom;
 use std::net::SocketAddr;
 
 pub struct RoutingServiceSubs {
@@ -200,6 +204,24 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         payer_owns_secret_key: bool,
     ) {
+        let expired_package =
+            match self.extract_expired_package(immediate_neighbor_addr, live_package) {
+                None => return,
+                Some(p) => p,
+            };
+        trace!(
+            self.logger,
+            "Forwarding ExpiredCoresPackage to {:?}",
+            component
+        );
+        self.route_expired_package(component, expired_package, payer_owns_secret_key)
+    }
+
+    fn extract_expired_package(
+        &self,
+        immediate_neighbor_addr: SocketAddr,
+        live_package: LiveCoresPackage,
+    ) -> Option<ExpiredCoresPackage<MessageType>> {
         let data_len = live_package.payload.len();
         let expired_package = match live_package.to_expired(
             immediate_neighbor_addr,
@@ -219,14 +241,14 @@ impl RoutingService {
                             self.logger,
                             "Neither alias key nor main key can expire CORES package with {}-byte payload", data_len
                         );
-                        return;
+                        return None;
                     }
                     Err(e2) => {
                         error!(
                             self.logger,
                             "Couldn't expire CORES package with {}-byte payload using main key: {:?}", data_len, e2
                         );
-                        return;
+                        return None;
                     }
                 }
             }
@@ -237,17 +259,31 @@ impl RoutingService {
                     data_len,
                     e
                 );
-                return;
+                return None;
             }
         };
-        trace!(
-            self.logger,
-            "Forwarding ExpiredCoresPackage to {:?}",
-            component
-        );
+        Some(expired_package)
+    }
+
+    fn route_expired_package(
+        &self,
+        component: Component,
+        expired_package: ExpiredCoresPackage<MessageType>,
+        payer_owns_secret_key: bool,
+    ) {
         match (component, expired_package.payload) {
-            (Component::ProxyClient, MessageType::ClientRequest(client_request)) => {
+            (Component::ProxyClient, MessageType::ClientRequest(vd)) => {
                 if !self.is_decentralized || payer_owns_secret_key {
+                    let client_request = match ClientRequestPayload_0v1::try_from(vd) {
+                        Ok(crp) => crp,
+                        Err(e) => {
+                            error!(
+                                self.logger,
+                                "Received unmigratable ClientRequestPayload: {:?}", e
+                            );
+                            return;
+                        }
+                    };
                     self.routing_service_subs
                         .proxy_client_subs
                         .from_hopper
@@ -272,54 +308,92 @@ impl RoutingService {
                     );
                 }
             }
-            (Component::ProxyServer, MessageType::ClientResponse(client_response)) => self
-                .routing_service_subs
-                .proxy_server_subs
-                .from_hopper
-                .try_send(ExpiredCoresPackage::new(
-                    expired_package.immediate_neighbor,
-                    expired_package.paying_wallet,
-                    expired_package.remaining_route,
-                    client_response,
-                    expired_package.payload_len,
-                ))
-                .expect("ProxyServer is dead"),
-            (Component::ProxyServer, MessageType::DnsResolveFailed(dns_resolve_failure)) => self
-                .routing_service_subs
-                .proxy_server_subs
-                .dns_failure_from_hopper
-                .try_send(ExpiredCoresPackage::new(
-                    expired_package.immediate_neighbor,
-                    expired_package.paying_wallet,
-                    expired_package.remaining_route,
-                    dns_resolve_failure,
-                    expired_package.payload_len,
-                ))
-                .expect("ProxyServer is dead"),
-            (Component::Neighborhood, MessageType::Gossip(gossip)) => self
-                .routing_service_subs
-                .neighborhood_subs
-                .from_hopper
-                .try_send(ExpiredCoresPackage::new(
-                    expired_package.immediate_neighbor,
-                    expired_package.paying_wallet,
-                    expired_package.remaining_route,
-                    gossip,
-                    expired_package.payload_len,
-                ))
-                .expect("Neighborhood is dead"),
-            (Component::Neighborhood, MessageType::GossipFailure(failure)) => self
-                .routing_service_subs
-                .neighborhood_subs
-                .gossip_failure
-                .try_send(ExpiredCoresPackage::new(
-                    expired_package.immediate_neighbor,
-                    expired_package.paying_wallet,
-                    expired_package.remaining_route,
-                    failure,
-                    expired_package.payload_len,
-                ))
-                .expect("Neighborhood is dead"),
+            (Component::ProxyServer, MessageType::ClientResponse(vd)) => {
+                let client_response = match ClientResponsePayload_0v1::try_from(vd) {
+                    Ok(crp) => crp,
+                    Err(e) => {
+                        error!(
+                            self.logger,
+                            "Received unmigratable ClientResponsePayload: {:?}", e
+                        );
+                        return;
+                    }
+                };
+                self.routing_service_subs
+                    .proxy_server_subs
+                    .from_hopper
+                    .try_send(ExpiredCoresPackage::new(
+                        expired_package.immediate_neighbor,
+                        expired_package.paying_wallet,
+                        expired_package.remaining_route,
+                        client_response,
+                        expired_package.payload_len,
+                    ))
+                    .expect("ProxyServer is dead")
+            }
+            (Component::ProxyServer, MessageType::DnsResolveFailed(vd)) => {
+                let failure = match DnsResolveFailure_0v1::try_from(vd) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        error!(
+                            self.logger,
+                            "Received unmigratable DnsResolveFailed: {:?}", e
+                        );
+                        return;
+                    }
+                };
+                self.routing_service_subs
+                    .proxy_server_subs
+                    .dns_failure_from_hopper
+                    .try_send(ExpiredCoresPackage::new(
+                        expired_package.immediate_neighbor,
+                        expired_package.paying_wallet,
+                        expired_package.remaining_route,
+                        failure,
+                        expired_package.payload_len,
+                    ))
+                    .expect("ProxyServer is dead")
+            }
+            (Component::Neighborhood, MessageType::Gossip(vd)) => {
+                let gossip = match Gossip_0v1::try_from(vd) {
+                    Ok(g) => g,
+                    Err(e) => {
+                        error!(self.logger, "Received unmigratable Gossip: {:?}", e);
+                        return;
+                    }
+                };
+                self.routing_service_subs
+                    .neighborhood_subs
+                    .from_hopper
+                    .try_send(ExpiredCoresPackage::new(
+                        expired_package.immediate_neighbor,
+                        expired_package.paying_wallet,
+                        expired_package.remaining_route,
+                        gossip,
+                        expired_package.payload_len,
+                    ))
+                    .expect("Neighborhood is dead")
+            }
+            (Component::Neighborhood, MessageType::GossipFailure(vd)) => {
+                let failure = match GossipFailure_0v1::try_from(vd) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        error!(self.logger, "Received unmigratable GossipFailure: {:?}", e);
+                        return;
+                    }
+                };
+                self.routing_service_subs
+                    .neighborhood_subs
+                    .gossip_failure
+                    .try_send(ExpiredCoresPackage::new(
+                        expired_package.immediate_neighbor,
+                        expired_package.paying_wallet,
+                        expired_package.remaining_route,
+                        failure,
+                        expired_package.payload_len,
+                    ))
+                    .expect("Neighborhood is dead")
+            }
             (destination, payload) => error!(
                 self.logger,
                 "Attempt to send invalid combination {:?} to {:?}", payload, destination
@@ -434,15 +508,16 @@ mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
     use crate::blockchain::blockchain_interface::contract_address;
-    use crate::neighborhood::gossip::{Gossip, GossipBuilder};
+    use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType, MessageType::ClientRequest};
-    use crate::sub_lib::neighborhood::GossipFailure;
-    use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-    use crate::sub_lib::proxy_server::ClientRequestPayload;
+    use crate::sub_lib::neighborhood::GossipFailure_0v1;
+    use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
+    use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
     use crate::sub_lib::route::{Route, RouteSegment};
+    use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -463,13 +538,16 @@ mod tests {
         let alias_cryptde = alias_cryptde();
         let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
         let stream_key = make_meaningless_stream_key();
-        let dns_resolve_failure = DnsResolveFailure::new(stream_key);
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
                 alias_cryptde,
                 &alias_cryptde.public_key(),
-                &MessageType::DnsResolveFailed(dns_resolve_failure.clone()),
+                &MessageType::DnsResolveFailed(VersionedData::new(
+                    &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
+                    &dns_resolve_failure.clone(),
+                )),
             )
             .unwrap(),
         );
@@ -508,7 +586,7 @@ mod tests {
         system.run();
 
         let recordings = proxy_server_recording.lock().unwrap();
-        let message = recordings.get_record::<ExpiredCoresPackage<DnsResolveFailure>>(0);
+        let message = recordings.get_record::<ExpiredCoresPackage<DnsResolveFailure_0v1>>(0);
         assert_eq!(dns_resolve_failure, message.payload);
     }
 
@@ -611,7 +689,7 @@ mod tests {
             encodex(
                 main_cryptde,
                 &main_cryptde.public_key(),
-                &MessageType::Gossip(payload),
+                &MessageType::Gossip(payload.into()),
             )
             .unwrap(),
         );
@@ -700,7 +778,8 @@ mod tests {
         System::current().stop();
         system.run();
         let component_recording = component_recording_arc.lock().unwrap();
-        let record = component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload>>(0);
+        let record =
+            component_recording.get_record::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(0);
         let expected_ecp = lcp_a
             .to_expired(
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -768,7 +847,7 @@ mod tests {
         system.run();
         let component_recording = component_recording_arc.lock().unwrap();
         let record =
-            component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload>>(0);
+            component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(0);
         let expected_ecp = lcp_a
             .to_expired(
                 SocketAddr::from_str("1.3.2.4:5678").unwrap(),
@@ -845,7 +924,7 @@ mod tests {
         System::current().stop();
         system.run();
         let component_recording = component_recording_arc.lock().unwrap();
-        let record = component_recording.get_record::<ExpiredCoresPackage<Gossip>>(0);
+        let record = component_recording.get_record::<ExpiredCoresPackage<Gossip_0v1>>(0);
         let expected_ecp = lcp_a
             .to_expired(
                 SocketAddr::from_str("1.3.2.4:5678").unwrap(),
@@ -877,7 +956,10 @@ mod tests {
         )
         .unwrap();
         route.shift(cryptde).unwrap();
-        let payload = MessageType::GossipFailure(GossipFailure::NoNeighbors);
+        let payload = MessageType::GossipFailure(VersionedData::new(
+            &crate::sub_lib::migrations::gossip_failure::MIGRATIONS,
+            &GossipFailure_0v1::NoNeighbors,
+        ));
         let lcp = LiveCoresPackage::new(
             route,
             encodex::<MessageType>(cryptde, &cryptde.public_key(), &payload).unwrap(),
@@ -916,7 +998,7 @@ mod tests {
         System::current().stop();
         system.run();
         let component_recording = component_recording_arc.lock().unwrap();
-        let record = component_recording.get_record::<ExpiredCoresPackage<GossipFailure>>(0);
+        let record = component_recording.get_record::<ExpiredCoresPackage<GossipFailure_0v1>>(0);
         let expected_ecp = lcp
             .to_expired(
                 SocketAddr::from_str("1.3.2.4:5678").unwrap(),
@@ -927,7 +1009,7 @@ mod tests {
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
         assert_eq!(record.paying_wallet, expected_ecp.paying_wallet);
         assert_eq!(record.remaining_route, expected_ecp.remaining_route);
-        assert_eq!(record.payload, GossipFailure::NoNeighbors);
+        assert_eq!(record.payload, GossipFailure_0v1::NoNeighbors);
         assert_eq!(record.payload_len, expected_ecp.payload_len);
     }
 
@@ -1192,7 +1274,10 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let public_key = main_cryptde.public_key();
-        let payload = ClientRequest(make_request_payload(0, main_cryptde));
+        let payload = ClientRequest(VersionedData::new(
+            &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+            &make_request_payload(0, main_cryptde),
+        ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let live_hops: Vec<LiveHop> = vec![
@@ -1294,7 +1379,10 @@ mod tests {
         let destination_key = PublicKey::new(&[5, 6]);
         let destination_cryptde = CryptDENull::from(&destination_key, DEFAULT_CHAIN_ID);
 
-        let payload = ClientRequest(make_request_payload(0, &destination_cryptde));
+        let payload = ClientRequest(VersionedData::new(
+            &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+            &make_request_payload(0, &destination_cryptde),
+        ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
         let live_hops: Vec<LiveHop> = vec![
@@ -1658,6 +1746,206 @@ mod tests {
 
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: bad zero-hop route: RoutingError(EmptyRoute)",
+        );
+    }
+
+    #[test]
+    fn route_expired_package_handles_unmigratable_gossip() {
+        init_test_logging();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        let subject = RoutingService::new(
+            main_cryptde(),
+            alias_cryptde(),
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            100,
+            200,
+            false,
+        );
+        let expired_package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            None,
+            Route { hops: vec![] },
+            MessageType::Gossip(VersionedData::test_new(dv!(0, 0), vec![])),
+            0,
+        );
+        let system = System::new("route_expired_package_handles_unmigratable_gossip");
+
+        subject.route_expired_package(Component::Neighborhood, expired_package, true);
+
+        System::current().stop_with_code(0);
+        system.run();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        assert_eq!(neighborhood_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Received unmigratable Gossip: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
+        );
+    }
+
+    #[test]
+    fn route_expired_package_handles_unmigratable_client_request() {
+        init_test_logging();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let subject = RoutingService::new(
+            main_cryptde(),
+            alias_cryptde(),
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            100,
+            200,
+            false,
+        );
+        let expired_package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            None,
+            Route { hops: vec![] },
+            MessageType::ClientRequest(VersionedData::test_new(dv!(0, 0), vec![])),
+            0,
+        );
+        let system = System::new("route_expired_package_handles_unmigratable_client_request");
+
+        subject.route_expired_package(Component::ProxyClient, expired_package, true);
+
+        System::current().stop_with_code(0);
+        system.run();
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(proxy_client_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Received unmigratable ClientRequestPayload: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
+        );
+    }
+
+    #[test]
+    fn route_expired_package_handles_unmigratable_client_response() {
+        init_test_logging();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
+        let subject = RoutingService::new(
+            main_cryptde(),
+            alias_cryptde(),
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            100,
+            200,
+            false,
+        );
+        let expired_package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            None,
+            Route { hops: vec![] },
+            MessageType::ClientResponse(VersionedData::test_new(dv!(0, 0), vec![])),
+            0,
+        );
+        let system = System::new("route_expired_package_handles_unmigratable_client_response");
+
+        subject.route_expired_package(Component::ProxyServer, expired_package, true);
+
+        System::current().stop_with_code(0);
+        system.run();
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        assert_eq!(proxy_server_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Received unmigratable ClientResponsePayload: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
+        );
+    }
+
+    #[test]
+    fn route_expired_package_handles_unmigratable_dns_resolve_failure() {
+        init_test_logging();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        let subject = RoutingService::new(
+            main_cryptde(),
+            alias_cryptde(),
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            100,
+            200,
+            false,
+        );
+        let expired_package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            None,
+            Route { hops: vec![] },
+            MessageType::DnsResolveFailed(VersionedData::test_new(dv!(0, 0), vec![])),
+            0,
+        );
+        let system = System::new("route_expired_package_handles_unmigratable_dns_resolve_failure");
+
+        subject.route_expired_package(Component::ProxyServer, expired_package, true);
+
+        System::current().stop_with_code(0);
+        system.run();
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Received unmigratable DnsResolveFailed: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
+        );
+    }
+
+    #[test]
+    fn route_expired_package_handles_unmigratable_gossip_failure() {
+        init_test_logging();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        let subject = RoutingService::new(
+            main_cryptde(),
+            alias_cryptde(),
+            RoutingServiceSubs {
+                proxy_client_subs: peer_actors.proxy_client,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            100,
+            200,
+            false,
+        );
+        let expired_package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            None,
+            Route { hops: vec![] },
+            MessageType::GossipFailure(VersionedData::test_new(dv!(0, 0), vec![])),
+            0,
+        );
+        let system = System::new("route_expired_package_handles_unmigratable_gossip_failure");
+
+        subject.route_expired_package(Component::Neighborhood, expired_package, true);
+
+        System::current().stop_with_code(0);
+        system.run();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        assert_eq!(neighborhood_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: RoutingService: Received unmigratable GossipFailure: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
         );
     }
 }

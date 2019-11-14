@@ -9,8 +9,8 @@ use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_client::{error_socket_addr, ProxyClientSubs};
-use crate::sub_lib::proxy_client::{DnsResolveFailure, InboundServerData};
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, InboundServerData};
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
@@ -31,7 +31,7 @@ use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub trait StreamHandlerPool {
-    fn process_package(&self, payload: ClientRequestPayload, paying_wallet: Option<Wallet>);
+    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet: Option<Wallet>);
 }
 
 pub struct StreamHandlerPoolReal {
@@ -52,7 +52,7 @@ struct StreamHandlerPoolRealInner {
 }
 
 impl StreamHandlerPool for StreamHandlerPoolReal {
-    fn process_package(&self, payload: ClientRequestPayload, paying_wallet: Option<Wallet>) {
+    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet: Option<Wallet>) {
         self.do_housekeeping();
         Self::process_package(payload, paying_wallet, self.inner.clone())
     }
@@ -95,7 +95,7 @@ impl StreamHandlerPoolReal {
     }
 
     fn process_package(
-        payload: ClientRequestPayload,
+        payload: ClientRequestPayload_0v1,
         paying_wallet: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) {
@@ -167,7 +167,7 @@ impl StreamHandlerPoolReal {
 
     fn write_and_tend(
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
-        payload: ClientRequestPayload,
+        payload: ClientRequestPayload_0v1,
         paying_wallet: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> impl Future<Item = (), Error = String> {
@@ -214,7 +214,7 @@ impl StreamHandlerPoolReal {
     }
 
     fn make_stream_with_key(
-        payload: &ClientRequestPayload,
+        payload: &ClientRequestPayload_0v1,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> StreamEstablisherResult {
         // TODO: Figure out what to do if a flurry of requests for a particular stream key
@@ -267,7 +267,7 @@ impl StreamHandlerPoolReal {
     }
 
     fn handle_ip(
-        payload: ClientRequestPayload,
+        payload: ClientRequestPayload_0v1,
         ip_addr: IpAddr,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         target_hostname: String,
@@ -284,7 +284,7 @@ impl StreamHandlerPoolReal {
     fn lookup_dns(
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         target_hostname: String,
-        payload: ClientRequestPayload,
+        payload: ClientRequestPayload_0v1,
     ) -> StreamEstablisherResult {
         let fqdn = Self::make_fqdn(&target_hostname);
         let dns_resolve_failed_sub = inner_arc
@@ -304,7 +304,7 @@ impl StreamHandlerPoolReal {
                 .lookup_ip(&fqdn)
                 .map_err(move |err| {
                     dns_resolve_failed_sub
-                        .try_send(DnsResolveFailure::new(stream_key))
+                        .try_send(DnsResolveFailure_0v1::new(stream_key))
                         .expect("ProxyClient is poisoned");
                     err
                 })
@@ -323,7 +323,7 @@ impl StreamHandlerPoolReal {
 
     fn handle_lookup_ip(
         target_hostname: String,
-        payload: &ClientRequestPayload,
+        payload: &ClientRequestPayload_0v1,
         lookup_result: Result<LookupIp, ResolveError>,
         logger: Logger,
         establisher: &mut StreamEstablisher,
@@ -542,7 +542,9 @@ mod tests {
     ) {
         let paying_wallet = package.paying_wallet.clone();
         let payload = match package.payload {
-            MessageType::ClientRequest(r) => r,
+            MessageType::ClientRequest(vd) => vd
+                .extract(&crate::sub_lib::migrations::client_request_payload::MIGRATIONS)
+                .unwrap(),
             _ => panic!("Expected MessageType::ClientRequest, got something else"),
         };
         actix::run(move || {
@@ -583,8 +585,7 @@ mod tests {
                 exit_service_rate: Default::default(),
                 exit_byte_rate: Default::default(),
             };
-            let payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(b"booga".to_vec(), 0, false),
                 target_hostname: Some("www.example.com".to_string()),
@@ -601,11 +602,11 @@ mod tests {
         proxy_client_awaiter.await_message_count(1);
 
         assert_eq!(
-            &DnsResolveFailure::new(stream_key),
+            &DnsResolveFailure_0v1::new(stream_key),
             proxy_client_recording
                 .lock()
                 .unwrap()
-                .get_record::<DnsResolveFailure>(0),
+                .get_record::<DnsResolveFailure_0v1>(0),
         );
     }
 
@@ -613,8 +614,7 @@ mod tests {
     fn non_terminal_payload_can_be_sent_over_existing_connection() {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
-        let client_request_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let client_request_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: b"These are the times".to_vec(),
@@ -676,8 +676,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
@@ -746,8 +745,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
@@ -856,8 +854,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
@@ -964,8 +961,7 @@ mod tests {
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
@@ -1029,8 +1025,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
@@ -1138,8 +1133,7 @@ mod tests {
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
@@ -1229,8 +1223,7 @@ mod tests {
                 last_data: false,
             };
 
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: sequenced_packet.clone(),
                 target_hostname: Some(String::from("that.try")),
@@ -1335,8 +1328,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
@@ -1401,8 +1393,7 @@ mod tests {
             sequence_number: 0,
             last_data: true,
         };
-        let client_request_payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let client_request_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: sequenced_packet.clone(),
             target_hostname: Some(String::from("that.try")),
@@ -1466,8 +1457,7 @@ mod tests {
                 .hopper(hopper)
                 .accountant(accountant)
                 .build();
-            let client_request_payload = ClientRequestPayload {
-                version: ClientRequestPayload::version(),
+            let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: vec![],

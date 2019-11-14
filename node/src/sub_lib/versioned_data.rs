@@ -71,7 +71,7 @@ impl FromStr for DataVersion {
 }
 
 impl DataVersion {
-    fn new(major: u16, minor: u16) -> DataVersion {
+    pub fn new(major: u16, minor: u16) -> DataVersion {
         if (major > 4095) || (minor > 4095) {
             panic!(
                 "DataVersion major and minor components range from 0-4095, not '{}.{}'",
@@ -82,17 +82,26 @@ impl DataVersion {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct VersionedData<T: Serialize + DeserializeOwned> {
     version: DataVersion,
     bytes: Vec<u8>,
-    phantom: PhantomData<*const T>,
+    phantom: PhantomData<fn() -> T>,
 }
 
 impl<T> VersionedData<T>
 where
     T: Serialize + DeserializeOwned,
 {
+    #[cfg(test)]
+    pub fn test_new(version: DataVersion, bytes: Vec<u8>) -> VersionedData<T> {
+        VersionedData {
+            version,
+            bytes,
+            phantom: PhantomData,
+        }
+    }
+
     pub fn new(migrations: &Migrations, data: &T) -> VersionedData<T> {
         VersionedData {
             version: migrations.current_version(),
@@ -103,6 +112,10 @@ where
 
     pub fn version(&self) -> DataVersion {
         self.version
+    }
+
+    pub fn bytes(&self) -> &Vec<u8> {
+        unimplemented!()
     }
 
     pub fn extract(self, migrations: &Migrations) -> Result<T, MigrationError> {
@@ -128,10 +141,11 @@ where
             }
         };
         match serde_cbor::de::from_slice::<T>(&migrated_bytes) {
-            Err(_) => Err(MigrationError::MigrationFailed(
+            Err(e) => Err(MigrationError::MigrationFailed(
                 StepError::DeserializationError(
                     migrations.current_version,
                     migrations.current_version,
+                    format!("{:?}", e),
                 ),
             )),
             Ok(item) => Ok(item),
@@ -141,7 +155,7 @@ where
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StepError {
-    DeserializationError(DataVersion, DataVersion),
+    DeserializationError(DataVersion, DataVersion, String),
     SemanticError(String),
 }
 
@@ -354,6 +368,7 @@ macro_rules! dv {
 #[macro_export]
 macro_rules! migrate_item {
     ($fv:expr, $ft:ty, $tv:expr, $tt:ty, $mt:ident, $b:block) => {
+        #[allow(non_camel_case_types)]
         struct $mt {}
         impl crate::sub_lib::versioned_data::MigrationStep for $mt {
             fn migrate(
@@ -365,7 +380,9 @@ macro_rules! migrate_item {
                     Err(_) => {
                         return Err(
                             crate::sub_lib::versioned_data::StepError::DeserializationError(
-                                $fv, $tv,
+                                $fv,
+                                $tv,
+                                "Fibble".to_string(),
                             ),
                         )
                     }
@@ -405,6 +422,7 @@ macro_rules! migrate_item {
 #[macro_export]
 macro_rules! migrate_value {
     ($tv:expr, $tt:ty, $mt:ident, $b:block) => {
+        #[allow(non_camel_case_types)]
         struct $mt {}
         impl crate::sub_lib::versioned_data::MigrationStep for $mt {
             fn migrate(
@@ -418,6 +436,7 @@ macro_rules! migrate_value {
                             crate::sub_lib::versioned_data::StepError::DeserializationError(
                                 FUTURE_VERSION,
                                 $tv,
+                                "Wampum".to_string(),
                             ),
                         )
                     }
@@ -908,7 +927,7 @@ mod tests {
         assert_eq!(
             result,
             Err(MigrationError::MigrationFailed(
-                StepError::DeserializationError(dv!(4, 5), dv!(4, 5))
+                StepError::DeserializationError(dv!(4, 5), dv!(4, 5), "ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct PersonV45\"), offset: 0 }".to_string())
             ))
         );
     }

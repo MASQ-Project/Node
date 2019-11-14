@@ -23,12 +23,13 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
-use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
@@ -91,12 +92,12 @@ impl Handler<BindMessage> for ProxyClient {
     }
 }
 
-impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
+impl Handler<ExpiredCoresPackage<ClientRequestPayload_0v1>> for ProxyClient {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ExpiredCoresPackage<ClientRequestPayload>,
+        msg: ExpiredCoresPackage<ClientRequestPayload_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let is_zero_hop = match msg.remaining_route.next_hop(self.cryptde) {
@@ -168,10 +169,10 @@ impl Handler<InboundServerData> for ProxyClient {
     }
 }
 
-impl Handler<DnsResolveFailure> for ProxyClient {
+impl Handler<DnsResolveFailure_0v1> for ProxyClient {
     type Result = ();
 
-    fn handle(&mut self, msg: DnsResolveFailure, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DnsResolveFailure_0v1, _ctx: &mut Self::Context) -> Self::Result {
         let stream_key = msg.stream_key;
         let stream_context_opt = self.stream_contexts.get(&stream_key);
         match stream_context_opt {
@@ -179,7 +180,10 @@ impl Handler<DnsResolveFailure> for ProxyClient {
                 let package = IncipientCoresPackage::new(
                     self.cryptde,
                     stream_context.return_route.clone(),
-                    MessageType::DnsResolveFailed(msg),
+                    MessageType::DnsResolveFailed(VersionedData::new(
+                        &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
+                        &msg,
+                    )),
                     &stream_context.payload_destination_key,
                 )
                 .expect("Failed to create IncipientCoresPackage");
@@ -227,9 +231,9 @@ impl ProxyClient {
             bind: addr.clone().recipient::<BindMessage>(),
             from_hopper: addr
                 .clone()
-                .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
+                .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
             inbound_server_data: addr.clone().recipient::<InboundServerData>(),
-            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure>(),
+            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure_0v1>(),
         }
     }
 
@@ -242,15 +246,17 @@ impl ProxyClient {
         let msg_data_len = msg.data.len() as u32;
         let msg_source = msg.source;
         let msg_sequence_number = msg.sequence_number;
-        let payload = MessageType::ClientResponse(ClientResponsePayload {
-            version: ClientResponsePayload::version(),
-            stream_key: msg.stream_key,
-            sequenced_packet: SequencedPacket {
-                data: msg.data,
-                sequence_number: msg.sequence_number,
-                last_data: msg.last_data,
+        let payload = MessageType::ClientResponse(VersionedData::new(
+            &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+            &ClientResponsePayload_0v1 {
+                stream_key: msg.stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: msg.data,
+                    sequence_number: msg.sequence_number,
+                    last_data: msg.last_data,
+                },
             },
-        });
+        ));
         debug!(
             self.logger,
             "Sending ClientResponsePayload to Hopper: stream {}, sequence {}, length {}",
@@ -324,11 +330,12 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::proxy_client::ClientResponsePayload;
-    use crate::sub_lib::proxy_server::ClientRequestPayload;
+    use crate::sub_lib::proxy_client::ClientResponsePayload_0v1;
+    use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::sequence_buffer::SequencedPacket;
+    use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -350,11 +357,15 @@ mod tests {
     }
 
     pub struct StreamHandlerPoolMock {
-        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>)>>>,
+        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload_0v1, Option<Wallet>)>>>,
     }
 
     impl StreamHandlerPool for StreamHandlerPoolMock {
-        fn process_package(&self, payload: ClientRequestPayload, paying_wallet: Option<Wallet>) {
+        fn process_package(
+            &self,
+            payload: ClientRequestPayload_0v1,
+            paying_wallet: Option<Wallet>,
+        ) {
             self.process_package_parameters
                 .lock()
                 .unwrap()
@@ -371,7 +382,7 @@ mod tests {
 
         pub fn process_package_parameters(
             self,
-            parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>)>>>,
+            parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload_0v1, Option<Wallet>)>>>,
         ) -> StreamHandlerPoolMock {
             *parameters = self.process_package_parameters.clone();
             self
@@ -526,8 +537,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "StreamHandlerPool unbound")]
     fn panics_if_unbound() {
-        let request = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n".to_vec(),
@@ -581,7 +591,7 @@ mod tests {
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             system.run();
@@ -630,12 +640,12 @@ mod tests {
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             system.run();
@@ -643,7 +653,7 @@ mod tests {
 
         hopper_awaiter.await_message_count(1);
 
-        let message_type: MessageType = DnsResolveFailure::new(stream_key).into();
+        let message_type: MessageType = DnsResolveFailure_0v1::new(stream_key).into();
         assert_eq!(
             &IncipientCoresPackage::new(cryptde, return_route, message_type, &originator_key)
                 .unwrap(),
@@ -664,8 +674,7 @@ mod tests {
     #[test]
     fn data_from_hopper_is_relayed_to_stream_handler_pool() {
         let cryptde = main_cryptde();
-        let request = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -720,8 +729,7 @@ mod tests {
     fn refuse_to_provide_exit_services_with_no_paying_wallet() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let request = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -776,8 +784,7 @@ mod tests {
     fn does_provide_zero_hop_exit_services_with_no_paying_wallet() {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
-        let request = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -913,15 +920,17 @@ mod tests {
             &IncipientCoresPackage::new(
                 main_cryptde(),
                 make_meaningless_route(),
-                MessageType::ClientResponse(ClientResponsePayload {
-                    version: ClientResponsePayload::version(),
-                    stream_key: stream_key.clone(),
-                    sequenced_packet: SequencedPacket {
-                        data: Vec::from(data),
-                        sequence_number: 1234,
-                        last_data: false,
-                    },
-                }),
+                MessageType::ClientResponse(VersionedData::new(
+                    &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                    &ClientResponsePayload_0v1 {
+                        stream_key: stream_key.clone(),
+                        sequenced_packet: SequencedPacket {
+                            data: Vec::from(data),
+                            sequence_number: 1234,
+                            last_data: false,
+                        },
+                    }
+                )),
                 &PublicKey::new(&b"abcd"[..]),
             )
             .unwrap()
@@ -931,15 +940,17 @@ mod tests {
             &IncipientCoresPackage::new(
                 main_cryptde(),
                 make_meaningless_route(),
-                MessageType::ClientResponse(ClientResponsePayload {
-                    version: ClientResponsePayload::version(),
-                    stream_key: stream_key.clone(),
-                    sequenced_packet: SequencedPacket {
-                        data: Vec::from(data),
-                        sequence_number: 1235,
-                        last_data: true,
-                    },
-                }),
+                MessageType::ClientResponse(VersionedData::new(
+                    &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                    &ClientResponsePayload_0v1 {
+                        stream_key: stream_key.clone(),
+                        sequenced_packet: SequencedPacket {
+                            data: Vec::from(data),
+                            sequence_number: 1235,
+                            last_data: true,
+                        },
+                    }
+                )),
                 &PublicKey::new(&b"abcd"[..]),
             )
             .unwrap()
@@ -1106,8 +1117,7 @@ mod tests {
             .accountant(accountant)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: vec![],
@@ -1149,15 +1159,17 @@ mod tests {
         let expected_icp = IncipientCoresPackage::new(
             cryptde,
             new_return_route,
-            MessageType::ClientResponse(ClientResponsePayload {
-                version: ClientResponsePayload::version(),
-                stream_key,
-                sequenced_packet: SequencedPacket {
-                    data: Vec::from(data.clone()),
-                    sequence_number: 1234,
-                    last_data: false,
+            MessageType::ClientResponse(VersionedData::new(
+                &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                &ClientResponsePayload_0v1 {
+                    stream_key,
+                    sequenced_packet: SequencedPacket {
+                        data: Vec::from(data.clone()),
+                        sequence_number: 1234,
+                        last_data: false,
+                    },
                 },
-            }),
+            )),
             &originator_public_key,
         )
         .unwrap();

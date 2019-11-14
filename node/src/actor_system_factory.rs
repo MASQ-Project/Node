@@ -404,7 +404,7 @@ mod tests {
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
-    use crate::neighborhood::gossip::Gossip;
+    use crate::neighborhood::gossip::Gossip_0v1;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
@@ -422,7 +422,7 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
     use crate::sub_lib::neighborhood::{
-        DispatcherNodeQueryMessage, GossipFailure, NodeRecordMetadataMessage,
+        DispatcherNodeQueryMessage, GossipFailure_0v1, NodeRecordMetadataMessage,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NodeQueryMessage};
     use crate::sub_lib::neighborhood::{NeighborhoodDotGraphRequest, RouteQueryMessage};
@@ -430,10 +430,10 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::proxy_client::{
-        ClientResponsePayload, DnsResolveFailure, InboundServerData,
+        ClientResponsePayload_0v1, DnsResolveFailure_0v1, InboundServerData,
     };
     use crate::sub_lib::proxy_server::{
-        AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload,
+        AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
     };
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -517,10 +517,10 @@ mod tests {
                 from_dispatcher: recipient!(addr, InboundClientData),
                 from_hopper: addr
                     .clone()
-                    .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
+                    .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
                 dns_failure_from_hopper: addr
                     .clone()
-                    .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
+                    .recipient::<ExpiredCoresPackage<DnsResolveFailure_0v1>>(),
                 add_return_route: recipient!(addr, AddReturnRouteMessage),
                 add_route: recipient!(addr, AddRouteMessage),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -562,10 +562,10 @@ mod tests {
                 node_query: recipient!(addr, NodeQueryMessage),
                 route_query: recipient!(addr, RouteQueryMessage),
                 update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
-                from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
+                from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
                 gossip_failure: addr
                     .clone()
-                    .recipient::<ExpiredCoresPackage<GossipFailure>>(),
+                    .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
                 dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
                 remove_neighbor: recipient!(addr, RemoveNeighborMessage),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -649,9 +649,9 @@ mod tests {
                 bind: recipient!(addr, BindMessage),
                 from_hopper: addr
                     .clone()
-                    .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
+                    .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
                 inbound_server_data: recipient!(addr, InboundServerData),
-                dns_resolve_failed: recipient!(addr, DnsResolveFailure),
+                dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
             }
         }
 
