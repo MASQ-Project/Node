@@ -9,7 +9,7 @@ use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::ui_gateway::UiGatewaySubs;
+use crate::sub_lib::ui_gateway::{UiGatewaySubs, NewUiMessage};
 use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
 use crate::sub_lib::ui_gateway::{UiGatewayConfig, UiMessage};
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
@@ -39,6 +39,7 @@ pub struct UiGateway {
     subs: Option<UiGatewayOutSubs>,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     shutdown_supervisor: Box<dyn ShutdownSupervisor>,
+    incoming_message_recipients: Vec<Recipient<NewUiMessage>>,
     logger: Logger,
 }
 
@@ -51,6 +52,7 @@ impl UiGateway {
             subs: None,
             websocket_supervisor: None,
             shutdown_supervisor: Box::new(ShutdownSupervisorReal::new()),
+            incoming_message_recipients: vec![],
             logger: Logger::new("UiGateway"),
         }
     }

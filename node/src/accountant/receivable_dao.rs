@@ -107,7 +107,7 @@ impl ReceivableDao for ReceivableDaoReal {
             }
         })
         .expect("Database is corrupt")
-        .flat_map(|p| p)
+        .flatten()
         .collect()
     }
 
@@ -140,7 +140,7 @@ impl ReceivableDao for ReceivableDaoReal {
             Self::row_to_account,
         )
         .expect("Couldn't retrieve new delinquencies: database corruption")
-        .flat_map(|v| v)
+        .flatten()
         .collect()
     }
 
@@ -161,7 +161,7 @@ impl ReceivableDao for ReceivableDaoReal {
             Self::row_to_account,
         )
         .expect("Couldn't retrieve new delinquencies: database corruption")
-        .flat_map(|v| v)
+        .flatten()
         .collect()
     }
 }

@@ -5,6 +5,7 @@ use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
+use serde_json::Value;
 
 pub const DEFAULT_UI_PORT: u16 = 5333;
 
@@ -52,6 +53,20 @@ pub enum UiMessage {
 pub struct FromUiMessage {
     pub client_id: u64,
     pub json: String,
+}
+
+#[derive(Message, PartialEq, Clone, Debug)]
+pub enum MessageDirection {
+    ToUi,
+    FromUi,
+}
+
+#[derive(Message, PartialEq, Clone, Debug)]
+pub struct NewUiMessage {
+    pub client_id: u64,
+    pub opcode: String,
+    pub direction: MessageDirection,
+    pub data: Value,
 }
 
 #[cfg(test)]

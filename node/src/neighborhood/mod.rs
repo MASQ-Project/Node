@@ -884,12 +884,10 @@ impl Neighborhood {
         }
         let get_the_exit_nodes_desirable_flag = |vec: &Vec<&PublicKey>| -> Option<bool> {
             vec.last()
-                .and_then(|pk|
-                    Some(
-                        self.neighborhood_database
-                            .node_by_key(pk)
-                            .unwrap_or_else(|| panic!("Unable to sort routes by desirable exit nodes: Missing NodeRecord for public key: [{}]", pk))
-                    )
+                .map(|pk|
+                    self.neighborhood_database
+                        .node_by_key(pk)
+                        .unwrap_or_else(|| panic!("Unable to sort routes by desirable exit nodes: Missing NodeRecord for public key: [{}]", pk))
                 ).map(|node| node.is_desirable())
         };
 

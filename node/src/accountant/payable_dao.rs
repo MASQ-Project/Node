@@ -148,7 +148,7 @@ impl PayableDao for PayableDaoReal {
             }
         })
         .expect("Database is corrupt")
-        .flat_map(|v| v)
+        .flatten()
         .collect()
     }
 }
