@@ -267,6 +267,14 @@ mod tests {
                 .push(String::from(json));
             self.unmarshal_results.borrow_mut().remove(0)
         }
+
+        fn new_marshal(&self, msg: NewUiMessage) -> String {
+            unimplemented!()
+        }
+
+        fn new_unmarshal(&self, json: &str, client_id: u64) -> Result<NewUiMessage, String> {
+            unimplemented!()
+        }
     }
 
     impl UiTrafficConverterMock {

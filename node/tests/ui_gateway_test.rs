@@ -3,7 +3,7 @@
 pub mod utils;
 
 use futures::future::*;
-use node_lib::sub_lib::ui_gateway::{UiMessage, DEFAULT_UI_PORT};
+use node_lib::sub_lib::ui_gateway::{UiMessage, DEFAULT_UI_PORT, NewUiMessage, MessageDirection};
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
@@ -12,6 +12,7 @@ use tokio::prelude::*;
 use tokio::runtime::Runtime;
 use websocket::ClientBuilder;
 use websocket::OwnedMessage;
+use serde_json::{Value, Number};
 
 #[test]
 fn ui_gateway_message_integration() {
@@ -102,5 +103,53 @@ fn ui_gateway_dot_graph_message_integration() {
     rt.block_on(shutdown_client).unwrap();
     rt.shutdown_on_idle().wait().unwrap();
 
+    node.wait_for_exit();
+}
+
+#[test]
+fn request_financial_information() {
+    fdlimit::raise_fd_limit();
+    let mut node = utils::MASQNode::start_standard(None);
+    node.wait_for_log("UIGateway bound", Some(5000));
+
+    let converter = UiTrafficConverterReal::new();
+    let mut params: serde_json::map::Map<String, Value> = serde_json::map::Map::new();
+    params.insert("payableMinimumAmount".to_string(), Value::Number(Number::from_f64(0f64).unwrap()));
+    params.insert("payableMaximumAge".to_string(), Value::Number(Number::from_f64(1_000_000_000_000f64).unwrap()));
+    params.insert("receivableMinimumAmount".to_string(), Value::Number(Number::from_f64(0f64).unwrap()));
+    params.insert("receivableMaximumAge".to_string(), Value::Number(Number::from_f64(1_000_000_000_000f64).unwrap()));
+    let request_msg = converter.new_marshal(NewUiMessage {
+        client_id: 1234,
+        opcode: "financials".to_string(),
+        direction: MessageDirection::FromUi,
+        data: Value::Object(params)
+    });
+
+    let response_data =
+        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+            .unwrap()
+            .add_protocol("MASQNode-UIv2")
+            .async_connect_insecure()
+            .and_then(|(s, _)| s.send(OwnedMessage::Text(request_msg)))
+            .and_then(|s| s.into_future().map_err(|e| e.0))
+            .map(|(m, _)| match m {
+                Some(OwnedMessage::Text(s)) => s,
+                _ => panic!("Expected a text response"),
+            })
+            .timeout(Duration::from_millis(2000))
+            .wait().unwrap();
+
+    let response_msg: NewUiMessage = converter.new_unmarshal(&response_data, 1234).unwrap();
+    assert_eq! (response_msg.opcode, "financials".to_string());
+    assert_eq! (response_msg.client_id, 1234);
+    assert_eq! (response_msg.direction, MessageDirection::ToUi);
+    let data = match response_msg.data {
+        Value::Object(map) => map,
+        x => panic! ("Expected Value::Object, not {:?}", x),
+    };
+    assert_eq! (data.get("payables"), Some (&Value::Array(vec![])));
+    assert_eq! (data.get("receivables"), Some (&Value::Array(vec![])));
+
+    node.kill().unwrap();
     node.wait_for_exit();
 }
