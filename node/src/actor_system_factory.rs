@@ -438,7 +438,7 @@ mod tests {
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::ui_gateway::UiGatewayConfig;
+    use crate::sub_lib::ui_gateway::{UiGatewayConfig, NewUiMessage};
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
@@ -571,6 +571,7 @@ mod tests {
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
                 from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
+                ui_message_sub: addr.clone().recipient::<NewUiMessage>(),
             }
         }
 
@@ -607,6 +608,7 @@ mod tests {
                 get_financial_statistics_sub: addr
                     .clone()
                     .recipient::<GetFinancialStatisticsMessage>(),
+                ui_message_sub: addr.clone().recipient::<NewUiMessage>(),
             }
         }
 
@@ -621,6 +623,7 @@ mod tests {
                 bind: recipient!(addr, BindMessage),
                 ui_message_sub: recipient!(addr, UiCarrierMessage),
                 from_ui_message_sub: recipient!(addr, FromUiMessage),
+                new_ui_message_sub: recipient!(addr, NewUiMessage),
             }
         }
 

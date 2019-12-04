@@ -21,6 +21,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use crate::sub_lib::ui_gateway::NewUiMessage;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -254,6 +255,7 @@ pub struct NeighborhoodSubs {
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub from_ui_gateway: Recipient<NeighborhoodDotGraphRequest>,
+    pub ui_message_sub: Recipient<NewUiMessage>,
 }
 
 impl Debug for NeighborhoodSubs {
@@ -440,6 +442,7 @@ mod tests {
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             from_ui_gateway: recipient!(recorder, NeighborhoodDotGraphRequest),
+            ui_message_sub: recipient!(recorder, NewUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "NeighborhoodSubs");

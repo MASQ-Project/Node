@@ -107,7 +107,7 @@ fn ui_gateway_dot_graph_message_integration() {
 }
 
 #[test]
-fn request_financial_information() {
+fn request_financial_information_integration() {
     fdlimit::raise_fd_limit();
     let mut node = utils::MASQNode::start_standard(None);
     node.wait_for_log("UIGateway bound", Some(5000));

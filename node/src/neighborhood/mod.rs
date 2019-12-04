@@ -43,7 +43,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
+use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage, NewUiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
@@ -72,6 +72,7 @@ pub struct Neighborhood {
     dot_graph_recipient: Option<Recipient<UiCarrierMessage>>,
     is_connected: bool,
     connected_signal: Option<Recipient<StartMessage>>,
+    _ui_message_sub: Option<Recipient<NewUiMessage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
@@ -286,6 +287,14 @@ impl Handler<NeighborhoodDotGraphRequest> for Neighborhood {
     }
 }
 
+impl Handler<NewUiMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, _msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        unimplemented!()
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct AccessibleGossipRecord {
     pub signed_gossip: PlainData,
@@ -366,6 +375,7 @@ impl Neighborhood {
             hopper_no_lookup: None,
             dot_graph_recipient: None,
             connected_signal: None,
+            _ui_message_sub: None,
             is_connected: false,
             gossip_acceptor,
             gossip_producer,
@@ -397,6 +407,7 @@ impl Neighborhood {
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
             from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
+            ui_message_sub: addr.clone().recipient::<NewUiMessage>(),
         }
     }
 

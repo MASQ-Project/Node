@@ -17,6 +17,8 @@ pub trait UiTrafficConverter: Send {
 pub struct UiTrafficConverterReal {}
 
 impl UiTrafficConverter for UiTrafficConverterReal {
+    // TODO: After these methods are obsoleted and removed, get rid of the trait and make the
+    // remaining methods into static functions.
     fn marshal(&self, ui_message: UiMessage) -> Result<String, String> {
         serde_json::to_string(&ui_message).map_err(|e| e.to_string())
     }
@@ -131,7 +133,7 @@ mod tests {
         assert_eq! (out_ui_msg.direction, MessageDirection::ToUi);
         let out_map = match out_ui_msg.data {
             Value::Object(map) => map,
-            x => panic! ("Expecting Value::Map, not {:?}"),
+            x => panic! ("Expecting Value::Map, not {:?}", x),
         };
         assert_eq! (out_map, in_map)
     }

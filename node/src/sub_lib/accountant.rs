@@ -9,6 +9,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
+use crate::sub_lib::ui_gateway::NewUiMessage;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x47fB8671Db83008d382C2e6EA67fA377378c0CeA").expect("Internal error");
@@ -34,6 +35,7 @@ pub struct AccountantSubs {
     pub report_new_payments: Recipient<ReceivedPayments>,
     pub report_sent_payments: Recipient<SentPayments>,
     pub get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
+    pub ui_message_sub: Recipient<NewUiMessage>,
 }
 
 impl Debug for AccountantSubs {
@@ -112,6 +114,7 @@ mod tests {
             report_new_payments: recipient!(recorder, ReceivedPayments),
             report_sent_payments: recipient!(recorder, SentPayments),
             get_financial_statistics_sub: recipient!(recorder, GetFinancialStatisticsMessage),
+            ui_message_sub: recipient!(recorder, NewUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "AccountantSubs");

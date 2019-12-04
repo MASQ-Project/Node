@@ -22,7 +22,7 @@ use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
+use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage, NewUiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -88,6 +88,7 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayments>>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
+    _ui_message_sub: Option<Recipient<NewUiMessage>>,
     logger: Logger,
 }
 
@@ -269,6 +270,14 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     }
 }
 
+impl Handler<NewUiMessage> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, _msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        unimplemented!("NewUiMessage received by Accountant")
+    }
+}
+
 impl Handler<GetFinancialStatisticsMessage> for Accountant {
     type Result = ();
 
@@ -324,6 +333,7 @@ impl Accountant {
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_carrier_message_sub: None,
+            _ui_message_sub: None,
             logger: Logger::new("Accountant"),
         }
     }
@@ -347,6 +357,7 @@ impl Accountant {
             report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
             report_sent_payments: addr.clone().recipient::<SentPayments>(),
             get_financial_statistics_sub: addr.clone().recipient::<GetFinancialStatisticsMessage>(),
+            ui_message_sub: addr.clone().recipient::<NewUiMessage>(),
         }
     }
 
