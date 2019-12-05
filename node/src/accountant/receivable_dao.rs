@@ -40,6 +40,10 @@ pub trait ReceivableDao: Send {
     ) -> Vec<ReceivableAccount>;
 
     fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount>;
+
+    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
+
+    fn total(&self) -> u64;
 }
 
 pub struct ReceivableDaoReal {
@@ -163,6 +167,14 @@ impl ReceivableDao for ReceivableDaoReal {
         .expect("Couldn't retrieve new delinquencies: database corruption")
         .flatten()
         .collect()
+    }
+
+    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
+        unimplemented!()
+    }
+
+    fn total(&self) -> u64 {
+        unimplemented!()
     }
 }
 

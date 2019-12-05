@@ -22,7 +22,9 @@ use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage, NewUiMessage};
+use crate::sub_lib::ui_gateway::{
+    MessageDirection, NewUiMessage, ParseTools, UiCarrierMessage, UiMessage,
+};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -33,9 +35,11 @@ use actix::Handler;
 use actix::Message;
 use actix::Recipient;
 use futures::future::Future;
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
+use serde_json::{Number, Value};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
@@ -88,7 +92,7 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayments>>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
-    _ui_message_sub: Option<Recipient<NewUiMessage>>,
+    ui_message_sub: Option<Recipient<NewUiMessage>>,
     logger: Logger,
 }
 
@@ -117,6 +121,7 @@ impl Handler<BindMessage> for Accountant {
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
+        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.new_ui_message_sub.clone());
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
 
         info!(self.logger, "Accountant bound");
@@ -273,8 +278,29 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
 impl Handler<NewUiMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, _msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        unimplemented!("NewUiMessage received by Accountant")
+    fn handle(&mut self, msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        match msg.opcode {
+            opcode if &opcode == "financials" => self.handle_financials(
+                msg.client_id,
+                match ParseTools::get_number_field(&msg.data, "payableMinimumAmount") {
+                    Some(n) => n as u64,
+                    None => unimplemented!("TODO: Test-drive me!"),
+                },
+                match ParseTools::get_number_field(&msg.data, "payableMaximumAge") {
+                    Some(n) => n as u64,
+                    None => unimplemented!("TODO: Test-drive me!"),
+                },
+                match ParseTools::get_number_field(&msg.data, "receivableMinimumAmount") {
+                    Some(n) => n as u64,
+                    None => unimplemented!("TODO: Test-drive me!"),
+                },
+                match ParseTools::get_number_field(&msg.data, "receivableMaximumAge") {
+                    Some(n) => n as u64,
+                    None => unimplemented!("TODO: Test-drive me!"),
+                },
+            ),
+            opcode => unimplemented!("TODO: Test-drive me!"),
+        }
     }
 }
 
@@ -333,7 +359,7 @@ impl Accountant {
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_carrier_message_sub: None,
-            _ui_message_sub: None,
+            ui_message_sub: None,
             logger: Logger::new("Accountant"),
         }
     }
@@ -575,6 +601,97 @@ impl Accountant {
             _ => wallet.address() == self.earning_wallet.address(),
         }
     }
+
+    fn handle_financials(
+        &mut self,
+        client_id: u64,
+        payable_minimum_amount: u64,
+        payable_maximum_age: u64,
+        receivable_minimum_amount: u64,
+        receivable_maximum_age: u64,
+    ) {
+        let payables = self
+            .payable_dao
+            .top_records(payable_minimum_amount, payable_maximum_age)
+            .iter()
+            .map(|account| {
+                let mut map = serde_json::map::Map::new();
+                map.insert(
+                    "wallet".to_string(),
+                    Value::String(account.wallet.to_string()),
+                );
+                let age = SystemTime::now()
+                    .duration_since(account.last_paid_timestamp)
+                    .expect("Bad interval")
+                    .as_secs();
+                map.insert(
+                    "age".to_string(),
+                    Value::Number(Number::from_f64(age as f64).expect("Bad number")),
+                );
+                map.insert(
+                    "amount".to_string(),
+                    Value::Number(Number::from_f64(account.balance as f64).expect("Bad number")),
+                );
+                if let Some(pending_transaction) = account.pending_payment_transaction {
+                    let transaction_str = format!("0x{:0X}", pending_transaction);
+                    map.insert(
+                        "pendingTransaction".to_string(),
+                        Value::String(transaction_str),
+                    );
+                }
+                Value::Object(map)
+            })
+            .collect_vec();
+        let total_payable = self.payable_dao.total();
+        let receivables = self
+            .receivable_dao
+            .top_records(receivable_minimum_amount, receivable_maximum_age)
+            .iter()
+            .map(|account| {
+                let mut map = serde_json::map::Map::new();
+                map.insert(
+                    "wallet".to_string(),
+                    Value::String(account.wallet.to_string()),
+                );
+                let age = SystemTime::now()
+                    .duration_since(account.last_received_timestamp)
+                    .expect("Bad interval")
+                    .as_secs();
+                map.insert(
+                    "age".to_string(),
+                    Value::Number(Number::from_f64(age as f64).expect("Bad number")),
+                );
+                map.insert(
+                    "amount".to_string(),
+                    Value::Number(Number::from_f64(account.balance as f64).expect("Bad number")),
+                );
+                Value::Object(map)
+            })
+            .collect_vec();
+        let total_receivable = self.receivable_dao.total();
+        let mut response_data = serde_json::map::Map::new();
+        response_data.insert("payables".to_string(), Value::Array(payables));
+        response_data.insert(
+            "totalPayable".to_string(),
+            Value::Number(Number::from_f64(total_payable as f64).expect("Bad number")),
+        );
+        response_data.insert("receivables".to_string(), Value::Array(receivables));
+        response_data.insert(
+            "totalReceivable".to_string(),
+            Value::Number(Number::from_f64(total_receivable as f64).expect("Bad number")),
+        );
+        let response = NewUiMessage {
+            client_id,
+            opcode: "financials".to_string(),
+            direction: MessageDirection::ToUi,
+            data: response_data,
+        };
+        self.ui_message_sub
+            .as_ref()
+            .expect("UiGateway not bound")
+            .try_send(response)
+            .expect("UiGateway is dead");
+    }
 }
 
 #[cfg(test)]
@@ -591,7 +708,7 @@ pub mod tests {
         FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
+    use crate::sub_lib::ui_gateway::{MessageDirection, ParseTools, UiCarrierMessage, UiMessage};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -601,15 +718,19 @@ pub mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use actix::System;
+    use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
+    use serde_json::{Number, Value};
     use std::cell::RefCell;
     use std::convert::TryFrom;
+    use std::ops::Sub;
     use std::sync::Mutex;
     use std::sync::{Arc, MutexGuard};
     use std::thread;
     use std::time::Duration;
     use std::time::SystemTime;
     use web3::types::H256;
+    use web3::types::U256;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -618,6 +739,9 @@ pub mod tests {
         more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
         payment_sent_parameters: Arc<Mutex<Vec<Payment>>>,
+        top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
+        top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
+        total_results: RefCell<Vec<u64>>,
     }
 
     impl PayableDao for PayableDaoMock {
@@ -660,6 +784,18 @@ pub mod tests {
                 self.non_pending_payables_results.borrow_mut().remove(0)
             }
         }
+
+        fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
+            self.top_records_parameters
+                .lock()
+                .unwrap()
+                .push((minimum_amount, maximum_age));
+            self.top_records_results.borrow_mut().remove(0)
+        }
+
+        fn total(&self) -> u64 {
+            self.total_results.borrow_mut().remove(0)
+        }
     }
 
     impl PayableDaoMock {
@@ -684,6 +820,21 @@ pub mod tests {
             self.payment_sent_parameters = parameters;
             self
         }
+
+        fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
+            self.top_records_parameters = parameters.clone();
+            self
+        }
+
+        fn top_records_result(self, result: Vec<PayableAccount>) -> Self {
+            self.top_records_results.borrow_mut().push(result);
+            self
+        }
+
+        fn total_result(self, result: u64) -> Self {
+            self.total_results.borrow_mut().push(result);
+            self
+        }
     }
 
     #[derive(Debug, Default)]
@@ -697,6 +848,9 @@ pub mod tests {
         new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
         paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentCurves>>>,
         paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
+        top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
+        top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
+        total_results: RefCell<Vec<u64>>,
     }
 
     impl ReceivableDao for ReceivableDaoMock {
@@ -758,6 +912,18 @@ pub mod tests {
                 self.paid_delinquencies_results.borrow_mut().remove(0)
             }
         }
+
+        fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
+            self.top_records_parameters
+                .lock()
+                .unwrap()
+                .push((minimum_amount, maximum_age));
+            self.top_records_results.borrow_mut().remove(0)
+        }
+
+        fn total(&self) -> u64 {
+            self.total_results.borrow_mut().remove(0)
+        }
     }
 
     impl ReceivableDaoMock {
@@ -811,6 +977,21 @@ pub mod tests {
             self.receivables_results.borrow_mut().push(result);
             self
         }
+
+        fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
+            self.top_records_parameters = parameters.clone();
+            self
+        }
+
+        fn top_records_result(self, result: Vec<ReceivableAccount>) -> Self {
+            self.top_records_results.borrow_mut().push(result);
+            self
+        }
+
+        fn total_result(self, result: u64) -> Self {
+            self.total_results.borrow_mut().push(result);
+            self
+        }
     }
 
     #[derive(Debug, Default)]
@@ -860,6 +1041,167 @@ pub mod tests {
             self.unban_parameters = parameters.clone();
             self
         }
+    }
+
+    #[test]
+    fn financials_request_produces_financials_response() {
+        let payable_top_records_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao = Box::new(
+            PayableDaoMock::new()
+                .top_records_parameters(&payable_top_records_parameters_arc)
+                .top_records_result(vec![
+                    PayableAccount {
+                        wallet: make_wallet("earning 1"),
+                        balance: 12345678,
+                        last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(10000)),
+                        pending_payment_transaction: Some(H256::from_uint(&U256::from(123))),
+                    },
+                    PayableAccount {
+                        wallet: make_wallet("earning 2"),
+                        balance: 12345679,
+                        last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(10001)),
+                        pending_payment_transaction: None,
+                    },
+                ])
+                .total_result(23456789),
+        );
+        let receivable_top_records_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_dao = Box::new(
+            ReceivableDaoMock::new()
+                .top_records_parameters(&receivable_top_records_parameters_arc)
+                .top_records_result(vec![
+                    ReceivableAccount {
+                        wallet: make_wallet("consuming 1"),
+                        balance: 87654321,
+                        last_received_timestamp: SystemTime::now().sub(Duration::from_secs(20000)),
+                    },
+                    ReceivableAccount {
+                        wallet: make_wallet("consuming 2"),
+                        balance: 87654322,
+                        last_received_timestamp: SystemTime::now().sub(Duration::from_secs(20001)),
+                    },
+                ])
+                .total_result(98765432),
+        );
+        let banned_dao = Box::new(BannedDaoMock::new());
+        let system = System::new("test");
+        let subject = Accountant::new(
+            &bc_from_ac_plus_earning_wallet(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_millis(10_000),
+                    payment_received_scan_interval: Duration::from_millis(10_000),
+                },
+                make_wallet("some_wallet_address"),
+            ),
+            payable_dao,
+            receivable_dao,
+            banned_dao,
+            null_config(),
+        );
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let mut data_map = serde_json::map::Map::new();
+        data_map.insert(
+            "payableMinimumAmount".to_string(),
+            Value::Number(Number::from_f64(50001f64).unwrap()),
+        );
+        data_map.insert(
+            "payableMaximumAge".to_string(),
+            Value::Number(Number::from_f64(50002f64).unwrap()),
+        );
+        data_map.insert(
+            "receivableMinimumAmount".to_string(),
+            Value::Number(Number::from_f64(50003f64).unwrap()),
+        );
+        data_map.insert(
+            "receivableMaximumAge".to_string(),
+            Value::Number(Number::from_f64(50004f64).unwrap()),
+        );
+        let ui_message = NewUiMessage {
+            client_id: 1234,
+            opcode: "financials".to_string(),
+            direction: MessageDirection::FromUi,
+            data: data_map,
+        };
+
+        subject_addr.try_send(ui_message).unwrap();
+
+        System::current().stop();
+        system.run();
+        let payable_top_records_parameters = payable_top_records_parameters_arc.lock().unwrap();
+        assert_eq!(*payable_top_records_parameters, vec![(50001, 50002)]);
+        let receivable_top_records_parameters =
+            receivable_top_records_parameters_arc.lock().unwrap();
+        assert_eq!(*receivable_top_records_parameters, vec![(50003, 50004)]);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NewUiMessage>(0);
+        assert_eq!(response.opcode, "financials".to_string());
+        assert_eq!(response.client_id, 1234);
+        assert_eq!(response.direction, MessageDirection::ToUi);
+        let records = ParseTools::get_array_field(&response.data, "payables").unwrap();
+        let map = verify_element(
+            &records[0],
+            "0x00000000000000000000006561726e696e672031",
+            10000f64,
+            12345678f64,
+        );
+        assert_eq!(
+            ParseTools::get_string_field(map, "pendingTransaction").unwrap(),
+            "0x000000000000000000000000000000000000000000000000000000000000007B"
+        );
+        let map = verify_element(
+            &records[1],
+            "0x00000000000000000000006561726e696e672032",
+            10001f64,
+            12345679f64,
+        );
+        assert_eq!(
+            ParseTools::get_string_field(map, "pendingTransaction"),
+            None
+        );
+        assert_eq!(
+            ParseTools::get_number_field(&response.data, "totalPayable").unwrap(),
+            23456789f64
+        );
+        let records = ParseTools::get_array_field(&response.data, "receivables").unwrap();
+        verify_element(
+            &records[0],
+            "0x000000000000000000636f6e73756d696e672031",
+            20000f64,
+            87654321f64,
+        );
+        verify_element(
+            &records[1],
+            "0x000000000000000000636f6e73756d696e672032",
+            20001f64,
+            87654322f64,
+        );
+        assert_eq!(
+            ParseTools::get_number_field(&response.data, "totalReceivable").unwrap(),
+            98765432f64
+        );
+    }
+
+    fn verify_element<'a>(
+        value: &'a Value,
+        wallet: &str,
+        age: f64,
+        amount: f64,
+    ) -> &'a serde_json::map::Map<String, Value> {
+        let map = match value {
+            Value::Object(map) => map,
+            x => panic!("{:?}, not Value::Object", x),
+        };
+        assert_eq!(
+            ParseTools::get_string_field(map, "wallet").unwrap(),
+            wallet.to_string()
+        );
+        let actual_age = ParseTools::get_number_field(map, "age").unwrap();
+        assert!(actual_age >= age);
+        assert_eq!(ParseTools::get_number_field(map, "amount").unwrap(), amount);
+        map
     }
 
     #[test]
@@ -1396,6 +1738,9 @@ pub mod tests {
             new_delinquencies_results: Default::default(),
             paid_delinquencies_parameters: Default::default(),
             paid_delinquencies_results: Default::default(),
+            top_records_parameters: Default::default(),
+            top_records_results: Default::default(),
+            total_results: Default::default(),
         });
         let banned_dao = Box::new(BannedDaoMock::new());
         let accountant = Accountant::new(

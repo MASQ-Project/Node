@@ -2,7 +2,8 @@
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::{FromUiMessage, NewUiMessage};
 use crate::sub_lib::utils::localhost;
-use actix::{Recipient};
+use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
+use actix::Recipient;
 use bytes::BytesMut;
 use futures::future::FutureResult;
 use futures::future::{err, ok};
@@ -24,7 +25,6 @@ use websocket::server::r#async::Server;
 use websocket::server::upgrade::WsUpgrade;
 use websocket::OwnedMessage;
 use websocket::WebSocketError;
-use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverterReal, UiTrafficConverter};
 
 trait ClientWrapper: Send + Any {
     fn as_any(&self) -> &dyn Any;
@@ -84,7 +84,7 @@ impl WebSocketSupervisor for WebSocketSupervisorReal {
     fn send_msg(&self, msg: NewUiMessage) {
         let mut locked_inner = self.inner.lock().expect("WebSocketSupervisor is poisoned");
         let client_id = msg.client_id;
-        let json = UiTrafficConverterReal::new().new_marshal (msg);
+        let json = UiTrafficConverterReal::new().new_marshal(msg);
         match locked_inner.client_by_id.get_mut(&client_id) {
             Some(client) => match client.send(OwnedMessage::Text(json)) {
                 Ok(_) => client.flush().expect("Flush error"),
@@ -96,7 +96,11 @@ impl WebSocketSupervisor for WebSocketSupervisorReal {
 }
 
 impl WebSocketSupervisorReal {
-    pub fn new(port: u16, from_ui_message: Recipient<FromUiMessage>, ui_message_sub: Recipient<NewUiMessage>) -> WebSocketSupervisorReal {
+    pub fn new(
+        port: u16,
+        from_ui_message: Recipient<FromUiMessage>,
+        ui_message_sub: Recipient<NewUiMessage>,
+    ) -> WebSocketSupervisorReal {
         let inner = Arc::new(Mutex::new(WebSocketSupervisorInner {
             next_client_id: 0,
             from_ui_message,
@@ -154,11 +158,9 @@ impl WebSocketSupervisorReal {
     ) {
         if upgrade.protocols().contains(&String::from("MASQNode-UIv2")) {
             Self::accept_upgrade_request(upgrade, socket_addr, inner, logger);
-        }
-        else if upgrade.protocols().contains(&String::from("MASQNode-UI")) {
+        } else if upgrade.protocols().contains(&String::from("MASQNode-UI")) {
             Self::accept_old_upgrade_request(upgrade, socket_addr, inner, logger);
-        }
-        else {
+        } else {
             Self::reject_upgrade_request(upgrade, &logger);
         }
     }
@@ -244,8 +246,7 @@ impl WebSocketSupervisorReal {
                     delegate: sync_outgoing,
                 }),
             );
-        }
-        else {
+        } else {
             locked_inner.client_by_id.insert(
                 client_id,
                 Box::new(ClientWrapperReal {
@@ -297,14 +298,21 @@ impl WebSocketSupervisorReal {
                             json: String::from(message),
                         })
                         .expect("UiGateway is dead");
-                }
-                else {
-                    let ui_message = match UiTrafficConverterReal::new().new_unmarshal (message, *client_id_ref) {
-                        Ok (msg) => msg,
-                        Err (_) => {
-                            error!(logger, "Bad JSON from client {} at {}: '{}'", *client_id_ref, socket_addr, message);
-                            return ok::<(), ()>(())
-                        },
+                } else {
+                    let ui_message = match UiTrafficConverterReal::new()
+                        .new_unmarshal(message, *client_id_ref)
+                    {
+                        Ok(msg) => msg,
+                        Err(_) => {
+                            error!(
+                                logger,
+                                "Bad JSON from client {} at {}: '{}'",
+                                *client_id_ref,
+                                socket_addr,
+                                message
+                            );
+                            return ok::<(), ()>(());
+                        }
                     };
                     locked_inner
                         .ui_message_sub
@@ -394,28 +402,28 @@ impl WebSocketSupervisorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::{FromUiMessage, UiMessage, MessageDirection};
-    use crate::test_utils::{find_free_port, assert_contains};
-    use crate::test_utils::logging::{init_test_logging};
+    use crate::sub_lib::ui_gateway::{FromUiMessage, MessageDirection, UiMessage};
+    use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::wait_for;
+    use crate::test_utils::{assert_contains, find_free_port};
     use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
     use actix::Actor;
     use actix::Addr;
     use actix::System;
     use futures::future::lazy;
+    use serde_json::Value;
     use std::collections::HashSet;
     use std::net::Shutdown;
+    use std::str::FromStr;
     use std::thread;
     use std::time::Duration;
     use websocket::client::sync::Client;
     use websocket::stream::sync::TcpStream;
     use websocket::ClientBuilder;
     use websocket::Message;
-    use serde_json::Value;
-    use std::str::FromStr;
 
     impl WebSocketSupervisorReal {
         fn inject_mock_client(&self, mock_client: ClientWrapperMock, old_client: bool) -> u64 {
@@ -426,8 +434,7 @@ mod tests {
                 locked_inner
                     .old_client_by_id
                     .insert(client_id, Box::new(mock_client));
-            }
-            else {
+            } else {
                 locked_inner
                     .client_by_id
                     .insert(client_id, Box::new(mock_client));
@@ -438,11 +445,11 @@ mod tests {
         fn get_mock_client(&self, client_id: u64) -> ClientWrapperMock {
             let locked_inner = self.inner.lock().unwrap();
             let mock_client_box = match locked_inner.client_by_id.get(&client_id) {
-                Some (mcb) => mcb,
+                Some(mcb) => mcb,
                 None => match locked_inner.old_client_by_id.get(&client_id) {
-                    Some (mcb) => mcb,
-                    None => panic! ("Did not find mock client for id: {}", client_id),
-                }
+                    Some(mcb) => mcb,
+                    None => panic!("Did not find mock client for id: {}", client_id),
+                },
             };
             let any = mock_client_box.as_any();
             let result = any
@@ -549,7 +556,10 @@ mod tests {
 
     fn subs(ui_gateway: Recorder) -> (Recipient<FromUiMessage>, Recipient<NewUiMessage>) {
         let addr: Addr<Recorder> = ui_gateway.start();
-        (addr.clone().recipient::<FromUiMessage>(), addr.recipient::<NewUiMessage>())
+        (
+            addr.clone().recipient::<FromUiMessage>(),
+            addr.recipient::<NewUiMessage>(),
+        )
     }
 
     #[test]
@@ -560,7 +570,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("logs_pre_upgrade_connection_errors");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -582,7 +592,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("rejects_connection_attempt_with_improper_protocol_name");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -609,7 +619,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("logs_unexpected_binary_ping_pong_websocket_messages");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -653,7 +663,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("can_connect_two_old_clients_and_receive_messages_from_them");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -710,7 +720,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("can_connect_two_clients_and_receive_messages_from_them");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -722,11 +732,21 @@ mod tests {
         let mut one_client = wait_for_client(port, "MASQNode-UIv2");
         let mut another_client = make_client(port, "MASQNode-UIv2").unwrap();
 
-        one_client.send_message(&Message::text(r#"{"opcode": "one", "direction": "fromUi", "data": {}}"#)).unwrap();
-        another_client
-            .send_message(&Message::text(r#"{"opcode": "another", "direction": "fromUi", "data": {}}"#))
+        one_client
+            .send_message(&Message::text(
+                r#"{"opcode": "one", "direction": "fromUi", "data": {}}"#,
+            ))
             .unwrap();
-        one_client.send_message(&Message::text(r#"{"opcode": "athird", "direction": "fromUi", "data": {}}"#)).unwrap();
+        another_client
+            .send_message(&Message::text(
+                r#"{"opcode": "another", "direction": "fromUi", "data": {}}"#,
+            ))
+            .unwrap();
+        one_client
+            .send_message(&Message::text(
+                r#"{"opcode": "athird", "direction": "fromUi", "data": {}}"#,
+            ))
+            .unwrap();
 
         one_client.send_message(&OwnedMessage::Close(None)).unwrap();
         let one_close_msg = one_client.recv_message().unwrap();
@@ -739,30 +759,35 @@ mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let messages = vec![0, 1, 2]
             .into_iter()
-            .map(|i| {
-                ui_gateway_recording
-                    .get_record::<NewUiMessage>(i)
-                    .clone()
-            })
+            .map(|i| ui_gateway_recording.get_record::<NewUiMessage>(i).clone())
             .collect::<Vec<NewUiMessage>>();
-        assert_contains (&messages, &NewUiMessage {
-            client_id: 0,
-            opcode: "one".to_string(),
-            direction: MessageDirection::FromUi,
-            data: Value::Object(serde_json::map::Map::new()),
-        });
-        assert_contains (&messages, &NewUiMessage {
-            client_id: 1,
-            opcode: "another".to_string(),
-            direction: MessageDirection::FromUi,
-            data: Value::Object(serde_json::map::Map::new()),
-        });
-        assert_contains (&messages, &NewUiMessage {
-            client_id: 0,
-            opcode: "athird".to_string(),
-            direction: MessageDirection::FromUi,
-            data: Value::Object(serde_json::map::Map::new()),
-        });
+        assert_contains(
+            &messages,
+            &NewUiMessage {
+                client_id: 0,
+                opcode: "one".to_string(),
+                direction: MessageDirection::FromUi,
+                data: serde_json::map::Map::new(),
+            },
+        );
+        assert_contains(
+            &messages,
+            &NewUiMessage {
+                client_id: 1,
+                opcode: "another".to_string(),
+                direction: MessageDirection::FromUi,
+                data: serde_json::map::Map::new(),
+            },
+        );
+        assert_contains(
+            &messages,
+            &NewUiMessage {
+                client_id: 0,
+                opcode: "athird".to_string(),
+                direction: MessageDirection::FromUi,
+                data: serde_json::map::Map::new(),
+            },
+        );
         assert_eq!(one_close_msg, OwnedMessage::Close(None));
         assert_eq!(another_close_msg, OwnedMessage::Close(None));
     }
@@ -778,24 +803,27 @@ mod tests {
             ui_message_sub: ui_message_sub.start().recipient::<NewUiMessage>(),
             client_id_by_socket_addr: Default::default(),
             old_client_by_id: Default::default(),
-            client_by_id: Default::default()
+            client_by_id: Default::default(),
         };
         let subject = WebSocketSupervisorReal {
-            inner: Arc::new(Mutex::new(subject_inner))
+            inner: Arc::new(Mutex::new(subject_inner)),
         };
         let socket_addr = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let client_id = subject.inject_mock_client(ClientWrapperMock::new(), false);
         {
             let mut inner = subject.inner.lock().unwrap();
-            inner.client_id_by_socket_addr.insert(socket_addr, client_id);
+            inner
+                .client_id_by_socket_addr
+                .insert(socket_addr, client_id);
         }
 
         let _ = WebSocketSupervisorReal::handle_text_message(
             &subject.inner,
             &Logger::new("test"),
             socket_addr,
-            "}: I am badly-formatted JSON :{"
-        ).wait();
+            "}: I am badly-formatted JSON :{",
+        )
+        .wait();
 
         TestLogHandler::new().exists_log_containing("ERROR: test: Bad JSON from client 0 at 1.2.3.4:1234: '}: I am badly-formatted JSON :{'");
     }
@@ -807,7 +835,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("client_dot_graph_request_is_forwarded_to_ui_gateway");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -841,7 +869,7 @@ mod tests {
         thread::spawn(move || {
             let system =
                 System::new("client_receives_dot_graph_response_from_websocket_supervisor");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -871,7 +899,7 @@ mod tests {
     fn send_dot_graph_response_sends_it_to_the_client() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_dot_graph_response_sends_it_to_the_client");
         let mut client_id = 0;
         let lazy_future = lazy(move || {
@@ -914,7 +942,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("once_a_client_sends_a_close_no_more_data_is_accepted");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -950,7 +978,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("a_client_that_violates_the_protocol_is_terminated");
-            let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+            let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
                 Ok(())
@@ -984,7 +1012,7 @@ mod tests {
     fn send_sends_a_message_to_the_client() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_sends_a_message_to_the_client");
         let mut client_id = 0;
         let lazy_future = lazy(move || {
@@ -1019,7 +1047,7 @@ mod tests {
     fn send_msg_sends_a_message_to_the_client() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_sends_a_message_to_the_client");
         let mut client_id = 0;
         let lazy_future = lazy(move || {
@@ -1032,7 +1060,7 @@ mod tests {
                 client_id,
                 opcode: "booga".to_string(),
                 direction: MessageDirection::ToUi,
-                data: Value::Object(serde_json::map::Map::new()),
+                data: serde_json::map::Map::new(),
             };
 
             subject.send_msg(msg.clone());
@@ -1056,7 +1084,7 @@ mod tests {
     fn send_tries_to_send_message_and_panics_on_flush() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("receive_sends_a_message_and_errors_on_flush");
         let mut client_id = 0;
         let lazy_future = lazy(move || {
@@ -1083,7 +1111,7 @@ mod tests {
     fn send_msg_tries_to_send_message_and_panics_on_flush() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_tries_to_send_message_and_panics_on_flush");
         let mut client_id = 0;
         let lazy_future = lazy(move || {
@@ -1098,7 +1126,7 @@ mod tests {
                 client_id,
                 opcode: "booga".to_string(),
                 direction: MessageDirection::ToUi,
-                data: Value::Object(serde_json::map::Map::new()),
+                data: serde_json::map::Map::new(),
             };
             subject.send_msg(msg);
             Ok(())
@@ -1113,7 +1141,7 @@ mod tests {
     fn send_tries_to_send_message_and_panics() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_tries_to_send_message_and_panics");
         let mut client_id = 0;
         let lazy_future = lazy(move || {
@@ -1139,7 +1167,7 @@ mod tests {
     fn send_msg_tries_to_send_message_and_panics() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_tries_to_send_message_and_panics");
         let mut client_id = 0;
         let lazy_future = lazy(move || {
@@ -1153,7 +1181,7 @@ mod tests {
                 client_id,
                 opcode: "booga".to_string(),
                 direction: MessageDirection::ToUi,
-                data: Value::Object(serde_json::map::Map::new()),
+                data: serde_json::map::Map::new(),
             };
             subject.send_msg(msg);
             Ok(())
@@ -1168,7 +1196,7 @@ mod tests {
     fn send_fails_to_look_up_client_to_send_to() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_fails_to_look_up_client_to_send_to");
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
@@ -1188,7 +1216,7 @@ mod tests {
     fn send_msg_fails_to_look_up_client_to_send_to() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
-        let (from_ui_message, ui_message_sub) = subs (ui_gateway);
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_fails_to_look_up_client_to_send_to");
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
@@ -1196,7 +1224,7 @@ mod tests {
                 client_id: 7,
                 opcode: "booga".to_string(),
                 direction: MessageDirection::ToUi,
-                data: Value::Object(serde_json::map::Map::new()),
+                data: serde_json::map::Map::new(),
             };
             subject.send_msg(msg);
             Ok(())

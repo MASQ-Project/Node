@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
+use crate::sub_lib::ui_gateway::NewUiMessage;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
@@ -9,7 +10,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
-use crate::sub_lib::ui_gateway::NewUiMessage;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x47fB8671Db83008d382C2e6EA67fA377378c0CeA").expect("Internal error");

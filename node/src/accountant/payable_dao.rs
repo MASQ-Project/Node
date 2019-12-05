@@ -53,6 +53,10 @@ pub trait PayableDao: Debug + Send {
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
+
+    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount>;
+
+    fn total(&self) -> u64;
 }
 
 #[derive(Debug)]
@@ -150,6 +154,14 @@ impl PayableDao for PayableDaoReal {
         .expect("Database is corrupt")
         .flatten()
         .collect()
+    }
+
+    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
+        unimplemented!()
+    }
+
+    fn total(&self) -> u64 {
+        unimplemented!()
     }
 }
 
