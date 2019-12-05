@@ -414,7 +414,6 @@ mod tests {
     use actix::Addr;
     use actix::System;
     use futures::future::lazy;
-    use serde_json::Value;
     use std::collections::HashSet;
     use std::net::Shutdown;
     use std::str::FromStr;

@@ -134,7 +134,7 @@ fn request_financial_information_integration() {
         client_id: 1234,
         opcode: "financials".to_string(),
         direction: MessageDirection::FromUi,
-        data: Value::Object(params),
+        data: params,
     });
 
     let response_data =
@@ -156,10 +156,7 @@ fn request_financial_information_integration() {
     assert_eq!(response_msg.opcode, "financials".to_string());
     assert_eq!(response_msg.client_id, 1234);
     assert_eq!(response_msg.direction, MessageDirection::ToUi);
-    let data = match response_msg.data {
-        Value::Object(map) => map,
-        x => panic!("Expected Value::Object, not {:?}", x),
-    };
+    let data = response_msg.data;
     assert_eq!(data.get("payables"), Some(&Value::Array(vec![])));
     assert_eq!(data.get("receivables"), Some(&Value::Array(vec![])));
 

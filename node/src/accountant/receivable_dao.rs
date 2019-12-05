@@ -169,7 +169,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
-    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
+    fn top_records(&self, _minimum_amount: u64, _maximum_age: u64) -> Vec<ReceivableAccount> {
         unimplemented!()
     }
 

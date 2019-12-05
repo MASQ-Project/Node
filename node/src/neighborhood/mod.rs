@@ -290,8 +290,8 @@ impl Handler<NeighborhoodDotGraphRequest> for Neighborhood {
 impl Handler<NewUiMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, _msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        unimplemented!()
+    fn handle(&mut self, msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        debug!(&self.logger, "Ignoring unrecognized UI message: '{}'", msg.opcode);
     }
 }
 
@@ -1257,6 +1257,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
+    use crate::sub_lib::ui_gateway::MessageDirection;
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -4194,6 +4195,40 @@ mod tests {
             shutdown_neighbor_node.public_key(),
             shutdown_neighbor_node_socket_addr.ip()
         ));
+    }
+
+    #[test]
+    fn unexpected_ui_message_is_logged_and_ignored() {
+        init_test_logging();
+        let subject = Neighborhood::new(
+            main_cryptde(),
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::ZeroHop,
+                },
+                make_wallet("earning"),
+                None,
+                "unexpected_ui_message_is_logged_and_ignored",
+            ),
+        );
+        let system = System::new ("test");
+        let subject_addr: Addr<Neighborhood> = subject.start();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(NewUiMessage {
+            client_id: 1234,
+            opcode: "booga".to_string(),
+            direction: MessageDirection::FromUi,
+            data: Default::default()
+        }).unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq! (ui_gateway_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing ("DEBUG: Neighborhood: Ignoring unrecognized UI message: 'booga'");
     }
 
     fn make_standard_subject() -> Neighborhood {
