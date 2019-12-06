@@ -7,12 +7,12 @@ use node_lib::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiMessage, D
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
-use serde_json::{Number, Value};
 use std::time::Duration;
 use tokio::prelude::*;
 use tokio::runtime::Runtime;
 use websocket::ClientBuilder;
 use websocket::OwnedMessage;
+use node_lib::sub_lib::accountant::{UiFinancialsResponse, UiFinancialsRequest};
 
 #[test]
 fn ui_gateway_message_integration() {
@@ -113,28 +113,17 @@ fn request_financial_information_integration() {
     node.wait_for_log("UIGateway bound", Some(5000));
 
     let converter = UiTrafficConverterReal::new();
-    let mut params: serde_json::map::Map<String, Value> = serde_json::map::Map::new();
-    params.insert(
-        "payableMinimumAmount".to_string(),
-        Value::Number(Number::from_f64(0f64).unwrap()),
-    );
-    params.insert(
-        "payableMaximumAge".to_string(),
-        Value::Number(Number::from_f64(1_000_000_000_000f64).unwrap()),
-    );
-    params.insert(
-        "receivableMinimumAmount".to_string(),
-        Value::Number(Number::from_f64(0f64).unwrap()),
-    );
-    params.insert(
-        "receivableMaximumAge".to_string(),
-        Value::Number(Number::from_f64(1_000_000_000_000f64).unwrap()),
-    );
+    let payload = UiFinancialsRequest {
+        payableMinimumAmount: 0,
+        payableMaximumAge: 1_000_000_000_000,
+        receivableMinimumAmount: 0,
+        receivableMaximumAge: 1_000_000_000_000,
+    };
     let request_msg = converter.new_marshal(NewUiMessage {
         client_id: 1234,
         opcode: "financials".to_string(),
         direction: MessageDirection::FromUi,
-        data: params,
+        payload: serde_json::to_string(&payload).unwrap(),
     });
 
     let response_data =
@@ -156,9 +145,9 @@ fn request_financial_information_integration() {
     assert_eq!(response_msg.opcode, "financials".to_string());
     assert_eq!(response_msg.client_id, 1234);
     assert_eq!(response_msg.direction, MessageDirection::ToUi);
-    let data = response_msg.data;
-    assert_eq!(data.get("payables"), Some(&Value::Array(vec![])));
-    assert_eq!(data.get("receivables"), Some(&Value::Array(vec![])));
+    let payload = serde_json::from_str::<UiFinancialsResponse>(&response_msg.payload).unwrap();
+    assert_eq!(payload.payables.len(), 0);
+    assert_eq!(payload.receivables.len(), 0);
 
     node.kill().unwrap();
     node.wait_for_exit();

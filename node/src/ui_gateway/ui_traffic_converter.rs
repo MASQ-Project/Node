@@ -37,7 +37,7 @@ impl UiTrafficConverter for UiTrafficConverterReal {
                 MessageDirection::ToUi => "toUi".to_string(),
             }),
         );
-        msg_map.insert("data".to_string(), Value::Object(msg.data));
+        msg_map.insert("payload".to_string(), serde_json::from_str(&msg.payload).expect ("Serialization problem"));
         serde_json::to_string(&msg_map).expect("Problem converting Value::Object to JSON")
     }
 
@@ -55,25 +55,16 @@ impl UiTrafficConverter for UiTrafficConverterReal {
                         ))
                     }
                 };
-                let data_value = match map.get("data") {
-                    Some(value) => value,
-                    None => return Err("data field is missing".to_string()),
+                let payload_map = match map.get("payload") {
+                    Some(Value::Object(value)) => value,
+                    Some(x) => return Err(format!(
+                        "payload should have been of type Value::Object, not {:?}",
+                        x
+                    )),
+                    None => return Err("payload field is missing".to_string()),
                 };
-                let data_map = match data_value {
-                    Value::Object(map) => map,
-                    x => {
-                        return Err(format!(
-                            "data should have been of type Value::Object, not {:?}",
-                            x
-                        ))
-                    }
-                };
-                Ok(NewUiMessage {
-                    client_id,
-                    opcode,
-                    direction,
-                    data: data_map.clone(),
-                })
+                let payload = serde_json::to_string (payload_map).expect ("Reserialization problem");
+                Ok(NewUiMessage {client_id, opcode, direction, payload})
             }
             Ok(x) => Err(format!(
                 "JSON packet should have been of type Value::Object, not {:?}",
@@ -108,7 +99,6 @@ impl UiTrafficConverterReal {
 mod tests {
     use super::*;
     use crate::sub_lib::ui_gateway::MessageDirection;
-    use serde_json::{Number, Value};
 
     #[test]
     fn a_shutdown_message_is_properly_marshalled_and_unmarshalled() {
@@ -133,19 +123,11 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works() {
         let subject = UiTrafficConverterReal::new();
-        let mut in_map = serde_json::map::Map::new();
-        in_map.insert("null".to_string(), Value::Null);
-        in_map.insert("bool".to_string(), Value::Bool(true));
-        in_map.insert(
-            "number".to_string(),
-            Value::Number(Number::from_f64(1.23).unwrap()),
-        );
-        in_map.insert("string".to_string(), Value::String("Booga".to_string()));
         let in_ui_msg = NewUiMessage {
             client_id: 4321,
             opcode: "opcode".to_string(),
             direction: MessageDirection::ToUi,
-            data: in_map.clone(),
+            payload: r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#.to_string(),
         };
 
         let json = subject.new_marshal(in_ui_msg);
@@ -154,7 +136,7 @@ mod tests {
         assert_eq!(out_ui_msg.client_id, 1234);
         assert_eq!(out_ui_msg.opcode, "opcode".to_string());
         assert_eq!(out_ui_msg.direction, MessageDirection::ToUi);
-        assert_eq!(out_ui_msg.data, in_map)
+        assert_eq!(out_ui_msg.payload, r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#.to_string())
     }
 
     #[test]

@@ -4221,7 +4221,7 @@ mod tests {
             client_id: 1234,
             opcode: "booga".to_string(),
             direction: MessageDirection::FromUi,
-            data: Default::default()
+            payload: "{}".to_string(),
         }).unwrap();
 
         System::current().stop();

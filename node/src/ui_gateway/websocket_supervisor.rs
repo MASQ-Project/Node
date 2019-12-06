@@ -766,7 +766,7 @@ mod tests {
                 client_id: 0,
                 opcode: "one".to_string(),
                 direction: MessageDirection::FromUi,
-                data: serde_json::map::Map::new(),
+                payload: "{}".to_string(),
             },
         );
         assert_contains(
@@ -775,7 +775,7 @@ mod tests {
                 client_id: 1,
                 opcode: "another".to_string(),
                 direction: MessageDirection::FromUi,
-                data: serde_json::map::Map::new(),
+                payload: "{}".to_string(),
             },
         );
         assert_contains(
@@ -784,7 +784,7 @@ mod tests {
                 client_id: 0,
                 opcode: "athird".to_string(),
                 direction: MessageDirection::FromUi,
-                data: serde_json::map::Map::new(),
+                payload: "{}".to_string(),
             },
         );
         assert_eq!(one_close_msg, OwnedMessage::Close(None));
@@ -1059,7 +1059,7 @@ mod tests {
                 client_id,
                 opcode: "booga".to_string(),
                 direction: MessageDirection::ToUi,
-                data: serde_json::map::Map::new(),
+                payload: "{}".to_string(),
             };
 
             subject.send_msg(msg.clone());
@@ -1125,7 +1125,7 @@ mod tests {
                 client_id,
                 opcode: "booga".to_string(),
                 direction: MessageDirection::ToUi,
-                data: serde_json::map::Map::new(),
+                payload: "{}".to_string(),
             };
             subject.send_msg(msg);
             Ok(())
@@ -1180,7 +1180,7 @@ mod tests {
                 client_id,
                 opcode: "booga".to_string(),
                 direction: MessageDirection::ToUi,
-                data: serde_json::map::Map::new(),
+                payload: "{}".to_string(),
             };
             subject.send_msg(msg);
             Ok(())
@@ -1223,7 +1223,7 @@ mod tests {
                 client_id: 7,
                 opcode: "booga".to_string(),
                 direction: MessageDirection::ToUi,
-                data: serde_json::map::Map::new(),
+                payload: "{}".to_string(),
             };
             subject.send_msg(msg);
             Ok(())

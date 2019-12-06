@@ -80,7 +80,6 @@ macro_rules! recorder_message_handler {
             type Result = ();
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
-                eprintln!("Message type $message_type received");
                 self.record(msg);
             }
         }

@@ -434,7 +434,7 @@ mod tests {
             client_id: 1234,
             opcode: "booga".to_string(),
             direction: MessageDirection::FromUi,
-            data: serde_json::map::Map::new(),
+            payload: "{}".to_string(),
         };
 
         subject_addr.try_send(msg.clone()).unwrap();
@@ -465,7 +465,7 @@ mod tests {
             client_id: 1234,
             opcode: "booga".to_string(),
             direction: MessageDirection::ToUi,
-            data: serde_json::map::Map::new(),
+            payload: "{}".to_string(),
         };
 
         subject_addr.try_send(msg.clone()).unwrap();
