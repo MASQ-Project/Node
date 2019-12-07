@@ -99,6 +99,7 @@ impl UiTrafficConverterReal {
 mod tests {
     use super::*;
     use crate::sub_lib::ui_gateway::MessageDirection;
+    use serde_json::Number;
 
     #[test]
     fn a_shutdown_message_is_properly_marshalled_and_unmarshalled() {
@@ -136,7 +137,15 @@ mod tests {
         assert_eq!(out_ui_msg.client_id, 1234);
         assert_eq!(out_ui_msg.opcode, "opcode".to_string());
         assert_eq!(out_ui_msg.direction, MessageDirection::ToUi);
-        assert_eq!(out_ui_msg.payload, r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#.to_string())
+        match serde_json::from_str::<Value> (&out_ui_msg.payload) {
+            Ok(Value::Object(map)) => {
+                assert_eq! (map.get ("null"), Some (&Value::Null));
+                assert_eq! (map.get ("bool"), Some (&Value::Bool(true)));
+                assert_eq! (map.get ("number"), Some (&Value::Number (Number::from_f64(1.23).unwrap())));
+                assert_eq! (map.get ("string"), Some (&Value::String ("Booga".to_string())));
+            },
+            v => panic! ("Needed Some(Value::Map); got {:?}", v),
+        }
     }
 
     #[test]
@@ -182,19 +191,19 @@ mod tests {
 
         let result = subject.new_unmarshal(json, 1234);
 
-        assert_eq!(result, Err("data field is missing".to_string()))
+        assert_eq!(result, Err("payload field is missing".to_string()))
     }
 
     #[test]
     fn new_unmarshaling_handles_badly_typed_data() {
         let subject = UiTrafficConverterReal::new();
-        let json = r#"{"opcode": "whomp", "direction": "fromUi", "data": 1}"#;
+        let json = r#"{"opcode": "whomp", "direction": "fromUi", "payload": 1}"#;
 
         let result = subject.new_unmarshal(json, 1234);
 
         assert_eq!(
             result,
-            Err("data should have been of type Value::Object, not Number(1)".to_string())
+            Err("payload should have been of type Value::Object, not Number(1)".to_string())
         )
     }
 

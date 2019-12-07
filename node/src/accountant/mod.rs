@@ -280,13 +280,14 @@ impl Handler<NewUiMessage> for Accountant {
     fn handle(&mut self, msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         match &msg.opcode {
             opcode if opcode == "financials" => {
-                self.handle_financials(msg.client_id, match serde_json::from_str::<UiFinancialsRequest> (&msg.payload) {
-                    Ok(req) => req,
+                let request = match serde_json::from_str::<UiFinancialsRequest> (&msg.payload) {
+                    Ok(r) => r,
                     Err(e) => {
                         error!(&self.logger, "Bad financials request from client {}: {:?}", msg.client_id, e);
                         return;
                     },
-                });
+                };
+                self.handle_financials(msg.client_id, request);
             },
             opcode => debug! (&self.logger, "Ignoring unrecognized UI message: '{}'", opcode),
         }
@@ -1059,7 +1060,7 @@ pub mod tests {
             client_id: 1234,
             opcode: "financials".to_string(),
             direction: MessageDirection::FromUi,
-            payload: r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, receivableMaximumAge: 50004}"#.to_string(),
+            payload: r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, "receivableMaximumAge": 50004}"#.to_string(),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -1110,7 +1111,7 @@ pub mod tests {
     }
 
     #[test]
-    fn financials_request_with_bad_or_missing_payable_minimum_amount_logs_error() {
+    fn financials_request_with_bad_payload_logs_error() {
         init_test_logging();
         let system = System::new("test");
         let subject = Accountant::new(
@@ -1152,122 +1153,14 @@ pub mod tests {
             client_id: 1234,
             opcode: "financials".to_string(),
             direction: MessageDirection::FromUi,
-            payload: r#"{"payableMinimumAmount": true, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, receivableMaximumAge: 50004}"#.to_string(),
+            payload: "goober".to_string(),
         }).unwrap();
 
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq! (ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: payableMinimumAmount is a required numeric value");
-    }
-
-    #[test]
-    fn financials_request_with_bad_or_missing_payable_maximum_age_logs_error() {
-        init_test_logging();
-        let system = System::new("test");
-        let subject = Accountant::new(
-            &bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(10_000),
-                    payment_received_scan_interval: Duration::from_millis(10_000),
-                },
-                make_wallet("some_wallet_address"),
-            ),
-            Box::new(PayableDaoMock::new()),
-            Box::new(ReceivableDaoMock::new()),
-            Box::new(BannedDaoMock::new()),
-            null_config(),
-        );
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr.try_send(NewUiMessage {
-            client_id: 1234,
-            opcode: "financials".to_string(),
-            direction: MessageDirection::FromUi,
-            payload: r#"{"payableMinimumAmount": 50001, "payableMaximumAge": true, "receivableMinimumAmount": 50003, receivableMaximumAge: 50004}"#.to_string(),
-        }).unwrap();
-
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: payableMaximumAge is a required numeric value");
-    }
-
-    #[test]
-    fn financials_request_with_bad_or_missing_receivable_minimum_amount_logs_error() {
-        init_test_logging();
-        let system = System::new("test");
-        let subject = Accountant::new(
-            &bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(10_000),
-                    payment_received_scan_interval: Duration::from_millis(10_000),
-                },
-                make_wallet("some_wallet_address"),
-            ),
-            Box::new(PayableDaoMock::new()),
-            Box::new(ReceivableDaoMock::new()),
-            Box::new(BannedDaoMock::new()),
-            null_config(),
-        );
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr.try_send(NewUiMessage {
-            client_id: 1234,
-            opcode: "financials".to_string(),
-            direction: MessageDirection::FromUi,
-            payload: r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": true, receivableMaximumAge: 50004}"#.to_string(),
-        }).unwrap();
-
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: receivableMinimumAmount is a required numeric value");
-    }
-
-    #[test]
-    fn financials_request_with_bad_or_missing_receivable_maximum_age_logs_error() {
-        init_test_logging();
-        let system = System::new("test");
-        let subject = Accountant::new(
-            &bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(10_000),
-                    payment_received_scan_interval: Duration::from_millis(10_000),
-                },
-                make_wallet("some_wallet_address"),
-            ),
-            Box::new(PayableDaoMock::new()),
-            Box::new(ReceivableDaoMock::new()),
-            Box::new(BannedDaoMock::new()),
-            null_config(),
-        );
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr.try_send(NewUiMessage {
-            client_id: 1234,
-            opcode: "financials".to_string(),
-            direction: MessageDirection::FromUi,
-            payload: r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, receivableMaximumAge: true}"#.to_string(),
-        }).unwrap();
-
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: receivableMaximumAge is a required numeric value");
+        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: Error(\"expected value\", line: 1, column: 1)");
     }
 
     #[test]

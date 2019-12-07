@@ -729,21 +729,21 @@ mod tests {
         });
 
         let mut one_client = wait_for_client(port, "MASQNode-UIv2");
-        let mut another_client = make_client(port, "MASQNode-UIv2").unwrap();
+        let mut another_client = wait_for_client(port, "MASQNode-UIv2");
 
         one_client
             .send_message(&Message::text(
-                r#"{"opcode": "one", "direction": "fromUi", "data": {}}"#,
+                r#"{"opcode": "one", "direction": "fromUi", "payload": {}}"#,
             ))
             .unwrap();
         another_client
             .send_message(&Message::text(
-                r#"{"opcode": "another", "direction": "fromUi", "data": {}}"#,
+                r#"{"opcode": "another", "direction": "fromUi", "payload": {}}"#,
             ))
             .unwrap();
         one_client
             .send_message(&Message::text(
-                r#"{"opcode": "athird", "direction": "fromUi", "data": {}}"#,
+                r#"{"opcode": "athird", "direction": "fromUi", "payload": {}}"#,
             ))
             .unwrap();
 
