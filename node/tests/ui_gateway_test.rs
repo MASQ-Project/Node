@@ -112,13 +112,13 @@ fn request_financial_information_integration() {
     let mut node = utils::MASQNode::start_standard(None);
     node.wait_for_log("UIGateway bound", Some(5000));
 
-    let converter = UiTrafficConverterReal::new();
     let payload = UiFinancialsRequest {
         payableMinimumAmount: 0,
         payableMaximumAge: 1_000_000_000_000,
         receivableMinimumAmount: 0,
         receivableMaximumAge: 1_000_000_000_000,
     };
+    let converter = UiTrafficConverterReal::new();
     let request_msg = converter.new_marshal(NewUiMessage {
         client_id: 1234,
         opcode: "financials".to_string(),
@@ -126,7 +126,7 @@ fn request_financial_information_integration() {
         payload: serde_json::to_string(&payload).unwrap(),
     });
 
-    let response_data =
+    let digraph_client =
         ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
             .unwrap()
             .add_protocol("MASQNode-UIv2")
@@ -134,21 +134,33 @@ fn request_financial_information_integration() {
             .and_then(|(s, _)| s.send(OwnedMessage::Text(request_msg)))
             .and_then(|s| s.into_future().map_err(|e| e.0))
             .map(|(m, _)| match m {
-                Some(OwnedMessage::Text(s)) => s,
-                _ => panic!("Expected a text response"),
+                Some (OwnedMessage::Text(response_json)) => {
+                    let response_msg: NewUiMessage = UiTrafficConverterReal::new().new_unmarshal(&response_json, 1234).unwrap();
+                    assert_eq!(response_msg.opcode, "financials".to_string());
+                    assert_eq!(response_msg.client_id, 1234);
+                    assert_eq!(response_msg.direction, MessageDirection::ToUi);
+                    let payload = serde_json::from_str::<UiFinancialsResponse>(&response_msg.payload).unwrap();
+                    assert_eq!(payload.payables.len(), 0);
+                    assert_eq!(payload.receivables.len(), 0);
+                },
+                other => panic!("Expected text, received {:?}", other),
             })
             .timeout(Duration::from_millis(2000))
-            .wait()
-            .unwrap();
+            .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
-    let response_msg: NewUiMessage = converter.new_unmarshal(&response_data, 1234).unwrap();
-    assert_eq!(response_msg.opcode, "financials".to_string());
-    assert_eq!(response_msg.client_id, 1234);
-    assert_eq!(response_msg.direction, MessageDirection::ToUi);
-    let payload = serde_json::from_str::<UiFinancialsResponse>(&response_msg.payload).unwrap();
-    assert_eq!(payload.payables.len(), 0);
-    assert_eq!(payload.receivables.len(), 0);
+    let shutdown_msg = converter.marshal(UiMessage::ShutdownMessage).unwrap();
 
-    node.kill().unwrap();
+    let shutdown_client =
+        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+            .unwrap()
+            .add_protocol("MASQNode-UI")
+            .async_connect_insecure()
+            .and_then(|(s, _)| s.send(OwnedMessage::Text(shutdown_msg)));
+
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(digraph_client).unwrap();
+    rt.block_on(shutdown_client).unwrap();
+    rt.shutdown_on_idle().wait().unwrap();
+
     node.wait_for_exit();
 }

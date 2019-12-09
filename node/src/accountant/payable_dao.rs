@@ -2,7 +2,7 @@
 use crate::database::dao_utils;
 use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
-use rusqlite::types::ToSql;
+use rusqlite::types::{ToSql, Type};
 use rusqlite::{Error, OptionalExtension, NO_PARAMS};
 use serde_json::{self, json};
 use std::convert::TryFrom;
@@ -159,11 +159,11 @@ impl PayableDao for PayableDaoReal {
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
         let min_amt = match i64::try_from (minimum_amount) {
             Ok (n) => n,
-            Err (_) => 0x7FFFFFFFFFFFFFFF,
+            Err (_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
         let max_age = match i64::try_from (maximum_age) {
             Ok (n) => n,
-            Err (_) => 0x7FFFFFFFFFFFFFFF,
+            Err (_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
         let min_timestamp = dao_utils::now_time_t() - max_age;
         let mut stmt = self.conn
@@ -228,7 +228,8 @@ impl PayableDao for PayableDaoReal {
                     Ok(total_balance) => {
                         Ok(total_balance as u64)
                     },
-                    _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
+                    Err (e) if e == rusqlite::Error::InvalidColumnType(0, "sum(balance)".to_string(), Type::Null) => Ok (0u64),
+                    Err (e) => panic!("Database is corrupt: PAYABLE table columns and/or types: {:?}", e),
                 }
             })
             {
@@ -638,5 +639,21 @@ mod tests {
             },
         ]);
         assert_eq! (total, 4_000_000_000)
+    }
+
+    #[test]
+    fn correctly_totals_zero_records() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "correctly_totals_zero_records",
+        );
+        let conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
+        let subject = PayableDaoReal::new(conn);
+
+        let result = subject.total();
+
+        assert_eq! (result, 0)
     }
 }

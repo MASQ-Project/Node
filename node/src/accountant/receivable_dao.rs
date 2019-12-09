@@ -9,7 +9,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use rusqlite::named_params;
-use rusqlite::types::ToSql;
+use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
 use std::time::SystemTime;
 use std::convert::TryFrom;
@@ -170,12 +170,76 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
-    fn top_records(&self, _minimum_amount: u64, _maximum_age: u64) -> Vec<ReceivableAccount> {
-        unimplemented!()
+    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
+        let min_amt = match i64::try_from (minimum_amount) {
+            Ok (n) => n,
+            Err (_) => 0x7FFF_FFFF_FFFF_FFFF,
+        };
+        let max_age = match i64::try_from (maximum_age) {
+            Ok (n) => n,
+            Err (_) => 0x7FFF_FFFF_FFFF_FFFF,
+        };
+        let min_timestamp = dao_utils::now_time_t() - max_age;
+        let mut stmt = self.conn
+            .prepare(r#"
+                select
+                    balance,
+                    last_received_timestamp,
+                    wallet_address
+                from
+                    receivable
+                where
+                    balance >= ? and
+                    last_received_timestamp >= ?
+                order by
+                    balance desc,
+                    last_received_timestamp desc
+            "#)
+            .expect ("Internal error");
+        let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
+        stmt.query_map(params, |row| {
+            let balance_result = row.get(0);
+            let last_paid_timestamp_result = row.get(1);
+            let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
+            match (
+                balance_result,
+                last_paid_timestamp_result,
+                wallet_result,
+            ) {
+                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet)) => {
+                    Ok(ReceivableAccount {
+                        wallet,
+                        balance,
+                        last_received_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                    })
+                }
+                _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+            }
+        })
+            .expect("Database is corrupt")
+            .flatten()
+            .collect()
     }
 
     fn total(&self) -> u64 {
-        unimplemented!()
+        let mut stmt = self.conn
+            .prepare("select sum(balance) from receivable")
+            .expect ("Internal error");
+        match stmt
+            .query_row(NO_PARAMS, |row| {
+                let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
+                match total_balance_result {
+                    Ok(total_balance) => {
+                        Ok(total_balance as u64)
+                    },
+                    Err (e) if e == rusqlite::Error::InvalidColumnType(0, "sum(balance)".to_string(), Type::Null) => Ok (0u64),
+                    Err(e) => panic!("Database is corrupt: RECEIVABLE table columns and/or types: {:?}", e),
+                }
+            })
+            {
+                Ok(value) => value,
+                Err(e) => panic!("Database is corrupt: {:?}", e),
+            }
     }
 }
 
@@ -255,79 +319,6 @@ impl ReceivableDaoReal {
             }),
             _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
         }
-    }
-
-    #[allow (dead_code)] // Why is this necessary?
-    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        let min_amt = match i64::try_from (minimum_amount) {
-            Ok (n) => n,
-            Err (_) => 0x7FFFFFFFFFFFFFFF,
-        };
-        let max_age = match i64::try_from (maximum_age) {
-            Ok (n) => n,
-            Err (_) => 0x7FFFFFFFFFFFFFFF,
-        };
-        let min_timestamp = dao_utils::now_time_t() - max_age;
-        let mut stmt = self.conn
-            .prepare(r#"
-                select
-                    balance,
-                    last_received_timestamp,
-                    wallet_address
-                from
-                    receivable
-                where
-                    balance >= ? and
-                    last_received_timestamp >= ?
-                order by
-                    balance desc,
-                    last_received_timestamp desc
-            "#)
-            .expect ("Internal error");
-        let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
-        stmt.query_map(params, |row| {
-            let balance_result = row.get(0);
-            let last_paid_timestamp_result = row.get(1);
-            let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
-            match (
-                balance_result,
-                last_paid_timestamp_result,
-                wallet_result,
-            ) {
-                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet)) => {
-                    Ok(ReceivableAccount {
-                        wallet,
-                        balance,
-                        last_received_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    })
-                }
-                _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
-            }
-        })
-            .expect("Database is corrupt")
-            .flatten()
-            .collect()
-    }
-
-    #[allow (dead_code)] // Why is this necessary?
-    fn total(&self) -> u64 {
-        let mut stmt = self.conn
-            .prepare("select sum(balance) from receivable")
-            .expect ("Internal error");
-        match stmt
-            .query_row(NO_PARAMS, |row| {
-                let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
-                match total_balance_result {
-                    Ok(total_balance) => {
-                        Ok(total_balance as u64)
-                    },
-                    _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
-                }
-            })
-            {
-                Ok(value) => value,
-                Err(e) => panic!("Database is corrupt: {:?}", e),
-            }
     }
 }
 
@@ -948,6 +939,22 @@ mod tests {
             },
         ]);
         assert_eq! (total, 4_000_000_000)
+    }
+
+    #[test]
+    fn correctly_totals_zero_records() {
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "correctly_totals_zero_records",
+        );
+        let conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.total();
+
+        assert_eq! (result, 0)
     }
 
     fn add_receivable_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {

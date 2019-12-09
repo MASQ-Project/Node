@@ -113,6 +113,7 @@ impl Handler<NewUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+eprintln! ("Received: {:?}", msg);
         match msg.direction {
             MessageDirection::FromUi => {
                 self.incoming_message_recipients

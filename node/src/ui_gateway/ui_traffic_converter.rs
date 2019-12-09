@@ -46,8 +46,8 @@ impl UiTrafficConverter for UiTrafficConverterReal {
             Ok(Value::Object(map)) => {
                 let opcode = Self::get_string(&map, "opcode")?;
                 let direction = match Self::get_string(&map, "direction")? {
-                    s if s == "fromUi".to_string() => MessageDirection::FromUi,
-                    s if s == "toUi".to_string() => MessageDirection::ToUi,
+                    s if s == "fromUi" => MessageDirection::FromUi,
+                    s if s == "toUi" => MessageDirection::ToUi,
                     other => {
                         return Err(format!(
                             "direction should be fromUi or toUi, not '{}'",

@@ -25,6 +25,7 @@ use websocket::server::r#async::Server;
 use websocket::server::upgrade::WsUpgrade;
 use websocket::OwnedMessage;
 use websocket::WebSocketError;
+use std::fmt::Debug;
 
 trait ClientWrapper: Send + Any {
     fn as_any(&self) -> &dyn Any;
@@ -82,6 +83,7 @@ impl WebSocketSupervisor for WebSocketSupervisorReal {
     }
 
     fn send_msg(&self, msg: NewUiMessage) {
+eprintln! ("Sending response: {:?}", msg);
         let mut locked_inner = self.inner.lock().expect("WebSocketSupervisor is poisoned");
         let client_id = msg.client_id;
         let json = UiTrafficConverterReal::new().new_marshal(msg);
@@ -133,16 +135,20 @@ impl WebSocketSupervisorReal {
         WebSocketSupervisorReal { inner }
     }
 
-    fn remove_failures<I, E>(
+    fn remove_failures<I, E: Debug>(
         stream: impl Stream<Item = I, Error = E>,
         logger: &Logger,
     ) -> impl Stream<Item = I, Error = E> {
         let logger_clone = logger.clone();
         stream
             .then(move |result| match result {
-                Ok(x) => ok::<Option<I>, E>(Some(x)),
-                Err(_) => {
-                    info!(logger_clone, "Unsuccessful connection to UI port detected");
+                Ok(x) => {
+eprintln! ("Connection success");
+                    ok::<Option<I>, E>(Some(x))
+                },
+                Err(e) => {
+eprintln! ("Connection failure");
+                    warning!(logger_clone, "Unsuccessful connection to UI port detected: {:?}", e);
                     ok::<Option<I>, E>(None)
                 }
             })
