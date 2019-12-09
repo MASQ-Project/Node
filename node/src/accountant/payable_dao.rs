@@ -157,17 +157,19 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-        let min_amt = match i64::try_from (minimum_amount) {
-            Ok (n) => n,
-            Err (_) => 0x7FFF_FFFF_FFFF_FFFF,
+        let min_amt = match i64::try_from(minimum_amount) {
+            Ok(n) => n,
+            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
-        let max_age = match i64::try_from (maximum_age) {
-            Ok (n) => n,
-            Err (_) => 0x7FFF_FFFF_FFFF_FFFF,
+        let max_age = match i64::try_from(maximum_age) {
+            Ok(n) => n,
+            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
         let min_timestamp = dao_utils::now_time_t() - max_age;
-        let mut stmt = self.conn
-            .prepare(r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
                 select
                     balance,
                     last_paid_timestamp,
@@ -181,8 +183,9 @@ impl PayableDao for PayableDaoReal {
                 order by
                     balance desc,
                     last_paid_timestamp desc
-            "#)
-            .expect ("Internal error");
+            "#,
+            )
+            .expect("Internal error");
         let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
         stmt.query_map(params, |row| {
             let balance_result = row.get(0);
@@ -195,20 +198,23 @@ impl PayableDao for PayableDaoReal {
                 wallet_result,
                 pending_payment_transaction_result,
             ) {
-                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet), Ok(pending_payment_transaction)) => {
-                    Ok(PayableAccount {
-                        wallet,
-                        balance,
-                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                        pending_payment_transaction: match pending_payment_transaction {
-                            Some(tx) => match serde_json::from_value(json!(tx)) {
-                                Ok(transaction) => Some(transaction),
-                                Err(e) => panic!("{:?}", e),
-                            },
-                            None => None,
+                (
+                    Ok(balance),
+                    Ok(last_paid_timestamp),
+                    Ok(wallet),
+                    Ok(pending_payment_transaction),
+                ) => Ok(PayableAccount {
+                    wallet,
+                    balance,
+                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                    pending_payment_transaction: match pending_payment_transaction {
+                        Some(tx) => match serde_json::from_value(json!(tx)) {
+                            Ok(transaction) => Some(transaction),
+                            Err(e) => panic!("{:?}", e),
                         },
-                    })
-                }
+                        None => None,
+                    },
+                }),
                 _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
             }
         })
@@ -218,24 +224,32 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn total(&self) -> u64 {
-        let mut stmt = self.conn
+        let mut stmt = self
+            .conn
             .prepare("select sum(balance) from payable")
-            .expect ("Internal error");
-        match stmt
-            .query_row(NO_PARAMS, |row| {
-                let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
-                match total_balance_result {
-                    Ok(total_balance) => {
-                        Ok(total_balance as u64)
-                    },
-                    Err (e) if e == rusqlite::Error::InvalidColumnType(0, "sum(balance)".to_string(), Type::Null) => Ok (0u64),
-                    Err (e) => panic!("Database is corrupt: PAYABLE table columns and/or types: {:?}", e),
+            .expect("Internal error");
+        match stmt.query_row(NO_PARAMS, |row| {
+            let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
+            match total_balance_result {
+                Ok(total_balance) => Ok(total_balance as u64),
+                Err(e)
+                    if e == rusqlite::Error::InvalidColumnType(
+                        0,
+                        "sum(balance)".to_string(),
+                        Type::Null,
+                    ) =>
+                {
+                    Ok(0u64)
                 }
-            })
-            {
-                Ok(value) => value,
-                Err(e) => panic!("Database is corrupt: {:?}", e),
+                Err(e) => panic!(
+                    "Database is corrupt: PAYABLE table columns and/or types: {:?}",
+                    e
+                ),
             }
+        }) {
+            Ok(value) => value,
+            Err(e) => panic!("Database is corrupt: {:?}", e),
+        }
     }
 }
 
@@ -302,8 +316,8 @@ mod tests {
     use crate::test_utils::{ensure_node_home_directory_exists, make_wallet, DEFAULT_CHAIN_ID};
     use ethereum_types::BigEndianHash;
     use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-    use web3::types::{U256};
     use std::str::FromStr;
+    use web3::types::U256;
 
     #[test]
     fn more_money_payable_works_for_new_address() {
@@ -575,15 +589,16 @@ mod tests {
 
     #[test]
     fn top_records_and_total() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "top_records_and_total",
-        );
+        let home_dir = ensure_node_home_directory_exists("payable_dao", "top_records_and_total");
         let conn = DbInitializerReal::new()
             .initialize(&home_dir, DEFAULT_CHAIN_ID)
             .unwrap();
-        let insert = |wallet: &str, balance: i64, timestamp: i64, pending_payment_transaction: Option<&str>| {
-            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payment_transaction];
+        let insert = |wallet: &str,
+                      balance: i64,
+                      timestamp: i64,
+                      pending_payment_transaction: Option<&str>| {
+            let params: &[&dyn ToSql] =
+                &[&wallet, &balance, &timestamp, &pending_payment_transaction];
             conn
                 .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?, ?, ?, ?)")
                 .unwrap()
@@ -597,25 +612,25 @@ mod tests {
         insert(
             "0x1111111111111111111111111111111111111111",
             999_999_999, // below minimum amount - reject
-            timestamp1, // below maximum age
+            timestamp1,  // below maximum age
             None,
         );
         insert(
             "0x2222222222222222222222222222222222222222",
             1_000_000_000, // minimum amount
-            timestamp2, // above maximum age - reject
+            timestamp2,    // above maximum age - reject
             None,
         );
         insert(
             "0x3333333333333333333333333333333333333333",
             1_000_000_000, // minimum amount
-            timestamp3, // below maximum age
+            timestamp3,    // below maximum age
             None,
         );
         insert(
             "0x4444444444444444444444444444444444444444",
             1_000_000_001, // above minimum amount
-            timestamp4, // below maximum age
+            timestamp4,    // below maximum age
             Some("0x1111111122222222333333334444444455555555666666667777777788888888"),
         );
 
@@ -624,29 +639,35 @@ mod tests {
         let top_records = subject.top_records(1_000_000_000, 86400);
         let total = subject.total();
 
-        assert_eq! (top_records, vec![
-            PayableAccount {
-                wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                balance: 1_000_000_001,
-                last_paid_timestamp: dao_utils::from_time_t(timestamp4),
-                pending_payment_transaction: Some(H256::from_str("1111111122222222333333334444444455555555666666667777777788888888").unwrap())
-            },
-            PayableAccount {
-                wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                balance: 1_000_000_000,
-                last_paid_timestamp: dao_utils::from_time_t(timestamp3),
-                pending_payment_transaction: None
-            },
-        ]);
-        assert_eq! (total, 4_000_000_000)
+        assert_eq!(
+            top_records,
+            vec![
+                PayableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance: 1_000_000_001,
+                    last_paid_timestamp: dao_utils::from_time_t(timestamp4),
+                    pending_payment_transaction: Some(
+                        H256::from_str(
+                            "1111111122222222333333334444444455555555666666667777777788888888"
+                        )
+                        .unwrap()
+                    )
+                },
+                PayableAccount {
+                    wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
+                    balance: 1_000_000_000,
+                    last_paid_timestamp: dao_utils::from_time_t(timestamp3),
+                    pending_payment_transaction: None
+                },
+            ]
+        );
+        assert_eq!(total, 4_000_000_000)
     }
 
     #[test]
     fn correctly_totals_zero_records() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "correctly_totals_zero_records",
-        );
+        let home_dir =
+            ensure_node_home_directory_exists("payable_dao", "correctly_totals_zero_records");
         let conn = DbInitializerReal::new()
             .initialize(&home_dir, DEFAULT_CHAIN_ID)
             .unwrap();
@@ -654,6 +675,6 @@ mod tests {
 
         let result = subject.total();
 
-        assert_eq! (result, 0)
+        assert_eq!(result, 0)
     }
 }

@@ -37,7 +37,10 @@ impl UiTrafficConverter for UiTrafficConverterReal {
                 MessageDirection::ToUi => "toUi".to_string(),
             }),
         );
-        msg_map.insert("payload".to_string(), serde_json::from_str(&msg.payload).expect ("Serialization problem"));
+        msg_map.insert(
+            "payload".to_string(),
+            serde_json::from_str(&msg.payload).expect("Serialization problem"),
+        );
         serde_json::to_string(&msg_map).expect("Problem converting Value::Object to JSON")
     }
 
@@ -57,14 +60,21 @@ impl UiTrafficConverter for UiTrafficConverterReal {
                 };
                 let payload_map = match map.get("payload") {
                     Some(Value::Object(value)) => value,
-                    Some(x) => return Err(format!(
-                        "payload should have been of type Value::Object, not {:?}",
-                        x
-                    )),
+                    Some(x) => {
+                        return Err(format!(
+                            "payload should have been of type Value::Object, not {:?}",
+                            x
+                        ))
+                    }
                     None => return Err("payload field is missing".to_string()),
                 };
-                let payload = serde_json::to_string (payload_map).expect ("Reserialization problem");
-                Ok(NewUiMessage {client_id, opcode, direction, payload})
+                let payload = serde_json::to_string(payload_map).expect("Reserialization problem");
+                Ok(NewUiMessage {
+                    client_id,
+                    opcode,
+                    direction,
+                    payload,
+                })
             }
             Ok(x) => Err(format!(
                 "JSON packet should have been of type Value::Object, not {:?}",
@@ -128,7 +138,8 @@ mod tests {
             client_id: 4321,
             opcode: "opcode".to_string(),
             direction: MessageDirection::ToUi,
-            payload: r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#.to_string(),
+            payload: r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
+                .to_string(),
         };
 
         let json = subject.new_marshal(in_ui_msg);
@@ -137,14 +148,17 @@ mod tests {
         assert_eq!(out_ui_msg.client_id, 1234);
         assert_eq!(out_ui_msg.opcode, "opcode".to_string());
         assert_eq!(out_ui_msg.direction, MessageDirection::ToUi);
-        match serde_json::from_str::<Value> (&out_ui_msg.payload) {
+        match serde_json::from_str::<Value>(&out_ui_msg.payload) {
             Ok(Value::Object(map)) => {
-                assert_eq! (map.get ("null"), Some (&Value::Null));
-                assert_eq! (map.get ("bool"), Some (&Value::Bool(true)));
-                assert_eq! (map.get ("number"), Some (&Value::Number (Number::from_f64(1.23).unwrap())));
-                assert_eq! (map.get ("string"), Some (&Value::String ("Booga".to_string())));
-            },
-            v => panic! ("Needed Some(Value::Map); got {:?}", v),
+                assert_eq!(map.get("null"), Some(&Value::Null));
+                assert_eq!(map.get("bool"), Some(&Value::Bool(true)));
+                assert_eq!(
+                    map.get("number"),
+                    Some(&Value::Number(Number::from_f64(1.23).unwrap()))
+                );
+                assert_eq!(map.get("string"), Some(&Value::String("Booga".to_string())));
+            }
+            v => panic!("Needed Some(Value::Map); got {:?}", v),
         }
     }
 

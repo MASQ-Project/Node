@@ -3,6 +3,7 @@
 pub mod utils;
 
 use futures::future::*;
+use node_lib::sub_lib::accountant::{UiFinancialsRequest, UiFinancialsResponse};
 use node_lib::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiMessage, DEFAULT_UI_PORT};
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
@@ -11,7 +12,6 @@ use std::time::Duration;
 use tokio::prelude::*;
 use websocket::ClientBuilder;
 use websocket::OwnedMessage;
-use node_lib::sub_lib::accountant::{UiFinancialsResponse, UiFinancialsRequest};
 
 #[test]
 fn ui_gateway_message_integration() {
@@ -23,19 +23,18 @@ fn ui_gateway_message_integration() {
         .marshal(UiMessage::GetNodeDescriptor)
         .expect("Couldn't marshal GetNodeDescriptor message");
 
-    let _ =
-        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
-            .expect("Couldn't create first ClientBuilder")
-            .add_protocol("MASQNode-UI")
-            .async_connect_insecure()
-            .and_then(|(s, _)| s.send(OwnedMessage::Text(msg)))
-            .and_then(|s| s.into_future().map_err(|e| e.0))
-            .map(|(m, _)| match m {
-                Some(OwnedMessage::Text(s)) => assert!(!s.is_empty()),
-                _ => panic!("Expected a text response"),
-            })
-            .timeout(Duration::from_millis(1000))
-            .map_err(|e| panic!("failed to get response by timeout {:?}", e));
+    let _ = ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+        .expect("Couldn't create first ClientBuilder")
+        .add_protocol("MASQNode-UI")
+        .async_connect_insecure()
+        .and_then(|(s, _)| s.send(OwnedMessage::Text(msg)))
+        .and_then(|s| s.into_future().map_err(|e| e.0))
+        .map(|(m, _)| match m {
+            Some(OwnedMessage::Text(s)) => assert!(!s.is_empty()),
+            _ => panic!("Expected a text response"),
+        })
+        .timeout(Duration::from_millis(1000))
+        .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
     node.kill().unwrap();
     node.wait_for_exit();
@@ -99,15 +98,18 @@ fn request_financial_information_integration() {
         .and_then(|(s, _)| s.send(OwnedMessage::Text(request_msg)))
         .and_then(|s| s.into_future().map_err(|e| e.0))
         .map(|(m, _)| match m {
-            Some (OwnedMessage::Text(response_json)) => {
-                let response_msg: NewUiMessage = UiTrafficConverterReal::new().new_unmarshal(&response_json, 1234).unwrap();
+            Some(OwnedMessage::Text(response_json)) => {
+                let response_msg: NewUiMessage = UiTrafficConverterReal::new()
+                    .new_unmarshal(&response_json, 1234)
+                    .unwrap();
                 assert_eq!(response_msg.opcode, "financials".to_string());
                 assert_eq!(response_msg.client_id, 1234);
                 assert_eq!(response_msg.direction, MessageDirection::ToUi);
-                let payload = serde_json::from_str::<UiFinancialsResponse>(&response_msg.payload).unwrap();
+                let payload =
+                    serde_json::from_str::<UiFinancialsResponse>(&response_msg.payload).unwrap();
                 assert_eq!(payload.payables.len(), 0);
                 assert_eq!(payload.receivables.len(), 0);
-            },
+            }
             other => panic!("Expected text, received {:?}", other),
         })
         .timeout(Duration::from_millis(2000))

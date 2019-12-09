@@ -11,8 +11,8 @@ use indoc::indoc;
 use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
-use std::time::SystemTime;
 use std::convert::TryFrom;
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceivableAccount {
@@ -171,17 +171,19 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        let min_amt = match i64::try_from (minimum_amount) {
-            Ok (n) => n,
-            Err (_) => 0x7FFF_FFFF_FFFF_FFFF,
+        let min_amt = match i64::try_from(minimum_amount) {
+            Ok(n) => n,
+            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
-        let max_age = match i64::try_from (maximum_age) {
-            Ok (n) => n,
-            Err (_) => 0x7FFF_FFFF_FFFF_FFFF,
+        let max_age = match i64::try_from(maximum_age) {
+            Ok(n) => n,
+            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
         let min_timestamp = dao_utils::now_time_t() - max_age;
-        let mut stmt = self.conn
-            .prepare(r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
                 select
                     balance,
                     last_received_timestamp,
@@ -194,52 +196,55 @@ impl ReceivableDao for ReceivableDaoReal {
                 order by
                     balance desc,
                     last_received_timestamp desc
-            "#)
-            .expect ("Internal error");
+            "#,
+            )
+            .expect("Internal error");
         let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
         stmt.query_map(params, |row| {
             let balance_result = row.get(0);
             let last_paid_timestamp_result = row.get(1);
             let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
-            match (
-                balance_result,
-                last_paid_timestamp_result,
-                wallet_result,
-            ) {
-                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet)) => {
-                    Ok(ReceivableAccount {
-                        wallet,
-                        balance,
-                        last_received_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    })
-                }
+            match (balance_result, last_paid_timestamp_result, wallet_result) {
+                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet)) => Ok(ReceivableAccount {
+                    wallet,
+                    balance,
+                    last_received_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                }),
                 _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
             }
         })
-            .expect("Database is corrupt")
-            .flatten()
-            .collect()
+        .expect("Database is corrupt")
+        .flatten()
+        .collect()
     }
 
     fn total(&self) -> u64 {
-        let mut stmt = self.conn
+        let mut stmt = self
+            .conn
             .prepare("select sum(balance) from receivable")
-            .expect ("Internal error");
-        match stmt
-            .query_row(NO_PARAMS, |row| {
-                let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
-                match total_balance_result {
-                    Ok(total_balance) => {
-                        Ok(total_balance as u64)
-                    },
-                    Err (e) if e == rusqlite::Error::InvalidColumnType(0, "sum(balance)".to_string(), Type::Null) => Ok (0u64),
-                    Err(e) => panic!("Database is corrupt: RECEIVABLE table columns and/or types: {:?}", e),
+            .expect("Internal error");
+        match stmt.query_row(NO_PARAMS, |row| {
+            let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
+            match total_balance_result {
+                Ok(total_balance) => Ok(total_balance as u64),
+                Err(e)
+                    if e == rusqlite::Error::InvalidColumnType(
+                        0,
+                        "sum(balance)".to_string(),
+                        Type::Null,
+                    ) =>
+                {
+                    Ok(0u64)
                 }
-            })
-            {
-                Ok(value) => value,
-                Err(e) => panic!("Database is corrupt: {:?}", e),
+                Err(e) => panic!(
+                    "Database is corrupt: RECEIVABLE table columns and/or types: {:?}",
+                    e
+                ),
             }
+        }) {
+            Ok(value) => value,
+            Err(e) => panic!("Database is corrupt: {:?}", e),
+        }
     }
 }
 
@@ -881,10 +886,7 @@ mod tests {
 
     #[test]
     fn top_records_and_total() {
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "top_records_and_total",
-        );
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
         let conn = DbInitializerReal::new()
             .initialize(&home_dir, DEFAULT_CHAIN_ID)
             .unwrap();
@@ -903,22 +905,22 @@ mod tests {
         insert(
             "0x1111111111111111111111111111111111111111",
             999_999_999, // below minimum amount - reject
-            timestamp1, // below maximum age
+            timestamp1,  // below maximum age
         );
         insert(
             "0x2222222222222222222222222222222222222222",
             1_000_000_000, // minimum amount
-            timestamp2, // above maximum age - reject
+            timestamp2,    // above maximum age - reject
         );
         insert(
             "0x3333333333333333333333333333333333333333",
             1_000_000_000, // minimum amount
-            timestamp3, // below maximum age
+            timestamp3,    // below maximum age
         );
         insert(
             "0x4444444444444444444444444444444444444444",
             1_000_000_001, // above minimum amount
-            timestamp4, // below maximum age
+            timestamp4,    // below maximum age
         );
 
         let subject = ReceivableDaoReal::new(conn);
@@ -926,27 +928,28 @@ mod tests {
         let top_records = subject.top_records(1_000_000_000, 86400);
         let total = subject.total();
 
-        assert_eq! (top_records, vec![
-            ReceivableAccount {
-                wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                balance: 1_000_000_001,
-                last_received_timestamp: dao_utils::from_time_t(timestamp4),
-            },
-            ReceivableAccount {
-                wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                balance: 1_000_000_000,
-                last_received_timestamp: dao_utils::from_time_t(timestamp3),
-            },
-        ]);
-        assert_eq! (total, 4_000_000_000)
+        assert_eq!(
+            top_records,
+            vec![
+                ReceivableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance: 1_000_000_001,
+                    last_received_timestamp: dao_utils::from_time_t(timestamp4),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
+                    balance: 1_000_000_000,
+                    last_received_timestamp: dao_utils::from_time_t(timestamp3),
+                },
+            ]
+        );
+        assert_eq!(total, 4_000_000_000)
     }
 
     #[test]
     fn correctly_totals_zero_records() {
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "correctly_totals_zero_records",
-        );
+        let home_dir =
+            ensure_node_home_directory_exists("receivable_dao", "correctly_totals_zero_records");
         let conn = DbInitializerReal::new()
             .initialize(&home_dir, DEFAULT_CHAIN_ID)
             .unwrap();
@@ -954,7 +957,7 @@ mod tests {
 
         let result = subject.total();
 
-        assert_eq! (result, 0)
+        assert_eq!(result, 0)
     }
 
     fn add_receivable_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {

@@ -13,18 +13,19 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
-use crate::sub_lib::accountant::{ReportExitServiceConsumedMessage, UiFinancialsRequest, UiPayableAccount, UiReceivableAccount, UiFinancialsResponse};
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantConfig, GetFinancialStatisticsMessage};
 use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
+use crate::sub_lib::accountant::{
+    ReportExitServiceConsumedMessage, UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount,
+    UiReceivableAccount,
+};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{
-    MessageDirection, NewUiMessage, UiCarrierMessage, UiMessage,
-};
+use crate::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -280,16 +281,22 @@ impl Handler<NewUiMessage> for Accountant {
     fn handle(&mut self, msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         match &msg.opcode {
             opcode if opcode == "financials" => {
-                let request = match serde_json::from_str::<UiFinancialsRequest> (&msg.payload) {
+                let request = match serde_json::from_str::<UiFinancialsRequest>(&msg.payload) {
                     Ok(r) => r,
                     Err(e) => {
-                        error!(&self.logger, "Bad financials request from client {}: {:?}", msg.client_id, e);
+                        error!(
+                            &self.logger,
+                            "Bad financials request from client {}: {:?}", msg.client_id, e
+                        );
                         return;
-                    },
+                    }
                 };
                 self.handle_financials(msg.client_id, request);
-            },
-            opcode => debug! (&self.logger, "Ignoring unrecognized UI message: '{}'", opcode),
+            }
+            opcode => debug!(
+                &self.logger,
+                "Ignoring unrecognized UI message: '{}'", opcode
+            ),
         }
     }
 }
@@ -592,42 +599,39 @@ impl Accountant {
         }
     }
 
-    fn handle_financials(
-        &mut self,
-        client_id: u64,
-        request: UiFinancialsRequest,
-    ) {
-eprintln! ("Accountant received from {}: {:?}", client_id, request);
+    fn handle_financials(&mut self, client_id: u64, request: UiFinancialsRequest) {
+        eprintln!("Accountant received from {}: {:?}", client_id, request);
         let payables = self
             .payable_dao
             .top_records(request.payableMinimumAmount, request.payableMaximumAge)
             .iter()
-            .map(|account| {
-                UiPayableAccount {
-                    wallet: account.wallet.to_string(),
-                    age: SystemTime::now()
-                        .duration_since(account.last_paid_timestamp)
-                        .expect("Bad interval")
-                        .as_secs(),
-                    amount: account.balance as u64,
-                    pendingTransaction: account.pending_payment_transaction.map (|ppt| format!("0x{:0X}", ppt)),
-                }
+            .map(|account| UiPayableAccount {
+                wallet: account.wallet.to_string(),
+                age: SystemTime::now()
+                    .duration_since(account.last_paid_timestamp)
+                    .expect("Bad interval")
+                    .as_secs(),
+                amount: account.balance as u64,
+                pendingTransaction: account
+                    .pending_payment_transaction
+                    .map(|ppt| format!("0x{:0X}", ppt)),
             })
             .collect_vec();
         let total_payable = self.payable_dao.total();
         let receivables = self
             .receivable_dao
-            .top_records(request.receivableMinimumAmount, request.receivableMaximumAge)
+            .top_records(
+                request.receivableMinimumAmount,
+                request.receivableMaximumAge,
+            )
             .iter()
-            .map(|account| {
-                UiReceivableAccount {
-                    wallet: account.wallet.to_string(),
-                    age: SystemTime::now()
-                        .duration_since(account.last_received_timestamp)
-                        .expect("Bad interval")
-                        .as_secs(),
-                    amount: account.balance as u64,
-                }
+            .map(|account| UiReceivableAccount {
+                wallet: account.wallet.to_string(),
+                age: SystemTime::now()
+                    .duration_since(account.last_received_timestamp)
+                    .expect("Bad interval")
+                    .as_secs(),
+                amount: account.balance as u64,
             })
             .collect_vec();
         let total_receivable = self.receivable_dao.total();
@@ -641,9 +645,9 @@ eprintln! ("Accountant received from {}: {:?}", client_id, request);
             client_id,
             opcode: "financials".to_string(),
             direction: MessageDirection::ToUi,
-            payload: serde_json::to_string (&response_payload).expect ("Serialization problem"),
+            payload: serde_json::to_string(&response_payload).expect("Serialization problem"),
         };
-eprintln! ("Accountant responding to {}: {:?}", client_id, response);
+        eprintln!("Accountant responding to {}: {:?}", client_id, response);
         self.ui_message_sub
             .as_ref()
             .expect("UiGateway not bound")
@@ -662,7 +666,10 @@ pub mod tests {
     use crate::blockchain::blockchain_interface::Transaction;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
-    use crate::sub_lib::accountant::{FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
+    use crate::sub_lib::accountant::{
+        FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage, UiFinancialsResponse,
+        UiPayableAccount, UiReceivableAccount,
+    };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::ui_gateway::{MessageDirection, UiCarrierMessage, UiMessage};
     use crate::sub_lib::wallet::Wallet;
@@ -1079,37 +1086,44 @@ pub mod tests {
         assert_eq!(response.opcode, "financials".to_string());
         assert_eq!(response.client_id, 1234);
         assert_eq!(response.direction, MessageDirection::ToUi);
-        let parsed_payload = serde_json::from_str::<UiFinancialsResponse> (&response.payload).unwrap();
-        assert_eq!(parsed_payload, UiFinancialsResponse {
-            payables: vec![
-                UiPayableAccount {
-                    wallet: "0x00000000000000000000006561726e696e672031".to_string(),
-                    age: 10000,
-                    amount: 12345678,
-                    pendingTransaction: Some("0x000000000000000000000000000000000000000000000000000000000000007B".to_string()),
-                },
-                UiPayableAccount {
-                    wallet: "0x00000000000000000000006561726e696e672032".to_string(),
-                    age: 10001,
-                    amount: 12345679,
-                    pendingTransaction: None,
-                }
-            ],
-            totalPayable: 23456789,
-            receivables: vec![
-                UiReceivableAccount {
-                    wallet: "0x000000000000000000636f6e73756d696e672031".to_string(),
-                    age: 20000,
-                    amount: 87654321,
-                },
-                UiReceivableAccount {
-                    wallet: "0x000000000000000000636f6e73756d696e672032".to_string(),
-                    age: 20001,
-                    amount: 87654322,
-                }
-            ],
-            totalReceivable: 98765432
-        });
+        let parsed_payload =
+            serde_json::from_str::<UiFinancialsResponse>(&response.payload).unwrap();
+        assert_eq!(
+            parsed_payload,
+            UiFinancialsResponse {
+                payables: vec![
+                    UiPayableAccount {
+                        wallet: "0x00000000000000000000006561726e696e672031".to_string(),
+                        age: 10000,
+                        amount: 12345678,
+                        pendingTransaction: Some(
+                            "0x000000000000000000000000000000000000000000000000000000000000007B"
+                                .to_string()
+                        ),
+                    },
+                    UiPayableAccount {
+                        wallet: "0x00000000000000000000006561726e696e672032".to_string(),
+                        age: 10001,
+                        amount: 12345679,
+                        pendingTransaction: None,
+                    }
+                ],
+                totalPayable: 23456789,
+                receivables: vec![
+                    UiReceivableAccount {
+                        wallet: "0x000000000000000000636f6e73756d696e672031".to_string(),
+                        age: 20000,
+                        amount: 87654321,
+                    },
+                    UiReceivableAccount {
+                        wallet: "0x000000000000000000636f6e73756d696e672032".to_string(),
+                        age: 20001,
+                        amount: 87654322,
+                    }
+                ],
+                totalReceivable: 98765432
+            }
+        );
     }
 
     #[test]
@@ -1134,10 +1148,7 @@ pub mod tests {
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let mut data_map = serde_json::map::Map::new();
-        data_map.insert(
-            "payableMinimumAmount".to_string(),
-            Value::Bool(true),
-        );
+        data_map.insert("payableMinimumAmount".to_string(), Value::Bool(true));
         data_map.insert(
             "payableMaximumAge".to_string(),
             Value::Number(Number::from_f64(50002f64).unwrap()),
@@ -1151,17 +1162,19 @@ pub mod tests {
             Value::Number(Number::from_f64(50004f64).unwrap()),
         );
 
-        subject_addr.try_send(NewUiMessage {
-            client_id: 1234,
-            opcode: "financials".to_string(),
-            direction: MessageDirection::FromUi,
-            payload: "goober".to_string(),
-        }).unwrap();
+        subject_addr
+            .try_send(NewUiMessage {
+                client_id: 1234,
+                opcode: "financials".to_string(),
+                direction: MessageDirection::FromUi,
+                payload: "goober".to_string(),
+            })
+            .unwrap();
 
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.len(), 0);
+        assert_eq!(ui_gateway_recording.len(), 0);
         TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: Error(\"expected value\", line: 1, column: 1)");
     }
 
@@ -1187,18 +1200,21 @@ pub mod tests {
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        subject_addr.try_send(NewUiMessage {
-            client_id: 1234,
-            opcode: "booga".to_string(),
-            direction: MessageDirection::FromUi,
-            payload: "{}".to_string(),
-        }).unwrap();
+        subject_addr
+            .try_send(NewUiMessage {
+                client_id: 1234,
+                opcode: "booga".to_string(),
+                direction: MessageDirection::FromUi,
+                payload: "{}".to_string(),
+            })
+            .unwrap();
 
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing ("DEBUG: Accountant: Ignoring unrecognized UI message: 'booga'");
+        assert_eq!(ui_gateway_recording.len(), 0);
+        TestLogHandler::new()
+            .exists_log_containing("DEBUG: Accountant: Ignoring unrecognized UI message: 'booga'");
     }
 
     #[test]
