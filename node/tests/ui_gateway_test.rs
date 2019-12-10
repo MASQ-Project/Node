@@ -4,7 +4,7 @@ pub mod utils;
 
 use futures::future::*;
 use node_lib::sub_lib::accountant::{UiFinancialsRequest, UiFinancialsResponse};
-use node_lib::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiMessage, DEFAULT_UI_PORT};
+use node_lib::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiMessage, DEFAULT_UI_PORT, Correspondent};
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
@@ -85,7 +85,7 @@ fn request_financial_information_integration() {
     };
     let converter = UiTrafficConverterReal::new();
     let request_msg = converter.new_marshal(NewUiMessage {
-        client_id: 1234,
+        correspondent: Correspondent::ClientId(1234),
         opcode: "financials".to_string(),
         direction: MessageDirection::FromUi,
         payload: serde_json::to_string(&payload).unwrap(),
@@ -103,7 +103,7 @@ fn request_financial_information_integration() {
                     .new_unmarshal(&response_json, 1234)
                     .unwrap();
                 assert_eq!(response_msg.opcode, "financials".to_string());
-                assert_eq!(response_msg.client_id, 1234);
+                assert_eq!(response_msg.correspondent, Correspondent::ClientId(1234));
                 assert_eq!(response_msg.direction, MessageDirection::ToUi);
                 let payload =
                     serde_json::from_str::<UiFinancialsResponse>(&response_msg.payload).unwrap();

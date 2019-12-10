@@ -245,7 +245,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
-    use crate::sub_lib::ui_gateway::{MessageDirection, UiMessage};
+    use crate::sub_lib::ui_gateway::{MessageDirection, UiMessage, Correspondent};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -431,7 +431,7 @@ mod tests {
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let msg = NewUiMessage {
-            client_id: 1234,
+            correspondent: Correspondent::ClientId(1234),
             opcode: "booga".to_string(),
             direction: MessageDirection::FromUi,
             payload: "{}".to_string(),
@@ -462,7 +462,7 @@ mod tests {
         subject.incoming_message_recipients = vec![accountant.start().recipient::<NewUiMessage>()];
         let subject_addr: Addr<UiGateway> = subject.start();
         let msg = NewUiMessage {
-            client_id: 1234,
+            correspondent: Correspondent::ClientId(1234),
             opcode: "booga".to_string(),
             direction: MessageDirection::ToUi,
             payload: "{}".to_string(),

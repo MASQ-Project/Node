@@ -1230,7 +1230,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::ui_gateway::MessageDirection;
+    use crate::sub_lib::ui_gateway::{MessageDirection, Correspondent};
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -4222,7 +4222,7 @@ mod tests {
 
         subject_addr
             .try_send(NewUiMessage {
-                client_id: 1234,
+                correspondent: Correspondent::ClientId(1234),
                 opcode: "booga".to_string(),
                 direction: MessageDirection::FromUi,
                 payload: "{}".to_string(),

@@ -25,7 +25,7 @@ use crate::sub_lib::accountant::{
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiCarrierMessage, UiMessage};
+use crate::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiCarrierMessage, UiMessage, Correspondent};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -286,12 +286,18 @@ impl Handler<NewUiMessage> for Accountant {
                     Err(e) => {
                         error!(
                             &self.logger,
-                            "Bad financials request from client {}: {:?}", msg.client_id, e
+                            "Bad financials request from client {:?}: {:?}", msg.correspondent, e
                         );
                         return;
                     }
                 };
-                self.handle_financials(msg.client_id, request);
+                let client_id = match msg.correspondent {
+                    Correspondent::ClientId(client_id) => client_id,
+                    _ => {
+                        unimplemented! ("TODO: Test-drive me")
+                    }
+                };
+                self.handle_financials(client_id, request);
             }
             opcode => debug!(
                 &self.logger,
@@ -641,7 +647,7 @@ impl Accountant {
             totalReceivable: total_receivable,
         };
         let response = NewUiMessage {
-            client_id,
+            correspondent: Correspondent::ClientId(client_id),
             opcode: "financials".to_string(),
             direction: MessageDirection::ToUi,
             payload: serde_json::to_string(&response_payload).expect("Serialization problem"),
@@ -669,7 +675,7 @@ pub mod tests {
         UiPayableAccount, UiReceivableAccount,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::{MessageDirection, UiCarrierMessage, UiMessage};
+    use crate::sub_lib::ui_gateway::{MessageDirection, UiCarrierMessage, UiMessage, Correspondent};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -1064,7 +1070,7 @@ pub mod tests {
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let ui_message = NewUiMessage {
-            client_id: 1234,
+            correspondent: Correspondent::ClientId(1234),
             opcode: "financials".to_string(),
             direction: MessageDirection::FromUi,
             payload: r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, "receivableMaximumAge": 50004}"#.to_string(),
@@ -1082,7 +1088,7 @@ pub mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NewUiMessage>(0);
         assert_eq!(response.opcode, "financials".to_string());
-        assert_eq!(response.client_id, 1234);
+        assert_eq!(response.correspondent, Correspondent::ClientId(1234));
         assert_eq!(response.direction, MessageDirection::ToUi);
         let parsed_payload =
             serde_json::from_str::<UiFinancialsResponse>(&response.payload).unwrap();
@@ -1162,7 +1168,7 @@ pub mod tests {
 
         subject_addr
             .try_send(NewUiMessage {
-                client_id: 1234,
+                correspondent: Correspondent::ClientId(1234),
                 opcode: "financials".to_string(),
                 direction: MessageDirection::FromUi,
                 payload: "goober".to_string(),
@@ -1173,7 +1179,7 @@ pub mod tests {
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: Error(\"expected value\", line: 1, column: 1)");
+        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client ClientId(1234): Error(\"expected value\", line: 1, column: 1)");
     }
 
     #[test]
@@ -1200,7 +1206,7 @@ pub mod tests {
 
         subject_addr
             .try_send(NewUiMessage {
-                client_id: 1234,
+                correspondent: Correspondent::ClientId(1234),
                 opcode: "booga".to_string(),
                 direction: MessageDirection::FromUi,
                 payload: "{}".to_string(),

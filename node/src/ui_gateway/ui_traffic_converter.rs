@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiMessage};
+use crate::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiMessage, Correspondent};
 use serde_json::Value;
 
 #[allow(dead_code)]
@@ -70,7 +70,7 @@ impl UiTrafficConverter for UiTrafficConverterReal {
                 };
                 let payload = serde_json::to_string(payload_map).expect("Reserialization problem");
                 Ok(NewUiMessage {
-                    client_id,
+                    correspondent: Correspondent::ClientId(client_id),
                     opcode,
                     direction,
                     payload,
@@ -108,7 +108,7 @@ impl UiTrafficConverterReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::MessageDirection;
+    use crate::sub_lib::ui_gateway::{MessageDirection, Correspondent};
     use serde_json::Number;
 
     #[test]
@@ -135,7 +135,7 @@ mod tests {
     fn new_marshaling_and_unmarshaling_works() {
         let subject = UiTrafficConverterReal::new();
         let in_ui_msg = NewUiMessage {
-            client_id: 4321,
+            correspondent: Correspondent::ClientId(4321),
             opcode: "opcode".to_string(),
             direction: MessageDirection::ToUi,
             payload: r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
@@ -145,7 +145,7 @@ mod tests {
         let json = subject.new_marshal(in_ui_msg);
 
         let out_ui_msg = subject.new_unmarshal(&json, 1234).unwrap();
-        assert_eq!(out_ui_msg.client_id, 1234);
+        assert_eq!(out_ui_msg.correspondent, Correspondent::ClientId(1234));
         assert_eq!(out_ui_msg.opcode, "opcode".to_string());
         assert_eq!(out_ui_msg.direction, MessageDirection::ToUi);
         match serde_json::from_str::<Value>(&out_ui_msg.payload) {

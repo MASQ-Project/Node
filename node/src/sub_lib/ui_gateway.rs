@@ -55,15 +55,21 @@ pub struct FromUiMessage {
     pub json: String,
 }
 
-#[derive(Message, PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum MessageDirection {
     ToUi,
     FromUi,
 }
 
+#[derive(PartialEq, Clone, Debug)]
+pub enum Correspondent {
+    ClientId(u64),
+    AllClients,
+}
+
 #[derive(Message, PartialEq, Clone, Debug)]
 pub struct NewUiMessage {
-    pub client_id: u64,
+    pub correspondent: Correspondent,
     pub opcode: String,
     pub direction: MessageDirection,
     pub payload: String,
