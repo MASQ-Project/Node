@@ -25,7 +25,9 @@ use crate::sub_lib::accountant::{
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{NewToUiMessage, UiCarrierMessage, UiMessage, MessageTarget, NewFromUiMessage};
+use crate::sub_lib::ui_gateway::{
+    MessageTarget, NewFromUiMessage, NewToUiMessage, UiCarrierMessage, UiMessage,
+};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -668,7 +670,9 @@ pub mod tests {
         UiPayableAccount, UiReceivableAccount,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage, MessageTarget, NewFromUiMessage};
+    use crate::sub_lib::ui_gateway::{
+        MessageTarget, NewFromUiMessage, UiCarrierMessage, UiMessage,
+    };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;

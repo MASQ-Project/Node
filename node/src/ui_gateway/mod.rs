@@ -9,7 +9,7 @@ use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage, NewFromUiMessage};
+use crate::sub_lib::ui_gateway::{FromUiMessage, NewFromUiMessage, UiCarrierMessage};
 use crate::sub_lib::ui_gateway::{NewToUiMessage, UiGatewaySubs};
 use crate::sub_lib::ui_gateway::{UiGatewayConfig, UiMessage};
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
@@ -114,8 +114,7 @@ impl Handler<NewToUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NewToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self
-            .websocket_supervisor
+        self.websocket_supervisor
             .as_ref()
             .expect("WebsocketSupervisor is unbound")
             .send_msg(msg)
@@ -249,7 +248,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
-    use crate::sub_lib::ui_gateway::{UiMessage, MessageTarget, NewFromUiMessage};
+    use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, UiMessage};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -309,11 +308,19 @@ mod tests {
             unimplemented!()
         }
 
-        fn new_unmarshal_from_ui(&self, _json: &str, _client_id: u64) -> Result<NewFromUiMessage, String> {
+        fn new_unmarshal_from_ui(
+            &self,
+            _json: &str,
+            _client_id: u64,
+        ) -> Result<NewFromUiMessage, String> {
             unimplemented!()
         }
 
-        fn new_unmarshal_to_ui(&self, _json: &str, _target: MessageTarget) -> Result<NewToUiMessage, String> {
+        fn new_unmarshal_to_ui(
+            &self,
+            _json: &str,
+            _target: MessageTarget,
+        ) -> Result<NewToUiMessage, String> {
             unimplemented!()
         }
     }
@@ -455,7 +462,10 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.get_record::<NewFromUiMessage>(0), &msg);
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        assert_eq!(neighborhood_recording.get_record::<NewFromUiMessage>(0), &msg);
+        assert_eq!(
+            neighborhood_recording.get_record::<NewFromUiMessage>(0),
+            &msg
+        );
     }
 
     #[test]
@@ -470,7 +480,8 @@ mod tests {
         });
         let system = System::new("test");
         subject.websocket_supervisor = Some(Box::new(websocket_supervisor));
-        subject.incoming_message_recipients = vec![accountant.start().recipient::<NewFromUiMessage>()];
+        subject.incoming_message_recipients =
+            vec![accountant.start().recipient::<NewFromUiMessage>()];
         let subject_addr: Addr<UiGateway> = subject.start();
         let msg = NewToUiMessage {
             target: MessageTarget::ClientId(1234),

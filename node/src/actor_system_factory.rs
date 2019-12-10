@@ -438,7 +438,7 @@ mod tests {
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage, NewFromUiMessage};
+    use crate::sub_lib::ui_gateway::{FromUiMessage, NewFromUiMessage, UiCarrierMessage};
     use crate::sub_lib::ui_gateway::{NewToUiMessage, UiGatewayConfig};
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;

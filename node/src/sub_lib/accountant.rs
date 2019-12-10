@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{NewFromUiMessage};
+use crate::sub_lib::ui_gateway::NewFromUiMessage;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;

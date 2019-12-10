@@ -4,7 +4,9 @@ pub mod utils;
 
 use futures::future::*;
 use node_lib::sub_lib::accountant::{UiFinancialsRequest, UiFinancialsResponse};
-use node_lib::sub_lib::ui_gateway::{NewToUiMessage, UiMessage, DEFAULT_UI_PORT, MessageTarget, NewFromUiMessage};
+use node_lib::sub_lib::ui_gateway::{
+    MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage, DEFAULT_UI_PORT,
+};
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};

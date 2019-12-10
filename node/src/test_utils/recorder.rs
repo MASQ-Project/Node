@@ -38,7 +38,9 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::ui_gateway::{FromUiMessage, NewFromUiMessage, NewToUiMessage, UiCarrierMessage};
+use crate::sub_lib::ui_gateway::{
+    FromUiMessage, NewFromUiMessage, NewToUiMessage, UiCarrierMessage,
+};
 use crate::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;

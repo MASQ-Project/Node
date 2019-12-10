@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::ui_gateway::{NewToUiMessage, UiMessage, MessageTarget, NewFromUiMessage};
+use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage};
 use serde_json::Value;
 
 #[allow(dead_code)]
@@ -12,8 +12,13 @@ pub trait UiTrafficConverter: Send {
 
     fn new_marshal_from_ui(&self, msg: NewFromUiMessage) -> String;
     fn new_marshal_to_ui(&self, msg: NewToUiMessage) -> String;
-    fn new_unmarshal_from_ui(&self, json: &str, client_id: u64) -> Result<NewFromUiMessage, String>;
-    fn new_unmarshal_to_ui(&self, json: &str, target: MessageTarget) -> Result<NewToUiMessage, String>;
+    fn new_unmarshal_from_ui(&self, json: &str, client_id: u64)
+        -> Result<NewFromUiMessage, String>;
+    fn new_unmarshal_to_ui(
+        &self,
+        json: &str,
+        target: MessageTarget,
+    ) -> Result<NewToUiMessage, String>;
 }
 
 #[derive(Default)]
@@ -32,32 +37,46 @@ impl UiTrafficConverter for UiTrafficConverterReal {
     }
 
     fn new_marshal_from_ui(&self, msg: NewFromUiMessage) -> String {
-        self.new_marshal(msg.opcode, serde_json::from_str(&msg.payload).expect("Serialization problem"))
+        self.new_marshal(
+            msg.opcode,
+            serde_json::from_str(&msg.payload).expect("Serialization problem"),
+        )
     }
 
     fn new_marshal_to_ui(&self, msg: NewToUiMessage) -> String {
-        self.new_marshal(msg.opcode, serde_json::from_str(&msg.payload).expect("Serialization problem"))
+        self.new_marshal(
+            msg.opcode,
+            serde_json::from_str(&msg.payload).expect("Serialization problem"),
+        )
     }
 
-    fn new_unmarshal_from_ui(&self, json: &str, client_id: u64) -> Result<NewFromUiMessage, String> {
-        match self.new_unmarshal (json) {
-            Ok ((opcode, payload)) => Ok (NewFromUiMessage {
+    fn new_unmarshal_from_ui(
+        &self,
+        json: &str,
+        client_id: u64,
+    ) -> Result<NewFromUiMessage, String> {
+        match self.new_unmarshal(json) {
+            Ok((opcode, payload)) => Ok(NewFromUiMessage {
                 client_id,
                 opcode,
-                payload
+                payload,
             }),
-            Err (e) => Err (e)
+            Err(e) => Err(e),
         }
     }
 
-    fn new_unmarshal_to_ui(&self, json: &str, target: MessageTarget) -> Result<NewToUiMessage, String> {
-        match self.new_unmarshal (json) {
-            Ok ((opcode, payload)) => Ok (NewToUiMessage {
+    fn new_unmarshal_to_ui(
+        &self,
+        json: &str,
+        target: MessageTarget,
+    ) -> Result<NewToUiMessage, String> {
+        match self.new_unmarshal(json) {
+            Ok((opcode, payload)) => Ok(NewToUiMessage {
                 target,
                 opcode,
-                payload
+                payload,
             }),
-            Err (e) => Err (e)
+            Err(e) => Err(e),
         }
     }
 }
@@ -117,7 +136,7 @@ impl UiTrafficConverterReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::{MessageTarget};
+    use crate::sub_lib::ui_gateway::MessageTarget;
     use serde_json::Number;
 
     #[test]
@@ -181,7 +200,9 @@ mod tests {
 
         let json = subject.new_marshal_to_ui(in_ui_msg);
 
-        let out_ui_msg = subject.new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();
+        let out_ui_msg = subject
+            .new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234))
+            .unwrap();
         assert_eq!(out_ui_msg.target, MessageTarget::ClientId(1234));
         assert_eq!(out_ui_msg.opcode, "opcode".to_string());
         match serde_json::from_str::<Value>(&out_ui_msg.payload) {
