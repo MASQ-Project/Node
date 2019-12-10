@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/node-ui/ci/ci.iml" filepath="$PROJECT_DIR$/node-ui/ci/ci.iml" />
+      <module fileurl="file://$PROJECT_DIR$/dns_utility/dns_utility.iml" filepath="$PROJECT_DIR$/dns_utility/dns_utility.iml" />
       <module fileurl="file://$PROJECT_DIR$/node-ui/main-process/main-process.iml" filepath="$PROJECT_DIR$/node-ui/main-process/main-process.iml" />
       <module fileurl="file://$PROJECT_DIR$/mock_rest_server/mock_rest_server.iml" filepath="$PROJECT_DIR$/mock_rest_server/mock_rest_server.iml" />
       <module fileurl="file://$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" filepath="$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" />
