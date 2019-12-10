@@ -9,8 +9,8 @@ use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
-use crate::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiGatewaySubs};
+use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage, NewFromUiMessage};
+use crate::sub_lib::ui_gateway::{NewToUiMessage, UiGatewaySubs};
 use crate::sub_lib::ui_gateway::{UiGatewayConfig, UiMessage};
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisorReal;
@@ -39,7 +39,7 @@ pub struct UiGateway {
     subs: Option<UiGatewayOutSubs>,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     shutdown_supervisor: Box<dyn ShutdownSupervisor>,
-    incoming_message_recipients: Vec<Recipient<NewUiMessage>>,
+    incoming_message_recipients: Vec<Recipient<NewFromUiMessage>>,
     logger: Logger,
 }
 
@@ -62,7 +62,8 @@ impl UiGateway {
             bind: recipient!(addr, BindMessage),
             ui_message_sub: recipient!(addr, UiCarrierMessage),
             from_ui_message_sub: recipient!(addr, FromUiMessage),
-            new_ui_message_sub: recipient!(addr, NewUiMessage),
+            new_from_ui_message_sub: recipient!(addr, NewFromUiMessage),
+            new_to_ui_message_sub: recipient!(addr, NewToUiMessage),
         }
     }
 }
@@ -98,37 +99,40 @@ impl Handler<BindMessage> for UiGateway {
         self.subs = Some(subs);
         self.incoming_message_recipients = vec![
             msg.peer_actors.accountant.ui_message_sub.clone(),
-            msg.peer_actors.neighborhood.ui_message_sub.clone(),
+            msg.peer_actors.neighborhood.from_ui_message_sub.clone(),
         ];
         self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
             self.port,
             msg.peer_actors.ui_gateway.from_ui_message_sub.clone(),
-            msg.peer_actors.ui_gateway.new_ui_message_sub.clone(),
+            msg.peer_actors.ui_gateway.new_from_ui_message_sub.clone(),
         )));
         info!(self.logger, "UIGateway bound");
     }
 }
 
-impl Handler<NewUiMessage> for UiGateway {
+impl Handler<NewToUiMessage> for UiGateway {
     type Result = ();
 
-    fn handle(&mut self, msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        match msg.direction {
-            MessageDirection::FromUi => {
-                self.incoming_message_recipients
-                    .iter()
-                    .for_each(|recipient| {
-                        recipient
-                            .try_send(msg.clone())
-                            .expect("A NewUiMessage recipient has died.")
-                    })
-            }
-            MessageDirection::ToUi => self
-                .websocket_supervisor
-                .as_ref()
-                .expect("WebsocketSupervisor is unbound")
-                .send_msg(msg),
-        }
+    fn handle(&mut self, msg: NewToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self
+            .websocket_supervisor
+            .as_ref()
+            .expect("WebsocketSupervisor is unbound")
+            .send_msg(msg)
+    }
+}
+
+impl Handler<NewFromUiMessage> for UiGateway {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.incoming_message_recipients
+            .iter()
+            .for_each(|recipient| {
+                recipient
+                    .try_send(msg.clone())
+                    .expect("A NewUiMessage recipient has died.")
+            })
     }
 }
 
@@ -245,7 +249,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
-    use crate::sub_lib::ui_gateway::{MessageDirection, UiMessage, Correspondent};
+    use crate::sub_lib::ui_gateway::{UiMessage, MessageTarget, NewFromUiMessage};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -297,11 +301,19 @@ mod tests {
             self.unmarshal_results.borrow_mut().remove(0)
         }
 
-        fn new_marshal(&self, _msg: NewUiMessage) -> String {
+        fn new_marshal_from_ui(&self, _msg: NewFromUiMessage) -> String {
             unimplemented!()
         }
 
-        fn new_unmarshal(&self, _json: &str, _client_id: u64) -> Result<NewUiMessage, String> {
+        fn new_marshal_to_ui(&self, _msg: NewToUiMessage) -> String {
+            unimplemented!()
+        }
+
+        fn new_unmarshal_from_ui(&self, _json: &str, _client_id: u64) -> Result<NewFromUiMessage, String> {
+            unimplemented!()
+        }
+
+        fn new_unmarshal_to_ui(&self, _json: &str, _target: MessageTarget) -> Result<NewToUiMessage, String> {
             unimplemented!()
         }
     }
@@ -348,7 +360,7 @@ mod tests {
     #[derive(Default)]
     struct WebSocketSupervisorMock {
         send_parameters: Arc<Mutex<Vec<(u64, String)>>>,
-        send_msg_parameters: Arc<Mutex<Vec<NewUiMessage>>>,
+        send_msg_parameters: Arc<Mutex<Vec<NewToUiMessage>>>,
     }
 
     impl WebSocketSupervisor for WebSocketSupervisorMock {
@@ -359,7 +371,7 @@ mod tests {
                 .push((client_id, String::from(message_json)));
         }
 
-        fn send_msg(&self, msg: NewUiMessage) {
+        fn send_msg(&self, msg: NewToUiMessage) {
             self.send_msg_parameters.lock().unwrap().push(msg);
         }
     }
@@ -382,7 +394,7 @@ mod tests {
 
         fn send_msg_parameters(
             mut self,
-            parameters: &Arc<Mutex<Vec<NewUiMessage>>>,
+            parameters: &Arc<Mutex<Vec<NewToUiMessage>>>,
         ) -> WebSocketSupervisorMock {
             self.send_msg_parameters = parameters.clone();
             self
@@ -430,10 +442,9 @@ mod tests {
             .neighborhood(neighborhood)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let msg = NewUiMessage {
-            correspondent: Correspondent::ClientId(1234),
+        let msg = NewFromUiMessage {
+            client_id: 1234,
             opcode: "booga".to_string(),
-            direction: MessageDirection::FromUi,
             payload: "{}".to_string(),
         };
 
@@ -442,9 +453,9 @@ mod tests {
         System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.get_record::<NewUiMessage>(0), &msg);
+        assert_eq!(accountant_recording.get_record::<NewFromUiMessage>(0), &msg);
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        assert_eq!(neighborhood_recording.get_record::<NewUiMessage>(0), &msg);
+        assert_eq!(neighborhood_recording.get_record::<NewFromUiMessage>(0), &msg);
     }
 
     #[test]
@@ -459,12 +470,11 @@ mod tests {
         });
         let system = System::new("test");
         subject.websocket_supervisor = Some(Box::new(websocket_supervisor));
-        subject.incoming_message_recipients = vec![accountant.start().recipient::<NewUiMessage>()];
+        subject.incoming_message_recipients = vec![accountant.start().recipient::<NewFromUiMessage>()];
         let subject_addr: Addr<UiGateway> = subject.start();
-        let msg = NewUiMessage {
-            correspondent: Correspondent::ClientId(1234),
+        let msg = NewToUiMessage {
+            target: MessageTarget::ClientId(1234),
             opcode: "booga".to_string(),
-            direction: MessageDirection::ToUi,
             payload: "{}".to_string(),
         };
 

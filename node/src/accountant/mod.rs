@@ -25,7 +25,7 @@ use crate::sub_lib::accountant::{
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiCarrierMessage, UiMessage, Correspondent};
+use crate::sub_lib::ui_gateway::{NewToUiMessage, UiCarrierMessage, UiMessage, MessageTarget, NewFromUiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -92,7 +92,7 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayments>>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
-    ui_message_sub: Option<Recipient<NewUiMessage>>,
+    ui_message_sub: Option<Recipient<NewToUiMessage>>,
     logger: Logger,
 }
 
@@ -121,7 +121,7 @@ impl Handler<BindMessage> for Accountant {
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
-        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.new_ui_message_sub.clone());
+        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.new_to_ui_message_sub.clone());
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
 
         info!(self.logger, "Accountant bound");
@@ -275,10 +275,10 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     }
 }
 
-impl Handler<NewUiMessage> for Accountant {
+impl Handler<NewFromUiMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         match &msg.opcode {
             opcode if opcode == "financials" => {
                 let request = match serde_json::from_str::<UiFinancialsRequest>(&msg.payload) {
@@ -286,18 +286,12 @@ impl Handler<NewUiMessage> for Accountant {
                     Err(e) => {
                         error!(
                             &self.logger,
-                            "Bad financials request from client {:?}: {:?}", msg.correspondent, e
+                            "Bad financials request from client {}: {:?}", msg.client_id, e
                         );
                         return;
                     }
                 };
-                let client_id = match msg.correspondent {
-                    Correspondent::ClientId(client_id) => client_id,
-                    _ => {
-                        unimplemented! ("TODO: Test-drive me")
-                    }
-                };
-                self.handle_financials(client_id, request);
+                self.handle_financials(msg.client_id, request);
             }
             opcode => debug!(
                 &self.logger,
@@ -386,7 +380,7 @@ impl Accountant {
             report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
             report_sent_payments: addr.clone().recipient::<SentPayments>(),
             get_financial_statistics_sub: addr.clone().recipient::<GetFinancialStatisticsMessage>(),
-            ui_message_sub: addr.clone().recipient::<NewUiMessage>(),
+            ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
         }
     }
 
@@ -646,10 +640,9 @@ impl Accountant {
             receivables,
             totalReceivable: total_receivable,
         };
-        let response = NewUiMessage {
-            correspondent: Correspondent::ClientId(client_id),
+        let response = NewToUiMessage {
+            target: MessageTarget::ClientId(client_id),
             opcode: "financials".to_string(),
-            direction: MessageDirection::ToUi,
             payload: serde_json::to_string(&response_payload).expect("Serialization problem"),
         };
         self.ui_message_sub
@@ -675,7 +668,7 @@ pub mod tests {
         UiPayableAccount, UiReceivableAccount,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::{MessageDirection, UiCarrierMessage, UiMessage, Correspondent};
+    use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage, MessageTarget, NewFromUiMessage};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -1069,10 +1062,9 @@ pub mod tests {
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let ui_message = NewUiMessage {
-            correspondent: Correspondent::ClientId(1234),
+        let ui_message = NewFromUiMessage {
+            client_id: 1234,
             opcode: "financials".to_string(),
-            direction: MessageDirection::FromUi,
             payload: r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, "receivableMaximumAge": 50004}"#.to_string(),
         };
 
@@ -1086,10 +1078,9 @@ pub mod tests {
             receivable_top_records_parameters_arc.lock().unwrap();
         assert_eq!(*receivable_top_records_parameters, vec![(50003, 50004)]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let response = ui_gateway_recording.get_record::<NewUiMessage>(0);
+        let response = ui_gateway_recording.get_record::<NewToUiMessage>(0);
         assert_eq!(response.opcode, "financials".to_string());
-        assert_eq!(response.correspondent, Correspondent::ClientId(1234));
-        assert_eq!(response.direction, MessageDirection::ToUi);
+        assert_eq!(response.target, MessageTarget::ClientId(1234));
         let parsed_payload =
             serde_json::from_str::<UiFinancialsResponse>(&response.payload).unwrap();
         assert_eq!(
@@ -1167,10 +1158,9 @@ pub mod tests {
         );
 
         subject_addr
-            .try_send(NewUiMessage {
-                correspondent: Correspondent::ClientId(1234),
+            .try_send(NewFromUiMessage {
+                client_id: 1234,
                 opcode: "financials".to_string(),
-                direction: MessageDirection::FromUi,
                 payload: "goober".to_string(),
             })
             .unwrap();
@@ -1179,7 +1169,7 @@ pub mod tests {
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client ClientId(1234): Error(\"expected value\", line: 1, column: 1)");
+        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: Error(\"expected value\", line: 1, column: 1)");
     }
 
     #[test]
@@ -1205,10 +1195,9 @@ pub mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(NewUiMessage {
-                correspondent: Correspondent::ClientId(1234),
+            .try_send(NewFromUiMessage {
+                client_id: 1234,
                 opcode: "booga".to_string(),
-                direction: MessageDirection::FromUi,
                 payload: "{}".to_string(),
             })
             .unwrap();

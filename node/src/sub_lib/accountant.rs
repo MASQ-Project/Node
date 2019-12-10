@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::NewUiMessage;
+use crate::sub_lib::ui_gateway::{NewFromUiMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
@@ -35,7 +35,7 @@ pub struct AccountantSubs {
     pub report_new_payments: Recipient<ReceivedPayments>,
     pub report_sent_payments: Recipient<SentPayments>,
     pub get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
-    pub ui_message_sub: Recipient<NewUiMessage>,
+    pub ui_message_sub: Recipient<NewFromUiMessage>,
 }
 
 impl Debug for AccountantSubs {
@@ -148,7 +148,7 @@ mod tests {
             report_new_payments: recipient!(recorder, ReceivedPayments),
             report_sent_payments: recipient!(recorder, SentPayments),
             get_financial_statistics_sub: recipient!(recorder, GetFinancialStatisticsMessage),
-            ui_message_sub: recipient!(recorder, NewUiMessage),
+            ui_message_sub: recipient!(recorder, NewFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "AccountantSubs");

@@ -43,7 +43,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::ui_gateway::{NewUiMessage, UiCarrierMessage, UiMessage};
+use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage, NewToUiMessage, NewFromUiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
@@ -72,7 +72,7 @@ pub struct Neighborhood {
     dot_graph_recipient: Option<Recipient<UiCarrierMessage>>,
     is_connected: bool,
     connected_signal: Option<Recipient<StartMessage>>,
-    _ui_message_sub: Option<Recipient<NewUiMessage>>,
+    _to_ui_message_sub: Option<Recipient<NewToUiMessage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
@@ -287,10 +287,10 @@ impl Handler<NeighborhoodDotGraphRequest> for Neighborhood {
     }
 }
 
-impl Handler<NewUiMessage> for Neighborhood {
+impl Handler<NewFromUiMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: NewUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         debug!(
             &self.logger,
             "Ignoring unrecognized UI message: '{}'", msg.opcode
@@ -378,7 +378,7 @@ impl Neighborhood {
             hopper_no_lookup: None,
             dot_graph_recipient: None,
             connected_signal: None,
-            _ui_message_sub: None,
+            _to_ui_message_sub: None,
             is_connected: false,
             gossip_acceptor,
             gossip_producer,
@@ -410,7 +410,7 @@ impl Neighborhood {
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
             from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
-            ui_message_sub: addr.clone().recipient::<NewUiMessage>(),
+            from_ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
         }
     }
 
@@ -1230,7 +1230,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::ui_gateway::{MessageDirection, Correspondent};
+    use crate::sub_lib::ui_gateway::{NewFromUiMessage};
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -4221,10 +4221,9 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(NewUiMessage {
-                correspondent: Correspondent::ClientId(1234),
+            .try_send(NewFromUiMessage {
+                client_id: 1234,
                 opcode: "booga".to_string(),
-                direction: MessageDirection::FromUi,
                 payload: "{}".to_string(),
             })
             .unwrap();

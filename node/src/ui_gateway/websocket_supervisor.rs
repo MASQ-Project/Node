@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::ui_gateway::{FromUiMessage, NewUiMessage, Correspondent};
+use crate::sub_lib::ui_gateway::{FromUiMessage, NewToUiMessage, MessageTarget, NewFromUiMessage};
 use crate::sub_lib::utils::localhost;
 use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
 use actix::Recipient;
@@ -53,7 +53,7 @@ impl ClientWrapper for ClientWrapperReal {
 
 pub trait WebSocketSupervisor: Send {
     fn send(&self, client_id: u64, message_json: &str);
-    fn send_msg(&self, msg: NewUiMessage);
+    fn send_msg(&self, msg: NewToUiMessage);
 }
 
 pub struct WebSocketSupervisorReal {
@@ -64,7 +64,7 @@ pub struct WebSocketSupervisorReal {
 struct WebSocketSupervisorInner {
     next_client_id: u64,
     from_ui_message: Recipient<FromUiMessage>,
-    ui_message_sub: Recipient<NewUiMessage>,
+    from_ui_message_sub: Recipient<NewFromUiMessage>,
     client_id_by_socket_addr: HashMap<SocketAddr, u64>,
     old_client_by_id: HashMap<u64, Box<dyn ClientWrapper>>,
     client_by_id: HashMap<u64, Box<dyn ClientWrapper>>,
@@ -82,13 +82,13 @@ impl WebSocketSupervisor for WebSocketSupervisorReal {
         };
     }
 
-    fn send_msg(&self, msg: NewUiMessage) {
+    fn send_msg(&self, msg: NewToUiMessage) {
         let mut locked_inner = self.inner.lock().expect("WebSocketSupervisor is poisoned");
-        let client_id = match msg.correspondent {
-            Correspondent::ClientId(client_id) => client_id,
-            Correspondent::AllClients => unimplemented! ("TODO: Test-drive me!"),
+        let client_id = match msg.target {
+            MessageTarget::ClientId(client_id) => client_id,
+            MessageTarget::AllClients => unimplemented! ("TODO: Test-drive me!"),
         };
-        let json = UiTrafficConverterReal::new().new_marshal(msg);
+        let json = UiTrafficConverterReal::new().new_marshal_to_ui(msg);
         match locked_inner.client_by_id.get_mut(&client_id) {
             Some(client) => match client.send(OwnedMessage::Text(json)) {
                 Ok(_) => client.flush().expect("Flush error"),
@@ -103,12 +103,12 @@ impl WebSocketSupervisorReal {
     pub fn new(
         port: u16,
         from_ui_message: Recipient<FromUiMessage>,
-        ui_message_sub: Recipient<NewUiMessage>,
+        from_ui_message_sub: Recipient<NewFromUiMessage>,
     ) -> WebSocketSupervisorReal {
         let inner = Arc::new(Mutex::new(WebSocketSupervisorInner {
             next_client_id: 0,
             from_ui_message,
-            ui_message_sub,
+            from_ui_message_sub,
             client_id_by_socket_addr: HashMap::new(),
             old_client_by_id: HashMap::new(),
             client_by_id: HashMap::new(),
@@ -307,10 +307,13 @@ impl WebSocketSupervisorReal {
                         })
                         .expect("UiGateway is dead");
                 } else {
-                    let ui_message = match UiTrafficConverterReal::new()
-                        .new_unmarshal(message, *client_id_ref)
-                    {
-                        Ok(msg) => msg,
+                    match UiTrafficConverterReal::new().new_unmarshal_from_ui(message, *client_id_ref) {
+                        Ok(from_ui_message) => {
+                            locked_inner
+                                .from_ui_message_sub
+                                .try_send(from_ui_message)
+                                .expect("UiGateway is dead");
+                        },
                         Err(e) => {
                             error!(
                                 logger,
@@ -322,11 +325,7 @@ impl WebSocketSupervisorReal {
                             );
                             return ok::<(), ()>(());
                         }
-                    };
-                    locked_inner
-                        .ui_message_sub
-                        .try_send(ui_message)
-                        .expect("UiGateway is dead");
+                    }
                 }
                 ok::<(), ()>(())
             }
@@ -411,7 +410,7 @@ impl WebSocketSupervisorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::{FromUiMessage, MessageDirection, UiMessage, Correspondent};
+    use crate::sub_lib::ui_gateway::{FromUiMessage, UiMessage, MessageTarget, NewFromUiMessage};
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
@@ -562,11 +561,11 @@ mod tests {
         });
     }
 
-    fn subs(ui_gateway: Recorder) -> (Recipient<FromUiMessage>, Recipient<NewUiMessage>) {
+    fn subs(ui_gateway: Recorder) -> (Recipient<FromUiMessage>, Recipient<NewFromUiMessage>) {
         let addr: Addr<Recorder> = ui_gateway.start();
         (
             addr.clone().recipient::<FromUiMessage>(),
-            addr.recipient::<NewUiMessage>(),
+            addr.recipient::<NewFromUiMessage>(),
         )
     }
 
@@ -742,17 +741,17 @@ mod tests {
 
         one_client
             .send_message(&Message::text(
-                r#"{"opcode": "one", "direction": "fromUi", "payload": {}}"#,
+                r#"{"opcode": "one", "payload": {}}"#,
             ))
             .unwrap();
         another_client
             .send_message(&Message::text(
-                r#"{"opcode": "another", "direction": "fromUi", "payload": {}}"#,
+                r#"{"opcode": "another", "payload": {}}"#,
             ))
             .unwrap();
         one_client
             .send_message(&Message::text(
-                r#"{"opcode": "athird", "direction": "fromUi", "payload": {}}"#,
+                r#"{"opcode": "athird", "payload": {}}"#,
             ))
             .unwrap();
 
@@ -767,32 +766,29 @@ mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let messages = vec![0, 1, 2]
             .into_iter()
-            .map(|i| ui_gateway_recording.get_record::<NewUiMessage>(i).clone())
-            .collect::<Vec<NewUiMessage>>();
+            .map(|i| ui_gateway_recording.get_record::<NewFromUiMessage>(i).clone())
+            .collect::<Vec<NewFromUiMessage>>();
         assert_contains(
             &messages,
-            &NewUiMessage {
-                correspondent: Correspondent::ClientId(0),
+            &NewFromUiMessage {
+                client_id: 0,
                 opcode: "one".to_string(),
-                direction: MessageDirection::FromUi,
                 payload: "{}".to_string(),
             },
         );
         assert_contains(
             &messages,
-            &NewUiMessage {
-                correspondent: Correspondent::ClientId(1),
+            &NewFromUiMessage {
+                client_id: 1,
                 opcode: "another".to_string(),
-                direction: MessageDirection::FromUi,
                 payload: "{}".to_string(),
             },
         );
         assert_contains(
             &messages,
-            &NewUiMessage {
-                correspondent: Correspondent::ClientId(0),
+            &NewFromUiMessage {
+                client_id: 0,
                 opcode: "athird".to_string(),
-                direction: MessageDirection::FromUi,
                 payload: "{}".to_string(),
             },
         );
@@ -808,7 +804,7 @@ mod tests {
         let subject_inner = WebSocketSupervisorInner {
             next_client_id: 0,
             from_ui_message: from_ui_message.start().recipient::<FromUiMessage>(),
-            ui_message_sub: ui_message_sub.start().recipient::<NewUiMessage>(),
+            from_ui_message_sub: ui_message_sub.start().recipient::<NewFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
             old_client_by_id: Default::default(),
             client_by_id: Default::default(),
@@ -1057,18 +1053,17 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_sends_a_message_to_the_client");
-        let mut correspondent = Correspondent::ClientId(0);
+        let mut correspondent = MessageTarget::ClientId(0);
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
             let mut mock_client = ClientWrapperMock::new();
             mock_client.send_results.push(Ok(()));
             mock_client.flush_results.push(Ok(()));
             let client_id = subject.inject_mock_client(mock_client, false);
-            correspondent = Correspondent::ClientId(client_id);
-            let msg = NewUiMessage {
-                correspondent,
+            correspondent = MessageTarget::ClientId(client_id);
+            let msg = NewToUiMessage {
+                target: correspondent,
                 opcode: "booga".to_string(),
-                direction: MessageDirection::ToUi,
                 payload: "{}".to_string(),
             };
 
@@ -1076,7 +1071,7 @@ mod tests {
 
             let mock_client_ref = subject.get_mock_client(client_id);
             let actual_message = match mock_client_ref.send_params.lock().unwrap().get(0) {
-                Some(OwnedMessage::Text(json)) => UiTrafficConverterReal::new().new_unmarshal(json.as_str(), client_id).unwrap(),
+                Some(OwnedMessage::Text(json)) => UiTrafficConverterReal::new().new_unmarshal_to_ui(json.as_str(), MessageTarget::ClientId(client_id)).unwrap(),
                 Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
                 None => panic! ("send should have been called, but wasn't"),
             };
@@ -1122,7 +1117,7 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_tries_to_send_message_and_panics_on_flush");
-        let mut correspondent = Correspondent::ClientId(0);
+        let mut correspondent = MessageTarget::ClientId(0);
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
             let mut mock_client = ClientWrapperMock::new();
@@ -1130,11 +1125,10 @@ mod tests {
             mock_client
                 .flush_results
                 .push(Err(WebSocketError::NoDataAvailable));
-            correspondent = Correspondent::ClientId(subject.inject_mock_client(mock_client, false));
-            let msg = NewUiMessage {
-                correspondent,
+            correspondent = MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
+            let msg = NewToUiMessage {
+                target: correspondent,
                 opcode: "booga".to_string(),
-                direction: MessageDirection::ToUi,
                 payload: "{}".to_string(),
             };
             subject.send_msg(msg);
@@ -1178,18 +1172,17 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_tries_to_send_message_and_panics");
-        let mut correspondent = Correspondent::ClientId(0);
+        let mut correspondent = MessageTarget::ClientId(0);
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
             let mut mock_client = ClientWrapperMock::new();
             mock_client
                 .send_results
                 .push(Err(WebSocketError::NoDataAvailable));
-            correspondent = Correspondent::ClientId(subject.inject_mock_client(mock_client, false));
-            let msg = NewUiMessage {
-                correspondent,
+            correspondent = MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
+            let msg = NewToUiMessage {
+                target: correspondent,
                 opcode: "booga".to_string(),
-                direction: MessageDirection::ToUi,
                 payload: "{}".to_string(),
             };
             subject.send_msg(msg);
@@ -1229,10 +1222,9 @@ mod tests {
         let system = System::new("send_msg_fails_to_look_up_client_to_send_to");
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
-            let msg = NewUiMessage {
-                correspondent: Correspondent::ClientId(7),
+            let msg = NewToUiMessage {
+                target: MessageTarget::ClientId(7),
                 opcode: "booga".to_string(),
-                direction: MessageDirection::ToUi,
                 payload: "{}".to_string(),
             };
             subject.send_msg(msg);

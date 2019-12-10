@@ -4,7 +4,7 @@ pub mod utils;
 
 use futures::future::*;
 use node_lib::sub_lib::accountant::{UiFinancialsRequest, UiFinancialsResponse};
-use node_lib::sub_lib::ui_gateway::{MessageDirection, NewUiMessage, UiMessage, DEFAULT_UI_PORT, Correspondent};
+use node_lib::sub_lib::ui_gateway::{NewToUiMessage, UiMessage, DEFAULT_UI_PORT, MessageTarget, NewFromUiMessage};
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
@@ -84,10 +84,9 @@ fn request_financial_information_integration() {
         receivableMaximumAge: 1_000_000_000_000,
     };
     let converter = UiTrafficConverterReal::new();
-    let request_msg = converter.new_marshal(NewUiMessage {
-        correspondent: Correspondent::ClientId(1234),
+    let request_msg = converter.new_marshal_from_ui(NewFromUiMessage {
+        client_id: 1234,
         opcode: "financials".to_string(),
-        direction: MessageDirection::FromUi,
         payload: serde_json::to_string(&payload).unwrap(),
     });
 
@@ -99,12 +98,11 @@ fn request_financial_information_integration() {
         .and_then(|s| s.into_future().map_err(|e| e.0))
         .map(|(m, _)| match m {
             Some(OwnedMessage::Text(response_json)) => {
-                let response_msg: NewUiMessage = UiTrafficConverterReal::new()
-                    .new_unmarshal(&response_json, 1234)
+                let response_msg: NewToUiMessage = UiTrafficConverterReal::new()
+                    .new_unmarshal_to_ui(&response_json, MessageTarget::ClientId(1234))
                     .unwrap();
                 assert_eq!(response_msg.opcode, "financials".to_string());
-                assert_eq!(response_msg.correspondent, Correspondent::ClientId(1234));
-                assert_eq!(response_msg.direction, MessageDirection::ToUi);
+                assert_eq!(response_msg.target, MessageTarget::ClientId(1234));
                 let payload =
                     serde_json::from_str::<UiFinancialsResponse>(&response_msg.payload).unwrap();
                 assert_eq!(payload.payables.len(), 0);
