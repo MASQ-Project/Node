@@ -83,7 +83,6 @@ impl WebSocketSupervisor for WebSocketSupervisorReal {
     }
 
     fn send_msg(&self, msg: NewUiMessage) {
-        eprintln!("Sending response: {:?}", msg);
         let mut locked_inner = self.inner.lock().expect("WebSocketSupervisor is poisoned");
         let client_id = msg.client_id;
         let json = UiTrafficConverterReal::new().new_marshal(msg);
@@ -142,12 +141,8 @@ impl WebSocketSupervisorReal {
         let logger_clone = logger.clone();
         stream
             .then(move |result| match result {
-                Ok(x) => {
-                    eprintln!("Connection success");
-                    ok::<Option<I>, E>(Some(x))
-                }
+                Ok(x) => ok::<Option<I>, E>(Some(x)),
                 Err(e) => {
-                    eprintln!("Connection failure");
                     warning!(
                         logger_clone,
                         "Unsuccessful connection to UI port detected: {:?}",
@@ -313,12 +308,13 @@ impl WebSocketSupervisorReal {
                         .new_unmarshal(message, *client_id_ref)
                     {
                         Ok(msg) => msg,
-                        Err(_) => {
+                        Err(e) => {
                             error!(
                                 logger,
-                                "Bad JSON from client {} at {}: '{}'",
+                                "Bad message from client {} at {}: {}:\n{}\n",
                                 *client_id_ref,
                                 socket_addr,
+                                e,
                                 message
                             );
                             return ok::<(), ()>(());
@@ -834,7 +830,7 @@ mod tests {
         )
         .wait();
 
-        TestLogHandler::new().exists_log_containing("ERROR: test: Bad JSON from client 0 at 1.2.3.4:1234: '}: I am badly-formatted JSON :{'");
+        TestLogHandler::new().exists_log_containing("ERROR: test: Bad message from client 0 at 1.2.3.4:1234: Packet could not be parsed as JSON: '}: I am badly-formatted JSON :{' - Error(\"expected value\", line: 1, column: 1):\n}: I am badly-formatted JSON :{\n");
     }
 
     #[test]

@@ -600,7 +600,6 @@ impl Accountant {
     }
 
     fn handle_financials(&mut self, client_id: u64, request: UiFinancialsRequest) {
-        eprintln!("Accountant received from {}: {:?}", client_id, request);
         let payables = self
             .payable_dao
             .top_records(request.payableMinimumAmount, request.payableMaximumAge)
@@ -647,7 +646,6 @@ impl Accountant {
             direction: MessageDirection::ToUi,
             payload: serde_json::to_string(&response_payload).expect("Serialization problem"),
         };
-        eprintln!("Accountant responding to {}: {:?}", client_id, response);
         self.ui_message_sub
             .as_ref()
             .expect("UiGateway not bound")
