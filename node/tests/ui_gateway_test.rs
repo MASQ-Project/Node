@@ -38,7 +38,7 @@ fn ui_gateway_message_integration() {
         .timeout(Duration::from_millis(1000))
         .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
-    node.kill().unwrap();
+    let _ = node.kill();
     node.wait_for_exit();
 }
 
@@ -69,7 +69,7 @@ fn ui_gateway_dot_graph_message_integration() {
         .timeout(Duration::from_millis(2000))
         .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
-    node.kill().unwrap();
+    let _ = node.kill();
     node.wait_for_exit();
 }
 
@@ -115,6 +115,6 @@ fn request_financial_information_integration() {
         .timeout(Duration::from_millis(2000))
         .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
-    node.kill().unwrap();
+    let _ = node.kill();
     node.wait_for_exit();
 }
