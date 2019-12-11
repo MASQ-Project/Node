@@ -324,6 +324,14 @@ mod tests {
         ) -> Result<NewToUiMessage, String> {
             unimplemented!()
         }
+
+        fn reject_error_from_ui(&self, _logger: &Logger, _msg: &NewFromUiMessage, _reply_sub_opt: Option<&Recipient<NewToUiMessage>>) -> Result<String, String> {
+            unimplemented!()
+        }
+
+        fn reject_error_to_ui(&self, _logger: &Logger, _msg: &NewToUiMessage, _reply_sub_opt: Option<&Recipient<NewFromUiMessage>>) -> Result<String, String> {
+            unimplemented!()
+        }
     }
 
     impl UiTrafficConverterMock {

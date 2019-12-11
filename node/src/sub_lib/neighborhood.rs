@@ -288,6 +288,9 @@ impl NodeQueryResponseMetadata {
 #[derive(Clone, Debug, Message, PartialEq)]
 pub struct BootstrapNeighborhoodNowMessage {}
 
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiShutdownOrder {}
+
 #[derive(Clone, Debug, Message, PartialEq)]
 pub struct NeighborhoodDotGraphRequest {
     pub client_id: u64,

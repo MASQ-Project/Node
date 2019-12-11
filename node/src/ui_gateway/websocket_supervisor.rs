@@ -28,6 +28,8 @@ use websocket::server::upgrade::WsUpgrade;
 use websocket::OwnedMessage;
 use websocket::WebSocketError;
 
+pub const UNEXPECTED_ERROR_REQUEST_CODE: u64 = 0xFFFF_0000_0000_0001;
+
 trait ClientWrapper: Send + Any {
     fn as_any(&self) -> &dyn Any;
     fn send(&mut self, item: OwnedMessage) -> Result<(), WebSocketError>;

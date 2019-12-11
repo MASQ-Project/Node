@@ -42,7 +42,8 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
+use crate::sub_lib::ui_gateway::MessagePath::{OneWay};
+use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverterReal, UiTrafficConverter};
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -280,19 +281,12 @@ impl Handler<NewFromUiMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        let json = match UiTrafficConverterReal::new().reject_error_from_ui(&self.logger, &msg, Some(self.ui_message_sub.as_ref().expect("UiGateway unbound"))) {
+            Ok (json) => json,
+            Err (_) => return,
+        };
         let opcode = msg.body.opcode;
         let client_id = msg.client_id;
-        let path = msg.body.path;
-        let json = match msg.body.payload {
-            Ok(payload_str) => payload_str,
-            Err((code, message)) => match path {
-                OneWay => {
-                    error!(&self.logger, "Unexpected error response from client {} for '{}' ({}: {}) - discarding", client_id, opcode, code, message);
-                    return
-                },
-                TwoWay(context_id) => unimplemented! ("TODO: Test-drive me: {} - ({}, '{}')", context_id, code, message),
-            }
-        };
 
         match &opcode {
             opcode if opcode == "financials" => {
@@ -1180,7 +1174,7 @@ pub mod tests {
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Unexpected error response from client 1234 for 'financials' (2345: goober) - discarding");
+        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Unexpected error request from client 1234 for 'financials' (2345: goober) - discarding");
     }
 
     #[test]
