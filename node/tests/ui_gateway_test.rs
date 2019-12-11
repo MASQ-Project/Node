@@ -14,6 +14,7 @@ use std::time::Duration;
 use tokio::prelude::*;
 use websocket::ClientBuilder;
 use websocket::OwnedMessage;
+use tokio::runtime::Runtime;
 
 #[test]
 fn ui_gateway_message_integration() {
@@ -25,7 +26,7 @@ fn ui_gateway_message_integration() {
         .marshal(UiMessage::GetNodeDescriptor)
         .expect("Couldn't marshal GetNodeDescriptor message");
 
-    let _ = ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+    let descriptor_client = ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
         .expect("Couldn't create first ClientBuilder")
         .add_protocol("MASQNode-UI")
         .async_connect_insecure()
@@ -38,7 +39,26 @@ fn ui_gateway_message_integration() {
         .timeout(Duration::from_millis(1000))
         .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
-    let _ = node.kill();
+    let shutdown_msg = converter
+        .marshal(UiMessage::ShutdownMessage)
+        .expect("Couldn't marshal ShutdownMessage");
+
+    let shutdown_client =
+        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+            .expect("Couldn't create second ClientBuilder")
+            .add_protocol("MASQNode-UI")
+            .async_connect_insecure()
+            .and_then(|(s, _)| s.send(OwnedMessage::Text(shutdown_msg)));
+
+    let mut rt = Runtime::new().expect("Couldn't create Runtime");
+    rt.block_on(descriptor_client)
+        .expect("Couldn't block on descriptor_client");
+    rt.block_on(shutdown_client)
+        .expect("Couldn't block on shutdown_client");
+    rt.shutdown_on_idle()
+        .wait()
+        .expect("Couldn't wait on shutdown_on_idle");
+
     node.wait_for_exit();
 }
 
@@ -53,7 +73,7 @@ fn ui_gateway_dot_graph_message_integration() {
         .marshal(UiMessage::NeighborhoodDotGraphRequest)
         .unwrap();
 
-    let _ = ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+    let descriptor_client = ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
         .unwrap()
         .add_protocol("MASQNode-UI")
         .async_connect_insecure()
@@ -69,7 +89,26 @@ fn ui_gateway_dot_graph_message_integration() {
         .timeout(Duration::from_millis(2000))
         .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
-    let _ = node.kill();
+    let shutdown_msg = converter
+        .marshal(UiMessage::ShutdownMessage)
+        .expect("Couldn't marshal ShutdownMessage");
+
+    let shutdown_client =
+        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+            .expect("Couldn't create second ClientBuilder")
+            .add_protocol("MASQNode-UI")
+            .async_connect_insecure()
+            .and_then(|(s, _)| s.send(OwnedMessage::Text(shutdown_msg)));
+
+    let mut rt = Runtime::new().expect("Couldn't create Runtime");
+    rt.block_on(descriptor_client)
+        .expect("Couldn't block on descriptor_client");
+    rt.block_on(shutdown_client)
+        .expect("Couldn't block on shutdown_client");
+    rt.shutdown_on_idle()
+        .wait()
+        .expect("Couldn't wait on shutdown_on_idle");
+
     node.wait_for_exit();
 }
 
@@ -92,7 +131,7 @@ fn request_financial_information_integration() {
         payload: serde_json::to_string(&payload).unwrap(),
     });
 
-    let _ = ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+    let descriptor_client = ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
         .unwrap()
         .add_protocol("MASQNode-UIv2")
         .async_connect_insecure()
@@ -115,6 +154,25 @@ fn request_financial_information_integration() {
         .timeout(Duration::from_millis(2000))
         .map_err(|e| panic!("failed to get response by timeout {:?}", e));
 
-    let _ = node.kill();
+    let shutdown_msg = converter
+        .marshal(UiMessage::ShutdownMessage)
+        .expect("Couldn't marshal ShutdownMessage");
+
+    let shutdown_client =
+        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+            .expect("Couldn't create second ClientBuilder")
+            .add_protocol("MASQNode-UI")
+            .async_connect_insecure()
+            .and_then(|(s, _)| s.send(OwnedMessage::Text(shutdown_msg)));
+
+    let mut rt = Runtime::new().expect("Couldn't create Runtime");
+    rt.block_on(descriptor_client)
+        .expect("Couldn't block on descriptor_client");
+    rt.block_on(shutdown_client)
+        .expect("Couldn't block on shutdown_client");
+    rt.shutdown_on_idle()
+        .wait()
+        .expect("Couldn't wait on shutdown_on_idle");
+
     node.wait_for_exit();
 }
