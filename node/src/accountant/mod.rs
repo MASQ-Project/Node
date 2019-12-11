@@ -25,9 +25,13 @@ use crate::sub_lib::accountant::{
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, NewToUiMessage, UiCarrierMessage, UiMessage, MessageBody};
+use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
+use crate::sub_lib::ui_gateway::{
+    MessageBody, MessageTarget, NewFromUiMessage, NewToUiMessage, UiCarrierMessage, UiMessage,
+};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
+use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
 use actix::Actor;
 use actix::Addr;
 use actix::AsyncContext;
@@ -42,8 +46,6 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use crate::sub_lib::ui_gateway::MessagePath::{OneWay};
-use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverterReal, UiTrafficConverter};
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -281,15 +283,24 @@ impl Handler<NewFromUiMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let json = match UiTrafficConverterReal::new().reject_error_from_ui(&self.logger, &msg, Some(self.ui_message_sub.as_ref().expect("UiGateway unbound"))) {
-            Ok (json) => json,
-            Err (_) => return,
+        let converter = UiTrafficConverterReal::new();
+        let json = match converter.reject_error_from_ui(
+            &self.logger,
+            &msg,
+            Some(self.ui_message_sub.as_ref().expect("UiGateway unbound")),
+        ) {
+            Ok(json) => json,
+            Err(_) => return,
         };
-        let opcode = msg.body.opcode;
+        let opcode = msg.body.opcode.clone();
         let client_id = msg.client_id;
 
         match &opcode {
             opcode if opcode == "financials" => {
+                let context_id = match converter.get_context_id(&self.logger, &msg.body) {
+                    Some(context_id) => context_id,
+                    None => return,
+                };
                 let request = match serde_json::from_str::<UiFinancialsRequest>(&json) {
                     Ok(r) => r,
                     Err(e) => {
@@ -300,8 +311,8 @@ impl Handler<NewFromUiMessage> for Accountant {
                         return;
                     }
                 };
-                self.handle_financials(client_id, request);
-            },
+                self.handle_financials(client_id, context_id, request);
+            }
             opcode => debug!(
                 &self.logger,
                 "Ignoring unrecognized UI message: '{}'", opcode
@@ -608,7 +619,7 @@ impl Accountant {
         }
     }
 
-    fn handle_financials(&mut self, client_id: u64, request: UiFinancialsRequest) {
+    fn handle_financials(&mut self, client_id: u64, context_id: u64, request: UiFinancialsRequest) {
         let payables = self
             .payable_dao
             .top_records(request.payableMinimumAmount, request.payableMaximumAge)
@@ -653,9 +664,11 @@ impl Accountant {
             target: MessageTarget::ClientId(client_id),
             body: MessageBody {
                 opcode: "financials".to_string(),
-                path: OneWay, // TODO: This should actually be TwoWay with the inbound context_id
-                payload: Ok(serde_json::to_string(&response_payload).expect("Serialization problem")),
-            }
+                path: TwoWay(context_id),
+                payload: Ok(
+                    serde_json::to_string(&response_payload).expect("Serialization problem")
+                ),
+            },
         };
         self.ui_message_sub
             .as_ref()
@@ -680,7 +693,10 @@ pub mod tests {
         UiPayableAccount, UiReceivableAccount,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, UiCarrierMessage, UiMessage, MessageBody};
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
+    use crate::sub_lib::ui_gateway::{
+        MessageBody, MessageTarget, NewFromUiMessage, UiCarrierMessage, UiMessage,
+    };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -703,7 +719,6 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
-    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -1079,7 +1094,7 @@ pub mod tests {
             client_id: 1234,
             body: MessageBody {
                 opcode: "financials".to_string(),
-                path: OneWay,
+                path: TwoWay(2222),
                 payload: Ok(r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, "receivableMaximumAge": 50004}"#.to_string()),
             }
         };
@@ -1095,10 +1110,12 @@ pub mod tests {
         assert_eq!(*receivable_top_records_parameters, vec![(50003, 50004)]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NewToUiMessage>(0);
-        assert_eq!(response.body.opcode, "financials".to_string());
         assert_eq!(response.target, MessageTarget::ClientId(1234));
+        assert_eq!(response.body.opcode, "financials".to_string());
+        assert_eq!(response.body.path, TwoWay(2222));
         let parsed_payload =
-            serde_json::from_str::<UiFinancialsResponse>(&response.body.payload.as_ref().unwrap()).unwrap();
+            serde_json::from_str::<UiFinancialsResponse>(&response.body.payload.as_ref().unwrap())
+                .unwrap();
         assert_eq!(
             parsed_payload,
             UiFinancialsResponse {
@@ -1138,7 +1155,8 @@ pub mod tests {
     }
 
     #[test]
-    fn financials_request_with_error_payload_logs_error() { // TODO: Once "financials" is a TwoWay message, this should be modified to force sending a response
+    fn financials_request_with_error_payload_logs_error() {
+        // TODO: Once "financials" is a TwoWay message, this should be modified to force sending a response
         init_test_logging();
         let system = System::new("test");
         let subject = Accountant::new(
@@ -1166,7 +1184,7 @@ pub mod tests {
                     opcode: "financials".to_string(),
                     path: OneWay,
                     payload: Err((2345, "goober".to_string())),
-                }
+                },
             })
             .unwrap();
 
@@ -1218,9 +1236,9 @@ pub mod tests {
                 client_id: 1234,
                 body: MessageBody {
                     opcode: "financials".to_string(),
-                    path: OneWay,
+                    path: TwoWay(2222),
                     payload: Ok("goober".to_string()),
-                }
+                },
             })
             .unwrap();
 
@@ -1260,7 +1278,7 @@ pub mod tests {
                     opcode: "booga".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             })
             .unwrap();
 

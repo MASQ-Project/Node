@@ -424,7 +424,10 @@ impl WebSocketSupervisorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::{FromUiMessage, MessageTarget, NewFromUiMessage, UiMessage, MessageBody};
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
+    use crate::sub_lib::ui_gateway::{
+        FromUiMessage, MessageBody, MessageTarget, NewFromUiMessage, UiMessage,
+    };
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
@@ -445,7 +448,6 @@ mod tests {
     use websocket::stream::sync::TcpStream;
     use websocket::ClientBuilder;
     use websocket::Message;
-    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
 
     impl WebSocketSupervisorReal {
         fn inject_mock_client(&self, mock_client: ClientWrapperMock, old_client: bool) -> u64 {
@@ -789,7 +791,7 @@ mod tests {
                     opcode: "one".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             },
         );
         assert_contains(
@@ -800,7 +802,7 @@ mod tests {
                     opcode: "another".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             },
         );
         assert_contains(
@@ -811,7 +813,7 @@ mod tests {
                     opcode: "athird".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             },
         );
         assert_eq!(one_close_msg, OwnedMessage::Close(None));
@@ -1089,7 +1091,7 @@ mod tests {
                     opcode: "booga".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             };
 
             subject.send_msg(msg.clone());
@@ -1132,7 +1134,7 @@ mod tests {
                     opcode: "booga".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             };
 
             subject.send_msg(msg.clone());
@@ -1208,7 +1210,7 @@ mod tests {
                     opcode: "booga".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             };
             subject.send_msg(msg);
             Ok(())
@@ -1265,7 +1267,7 @@ mod tests {
                     opcode: "booga".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             };
             subject.send_msg(msg);
             Ok(())
@@ -1310,7 +1312,7 @@ mod tests {
                     opcode: "booga".to_string(),
                     path: OneWay,
                     payload: Ok("{}".to_string()),
-                }
+                },
             };
             subject.send_msg(msg);
             Ok(())

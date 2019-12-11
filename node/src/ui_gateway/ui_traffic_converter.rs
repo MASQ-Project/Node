@@ -1,12 +1,14 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage, MessageBody};
-use serde_json::Value;
-use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 use crate::sub_lib::logger::Logger;
-use actix::Recipient;
-use crate::ui_gateway::websocket_supervisor::UNEXPECTED_ERROR_REQUEST_CODE;
+use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
+use crate::sub_lib::ui_gateway::{
+    MessageBody, MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage,
+};
+use crate::ui_gateway::websocket_supervisor::UNEXPECTED_ERROR_REQUEST_CODE;
+use actix::Recipient;
+use serde_json::Value;
 
 #[allow(dead_code)]
 pub const BROADCAST: u64 = 0xFFFF_FFFF_FFFF_FFFF;
@@ -24,8 +26,19 @@ pub trait UiTrafficConverter: Send {
         json: &str,
         target: MessageTarget,
     ) -> Result<NewToUiMessage, String>;
-    fn reject_error_from_ui(&self, logger: &Logger, msg: &NewFromUiMessage, reply_sub_opt: Option<&Recipient<NewToUiMessage>>) -> Result<String, String>;
-    fn reject_error_to_ui(&self, logger: &Logger, msg: &NewToUiMessage, reply_sub_opt: Option<&Recipient<NewFromUiMessage>>) -> Result<String, String>;
+    fn reject_error_from_ui(
+        &self,
+        logger: &Logger,
+        msg: &NewFromUiMessage,
+        reply_sub_opt: Option<&Recipient<NewToUiMessage>>,
+    ) -> Result<String, String>;
+    fn reject_error_to_ui(
+        &self,
+        logger: &Logger,
+        msg: &NewToUiMessage,
+        reply_sub_opt: Option<&Recipient<NewFromUiMessage>>,
+    ) -> Result<String, String>;
+    fn get_context_id(&self, logger: &Logger, body: &MessageBody) -> Option<u64>;
 }
 
 #[derive(Default)]
@@ -73,75 +86,113 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         }
     }
 
-    fn reject_error_from_ui(&self, logger: &Logger, msg: &NewFromUiMessage, reply_sub_opt: Option<&Recipient<NewToUiMessage>>) -> Result<String, String> {
+    fn reject_error_from_ui(
+        &self,
+        logger: &Logger,
+        msg: &NewFromUiMessage,
+        reply_sub_opt: Option<&Recipient<NewToUiMessage>>,
+    ) -> Result<String, String> {
         match &msg.body.payload {
-            Ok (json) => Ok (json.clone()),
-            Err ((code, message)) => {
+            Ok(json) => Ok(json.clone()),
+            Err((code, message)) => {
                 match msg.body.path {
                     OneWay => {
                         let msg = format! ("Unexpected error request from client {} for '{}' ({}: {}) - discarding", msg.client_id, msg.body.opcode, code, message);
-                        error! (logger, "{}", msg);
+                        error!(logger, "{}", msg);
                         Err(msg)
-                    },
+                    }
                     TwoWay(context_id) => {
-                        let msg_prefix = format!("Unexpected error request from client {} for '{}' ({}: {})", msg.client_id, msg.body.opcode, code, message);
+                        let msg_prefix = format!(
+                            "Unexpected error request from client {} for '{}' ({}: {})",
+                            msg.client_id, msg.body.opcode, code, message
+                        );
                         let full_msg = match reply_sub_opt {
-                            Some (reply_sub) => {
-                                reply_sub.try_send(NewToUiMessage {
-                                    target: ClientId(msg.client_id),
-                                    body: MessageBody {
-                                        opcode: msg.body.opcode.clone(),
-                                        path: TwoWay(context_id),
-                                        payload: Err((UNEXPECTED_ERROR_REQUEST_CODE, msg_prefix.clone()))
-                                    }
-                                }).expect ("UiGateway is poisoned");
-                                format! ("{} - complaining to sender with context {}", msg_prefix, context_id)
+                            Some(reply_sub) => {
+                                reply_sub
+                                    .try_send(NewToUiMessage {
+                                        target: ClientId(msg.client_id),
+                                        body: MessageBody {
+                                            opcode: msg.body.opcode.clone(),
+                                            path: TwoWay(context_id),
+                                            payload: Err((
+                                                UNEXPECTED_ERROR_REQUEST_CODE,
+                                                msg_prefix.clone(),
+                                            )),
+                                        },
+                                    })
+                                    .expect("UiGateway is poisoned");
+                                format!(
+                                    "{} - complaining to sender with context {}",
+                                    msg_prefix, context_id
+                                )
                             }
-                            None => {
-                                format! ("{} - discarding", msg_prefix)
-                            }
+                            None => format!("{} - discarding", msg_prefix),
                         };
-                        error! (logger, "{}", full_msg);
+                        error!(logger, "{}", full_msg);
                         Err(full_msg)
                     }
                 }
-            },
+            }
         }
     }
 
-    fn reject_error_to_ui(&self, logger: &Logger, msg: &NewToUiMessage, reply_sub_opt: Option<&Recipient<NewFromUiMessage>>) -> Result<String, String> {
+    fn reject_error_to_ui(
+        &self,
+        logger: &Logger,
+        msg: &NewToUiMessage,
+        reply_sub_opt: Option<&Recipient<NewFromUiMessage>>,
+    ) -> Result<String, String> {
         match &msg.body.payload {
-            Ok (json) => Ok (json.clone()),
-            Err ((code, message)) => {
+            Ok(json) => Ok(json.clone()),
+            Err((code, message)) => {
                 match msg.body.path {
                     OneWay => {
-                        let msg = format! ("Unexpected error request from server for '{}' ({}: {}) - discarding", msg.body.opcode, code, message);
-                        error! (logger, "{}", msg);
+                        let msg = format!(
+                            "Unexpected error request from server for '{}' ({}: {}) - discarding",
+                            msg.body.opcode, code, message
+                        );
+                        error!(logger, "{}", msg);
                         Err(msg)
-                    },
+                    }
                     TwoWay(context_id) => {
-                        let msg_prefix = format!("Unexpected error request from server for '{}' ({}: {})", msg.body.opcode, code, message);
+                        let msg_prefix = format!(
+                            "Unexpected error request from server for '{}' ({}: {})",
+                            msg.body.opcode, code, message
+                        );
                         let full_msg = match reply_sub_opt {
-                            Some (reply_sub) => {
-                                reply_sub.try_send(NewFromUiMessage {
-                                    client_id: 0, // client_id is irrelevant; will be replaced on the other end anyway
-                                    body: MessageBody {
-                                        opcode: msg.body.opcode.clone(),
-                                        path: TwoWay(context_id),
-                                        payload: Err((UNEXPECTED_ERROR_REQUEST_CODE, msg_prefix.clone()))
-                                    }
-                                }).expect ("UiGateway is poisoned");
-                                format! ("{} - complaining to sender with context {}", msg_prefix, context_id)
-                            },
-                            None => {
-                                format! ("{} - discarding", msg_prefix)
-                            },
+                            Some(reply_sub) => {
+                                reply_sub
+                                    .try_send(NewFromUiMessage {
+                                        client_id: 0, // client_id is irrelevant; will be replaced on the other end anyway
+                                        body: MessageBody {
+                                            opcode: msg.body.opcode.clone(),
+                                            path: TwoWay(context_id),
+                                            payload: Err((
+                                                UNEXPECTED_ERROR_REQUEST_CODE,
+                                                msg_prefix.clone(),
+                                            )),
+                                        },
+                                    })
+                                    .expect("UiGateway is poisoned");
+                                format!(
+                                    "{} - complaining to sender with context {}",
+                                    msg_prefix, context_id
+                                )
+                            }
+                            None => format!("{} - discarding", msg_prefix),
                         };
-                        error! (logger, "{}", full_msg);
+                        error!(logger, "{}", full_msg);
                         Err(full_msg)
                     }
                 }
-            },
+            }
+        }
+    }
+
+    fn get_context_id(&self, _logger: &Logger, body: &MessageBody) -> Option<u64> {
+        match body.path {
+            TwoWay(context_id) => Some(context_id),
+            OneWay => unimplemented!("TODO: Test-drive me"),
         }
     }
 }
@@ -158,14 +209,13 @@ impl UiTrafficConverterReal {
             TwoWay(context_id) => format!("\"context_id\": {}, ", context_id),
         };
         let payload_section = match body.payload {
-            Ok(json) => {
-                format!("\"payload\": {}", json)
-            },
-            Err((error_code, error_msg)) => {
-                format!("\"error\": {{\"code\": {}, \"message\": \"{}\"}}", error_code, error_msg)
-            },
+            Ok(json) => format!("\"payload\": {}", json),
+            Err((error_code, error_msg)) => format!(
+                "\"error\": {{\"code\": {}, \"message\": \"{}\"}}",
+                error_code, error_msg
+            ),
         };
-        format! ("{{{}{}{}}}", opcode_section, path_section, payload_section)
+        format!("{{{}{}{}}}", opcode_section, path_section, payload_section)
     }
 
     fn new_unmarshal(&self, json: &str) -> Result<MessageBody, String> {
@@ -179,25 +229,34 @@ impl UiTrafficConverterReal {
                 };
                 match map.get("payload") {
                     Some(Value::Object(payload_map)) => {
-                        let payload = serde_json::to_string(payload_map).expect("Reserialization problem");
-                        Ok(MessageBody{opcode, path, payload: Ok(payload)})
-                    },
+                        let payload =
+                            serde_json::to_string(payload_map).expect("Reserialization problem");
+                        Ok(MessageBody {
+                            opcode,
+                            path,
+                            payload: Ok(payload),
+                        })
+                    }
                     Some(other_value) => Err(format!(
                         "payload should have been of type Value::Object, not {:?}",
                         other_value
                     )),
                     None => match map.get("error") {
                         Some(Value::Object(error_map)) => {
-                            let code = Self::get_u64 (&error_map, "code")?;
-                            let message = Self::get_string (&error_map, "message")?;
-                            Ok(MessageBody{opcode, path, payload: Err((code, message))})
-                        },
+                            let code = Self::get_u64(&error_map, "code")?;
+                            let message = Self::get_string(&error_map, "message")?;
+                            Ok(MessageBody {
+                                opcode,
+                                path,
+                                payload: Err((code, message)),
+                            })
+                        }
                         Some(other_value) => Err(format!(
                             "error should have been of type Value::Object, not {:?}",
                             other_value
                         )),
-                        None => Err("Neither payload nor error field is present".to_string())
-                    }
+                        None => Err("Neither payload nor error field is present".to_string()),
+                    },
                 }
             }
             Ok(x) => Err(format!(
@@ -240,13 +299,13 @@ impl UiTrafficConverterReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::{MessageTarget, MessageBody};
-    use serde_json::Number;
     use crate::sub_lib::ui_gateway::MessagePath::OneWay;
+    use crate::sub_lib::ui_gateway::MessageTarget::{AllClients, ClientId};
+    use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget};
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::make_recorder;
-    use actix::{System, Actor};
-    use crate::sub_lib::ui_gateway::MessageTarget::{ClientId, AllClients};
+    use actix::{Actor, System};
+    use serde_json::Number;
 
     #[test]
     fn a_shutdown_message_is_properly_marshalled_and_unmarshalled() {
@@ -276,8 +335,10 @@ mod tests {
             body: MessageBody {
                 opcode: "opcode".to_string(),
                 path: OneWay,
-                payload: Ok(r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
-                    .to_string())
+                payload: Ok(
+                    r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
+                        .to_string(),
+                ),
             },
         };
 
@@ -309,9 +370,11 @@ mod tests {
             body: MessageBody {
                 opcode: "opcode".to_string(),
                 path: OneWay,
-                payload: Ok(r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
-                    .to_string()),
-            }
+                payload: Ok(
+                    r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
+                        .to_string(),
+                ),
+            },
         };
 
         let json = subject.new_marshal_to_ui(ui_msg);
@@ -354,7 +417,10 @@ mod tests {
         assert_eq!(ui_msg.client_id, 1234);
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
         assert_eq!(ui_msg.body.path, OneWay);
-        assert_eq!(ui_msg.body.payload.err().unwrap(), (4567, "Moron".to_string()));
+        assert_eq!(
+            ui_msg.body.payload.err().unwrap(),
+            (4567, "Moron".to_string())
+        );
     }
 
     #[test]
@@ -366,7 +432,7 @@ mod tests {
                 opcode: "opcode".to_string(),
                 path: OneWay,
                 payload: Err((4567, "Moron".to_string())),
-            }
+            },
         };
 
         let json = subject.new_marshal_to_ui(ui_msg);
@@ -377,7 +443,10 @@ mod tests {
         assert_eq!(ui_msg.target, MessageTarget::ClientId(1234));
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
         assert_eq!(ui_msg.body.path, OneWay);
-        assert_eq!(ui_msg.body.payload.err().unwrap(), (4567, "Moron".to_string()));
+        assert_eq!(
+            ui_msg.body.payload.err().unwrap(),
+            (4567, "Moron".to_string())
+        );
     }
 
     #[test]
@@ -388,8 +457,10 @@ mod tests {
             body: MessageBody {
                 opcode: "opcode".to_string(),
                 path: TwoWay(2222),
-                payload: Ok(r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
-                    .to_string())
+                payload: Ok(
+                    r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
+                        .to_string(),
+                ),
             },
         };
 
@@ -421,9 +492,11 @@ mod tests {
             body: MessageBody {
                 opcode: "opcode".to_string(),
                 path: TwoWay(2222),
-                payload: Ok(r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
-                    .to_string()),
-            }
+                payload: Ok(
+                    r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
+                        .to_string(),
+                ),
+            },
         };
 
         let json = subject.new_marshal_to_ui(ui_msg);
@@ -466,7 +539,10 @@ mod tests {
         assert_eq!(ui_msg.client_id, 1234);
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
         assert_eq!(ui_msg.body.path, TwoWay(2222));
-        assert_eq!(ui_msg.body.payload.err().unwrap(), (4567, "Moron".to_string()));
+        assert_eq!(
+            ui_msg.body.payload.err().unwrap(),
+            (4567, "Moron".to_string())
+        );
     }
 
     #[test]
@@ -478,7 +554,7 @@ mod tests {
                 opcode: "opcode".to_string(),
                 path: TwoWay(2222),
                 payload: Err((4567, "Moron".to_string())),
-            }
+            },
         };
 
         let json = subject.new_marshal_to_ui(ui_msg);
@@ -489,7 +565,10 @@ mod tests {
         assert_eq!(ui_msg.target, MessageTarget::ClientId(1234));
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
         assert_eq!(ui_msg.body.path, TwoWay(2222));
-        assert_eq!(ui_msg.body.payload.err().unwrap(), (4567, "Moron".to_string()));
+        assert_eq!(
+            ui_msg.body.payload.err().unwrap(),
+            (4567, "Moron".to_string())
+        );
     }
 
     #[test]
@@ -522,7 +601,10 @@ mod tests {
 
         let result = subject.new_unmarshal_from_ui(json, 1234);
 
-        assert_eq!(result, Err("Neither payload nor error field is present".to_string()))
+        assert_eq!(
+            result,
+            Err("Neither payload nor error field is present".to_string())
+        )
     }
 
     #[test]
@@ -580,13 +662,13 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: OneWay,
                 payload: Ok("{}".to_string()),
-            }
+            },
         };
         let subject = UiTrafficConverterReal::new();
 
         let result = subject.reject_error_from_ui(&logger, &msg, None);
 
-        assert_eq! (result, Ok("{}".to_string()));
+        assert_eq!(result, Ok("{}".to_string()));
     }
 
     #[test]
@@ -599,15 +681,23 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: OneWay,
                 payload: Err((2345, "goober".to_string())),
-            }
+            },
         };
         let subject = UiTrafficConverterReal::new();
 
         let result = subject.reject_error_from_ui(&logger, &msg, None);
 
-        let expected_msg = "Unexpected error request from client 1234 for 'booga' (2345: goober) - discarding".to_string();
-        assert_eq! (result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing (format!("ERROR: reject_error_from_ui_handles_one_way_failure: {}", expected_msg).as_str());
+        let expected_msg =
+            "Unexpected error request from client 1234 for 'booga' (2345: goober) - discarding"
+                .to_string();
+        assert_eq!(result, Err(expected_msg.clone()));
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "ERROR: reject_error_from_ui_handles_one_way_failure: {}",
+                expected_msg
+            )
+            .as_str(),
+        );
     }
 
     #[test]
@@ -619,7 +709,7 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: TwoWay(4321),
                 payload: Ok("{}".to_string()),
-            }
+            },
         };
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject = UiTrafficConverterReal::new();
@@ -630,9 +720,9 @@ mod tests {
 
         System::current().stop();
         system.run();
-        assert_eq! (result, Ok("{}".to_string()));
+        assert_eq!(result, Ok("{}".to_string()));
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.len(), 0);
+        assert_eq!(ui_gateway_recording.len(), 0);
     }
 
     #[test]
@@ -645,7 +735,7 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: TwoWay(4321),
                 payload: Err((2345, "goober".to_string())),
-            }
+            },
         };
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject = UiTrafficConverterReal::new();
@@ -656,19 +746,32 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let expected_msg_prefix = "Unexpected error request from client 1234 for 'booga' (2345: goober)".to_string();
+        let expected_msg_prefix =
+            "Unexpected error request from client 1234 for 'booga' (2345: goober)".to_string();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.get_record::<NewToUiMessage>(0), &NewToUiMessage {
-            target: ClientId(1234),
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: TwoWay(4321),
-                payload: Err((UNEXPECTED_ERROR_REQUEST_CODE, expected_msg_prefix.clone()))
+        assert_eq!(
+            ui_gateway_recording.get_record::<NewToUiMessage>(0),
+            &NewToUiMessage {
+                target: ClientId(1234),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: TwoWay(4321),
+                    payload: Err((UNEXPECTED_ERROR_REQUEST_CODE, expected_msg_prefix.clone()))
+                }
             }
-        });
-        let expected_msg = format!("{} - complaining to sender with context 4321", expected_msg_prefix);
-        assert_eq! (result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing (format!("ERROR: reject_error_from_ui_handles_one_way_failure: {}", expected_msg).as_str());
+        );
+        let expected_msg = format!(
+            "{} - complaining to sender with context 4321",
+            expected_msg_prefix
+        );
+        assert_eq!(result, Err(expected_msg.clone()));
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "ERROR: reject_error_from_ui_handles_one_way_failure: {}",
+                expected_msg
+            )
+            .as_str(),
+        );
     }
 
     #[test]
@@ -680,13 +783,13 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: OneWay,
                 payload: Ok("{}".to_string()),
-            }
+            },
         };
         let subject = UiTrafficConverterReal::new();
 
         let result = subject.reject_error_to_ui(&logger, &msg, None);
 
-        assert_eq! (result, Ok("{}".to_string()));
+        assert_eq!(result, Ok("{}".to_string()));
     }
 
     #[test]
@@ -699,15 +802,23 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: OneWay,
                 payload: Err((2345, "goober".to_string())),
-            }
+            },
         };
         let subject = UiTrafficConverterReal::new();
 
         let result = subject.reject_error_to_ui(&logger, &msg, None);
 
-        let expected_msg = "Unexpected error request from server for 'booga' (2345: goober) - discarding".to_string();
-        assert_eq! (result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing (format!("ERROR: reject_error_to_ui_handles_one_way_failure: {}", expected_msg).as_str());
+        let expected_msg =
+            "Unexpected error request from server for 'booga' (2345: goober) - discarding"
+                .to_string();
+        assert_eq!(result, Err(expected_msg.clone()));
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "ERROR: reject_error_to_ui_handles_one_way_failure: {}",
+                expected_msg
+            )
+            .as_str(),
+        );
     }
 
     #[test]
@@ -719,7 +830,7 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: TwoWay(4321),
                 payload: Ok("{}".to_string()),
-            }
+            },
         };
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject = UiTrafficConverterReal::new();
@@ -730,9 +841,9 @@ mod tests {
 
         System::current().stop();
         system.run();
-        assert_eq! (result, Ok("{}".to_string()));
+        assert_eq!(result, Ok("{}".to_string()));
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.len(), 0);
+        assert_eq!(ui_gateway_recording.len(), 0);
     }
 
     #[test]
@@ -745,7 +856,7 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: TwoWay(4321),
                 payload: Err((2345, "goober".to_string())),
-            }
+            },
         };
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject = UiTrafficConverterReal::new();
@@ -756,19 +867,32 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let expected_msg_prefix = "Unexpected error request from server for 'booga' (2345: goober)".to_string();
+        let expected_msg_prefix =
+            "Unexpected error request from server for 'booga' (2345: goober)".to_string();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.get_record::<NewFromUiMessage>(0), &NewFromUiMessage {
-            client_id: 0, // irrelevant
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: TwoWay(4321),
-                payload: Err((UNEXPECTED_ERROR_REQUEST_CODE, expected_msg_prefix.clone()))
+        assert_eq!(
+            ui_gateway_recording.get_record::<NewFromUiMessage>(0),
+            &NewFromUiMessage {
+                client_id: 0, // irrelevant
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: TwoWay(4321),
+                    payload: Err((UNEXPECTED_ERROR_REQUEST_CODE, expected_msg_prefix.clone()))
+                }
             }
-        });
-        let expected_msg = format!("{} - complaining to sender with context 4321", expected_msg_prefix);
-        assert_eq! (result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing (format!("ERROR: reject_error_to_ui_handles_two_way_failure_with_sub_specified: {}", expected_msg).as_str());
+        );
+        let expected_msg = format!(
+            "{} - complaining to sender with context 4321",
+            expected_msg_prefix
+        );
+        assert_eq!(result, Err(expected_msg.clone()));
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "ERROR: reject_error_to_ui_handles_two_way_failure_with_sub_specified: {}",
+                expected_msg
+            )
+            .as_str(),
+        );
     }
 
     #[test]
@@ -781,16 +905,23 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: TwoWay(4321),
                 payload: Err((2345, "goober".to_string())),
-            }
+            },
         };
         let subject = UiTrafficConverterReal::new();
 
         let result = subject.reject_error_to_ui(&logger, &msg, None);
 
-        let expected_msg_prefix = "Unexpected error request from server for 'booga' (2345: goober)".to_string();
+        let expected_msg_prefix =
+            "Unexpected error request from server for 'booga' (2345: goober)".to_string();
         let expected_msg = format!("{} - discarding", expected_msg_prefix);
-        assert_eq! (result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing (format!("ERROR: reject_error_to_ui_handles_two_way_failure_with_sub_unspecified: {}", expected_msg).as_str());
+        assert_eq!(result, Err(expected_msg.clone()));
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "ERROR: reject_error_to_ui_handles_two_way_failure_with_sub_unspecified: {}",
+                expected_msg
+            )
+            .as_str(),
+        );
     }
 
     #[test]
@@ -800,6 +931,9 @@ mod tests {
 
         let result = UiTrafficConverterReal::get_u64(&map, "bad_u64");
 
-        assert_eq! (result, Err("Cannot convert from JSON to u64: Number(-47)".to_string()))
+        assert_eq!(
+            result,
+            Err("Cannot convert from JSON to u64: Number(-47)".to_string())
+        )
     }
 }

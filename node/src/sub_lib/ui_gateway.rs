@@ -72,7 +72,7 @@ pub enum MessagePath {
 pub struct MessageBody {
     pub opcode: String,
     pub path: MessagePath,
-    pub payload: Result<String, (u64, String)> // <success payload as JSON, (error code, error message)>
+    pub payload: Result<String, (u64, String)>, // <success payload as JSON, (error code, error message)>
 }
 
 #[derive(Message, PartialEq, Clone, Debug)]

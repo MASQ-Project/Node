@@ -248,7 +248,8 @@ mod tests {
     use super::*;
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
-    use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, UiMessage, MessageBody};
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
+    use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget, NewFromUiMessage, UiMessage};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -260,7 +261,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
 
     impl Default for UiGatewayOutSubs {
         fn default() -> Self {
@@ -325,11 +325,25 @@ mod tests {
             unimplemented!()
         }
 
-        fn reject_error_from_ui(&self, _logger: &Logger, _msg: &NewFromUiMessage, _reply_sub_opt: Option<&Recipient<NewToUiMessage>>) -> Result<String, String> {
+        fn reject_error_from_ui(
+            &self,
+            _logger: &Logger,
+            _msg: &NewFromUiMessage,
+            _reply_sub_opt: Option<&Recipient<NewToUiMessage>>,
+        ) -> Result<String, String> {
             unimplemented!()
         }
 
-        fn reject_error_to_ui(&self, _logger: &Logger, _msg: &NewToUiMessage, _reply_sub_opt: Option<&Recipient<NewFromUiMessage>>) -> Result<String, String> {
+        fn reject_error_to_ui(
+            &self,
+            _logger: &Logger,
+            _msg: &NewToUiMessage,
+            _reply_sub_opt: Option<&Recipient<NewFromUiMessage>>,
+        ) -> Result<String, String> {
+            unimplemented!()
+        }
+
+        fn get_context_id(&self, _logger: &Logger, _body: &MessageBody) -> Option<u64> {
             unimplemented!()
         }
     }
@@ -464,7 +478,7 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: OneWay,
                 payload: Ok("{}".to_string()),
-            }
+            },
         };
 
         subject_addr.try_send(msg.clone()).unwrap();
@@ -501,7 +515,7 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: OneWay,
                 payload: Ok("{}".to_string()),
-            }
+            },
         };
 
         subject_addr.try_send(msg.clone()).unwrap();
