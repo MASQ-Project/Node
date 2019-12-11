@@ -248,7 +248,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
-    use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, UiMessage};
+    use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, UiMessage, MessageBody};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -260,6 +260,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
 
     impl Default for UiGatewayOutSubs {
         fn default() -> Self {
@@ -451,8 +452,11 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let msg = NewFromUiMessage {
             client_id: 1234,
-            opcode: "booga".to_string(),
-            payload: "{}".to_string(),
+            body: MessageBody {
+                opcode: "booga".to_string(),
+                path: OneWay,
+                payload: Ok("{}".to_string()),
+            }
         };
 
         subject_addr.try_send(msg.clone()).unwrap();
@@ -485,8 +489,11 @@ mod tests {
         let subject_addr: Addr<UiGateway> = subject.start();
         let msg = NewToUiMessage {
             target: MessageTarget::ClientId(1234),
-            opcode: "booga".to_string(),
-            payload: "{}".to_string(),
+            body: MessageBody {
+                opcode: "booga".to_string(),
+                path: OneWay,
+                payload: Ok("{}".to_string()),
+            }
         };
 
         subject_addr.try_send(msg.clone()).unwrap();

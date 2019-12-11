@@ -293,7 +293,7 @@ impl Handler<NewFromUiMessage> for Neighborhood {
     fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         debug!(
             &self.logger,
-            "Ignoring unrecognized UI message: '{}'", msg.opcode
+            "Ignoring unrecognized UI message: '{}'", msg.body.opcode
         );
     }
 }
@@ -1230,7 +1230,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::ui_gateway::NewFromUiMessage;
+    use crate::sub_lib::ui_gateway::{NewFromUiMessage, MessageBody};
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -1261,6 +1261,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -4223,8 +4224,11 @@ mod tests {
         subject_addr
             .try_send(NewFromUiMessage {
                 client_id: 1234,
-                opcode: "booga".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             })
             .unwrap();
 

@@ -4,9 +4,7 @@ pub mod utils;
 
 use futures::future::*;
 use node_lib::sub_lib::accountant::{UiFinancialsRequest, UiFinancialsResponse};
-use node_lib::sub_lib::ui_gateway::{
-    MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage, DEFAULT_UI_PORT,
-};
+use node_lib::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage, DEFAULT_UI_PORT, MessageBody};
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
@@ -15,6 +13,7 @@ use tokio::prelude::*;
 use tokio::runtime::Runtime;
 use websocket::ClientBuilder;
 use websocket::OwnedMessage;
+use node_lib::sub_lib::ui_gateway::MessagePath::OneWay;
 
 #[test]
 fn ui_gateway_message_integration() {
@@ -129,8 +128,11 @@ fn request_financial_information_integration() {
     let converter = UiTrafficConverterReal::new();
     let request_msg = converter.new_marshal_from_ui(NewFromUiMessage {
         client_id: 1234,
-        opcode: "financials".to_string(),
-        payload: serde_json::to_string(&payload).unwrap(),
+        body: MessageBody {
+            opcode: "financials".to_string(),
+            path: OneWay,
+            payload: Ok(serde_json::to_string(&payload).unwrap()),
+        }
     });
 
     let descriptor_client =
@@ -145,10 +147,10 @@ fn request_financial_information_integration() {
                     let response_msg: NewToUiMessage = UiTrafficConverterReal::new()
                         .new_unmarshal_to_ui(&response_json, MessageTarget::ClientId(1234))
                         .unwrap();
-                    assert_eq!(response_msg.opcode, "financials".to_string());
+                    assert_eq!(response_msg.body.opcode, "financials".to_string());
                     assert_eq!(response_msg.target, MessageTarget::ClientId(1234));
                     let payload =
-                        serde_json::from_str::<UiFinancialsResponse>(&response_msg.payload)
+                        serde_json::from_str::<UiFinancialsResponse>(&response_msg.body.payload.as_ref().unwrap())
                             .unwrap();
                     assert_eq!(payload.payables.len(), 0);
                     assert_eq!(payload.receivables.len(), 0);

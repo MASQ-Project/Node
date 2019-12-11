@@ -25,9 +25,7 @@ use crate::sub_lib::accountant::{
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{
-    MessageTarget, NewFromUiMessage, NewToUiMessage, UiCarrierMessage, UiMessage,
-};
+use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, NewToUiMessage, UiCarrierMessage, UiMessage, MessageBody};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -44,6 +42,7 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -281,20 +280,34 @@ impl Handler<NewFromUiMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        match &msg.opcode {
+        let opcode = msg.body.opcode;
+        let client_id = msg.client_id;
+        let path = msg.body.path;
+        let json = match msg.body.payload {
+            Ok(payload_str) => payload_str,
+            Err((code, message)) => match path {
+                OneWay => {
+                    error!(&self.logger, "Unexpected error response from client {} for '{}' ({}: {}) - discarding", client_id, opcode, code, message);
+                    return
+                },
+                TwoWay(context_id) => unimplemented! ("TODO: Test-drive me: {} - ({}, '{}')", context_id, code, message),
+            }
+        };
+
+        match &opcode {
             opcode if opcode == "financials" => {
-                let request = match serde_json::from_str::<UiFinancialsRequest>(&msg.payload) {
+                let request = match serde_json::from_str::<UiFinancialsRequest>(&json) {
                     Ok(r) => r,
                     Err(e) => {
                         error!(
                             &self.logger,
-                            "Bad financials request from client {}: {:?}", msg.client_id, e
+                            "Bad financials request from client {}: {:?}", client_id, e
                         );
                         return;
                     }
                 };
-                self.handle_financials(msg.client_id, request);
-            }
+                self.handle_financials(client_id, request);
+            },
             opcode => debug!(
                 &self.logger,
                 "Ignoring unrecognized UI message: '{}'", opcode
@@ -644,8 +657,11 @@ impl Accountant {
         };
         let response = NewToUiMessage {
             target: MessageTarget::ClientId(client_id),
-            opcode: "financials".to_string(),
-            payload: serde_json::to_string(&response_payload).expect("Serialization problem"),
+            body: MessageBody {
+                opcode: "financials".to_string(),
+                path: OneWay, // TODO: This should actually be TwoWay with the inbound context_id
+                payload: Ok(serde_json::to_string(&response_payload).expect("Serialization problem")),
+            }
         };
         self.ui_message_sub
             .as_ref()
@@ -670,9 +686,7 @@ pub mod tests {
         UiPayableAccount, UiReceivableAccount,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::{
-        MessageTarget, NewFromUiMessage, UiCarrierMessage, UiMessage,
-    };
+    use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, UiCarrierMessage, UiMessage, MessageBody};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -695,6 +709,7 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -1068,8 +1083,11 @@ pub mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let ui_message = NewFromUiMessage {
             client_id: 1234,
-            opcode: "financials".to_string(),
-            payload: r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, "receivableMaximumAge": 50004}"#.to_string(),
+            body: MessageBody {
+                opcode: "financials".to_string(),
+                path: OneWay,
+                payload: Ok(r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, "receivableMaximumAge": 50004}"#.to_string()),
+            }
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -1083,10 +1101,10 @@ pub mod tests {
         assert_eq!(*receivable_top_records_parameters, vec![(50003, 50004)]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NewToUiMessage>(0);
-        assert_eq!(response.opcode, "financials".to_string());
+        assert_eq!(response.body.opcode, "financials".to_string());
         assert_eq!(response.target, MessageTarget::ClientId(1234));
         let parsed_payload =
-            serde_json::from_str::<UiFinancialsResponse>(&response.payload).unwrap();
+            serde_json::from_str::<UiFinancialsResponse>(&response.body.payload.as_ref().unwrap()).unwrap();
         assert_eq!(
             parsed_payload,
             UiFinancialsResponse {
@@ -1123,6 +1141,46 @@ pub mod tests {
                 totalReceivable: 98765432
             }
         );
+    }
+
+    #[test]
+    fn financials_request_with_error_payload_logs_error() { // TODO: Once "financials" is a TwoWay message, this should be modified to force sending a response
+        init_test_logging();
+        let system = System::new("test");
+        let subject = Accountant::new(
+            &bc_from_ac_plus_earning_wallet(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_millis(10_000),
+                    payment_received_scan_interval: Duration::from_millis(10_000),
+                },
+                make_wallet("some_wallet_address"),
+            ),
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+            Box::new(BannedDaoMock::new()),
+            null_config(),
+        );
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NewFromUiMessage {
+                client_id: 1234,
+                body: MessageBody {
+                    opcode: "financials".to_string(),
+                    path: OneWay,
+                    payload: Err((2345, "goober".to_string())),
+                }
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(ui_gateway_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Unexpected error response from client 1234 for 'financials' (2345: goober) - discarding");
     }
 
     #[test]
@@ -1164,8 +1222,11 @@ pub mod tests {
         subject_addr
             .try_send(NewFromUiMessage {
                 client_id: 1234,
-                opcode: "financials".to_string(),
-                payload: "goober".to_string(),
+                body: MessageBody {
+                    opcode: "financials".to_string(),
+                    path: OneWay,
+                    payload: Ok("goober".to_string()),
+                }
             })
             .unwrap();
 
@@ -1201,8 +1262,11 @@ pub mod tests {
         subject_addr
             .try_send(NewFromUiMessage {
                 client_id: 1234,
-                opcode: "booga".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             })
             .unwrap();
 

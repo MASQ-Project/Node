@@ -422,7 +422,7 @@ impl WebSocketSupervisorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::{FromUiMessage, MessageTarget, NewFromUiMessage, UiMessage};
+    use crate::sub_lib::ui_gateway::{FromUiMessage, MessageTarget, NewFromUiMessage, UiMessage, MessageBody};
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
@@ -443,6 +443,7 @@ mod tests {
     use websocket::stream::sync::TcpStream;
     use websocket::ClientBuilder;
     use websocket::Message;
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
 
     impl WebSocketSupervisorReal {
         fn inject_mock_client(&self, mock_client: ClientWrapperMock, old_client: bool) -> u64 {
@@ -782,24 +783,33 @@ mod tests {
             &messages,
             &NewFromUiMessage {
                 client_id: 0,
-                opcode: "one".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "one".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             },
         );
         assert_contains(
             &messages,
             &NewFromUiMessage {
                 client_id: 1,
-                opcode: "another".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "another".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             },
         );
         assert_contains(
             &messages,
             &NewFromUiMessage {
                 client_id: 0,
-                opcode: "athird".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "athird".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             },
         );
         assert_eq!(one_close_msg, OwnedMessage::Close(None));
@@ -1073,8 +1083,11 @@ mod tests {
             let another_client_id = subject.inject_mock_client(another_mock_client, false);
             let msg = NewToUiMessage {
                 target: MessageTarget::ClientId(one_client_id),
-                opcode: "booga".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             };
 
             subject.send_msg(msg.clone());
@@ -1113,15 +1126,19 @@ mod tests {
             let another_client_id = subject.inject_mock_client(another_mock_client, false);
             let msg = NewToUiMessage {
                 target: MessageTarget::AllClients,
-                opcode: "booga".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             };
 
             subject.send_msg(msg.clone());
 
             let one_mock_client_ref = subject.get_mock_client(one_client_id);
             let actual_message = match one_mock_client_ref.send_params.lock().unwrap().get(0) {
-                Some(OwnedMessage::Text(json)) => UiTrafficConverterReal::new().new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
+                Some(OwnedMessage::Text(json)) =>
+                    UiTrafficConverterReal::new().new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
                 Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
                 None => panic! ("send should have been called, but wasn't"),
             };
@@ -1185,8 +1202,11 @@ mod tests {
             correspondent = MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
             let msg = NewToUiMessage {
                 target: correspondent,
-                opcode: "booga".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             };
             subject.send_msg(msg);
             Ok(())
@@ -1239,8 +1259,11 @@ mod tests {
             correspondent = MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
             let msg = NewToUiMessage {
                 target: correspondent,
-                opcode: "booga".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             };
             subject.send_msg(msg);
             Ok(())
@@ -1281,8 +1304,11 @@ mod tests {
             let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
             let msg = NewToUiMessage {
                 target: MessageTarget::ClientId(7),
-                opcode: "booga".to_string(),
-                payload: "{}".to_string(),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                }
             };
             subject.send_msg(msg);
             Ok(())

@@ -1,7 +1,8 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage};
+use crate::sub_lib::ui_gateway::{MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage, MessageBody};
 use serde_json::Value;
+use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 
 #[allow(dead_code)]
 pub const BROADCAST: u64 = 0xFFFF_FFFF_FFFF_FFFF;
@@ -37,17 +38,11 @@ impl UiTrafficConverter for UiTrafficConverterReal {
     }
 
     fn new_marshal_from_ui(&self, msg: NewFromUiMessage) -> String {
-        self.new_marshal(
-            msg.opcode,
-            serde_json::from_str(&msg.payload).expect("Serialization problem"),
-        )
+        self.new_marshal(msg.body)
     }
 
     fn new_marshal_to_ui(&self, msg: NewToUiMessage) -> String {
-        self.new_marshal(
-            msg.opcode,
-            serde_json::from_str(&msg.payload).expect("Serialization problem"),
-        )
+        self.new_marshal(msg.body)
     }
 
     fn new_unmarshal_from_ui(
@@ -56,11 +51,7 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         client_id: u64,
     ) -> Result<NewFromUiMessage, String> {
         match self.new_unmarshal(json) {
-            Ok((opcode, payload)) => Ok(NewFromUiMessage {
-                client_id,
-                opcode,
-                payload,
-            }),
+            Ok(body) => Ok(NewFromUiMessage { client_id, body }),
             Err(e) => Err(e),
         }
     }
@@ -71,11 +62,7 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         target: MessageTarget,
     ) -> Result<NewToUiMessage, String> {
         match self.new_unmarshal(json) {
-            Ok((opcode, payload)) => Ok(NewToUiMessage {
-                target,
-                opcode,
-                payload,
-            }),
+            Ok(body) => Ok(NewToUiMessage { target, body }),
             Err(e) => Err(e),
         }
     }
@@ -86,29 +73,54 @@ impl UiTrafficConverterReal {
         Self {}
     }
 
-    fn new_marshal(&self, opcode: String, payload: Value) -> String {
-        let mut msg_map = serde_json::map::Map::new();
-        msg_map.insert("opcode".to_string(), Value::String(opcode));
-        msg_map.insert("payload".to_string(), payload);
-        serde_json::to_string(&msg_map).expect("Problem converting Value::Object to JSON")
+    fn new_marshal(&self, body: MessageBody) -> String {
+        let opcode_section = format!("\"opcode\": \"{}\", ", body.opcode);
+        let path_section = match body.path {
+            OneWay => "".to_string(),
+            TwoWay(context_id) => unimplemented! ("TODO: Test-drive me: {}", context_id),
+        };
+        let payload_section = match body.payload {
+            Ok(json) => {
+                format!("\"payload\": {}", json)
+            },
+            Err((error_code, error_msg)) => {
+                format!("\"error\": {{\"code\": {}, \"message\": \"{}\"}}", error_code, error_msg)
+            },
+        };
+        format! ("{{{}{}{}}}", opcode_section, path_section, payload_section)
     }
 
-    fn new_unmarshal(&self, json: &str) -> Result<(String, String), String> {
+    fn new_unmarshal(&self, json: &str) -> Result<MessageBody, String> {
         match serde_json::from_str(json) {
             Ok(Value::Object(map)) => {
                 let opcode = Self::get_string(&map, "opcode")?;
-                let payload_map = match map.get("payload") {
-                    Some(Value::Object(value)) => value,
-                    Some(x) => {
-                        return Err(format!(
-                            "payload should have been of type Value::Object, not {:?}",
-                            x
-                        ))
-                    }
-                    None => return Err("payload field is missing".to_string()),
+                let path = match Self::get_u64(&map, "context_id") {
+                    Ok(_context_id) => unimplemented! ("TODO: Test-drive me"), //TwoWay(context_id),
+                    Err(s) if s == "context_id field is missing" => OneWay,
+                    Err(s) => return Err(s),
                 };
-                let payload = serde_json::to_string(payload_map).expect("Reserialization problem");
-                Ok((opcode, payload))
+                match map.get("payload") {
+                    Some(Value::Object(payload_map)) => {
+                        let payload = serde_json::to_string(payload_map).expect("Reserialization problem");
+                        Ok(MessageBody{opcode, path, payload: Ok(payload)})
+                    },
+                    Some(other_value) => Err(format!(
+                        "payload should have been of type Value::Object, not {:?}",
+                        other_value
+                    )),
+                    None => match map.get("error") {
+                        Some(Value::Object(error_map)) => {
+                            let code = Self::get_u64 (&error_map, "code")?;
+                            let message = Self::get_string (&error_map, "message")?;
+                            Ok(MessageBody{opcode, path, payload: Err((code, message))})
+                        },
+                        Some(other_value) => Err(format!(
+                            "error should have been of type Value::Object, not {:?}",
+                            other_value
+                        )),
+                        None => Err("Neither payload nor error field is present".to_string())
+                    }
+                }
             }
             Ok(x) => Err(format!(
                 "JSON packet should have been of type Value::Object, not {:?}",
@@ -131,13 +143,28 @@ impl UiTrafficConverterReal {
             None => Err(format!("{} field is missing", name)),
         }
     }
+
+    fn get_u64(map: &serde_json::map::Map<String, Value>, name: &str) -> Result<u64, String> {
+        match map.get(name) {
+            Some(Value::Number(n)) => match n.as_u64() {
+                Some(n) => Ok(n),
+                None => Err(format!("Cannot convert from JSON to u64: {:?}", n)),
+            },
+            Some(x) => Err(format!(
+                "{} should have been of type Value::Number, not {:?}",
+                name, x
+            )),
+            None => Err(format!("{} field is missing", name)),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::MessageTarget;
+    use crate::sub_lib::ui_gateway::{MessageTarget, MessageBody};
     use serde_json::Number;
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
 
     #[test]
     fn a_shutdown_message_is_properly_marshalled_and_unmarshalled() {
@@ -160,21 +187,24 @@ mod tests {
     }
 
     #[test]
-    fn new_marshaling_and_unmarshaling_works_from_ui() {
+    fn new_marshaling_and_unmarshaling_works_from_ui_for_success() {
         let subject = UiTrafficConverterReal::new();
         let out_ui_msg = NewFromUiMessage {
             client_id: 4321,
-            opcode: "opcode".to_string(),
-            payload: r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
-                .to_string(),
+            body: MessageBody {
+                opcode: "opcode".to_string(),
+                path: OneWay,
+                payload: Ok(r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
+                    .to_string())
+            },
         };
 
         let json = subject.new_marshal_from_ui(out_ui_msg);
 
         let out_ui_msg = subject.new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(out_ui_msg.client_id, 1234);
-        assert_eq!(out_ui_msg.opcode, "opcode".to_string());
-        match serde_json::from_str::<Value>(&out_ui_msg.payload) {
+        assert_eq!(out_ui_msg.body.opcode, "opcode".to_string());
+        match serde_json::from_str::<Value>(&out_ui_msg.body.payload.unwrap()) {
             Ok(Value::Object(map)) => {
                 assert_eq!(map.get("null"), Some(&Value::Null));
                 assert_eq!(map.get("bool"), Some(&Value::Bool(true)));
@@ -189,13 +219,16 @@ mod tests {
     }
 
     #[test]
-    fn new_marshaling_and_unmarshaling_works_to_ui() {
+    fn new_marshaling_and_unmarshaling_works_to_ui_for_success() {
         let subject = UiTrafficConverterReal::new();
         let in_ui_msg = NewToUiMessage {
             target: MessageTarget::ClientId(4321),
-            opcode: "opcode".to_string(),
-            payload: r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
-                .to_string(),
+            body: MessageBody {
+                opcode: "opcode".to_string(),
+                path: OneWay,
+                payload: Ok(r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
+                    .to_string()),
+            }
         };
 
         let json = subject.new_marshal_to_ui(in_ui_msg);
@@ -204,8 +237,8 @@ mod tests {
             .new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234))
             .unwrap();
         assert_eq!(out_ui_msg.target, MessageTarget::ClientId(1234));
-        assert_eq!(out_ui_msg.opcode, "opcode".to_string());
-        match serde_json::from_str::<Value>(&out_ui_msg.payload) {
+        assert_eq!(out_ui_msg.body.opcode, "opcode".to_string());
+        match serde_json::from_str::<Value>(&out_ui_msg.body.payload.unwrap()) {
             Ok(Value::Object(map)) => {
                 assert_eq!(map.get("null"), Some(&Value::Null));
                 assert_eq!(map.get("bool"), Some(&Value::Bool(true)));
@@ -217,6 +250,48 @@ mod tests {
             }
             v => panic!("Needed Some(Value::Map); got {:?}", v),
         }
+    }
+
+    #[test]
+    fn new_marshaling_and_unmarshaling_works_from_ui_for_failure() {
+        let subject = UiTrafficConverterReal::new();
+        let out_ui_msg = NewFromUiMessage {
+            client_id: 4321,
+            body: MessageBody {
+                opcode: "opcode".to_string(),
+                path: OneWay,
+                payload: Err((4567, "Moron".to_string())),
+            },
+        };
+
+        let json = subject.new_marshal_from_ui(out_ui_msg);
+
+        let out_ui_msg = subject.new_unmarshal_from_ui(&json, 1234).unwrap();
+        assert_eq!(out_ui_msg.client_id, 1234);
+        assert_eq!(out_ui_msg.body.opcode, "opcode".to_string());
+        assert_eq!(out_ui_msg.body.payload.err().unwrap(), (4567, "Moron".to_string()));
+    }
+
+    #[test]
+    fn new_marshaling_and_unmarshaling_works_to_ui_for_failure() {
+        let subject = UiTrafficConverterReal::new();
+        let in_ui_msg = NewToUiMessage {
+            target: MessageTarget::ClientId(4321),
+            body: MessageBody {
+                opcode: "opcode".to_string(),
+                path: OneWay,
+                payload: Err((4567, "Moron".to_string())),
+            }
+        };
+
+        let json = subject.new_marshal_to_ui(in_ui_msg);
+
+        let out_ui_msg = subject
+            .new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234))
+            .unwrap();
+        assert_eq!(out_ui_msg.target, MessageTarget::ClientId(1234));
+        assert_eq!(out_ui_msg.body.opcode, "opcode".to_string());
+        assert_eq!(out_ui_msg.body.payload.err().unwrap(), (4567, "Moron".to_string()));
     }
 
     #[test]
@@ -249,7 +324,7 @@ mod tests {
 
         let result = subject.new_unmarshal_from_ui(json, 1234);
 
-        assert_eq!(result, Err("payload field is missing".to_string()))
+        assert_eq!(result, Err("Neither payload nor error field is present".to_string()))
     }
 
     #[test]
@@ -262,6 +337,19 @@ mod tests {
         assert_eq!(
             result,
             Err("payload should have been of type Value::Object, not Number(1)".to_string())
+        )
+    }
+
+    #[test]
+    fn new_unmarshaling_handles_badly_typed_error() {
+        let subject = UiTrafficConverterReal::new();
+        let json = r#"{"opcode": "whomp", "error": 1}"#;
+
+        let result = subject.new_unmarshal_to_ui(json, MessageTarget::ClientId(1234));
+
+        assert_eq!(
+            result,
+            Err("error should have been of type Value::Object, not Number(1)".to_string())
         )
     }
 
@@ -283,5 +371,15 @@ mod tests {
         let result = subject.new_unmarshal_to_ui(json, MessageTarget::ClientId(1234));
 
         assert_eq! (result, Err("Packet could not be parsed as JSON: '}--{' - Error(\"expected value\", line: 1, column: 1)".to_string()))
+    }
+
+    #[test]
+    fn get_u64_handles_errors() {
+        let json = r#"{"bad_u64": -47}"#;
+        let map = serde_json::from_str(json).unwrap();
+
+        let result = UiTrafficConverterReal::get_u64(&map, "bad_u64");
+
+        assert_eq! (result, Err("Cannot convert from JSON to u64: Number(-47)".to_string()))
     }
 }
