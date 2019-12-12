@@ -13,18 +13,25 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
-use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantConfig, GetFinancialStatisticsMessage};
 use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
+use crate::sub_lib::accountant::{
+    ReportExitServiceConsumedMessage, UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount,
+    UiReceivableAccount,
+};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
+use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
+use crate::sub_lib::ui_gateway::{
+    MessageBody, MessageTarget, NewFromUiMessage, NewToUiMessage, UiCarrierMessage, UiMessage,
+};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
+use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
 use actix::Actor;
 use actix::Addr;
 use actix::AsyncContext;
@@ -33,6 +40,7 @@ use actix::Handler;
 use actix::Message;
 use actix::Recipient;
 use futures::future::Future;
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
@@ -88,6 +96,7 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayments>>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
+    ui_message_sub: Option<Recipient<NewToUiMessage>>,
     logger: Logger,
 }
 
@@ -116,6 +125,7 @@ impl Handler<BindMessage> for Accountant {
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
+        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.new_to_ui_message_sub.clone());
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
 
         info!(self.logger, "Accountant bound");
@@ -269,6 +279,48 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     }
 }
 
+impl Handler<NewFromUiMessage> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        let converter = UiTrafficConverterReal::new();
+        let json = match converter.reject_error_from_ui(
+            &self.logger,
+            &msg,
+            Some(self.ui_message_sub.as_ref().expect("UiGateway unbound")),
+        ) {
+            Ok(json) => json,
+            Err(_) => return,
+        };
+        let opcode = msg.body.opcode.clone();
+        let client_id = msg.client_id;
+
+        match &opcode {
+            opcode if opcode == "financials" => {
+                let context_id = match converter.get_context_id(&self.logger, &msg.body) {
+                    Some(context_id) => context_id,
+                    None => return,
+                };
+                let request = match serde_json::from_str::<UiFinancialsRequest>(&json) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        error!(
+                            &self.logger,
+                            "Bad financials request from client {}: {:?}", client_id, e
+                        );
+                        return;
+                    }
+                };
+                self.handle_financials(client_id, context_id, request);
+            }
+            opcode => debug!(
+                &self.logger,
+                "Ignoring unrecognized UI message: '{}'", opcode
+            ),
+        }
+    }
+}
+
 impl Handler<GetFinancialStatisticsMessage> for Accountant {
     type Result = ();
 
@@ -324,6 +376,7 @@ impl Accountant {
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_carrier_message_sub: None,
+            ui_message_sub: None,
             logger: Logger::new("Accountant"),
         }
     }
@@ -347,6 +400,7 @@ impl Accountant {
             report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
             report_sent_payments: addr.clone().recipient::<SentPayments>(),
             get_financial_statistics_sub: addr.clone().recipient::<GetFinancialStatisticsMessage>(),
+            ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
         }
     }
 
@@ -564,6 +618,64 @@ impl Accountant {
             _ => wallet.address() == self.earning_wallet.address(),
         }
     }
+
+    fn handle_financials(&mut self, client_id: u64, context_id: u64, request: UiFinancialsRequest) {
+        let payables = self
+            .payable_dao
+            .top_records(request.payableMinimumAmount, request.payableMaximumAge)
+            .iter()
+            .map(|account| UiPayableAccount {
+                wallet: account.wallet.to_string(),
+                age: SystemTime::now()
+                    .duration_since(account.last_paid_timestamp)
+                    .expect("Bad interval")
+                    .as_secs(),
+                amount: account.balance as u64,
+                pendingTransaction: account
+                    .pending_payment_transaction
+                    .map(|ppt| format!("0x{:0X}", ppt)),
+            })
+            .collect_vec();
+        let total_payable = self.payable_dao.total();
+        let receivables = self
+            .receivable_dao
+            .top_records(
+                request.receivableMinimumAmount,
+                request.receivableMaximumAge,
+            )
+            .iter()
+            .map(|account| UiReceivableAccount {
+                wallet: account.wallet.to_string(),
+                age: SystemTime::now()
+                    .duration_since(account.last_received_timestamp)
+                    .expect("Bad interval")
+                    .as_secs(),
+                amount: account.balance as u64,
+            })
+            .collect_vec();
+        let total_receivable = self.receivable_dao.total();
+        let response_payload = UiFinancialsResponse {
+            payables,
+            totalPayable: total_payable,
+            receivables,
+            totalReceivable: total_receivable,
+        };
+        let response = NewToUiMessage {
+            target: MessageTarget::ClientId(client_id),
+            body: MessageBody {
+                opcode: "financials".to_string(),
+                path: TwoWay(context_id),
+                payload: Ok(
+                    serde_json::to_string(&response_payload).expect("Serialization problem")
+                ),
+            },
+        };
+        self.ui_message_sub
+            .as_ref()
+            .expect("UiGateway not bound")
+            .try_send(response)
+            .expect("UiGateway is dead");
+    }
 }
 
 #[cfg(test)]
@@ -577,10 +689,14 @@ pub mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::accountant::{
-        FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage,
+        FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage, UiFinancialsResponse,
+        UiPayableAccount, UiReceivableAccount,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
+    use crate::sub_lib::ui_gateway::{
+        MessageBody, MessageTarget, NewFromUiMessage, UiCarrierMessage, UiMessage,
+    };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -590,15 +706,19 @@ pub mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use actix::System;
+    use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
+    use serde_json::{Number, Value};
     use std::cell::RefCell;
     use std::convert::TryFrom;
+    use std::ops::Sub;
     use std::sync::Mutex;
     use std::sync::{Arc, MutexGuard};
     use std::thread;
     use std::time::Duration;
     use std::time::SystemTime;
     use web3::types::H256;
+    use web3::types::U256;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -607,6 +727,9 @@ pub mod tests {
         more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
         non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
         payment_sent_parameters: Arc<Mutex<Vec<Payment>>>,
+        top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
+        top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
+        total_results: RefCell<Vec<u64>>,
     }
 
     impl PayableDao for PayableDaoMock {
@@ -649,6 +772,18 @@ pub mod tests {
                 self.non_pending_payables_results.borrow_mut().remove(0)
             }
         }
+
+        fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
+            self.top_records_parameters
+                .lock()
+                .unwrap()
+                .push((minimum_amount, maximum_age));
+            self.top_records_results.borrow_mut().remove(0)
+        }
+
+        fn total(&self) -> u64 {
+            self.total_results.borrow_mut().remove(0)
+        }
     }
 
     impl PayableDaoMock {
@@ -673,6 +808,21 @@ pub mod tests {
             self.payment_sent_parameters = parameters;
             self
         }
+
+        fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
+            self.top_records_parameters = parameters.clone();
+            self
+        }
+
+        fn top_records_result(self, result: Vec<PayableAccount>) -> Self {
+            self.top_records_results.borrow_mut().push(result);
+            self
+        }
+
+        fn total_result(self, result: u64) -> Self {
+            self.total_results.borrow_mut().push(result);
+            self
+        }
     }
 
     #[derive(Debug, Default)]
@@ -686,6 +836,9 @@ pub mod tests {
         new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
         paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentCurves>>>,
         paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
+        top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
+        top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
+        total_results: RefCell<Vec<u64>>,
     }
 
     impl ReceivableDao for ReceivableDaoMock {
@@ -747,6 +900,18 @@ pub mod tests {
                 self.paid_delinquencies_results.borrow_mut().remove(0)
             }
         }
+
+        fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
+            self.top_records_parameters
+                .lock()
+                .unwrap()
+                .push((minimum_amount, maximum_age));
+            self.top_records_results.borrow_mut().remove(0)
+        }
+
+        fn total(&self) -> u64 {
+            self.total_results.borrow_mut().remove(0)
+        }
     }
 
     impl ReceivableDaoMock {
@@ -800,6 +965,21 @@ pub mod tests {
             self.receivables_results.borrow_mut().push(result);
             self
         }
+
+        fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
+            self.top_records_parameters = parameters.clone();
+            self
+        }
+
+        fn top_records_result(self, result: Vec<ReceivableAccount>) -> Self {
+            self.top_records_results.borrow_mut().push(result);
+            self
+        }
+
+        fn total_result(self, result: u64) -> Self {
+            self.total_results.borrow_mut().push(result);
+            self
+        }
     }
 
     #[derive(Debug, Default)]
@@ -849,6 +1029,265 @@ pub mod tests {
             self.unban_parameters = parameters.clone();
             self
         }
+    }
+
+    #[test]
+    fn financials_request_produces_financials_response() {
+        let payable_top_records_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao = Box::new(
+            PayableDaoMock::new()
+                .top_records_parameters(&payable_top_records_parameters_arc)
+                .top_records_result(vec![
+                    PayableAccount {
+                        wallet: make_wallet("earning 1"),
+                        balance: 12345678,
+                        last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(10000)),
+                        pending_payment_transaction: Some(H256::from_uint(&U256::from(123))),
+                    },
+                    PayableAccount {
+                        wallet: make_wallet("earning 2"),
+                        balance: 12345679,
+                        last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(10001)),
+                        pending_payment_transaction: None,
+                    },
+                ])
+                .total_result(23456789),
+        );
+        let receivable_top_records_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_dao = Box::new(
+            ReceivableDaoMock::new()
+                .top_records_parameters(&receivable_top_records_parameters_arc)
+                .top_records_result(vec![
+                    ReceivableAccount {
+                        wallet: make_wallet("consuming 1"),
+                        balance: 87654321,
+                        last_received_timestamp: SystemTime::now().sub(Duration::from_secs(20000)),
+                    },
+                    ReceivableAccount {
+                        wallet: make_wallet("consuming 2"),
+                        balance: 87654322,
+                        last_received_timestamp: SystemTime::now().sub(Duration::from_secs(20001)),
+                    },
+                ])
+                .total_result(98765432),
+        );
+        let banned_dao = Box::new(BannedDaoMock::new());
+        let system = System::new("test");
+        let subject = Accountant::new(
+            &bc_from_ac_plus_earning_wallet(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_millis(10_000),
+                    payment_received_scan_interval: Duration::from_millis(10_000),
+                },
+                make_wallet("some_wallet_address"),
+            ),
+            payable_dao,
+            receivable_dao,
+            banned_dao,
+            null_config(),
+        );
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let ui_message = NewFromUiMessage {
+            client_id: 1234,
+            body: MessageBody {
+                opcode: "financials".to_string(),
+                path: TwoWay(2222),
+                payload: Ok(r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, "receivableMaximumAge": 50004}"#.to_string()),
+            }
+        };
+
+        subject_addr.try_send(ui_message).unwrap();
+
+        System::current().stop();
+        system.run();
+        let payable_top_records_parameters = payable_top_records_parameters_arc.lock().unwrap();
+        assert_eq!(*payable_top_records_parameters, vec![(50001, 50002)]);
+        let receivable_top_records_parameters =
+            receivable_top_records_parameters_arc.lock().unwrap();
+        assert_eq!(*receivable_top_records_parameters, vec![(50003, 50004)]);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NewToUiMessage>(0);
+        assert_eq!(response.target, MessageTarget::ClientId(1234));
+        assert_eq!(response.body.opcode, "financials".to_string());
+        assert_eq!(response.body.path, TwoWay(2222));
+        let parsed_payload =
+            serde_json::from_str::<UiFinancialsResponse>(&response.body.payload.as_ref().unwrap())
+                .unwrap();
+        assert_eq!(
+            parsed_payload,
+            UiFinancialsResponse {
+                payables: vec![
+                    UiPayableAccount {
+                        wallet: "0x00000000000000000000006561726e696e672031".to_string(),
+                        age: 10000,
+                        amount: 12345678,
+                        pendingTransaction: Some(
+                            "0x000000000000000000000000000000000000000000000000000000000000007B"
+                                .to_string()
+                        ),
+                    },
+                    UiPayableAccount {
+                        wallet: "0x00000000000000000000006561726e696e672032".to_string(),
+                        age: 10001,
+                        amount: 12345679,
+                        pendingTransaction: None,
+                    }
+                ],
+                totalPayable: 23456789,
+                receivables: vec![
+                    UiReceivableAccount {
+                        wallet: "0x000000000000000000636f6e73756d696e672031".to_string(),
+                        age: 20000,
+                        amount: 87654321,
+                    },
+                    UiReceivableAccount {
+                        wallet: "0x000000000000000000636f6e73756d696e672032".to_string(),
+                        age: 20001,
+                        amount: 87654322,
+                    }
+                ],
+                totalReceivable: 98765432
+            }
+        );
+    }
+
+    #[test]
+    fn financials_request_with_error_payload_logs_error() {
+        // TODO: Once "financials" is a TwoWay message, this should be modified to force sending a response
+        init_test_logging();
+        let system = System::new("test");
+        let subject = Accountant::new(
+            &bc_from_ac_plus_earning_wallet(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_millis(10_000),
+                    payment_received_scan_interval: Duration::from_millis(10_000),
+                },
+                make_wallet("some_wallet_address"),
+            ),
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+            Box::new(BannedDaoMock::new()),
+            null_config(),
+        );
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NewFromUiMessage {
+                client_id: 1234,
+                body: MessageBody {
+                    opcode: "financials".to_string(),
+                    path: OneWay,
+                    payload: Err((2345, "goober".to_string())),
+                },
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(ui_gateway_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Unexpected error request from client 1234 for 'financials' (2345: goober) - discarding");
+    }
+
+    #[test]
+    fn financials_request_with_bad_payload_logs_error() {
+        init_test_logging();
+        let system = System::new("test");
+        let subject = Accountant::new(
+            &bc_from_ac_plus_earning_wallet(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_millis(10_000),
+                    payment_received_scan_interval: Duration::from_millis(10_000),
+                },
+                make_wallet("some_wallet_address"),
+            ),
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+            Box::new(BannedDaoMock::new()),
+            null_config(),
+        );
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let mut data_map = serde_json::map::Map::new();
+        data_map.insert("payableMinimumAmount".to_string(), Value::Bool(true));
+        data_map.insert(
+            "payableMaximumAge".to_string(),
+            Value::Number(Number::from_f64(50002f64).unwrap()),
+        );
+        data_map.insert(
+            "receivableMinimumAmount".to_string(),
+            Value::Number(Number::from_f64(50003f64).unwrap()),
+        );
+        data_map.insert(
+            "receivableMaximumAge".to_string(),
+            Value::Number(Number::from_f64(50004f64).unwrap()),
+        );
+
+        subject_addr
+            .try_send(NewFromUiMessage {
+                client_id: 1234,
+                body: MessageBody {
+                    opcode: "financials".to_string(),
+                    path: TwoWay(2222),
+                    payload: Ok("goober".to_string()),
+                },
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(ui_gateway_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing ("ERROR: Accountant: Bad financials request from client 1234: Error(\"expected value\", line: 1, column: 1)");
+    }
+
+    #[test]
+    fn unexpected_ui_message_is_logged_and_ignored() {
+        init_test_logging();
+        let system = System::new("test");
+        let subject = Accountant::new(
+            &bc_from_ac_plus_earning_wallet(
+                AccountantConfig {
+                    payable_scan_interval: Duration::from_millis(10_000),
+                    payment_received_scan_interval: Duration::from_millis(10_000),
+                },
+                make_wallet("some_wallet_address"),
+            ),
+            Box::new(PayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+            Box::new(BannedDaoMock::new()),
+            null_config(),
+        );
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NewFromUiMessage {
+                client_id: 1234,
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: OneWay,
+                    payload: Ok("{}".to_string()),
+                },
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(ui_gateway_recording.len(), 0);
+        TestLogHandler::new()
+            .exists_log_containing("DEBUG: Accountant: Ignoring unrecognized UI message: 'booga'");
     }
 
     #[test]
@@ -1385,6 +1824,9 @@ pub mod tests {
             new_delinquencies_results: Default::default(),
             paid_delinquencies_parameters: Default::default(),
             paid_delinquencies_results: Default::default(),
+            top_records_parameters: Default::default(),
+            top_records_results: Default::default(),
+            total_results: Default::default(),
         });
         let banned_dao = Box::new(BannedDaoMock::new());
         let accountant = Accountant::new(

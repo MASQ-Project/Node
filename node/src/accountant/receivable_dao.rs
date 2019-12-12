@@ -9,8 +9,9 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use rusqlite::named_params;
-use rusqlite::types::ToSql;
+use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
+use std::convert::TryFrom;
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +41,10 @@ pub trait ReceivableDao: Send {
     ) -> Vec<ReceivableAccount>;
 
     fn paid_delinquencies(&self, payment_curves: &PaymentCurves) -> Vec<ReceivableAccount>;
+
+    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
+
+    fn total(&self) -> u64;
 }
 
 pub struct ReceivableDaoReal {
@@ -107,7 +112,7 @@ impl ReceivableDao for ReceivableDaoReal {
             }
         })
         .expect("Database is corrupt")
-        .flat_map(|p| p)
+        .flatten()
         .collect()
     }
 
@@ -140,7 +145,7 @@ impl ReceivableDao for ReceivableDaoReal {
             Self::row_to_account,
         )
         .expect("Couldn't retrieve new delinquencies: database corruption")
-        .flat_map(|v| v)
+        .flatten()
         .collect()
     }
 
@@ -161,8 +166,85 @@ impl ReceivableDao for ReceivableDaoReal {
             Self::row_to_account,
         )
         .expect("Couldn't retrieve new delinquencies: database corruption")
-        .flat_map(|v| v)
+        .flatten()
         .collect()
+    }
+
+    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
+        let min_amt = match i64::try_from(minimum_amount) {
+            Ok(n) => n,
+            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
+        };
+        let max_age = match i64::try_from(maximum_age) {
+            Ok(n) => n,
+            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
+        };
+        let min_timestamp = dao_utils::now_time_t() - max_age;
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+                select
+                    balance,
+                    last_received_timestamp,
+                    wallet_address
+                from
+                    receivable
+                where
+                    balance >= ? and
+                    last_received_timestamp >= ?
+                order by
+                    balance desc,
+                    last_received_timestamp desc
+            "#,
+            )
+            .expect("Internal error");
+        let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
+        stmt.query_map(params, |row| {
+            let balance_result = row.get(0);
+            let last_paid_timestamp_result = row.get(1);
+            let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
+            match (balance_result, last_paid_timestamp_result, wallet_result) {
+                (Ok(balance), Ok(last_paid_timestamp), Ok(wallet)) => Ok(ReceivableAccount {
+                    wallet,
+                    balance,
+                    last_received_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                }),
+                _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+            }
+        })
+        .expect("Database is corrupt")
+        .flatten()
+        .collect()
+    }
+
+    fn total(&self) -> u64 {
+        let mut stmt = self
+            .conn
+            .prepare("select sum(balance) from receivable")
+            .expect("Internal error");
+        match stmt.query_row(NO_PARAMS, |row| {
+            let total_balance_result: Result<i64, rusqlite::Error> = row.get(0);
+            match total_balance_result {
+                Ok(total_balance) => Ok(total_balance as u64),
+                Err(e)
+                    if e == rusqlite::Error::InvalidColumnType(
+                        0,
+                        "sum(balance)".to_string(),
+                        Type::Null,
+                    ) =>
+                {
+                    Ok(0u64)
+                }
+                Err(e) => panic!(
+                    "Database is corrupt: RECEIVABLE table columns and/or types: {:?}",
+                    e
+                ),
+            }
+        }) {
+            Ok(value) => value,
+            Err(e) => panic!("Database is corrupt: {:?}", e),
+        }
     }
 }
 
@@ -266,7 +348,7 @@ mod tests {
     #[test]
     fn more_money_receivable_works_for_new_address() {
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "more_money_receivable_works_for_new_address",
         );
         let before = dao_utils::to_time_t(SystemTime::now());
@@ -303,7 +385,7 @@ mod tests {
     #[test]
     fn more_money_receivable_works_for_existing_address() {
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "more_money_receivable_works_for_existing_address",
         );
         let wallet = make_wallet("booga");
@@ -341,7 +423,7 @@ mod tests {
     fn more_money_received_works_for_existing_addresses() {
         let before = dao_utils::to_time_t(SystemTime::now());
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "more_money_received_works_for_existing_address",
         );
         let debtor1 = make_wallet("debtor1");
@@ -407,7 +489,7 @@ mod tests {
     #[test]
     fn more_money_received_throws_away_payments_from_unknown_addresses() {
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "more_money_received_throws_away_payments_from_unknown_addresses",
         );
         let debtor = make_wallet("unknown_wallet");
@@ -462,7 +544,7 @@ mod tests {
         logging::init_test_logging();
 
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "more_money_received_logs_when_no_payment_are_given",
         );
 
@@ -487,7 +569,7 @@ mod tests {
         logging::init_test_logging();
 
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "more_money_received_logs_when_start_block_cannot_be_updated",
         );
 
@@ -519,7 +601,7 @@ mod tests {
     #[test]
     fn receivable_account_status_works_when_account_doesnt_exist() {
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "receivable_account_status_works_when_account_doesnt_exist",
         );
         let wallet = make_wallet("booga");
@@ -537,7 +619,7 @@ mod tests {
     #[test]
     fn receivables_fetches_all_receivable_accounts() {
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "receivables_fetches_all_receivable_accounts",
         );
         let wallet1 = make_wallet("wallet1");
@@ -719,7 +801,7 @@ mod tests {
         new_delinquency.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 1);
 
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "new_delinquencies_does_not_find_existing_delinquencies",
         );
         let db_initializer = DbInitializerReal::new();
@@ -784,7 +866,7 @@ mod tests {
         old_non_delinquent.balance = 25;
 
         let home_dir = ensure_node_home_directory_exists(
-            "accountant",
+            "receivable_dao",
             "paid_delinquencies_does_not_find_existing_nondelinquencies",
         );
         let db_initializer = DbInitializerReal::new();
@@ -800,6 +882,82 @@ mod tests {
 
         assert_contains(&result, &newly_non_delinquent);
         assert_eq!(1, result.len());
+    }
+
+    #[test]
+    fn top_records_and_total() {
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
+        let conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
+        let insert = |wallet: &str, balance: i64, timestamp: i64| {
+            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp];
+            conn
+                .prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)")
+                .unwrap()
+                .execute(params)
+                .unwrap();
+        };
+        let timestamp1 = dao_utils::now_time_t() - 80_000;
+        let timestamp2 = dao_utils::now_time_t() - 86_401;
+        let timestamp3 = dao_utils::now_time_t() - 86_000;
+        let timestamp4 = dao_utils::now_time_t() - 86_001;
+        insert(
+            "0x1111111111111111111111111111111111111111",
+            999_999_999, // below minimum amount - reject
+            timestamp1,  // below maximum age
+        );
+        insert(
+            "0x2222222222222222222222222222222222222222",
+            1_000_000_000, // minimum amount
+            timestamp2,    // above maximum age - reject
+        );
+        insert(
+            "0x3333333333333333333333333333333333333333",
+            1_000_000_000, // minimum amount
+            timestamp3,    // below maximum age
+        );
+        insert(
+            "0x4444444444444444444444444444444444444444",
+            1_000_000_001, // above minimum amount
+            timestamp4,    // below maximum age
+        );
+
+        let subject = ReceivableDaoReal::new(conn);
+
+        let top_records = subject.top_records(1_000_000_000, 86400);
+        let total = subject.total();
+
+        assert_eq!(
+            top_records,
+            vec![
+                ReceivableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance: 1_000_000_001,
+                    last_received_timestamp: dao_utils::from_time_t(timestamp4),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
+                    balance: 1_000_000_000,
+                    last_received_timestamp: dao_utils::from_time_t(timestamp3),
+                },
+            ]
+        );
+        assert_eq!(total, 4_000_000_000)
+    }
+
+    #[test]
+    fn correctly_totals_zero_records() {
+        let home_dir =
+            ensure_node_home_directory_exists("receivable_dao", "correctly_totals_zero_records");
+        let conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .unwrap();
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.total();
+
+        assert_eq!(result, 0)
     }
 
     fn add_receivable_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {

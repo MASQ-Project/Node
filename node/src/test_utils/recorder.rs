@@ -38,7 +38,9 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
+use crate::sub_lib::ui_gateway::{
+    FromUiMessage, NewFromUiMessage, NewToUiMessage, UiCarrierMessage,
+};
 use crate::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;
@@ -103,6 +105,8 @@ recorder_message_handler!(RemoveNeighborMessage);
 recorder_message_handler!(DispatcherNodeQueryResponse);
 recorder_message_handler!(DispatcherNodeQueryMessage);
 recorder_message_handler!(UiCarrierMessage);
+recorder_message_handler!(NewFromUiMessage);
+recorder_message_handler!(NewToUiMessage);
 recorder_message_handler!(FromUiMessage);
 recorder_message_handler!(GetFinancialStatisticsMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
@@ -385,6 +389,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
+        from_ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
     }
 }
 
@@ -403,6 +408,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
         report_new_payments: recipient!(addr, ReceivedPayments),
         report_sent_payments: recipient!(addr, SentPayments),
         get_financial_statistics_sub: recipient!(addr, GetFinancialStatisticsMessage),
+        ui_message_sub: recipient!(addr, NewFromUiMessage),
     }
 }
 
@@ -411,6 +417,8 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
         bind: recipient!(addr, BindMessage),
         ui_message_sub: recipient!(addr, UiCarrierMessage),
         from_ui_message_sub: recipient!(addr, FromUiMessage),
+        new_from_ui_message_sub: recipient!(addr, NewFromUiMessage),
+        new_to_ui_message_sub: recipient!(addr, NewToUiMessage),
     }
 }
 

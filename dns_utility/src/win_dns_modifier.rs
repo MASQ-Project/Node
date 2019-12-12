@@ -125,7 +125,7 @@ impl WinDnsModifier {
         let revertible_interfaces = interface_key
             .enum_keys()
             .into_iter()
-            .flat_map(|k| k)
+            .flatten()
             .flat_map(|interface_name| {
                 interface_key.open_subkey_with_flags(&interface_name[..], KEY_ALL_ACCESS)
             })
@@ -149,7 +149,7 @@ impl WinDnsModifier {
         let gateway_interfaces: Vec<Box<dyn RegKeyTrait>> = interface_key
             .enum_keys()
             .into_iter()
-            .flat_map(|k| k)
+            .flatten()
             .flat_map(|interface_name| {
                 interface_key.open_subkey_with_flags(&interface_name[..], access_required)
             })
