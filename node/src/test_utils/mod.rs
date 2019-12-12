@@ -300,7 +300,7 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
     PlainData::from(
         repeat(vec![0xABu8, 0xCDu8])
             .take(16)
-            .flat_map(|x| x)
+            .flatten()
             .collect::<Vec<u8>>(),
     )
 }

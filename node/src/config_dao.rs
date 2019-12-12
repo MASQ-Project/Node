@@ -126,7 +126,7 @@ impl ConfigDao for ConfigDaoReal {
             .optional()
             .expect("Config table is corrupt 1")
             .expect("Config table is corrupt 2")
-            .flat_map(|x| x)
+            .flatten()
             .collect()
         };
         for name in encrypted_column_names {

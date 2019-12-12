@@ -48,7 +48,11 @@ fn http_end_to_end_routing_test() {
             .neighbor(nodes.last().unwrap().node_reference())
             .consuming_wallet_info(make_consuming_wallet_info("last_node"))
             .chain(chain_name_from_id(cluster.chain_id))
-            .open_firewall_port(8080)
+            // This line is commented out because for some reason the installation of iptables-persistent hangs forever on
+            // bullseye-slim. Its absence means that the NodeStartupConfigBuilder::open_firewall_port() function won't work, but
+            // at the time of this comment it's used only in this one place, where it adds no value. So we decided to
+            // comment it out and continue adding value rather than spending time getting this to work for no profit.
+            //            .open_firewall_port(8080)
             .build(),
     );
 
@@ -58,8 +62,6 @@ fn http_end_to_end_routing_test() {
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
-    // If this fails (sporadically) check if there are only 6 nodes in the network and find a better way to wait
-    // for it to be 7. There have to be 7 to guarantee an exit node exists for every node in the network
     assert_eq!(
         index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
         true,

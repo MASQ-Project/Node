@@ -85,7 +85,7 @@ impl BannedDao for BannedDaoReal {
             .expect("Failed to prepare a statement");
         stmt.query_map(NO_PARAMS, |row| row.get(0))
             .expect("Couldn't retrieve delinquency-ban list: database corrupt")
-            .flat_map(|v| v)
+            .flatten()
             .collect()
     }
 
