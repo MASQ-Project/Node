@@ -3,10 +3,12 @@
 pub mod node_configurator_generate_wallet;
 pub mod node_configurator_recover_wallet;
 pub mod node_configurator_standard;
+pub mod node_configurator_initialization;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_NAME};
+use crate::node_configurator::node_configurator_standard::UI_PORT_HELP;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
@@ -20,6 +22,7 @@ use crate::sub_lib::wallet::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_
 use bip39::Language;
 use clap::{crate_description, crate_version, value_t, App, AppSettings, Arg};
 use dirs::{data_local_dir, home_dir};
+use crate::node_configurator::node_configurator_standard::DEFAULT_UI_PORT_VALUE;
 use lazy_static::lazy_static;
 use rpassword;
 use rpassword::read_password_with_reader;
@@ -197,6 +200,16 @@ pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
         .takes_value(true)
         .validator(common_validators::validate_real_user)
         .hidden(true)
+}
+
+pub fn ui_port_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("ui-port")
+        .long("ui-port")
+        .value_name("UI-PORT")
+        .takes_value(true)
+        .default_value( & DEFAULT_UI_PORT_VALUE)
+        .validator(crate::node_configurator::common_validators::validate_ui_port)
+        .help(&UI_PORT_HELP)
 }
 
 pub fn db_password_arg(help: &str) -> Arg {
@@ -545,6 +558,7 @@ pub fn flushed_write(target: &mut dyn io::Write, string: &str) {
 pub mod common_validators {
     use regex::Regex;
     use tiny_hderive::bip44::DerivationPath;
+    use crate::node_configurator::node_configurator_standard::LOWEST_USABLE_INSECURE_PORT;
 
     pub fn validate_earning_wallet(value: String) -> Result<(), String> {
         validate_ethereum_address(value.clone()).or_else(|_| validate_derivation_path(value))
@@ -596,6 +610,14 @@ pub mod common_validators {
             Ok(())
         } else {
             Err(triple)
+        }
+    }
+
+    pub fn validate_ui_port(port: String) -> Result<(), String> {
+        match str::parse::<u16>(&port) {
+            Ok(port_number) if port_number < LOWEST_USABLE_INSECURE_PORT => Err(port),
+            Ok(_) => Ok(()),
+            Err(_) => Err(port),
         }
     }
 }

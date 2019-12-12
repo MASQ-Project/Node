@@ -5,12 +5,13 @@ pub mod utils;
 use node_lib::database::db_initializer::DATABASE_FILE;
 use utils::CommandConfig;
 use utils::MASQNode;
-use std::thread::Thread;
-use std::time::Duration;
-use websocket::{ClientBuilder, OwnedMessage};
-use node_lib::sub_lib::utils::localhost;
+use utils::UiConnection;
+use std::time::{Duration, SystemTime};
 use node_lib::sub_lib::ui_gateway::DEFAULT_UI_PORT;
-use serde_json::Value;
+use node_lib::sub_lib::initialization::{UiSetupRequest, UiSetupResponse};
+use node_lib::sub_lib::neighborhood::UiShutdownOrder;
+use sysinfo::{System, SystemExt};
+use std::ops::Add;
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -34,34 +35,26 @@ fn initialization_sequence_integration() {
     let mut node = MASQNode::start_standard(Some(
         CommandConfig::new().opt("--initialization")
     ));
-    let mut client =
-        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
-            .unwrap()
-            .add_protocol("MASQNode-UIv2")
-            .connect_insecure().unwrap();
-    client.send_message(&OwnedMessage::Text(r#"
-        {
-            "opcode": "setup",
-            "contextId": 1234,
-            "payload": {
-                parameters: [
-                    {"name": "dns-servers", "value": "1.1.1.1"},
-                    {"name": "neighborhood-mode", "value": "zero-hop"}
-                ]
-            }
+    let mut initialization_client = UiConnection::new(DEFAULT_UI_PORT, "MASQNode-UIv2");
+    let response: UiSetupResponse = initialization_client.transact("setup", UiSetupRequest::new(vec![("dns-servers", "1.1.1.1"), ("neighborhood-mode", "zero-hop")])).unwrap();
+    let mut active_client = UiConnection::new(response.redirectUiPort, "MASQNode-UIv2");
+    active_client.send ("shutdownOrder", UiShutdownOrder{});
+    wait_for_process_end (response.newProcessId);
+    initialization_client.send("shutdownOrder", UiShutdownOrder{});
+    node.wait_for_exit().unwrap();
+}
+
+fn wait_for_process_end(process_id: i32) {
+    let mut system = System::new();
+    let deadline = SystemTime::now().add (Duration::from_millis(2000));
+    loop {
+        if SystemTime::now().gt (&deadline) {
+            panic! ("Process {} not dead after receiving shutdownOrder", process_id)
         }
-    "#.to_string())).unwrap();
-    let json = match client.recv_message() {
-        Ok(OwnedMessage::Text(json)) => json,
-        x => panic! ("Expected text; received {:?}", x),
-    };
-    let msg_map = match serde_json::from_str(&json) {
-        Ok(Value::Object(map)) => map,
-        x => panic!("Expected object; received {:?}", x),
-    };
-    let payload_map = match msg_map.get("payload") {
-        Value::Object(map) => map,
-        x => panic!("Expected object; received {:?}", x),
-    };
-    payload_map.
+        system.refresh_all();
+        if system.get_process (process_id).is_none() {
+            break;
+        }
+        std::thread::sleep (Duration::from_millis (500))
+    }
 }

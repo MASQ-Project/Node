@@ -17,9 +17,6 @@ use bip39::{Language, Mnemonic};
 use clap::{value_t, values_t, App, Arg};
 use indoc::indoc;
 
-pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
-pub const HIGHEST_USABLE_PORT: u16 = 65535;
-
 pub struct NodeConfiguratorRecoverWallet {
     app: App<'static, 'static>,
 }

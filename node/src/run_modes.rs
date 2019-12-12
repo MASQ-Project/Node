@@ -9,6 +9,7 @@ use crate::server_initializer::ServerInitializer;
 use crate::sub_lib::main_tools::{Command, StdStreams};
 use actix::System;
 use futures::future::Future;
+use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -70,8 +71,10 @@ fn dump_config(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     config_dumper::dump_config(args, streams)
 }
 
-fn initialization(_args: &Vec<String>, _streams: &mut StdStreams<'_>) -> i32 {
-    unimplemented!()
+fn initialization(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
+    let configurator = NodeConfiguratorInitialization{};
+    configurator.configure(args, streams);
+    0
 }
 
 fn configuration_run(

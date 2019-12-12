@@ -12,10 +12,14 @@ use std::time::Duration;
 use std::time::Instant;
 use websocket::{ClientBuilder, OwnedMessage};
 use node_lib::sub_lib::utils::localhost;
-use node_lib::sub_lib::ui_gateway::DEFAULT_UI_PORT;
-use serde_json::Value;
+use node_lib::sub_lib::ui_gateway::{NewFromUiMessage, MessageBody, MessagePath};
 use std::net::TcpStream;
 use websocket::client::sync::Client;
+use serde::{Serialize};
+use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverterReal, UiTrafficConverter};
+use node_lib::sub_lib::ui_gateway::MessagePath::{TwoWay, OneWay};
+use node_lib::sub_lib::ui_gateway::MessageTarget::ClientId;
+use serde::de::DeserializeOwned;
 
 pub struct MASQNode {
     pub logfile_contents: String,
@@ -326,7 +330,8 @@ fn node_command() -> String {
 }
 
 pub struct UiConnection {
-    client: Client<TcpStream>
+    context_id: u64,
+    client: Client<TcpStream>,
 }
 
 impl UiConnection {
@@ -336,41 +341,49 @@ impl UiConnection {
             .add_protocol(protocol)
             .connect_insecure().unwrap();
         UiConnection {
-            client
+            client,
+            context_id: 0,
         }
     }
 
-    pub fn send_message ()
-}
-pub fn open_ui_connection () {
-    let mut client =
-        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
-            .unwrap()
-            .add_protocol("MASQNode-UIv2")
-            .connect_insecure().unwrap();
-    client.send_message(&OwnedMessage::Text(r#"
-        {
-            "opcode": "setup",
-            "contextId": 1234,
-            "payload": {
-                parameters: [
-                    {"name": "dns-servers", "value": "1.1.1.1"},
-                    {"name": "neighborhood-mode", "value": "zero-hop"}
-                ]
-            }
-        }
-    "#.to_string())).unwrap();
-    let json = match client.recv_message() {
-        Ok(OwnedMessage::Text(json)) => json,
-        x => panic! ("Expected text; received {:?}", x),
-    };
-    let msg_map = match serde_json::from_str(&json) {
-        Ok(Value::Object(map)) => map,
-        x => panic!("Expected object; received {:?}", x),
-    };
-    let payload_map = match msg_map.get("payload") {
-        Value::Object(map) => map,
-        x => panic!("Expected object; received {:?}", x),
-    };
+    pub fn send<T: Serialize> (&mut self, opcode: &str, payload: T) {
+        self.send_with_path (opcode, OneWay, payload)
+    }
 
+    pub fn send_with_path<T: Serialize> (&mut self, opcode: &str, path: MessagePath, payload: T) {
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        let converter = UiTrafficConverterReal::new();
+        let outgoing_msg = NewFromUiMessage {
+            client_id: 0, // irrelevant: will be replaced on the other end
+            body: MessageBody {
+                opcode: opcode.to_string(),
+                path,
+                payload: Ok(payload_json)
+            }
+        };
+        let outgoing_msg_json = converter.new_marshal_from_ui(outgoing_msg);
+        self.client.send_message(&OwnedMessage::Text(outgoing_msg_json)).unwrap();
+    }
+
+    pub fn receive<R: DeserializeOwned> (&mut self) -> Result<R, (u64, String)> {
+        let converter = UiTrafficConverterReal::new();
+        let incoming_msg_json = match self.client.recv_message() {
+            Ok(OwnedMessage::Text(json)) => json,
+            x => panic!("Expected text; received {:?}", x),
+        };
+        let incoming_msg = converter.new_unmarshal_to_ui(&incoming_msg_json, ClientId(0)).unwrap();
+        match incoming_msg.body.payload {
+            Ok(json) => {
+                Ok(serde_json::from_str::<R>(&json).unwrap())
+            },
+            Err (pair) => Err (pair),
+        }
+    }
+
+    pub fn transact<T: Serialize, R: DeserializeOwned> (&mut self, opcode: &str, payload: T) -> Result<R, (u64, String)> {
+        let context_id = self.context_id;
+        self.context_id += 1;
+        self.send_with_path (opcode, TwoWay(context_id), payload);
+        self.receive::<R>()
+    }
 }
