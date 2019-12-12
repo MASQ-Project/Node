@@ -212,7 +212,7 @@ impl UiTrafficConverterReal {
         let opcode_section = format!("\"opcode\": \"{}\", ", body.opcode);
         let path_section = match body.path {
             OneWay => "".to_string(),
-            TwoWay(context_id) => format!("\"context_id\": {}, ", context_id),
+            TwoWay(context_id) => format!("\"contextId\": {}, ", context_id),
         };
         let payload_section = match body.payload {
             Ok(json) => format!("\"payload\": {}", json),
@@ -228,9 +228,9 @@ impl UiTrafficConverterReal {
         match serde_json::from_str(json) {
             Ok(Value::Object(map)) => {
                 let opcode = Self::get_string(&map, "opcode")?;
-                let path = match Self::get_u64(&map, "context_id") {
+                let path = match Self::get_u64(&map, "contextId") {
                     Ok(context_id) => TwoWay(context_id),
-                    Err(s) if s == "context_id field is missing" => OneWay,
+                    Err(s) if s == "contextId field is missing" => OneWay,
                     Err(s) => return Err(s),
                 };
                 match map.get("payload") {
