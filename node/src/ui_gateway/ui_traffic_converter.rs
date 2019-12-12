@@ -193,9 +193,12 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         match body.path {
             TwoWay(context_id) => Some(context_id),
             OneWay => {
-                error!(logger, "TwoWay UI message '{}' was sent as OneWay - discarding", body.opcode);
+                error!(
+                    logger,
+                    "TwoWay UI message '{}' was sent as OneWay - discarding", body.opcode
+                );
                 None
-            },
+            }
         }
     }
 }
@@ -928,32 +931,38 @@ mod tests {
     }
 
     #[test]
-    fn get_context_id_handles_two_way () {
+    fn get_context_id_handles_two_way() {
         let logger = Logger::new("get_context_id_handles_two_way");
         let subject = UiTrafficConverterReal::new();
 
-        let result = subject.get_context_id(&logger, &MessageBody{
-            opcode: "booga".to_string(),
-            path: TwoWay (2222),
-            payload: Ok("".to_string()),
-        });
+        let result = subject.get_context_id(
+            &logger,
+            &MessageBody {
+                opcode: "booga".to_string(),
+                path: TwoWay(2222),
+                payload: Ok("".to_string()),
+            },
+        );
 
-        assert_eq! (result, Some(2222));
+        assert_eq!(result, Some(2222));
     }
 
     #[test]
-    fn get_context_id_handles_one_way () {
+    fn get_context_id_handles_one_way() {
         init_test_logging();
         let logger = Logger::new("get_context_id_handles_one_way");
         let subject = UiTrafficConverterReal::new();
 
-        let result = subject.get_context_id(&logger, &MessageBody{
-            opcode: "booga".to_string(),
-            path: OneWay,
-            payload: Ok("".to_string()),
-        });
+        let result = subject.get_context_id(
+            &logger,
+            &MessageBody {
+                opcode: "booga".to_string(),
+                path: OneWay,
+                payload: Ok("".to_string()),
+            },
+        );
 
-        assert_eq! (result, None);
+        assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing("ERROR: get_context_id_handles_one_way: TwoWay UI message 'booga' was sent as OneWay - discarding");
     }
 
