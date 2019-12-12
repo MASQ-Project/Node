@@ -10,6 +10,12 @@ use std::process::Output;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use websocket::{ClientBuilder, OwnedMessage};
+use node_lib::sub_lib::utils::localhost;
+use node_lib::sub_lib::ui_gateway::DEFAULT_UI_PORT;
+use serde_json::Value;
+use std::net::TcpStream;
+use websocket::client::sync::Client;
 
 pub struct MASQNode {
     pub logfile_contents: String,
@@ -317,4 +323,54 @@ fn node_command() -> String {
         .unwrap();
     let bin_dir = &format!("target\\{}", debug_or_release);
     format!("{}\\MASQNode.exe", bin_dir)
+}
+
+pub struct UiConnection {
+    client: Client<TcpStream>
+}
+
+impl UiConnection {
+    pub fn new (port: u16, protocol: &str) -> UiConnection {
+        let client = ClientBuilder::new(format!("ws://{}:{}", localhost(), port).as_str())
+            .unwrap()
+            .add_protocol(protocol)
+            .connect_insecure().unwrap();
+        UiConnection {
+            client
+        }
+    }
+
+    pub fn send_message ()
+}
+pub fn open_ui_connection () {
+    let mut client =
+        ClientBuilder::new(format!("ws://{}:{}", localhost(), DEFAULT_UI_PORT).as_str())
+            .unwrap()
+            .add_protocol("MASQNode-UIv2")
+            .connect_insecure().unwrap();
+    client.send_message(&OwnedMessage::Text(r#"
+        {
+            "opcode": "setup",
+            "contextId": 1234,
+            "payload": {
+                parameters: [
+                    {"name": "dns-servers", "value": "1.1.1.1"},
+                    {"name": "neighborhood-mode", "value": "zero-hop"}
+                ]
+            }
+        }
+    "#.to_string())).unwrap();
+    let json = match client.recv_message() {
+        Ok(OwnedMessage::Text(json)) => json,
+        x => panic! ("Expected text; received {:?}", x),
+    };
+    let msg_map = match serde_json::from_str(&json) {
+        Ok(Value::Object(map)) => map,
+        x => panic!("Expected object; received {:?}", x),
+    };
+    let payload_map = match msg_map.get("payload") {
+        Value::Object(map) => map,
+        x => panic!("Expected object; received {:?}", x),
+    };
+
 }
