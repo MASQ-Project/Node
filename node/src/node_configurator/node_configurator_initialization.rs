@@ -39,6 +39,7 @@ mod initialization {
     use crate::multi_config::{MultiConfig};
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::test_utils::DEFAULT_CHAIN_ID;
+    use clap::{value_t};
 
     pub fn parse_args(
         multi_config: &MultiConfig,

@@ -4,6 +4,9 @@ mod shutdown_supervisor;
 pub mod ui_traffic_converter;
 mod websocket_supervisor;
 
+#[cfg(test)]
+pub mod websocket_supervisor_mock;
+
 use crate::sub_lib::accountant::GetFinancialStatisticsMessage;
 use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
@@ -23,7 +26,10 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use crate::daemon::DaemonBindMessage;
 
+// TODO: Once we switch all the way over to MASQNode-UIv2 protocol, this entire struct should
+// disappear.
 struct UiGatewayOutSubs {
     ui_message_sub: Recipient<UiCarrierMessage>,
     blockchain_bridge_set_consuming_db_password_sub: Recipient<SetDbPasswordMsg>,
@@ -106,7 +112,43 @@ impl Handler<BindMessage> for UiGateway {
             msg.peer_actors.ui_gateway.from_ui_message_sub.clone(),
             msg.peer_actors.ui_gateway.new_from_ui_message_sub.clone(),
         )));
-        info!(self.logger, "UIGateway bound");
+        debug!(self.logger, "UIGateway bound");
+    }
+}
+
+//TODO Remove this when MASQNode-UIv2 takes over completely
+struct StubRecipient {}
+
+impl Actor for StubRecipient {
+    type Context = Context<StubRecipient>;
+}
+
+impl Handler<FromUiMessage> for StubRecipient {
+    type Result = ();
+    fn handle(&mut self, _msg: FromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        panic!("Should never be called")
+    }
+}
+
+impl StubRecipient {
+    fn new () -> Recipient<FromUiMessage> {
+        StubRecipient{}.start().recipient::<FromUiMessage>()
+    }
+}
+//TODO Remove this when MASQNode-UIv2 takes over completely
+
+impl Handler<DaemonBindMessage> for UiGateway {
+    type Result = ();
+
+    fn handle(&mut self, msg: DaemonBindMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.subs = None;
+        self.incoming_message_recipients = msg.from_ui_message_recipients;
+        self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
+            self.port,
+            StubRecipient::new(),
+            msg.from_ui_message_recipient,
+        )));
+        debug!(self.logger, "UIGateway bound");
     }
 }
 
@@ -261,6 +303,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
 
     impl Default for UiGatewayOutSubs {
         fn default() -> Self {
@@ -383,50 +426,6 @@ mod tests {
 
         fn unmarshal_result(self, result: Result<UiMessage, String>) -> UiTrafficConverterMock {
             self.unmarshal_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    #[derive(Default)]
-    struct WebSocketSupervisorMock {
-        send_parameters: Arc<Mutex<Vec<(u64, String)>>>,
-        send_msg_parameters: Arc<Mutex<Vec<NewToUiMessage>>>,
-    }
-
-    impl WebSocketSupervisor for WebSocketSupervisorMock {
-        fn send(&self, client_id: u64, message_json: &str) {
-            self.send_parameters
-                .lock()
-                .unwrap()
-                .push((client_id, String::from(message_json)));
-        }
-
-        fn send_msg(&self, msg: NewToUiMessage) {
-            self.send_msg_parameters.lock().unwrap().push(msg);
-        }
-    }
-
-    impl WebSocketSupervisorMock {
-        fn new() -> WebSocketSupervisorMock {
-            WebSocketSupervisorMock {
-                send_parameters: Arc::new(Mutex::new(vec![])),
-                send_msg_parameters: Arc::new(Mutex::new(vec![])),
-            }
-        }
-
-        fn send_parameters(
-            mut self,
-            parameters: &Arc<Mutex<Vec<(u64, String)>>>,
-        ) -> WebSocketSupervisorMock {
-            self.send_parameters = parameters.clone();
-            self
-        }
-
-        fn send_msg_parameters(
-            mut self,
-            parameters: &Arc<Mutex<Vec<NewToUiMessage>>>,
-        ) -> WebSocketSupervisorMock {
-            self.send_msg_parameters = parameters.clone();
             self
         }
     }

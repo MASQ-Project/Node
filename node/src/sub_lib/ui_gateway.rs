@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::accountant::FinancialStatisticsMessage;
 use crate::sub_lib::peer_actors::BindMessage;
-use actix::Message;
+use actix::{Message};
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -11,7 +11,9 @@ pub const DEFAULT_UI_PORT: u16 = 5333;
 #[derive(Clone, Debug)]
 pub struct UiGatewayConfig {
     pub ui_port: u16,
-    pub node_descriptor: String,
+    pub node_descriptor: String, // TODO: This really shouldn't be here; it exists only to answer
+                                 // the GetNodeDescriptor message, which A) is part of MASQNode-UI,
+                                 // and B) shouldn't be answered by the UiGateway anyway.
 }
 
 #[derive(Clone)]

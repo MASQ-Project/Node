@@ -10,6 +10,7 @@ use crate::sub_lib::main_tools::{Command, StdStreams};
 use actix::System;
 use futures::future::Future;
 use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
+use crate::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -73,8 +74,13 @@ fn dump_config(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
 
 fn initialization(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     let configurator = NodeConfiguratorInitialization{};
-    configurator.configure(args, streams);
-    0
+    let config = configurator.configure(args, streams);
+    let factory = RecipientsFactoryReal::new();
+    let mut initializer = DaemonInitializer::new (config, Box::new(factory));
+    let system = System::new ("daemon");
+    initializer.go(streams, args);
+    system.run();
+    1 // If it exits here, rather than as a result of handling a signal, it's an error
 }
 
 fn configuration_run(
