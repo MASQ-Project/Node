@@ -88,40 +88,6 @@ pub struct FinancialStatisticsMessage {
     pub pending_debt: i64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-#[allow(non_snake_case)]
-pub struct UiFinancialsRequest {
-    pub payableMinimumAmount: u64,
-    pub payableMaximumAge: u64,
-    pub receivableMinimumAmount: u64,
-    pub receivableMaximumAge: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-#[allow(non_snake_case)]
-pub struct UiFinancialsResponse {
-    pub payables: Vec<UiPayableAccount>,
-    pub totalPayable: u64,
-    pub receivables: Vec<UiReceivableAccount>,
-    pub totalReceivable: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-#[allow(non_snake_case)]
-pub struct UiPayableAccount {
-    pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
-    pub pendingTransaction: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct UiReceivableAccount {
-    pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

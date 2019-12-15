@@ -35,7 +35,7 @@ use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
-use crate::sub_lib::neighborhood::{ExpectedService, UiShutdownOrder};
+use crate::sub_lib::neighborhood::{ExpectedService};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
@@ -65,6 +65,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use crate::ui_gateway::messages::UiShutdownOrder;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,

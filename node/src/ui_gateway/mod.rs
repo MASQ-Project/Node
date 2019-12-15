@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+pub mod messages;
 mod shutdown_supervisor;
 pub mod ui_traffic_converter;
 mod websocket_supervisor;

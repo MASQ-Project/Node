@@ -19,8 +19,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantConfig, GetFinancialStatisticsMessage};
 use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
 use crate::sub_lib::accountant::{
-    ReportExitServiceConsumedMessage, UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount,
-    UiReceivableAccount,
+    ReportExitServiceConsumedMessage,
 };
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
@@ -46,6 +45,8 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use crate::ui_gateway::messages::{UiReceivableAccount, UiFinancialsResponse, UiPayableAccount, UiFinancialsRequest};
+use std::convert::TryInto;
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -283,41 +284,51 @@ impl Handler<NewFromUiMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let converter = UiTrafficConverterReal::new();
-        let json = match converter.reject_error_from_ui(
-            &self.logger,
-            &msg,
-            Some(self.ui_message_sub.as_ref().expect("UiGateway unbound")),
-        ) {
-            Ok(json) => json,
-            Err(_) => return,
-        };
-        let opcode = msg.body.opcode.clone();
         let client_id = msg.client_id;
-
-        match &opcode {
-            opcode if opcode == "financials" => {
-                let context_id = match converter.get_context_id(&self.logger, &msg.body) {
-                    Some(context_id) => context_id,
-                    None => return,
-                };
-                let request = match serde_json::from_str::<UiFinancialsRequest>(&json) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        error!(
-                            &self.logger,
-                            "Bad financials request from client {}: {:?}", client_id, e
-                        );
-                        return;
-                    }
-                };
-                self.handle_financials(client_id, context_id, request);
-            }
-            opcode => debug!(
-                &self.logger,
-                "Ignoring unrecognized UI message: '{}'", opcode
-            ),
+        match msg.body.try_into::<(UiFinancialsRequest, u64)>() {
+            Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
+            Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", msg.body.opcode, client_id, e),
         }
+
+
+
+
+
+//        let converter = UiTrafficConverterReal::new();
+//        let json = match converter.reject_error_from_ui(
+//            &self.logger,
+//            &msg,
+//            Some(self.ui_message_sub.as_ref().expect("UiGateway unbound")),
+//        ) {
+//            Ok(json) => json,
+//            Err(_) => return,
+//        };
+//        let opcode = msg.body.opcode.clone();
+//        let client_id = msg.client_id;
+//
+//        match &opcode {
+//            opcode if opcode == "financials" => {
+//                let context_id = match converter.get_context_id(&self.logger, &msg.body) {
+//                    Some(context_id) => context_id,
+//                    None => return,
+//                };
+//                let request = match serde_json::from_str::<UiFinancialsRequest>(&json) {
+//                    Ok(r) => r,
+//                    Err(e) => {
+//                        error!(
+//                            &self.logger,
+//                            "Bad financials request from client {}: {:?}", client_id, e
+//                        );
+//                        return;
+//                    }
+//                };
+//                self.handle_financials(client_id, context_id, request);
+//            }
+//            opcode => debug!(
+//                &self.logger,
+//                "Ignoring unrecognized UI message: '{}'", opcode
+//            ),
+//        }
     }
 }
 
@@ -689,8 +700,7 @@ pub mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::accountant::{
-        FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage, UiFinancialsResponse,
-        UiPayableAccount, UiReceivableAccount,
+        FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::ui_gateway::MessagePath::OneWay;
@@ -719,6 +729,7 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
+    use crate::ui_gateway::messages::{UiReceivableAccount, UiPayableAccount, UiFinancialsResponse};
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
