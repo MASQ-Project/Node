@@ -9,9 +9,9 @@ use utils::UiConnection;
 use std::time::{Duration, SystemTime};
 use node_lib::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use node_lib::sub_lib::initialization::{UiSetupRequest, UiSetupResponse};
-use node_lib::sub_lib::neighborhood::UiShutdownOrder;
 use sysinfo::{System, SystemExt};
 use std::ops::Add;
+use node_lib::ui_gateway::messages::UiShutdownOrder;
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {

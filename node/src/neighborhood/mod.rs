@@ -47,7 +47,6 @@ use crate::sub_lib::ui_gateway::{NewFromUiMessage, NewToUiMessage, UiCarrierMess
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
-use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -62,10 +61,10 @@ use itertools::Itertools;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::ui_gateway::messages::UiShutdownOrder;
+use crate::ui_gateway::messages::{UiShutdownOrder, DesResult, UiMessageError};
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -293,32 +292,12 @@ impl Handler<NewFromUiMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let json =
-            match UiTrafficConverterReal::new().reject_error_from_ui(&self.logger, &msg, None) {
-                Ok(json) => json,
-                Err(_) => return,
-            };
-        let opcode = msg.body.opcode;
         let client_id = msg.client_id;
-
-        match &opcode {
-            opcode if opcode == "shutdownOrder" => {
-                let request = match serde_json::from_str::<UiShutdownOrder>(&json) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        error!(
-                            &self.logger,
-                            "Bad shutdownOrder from client {}: {:?}", client_id, e
-                        );
-                        return;
-                    }
-                };
-                self.handle_shutdown_order(client_id, request);
-            }
-            opcode => debug!(
-                &self.logger,
-                "Ignoring unrecognized UI message: '{}'", opcode
-            ),
+        let opcode = msg.body.opcode.clone();
+        let result: Result<DesResult<UiShutdownOrder>, UiMessageError> = msg.body.try_into();
+        match result {
+            Ok (dr) => self.handle_shutdown_order(client_id, dr.payload),
+            Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
         }
     }
 }
@@ -4309,7 +4288,7 @@ mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
-            "DEBUG: Neighborhood: Ignoring unrecognized UI message: 'booga'",
+            "ERROR: Neighborhood: Bad booga request from client 1234: BadOpcode",
         );
     }
 

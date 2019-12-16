@@ -132,7 +132,7 @@ impl Handler<FromUiMessage> for StubRecipient {
 }
 
 impl StubRecipient {
-    fn new () -> Recipient<FromUiMessage> {
+    fn make() -> Recipient<FromUiMessage> {
         StubRecipient{}.start().recipient::<FromUiMessage>()
     }
 }
@@ -146,7 +146,7 @@ impl Handler<DaemonBindMessage> for UiGateway {
         self.incoming_message_recipients = msg.from_ui_message_recipients;
         self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
             self.port,
-            StubRecipient::new(),
+            StubRecipient::make(),
             msg.from_ui_message_recipient,
         )));
         debug!(self.logger, "UIGateway bound");
@@ -366,28 +366,6 @@ mod tests {
             _json: &str,
             _target: MessageTarget,
         ) -> Result<NewToUiMessage, String> {
-            unimplemented!()
-        }
-
-        fn reject_error_from_ui(
-            &self,
-            _logger: &Logger,
-            _msg: &NewFromUiMessage,
-            _reply_sub_opt: Option<&Recipient<NewToUiMessage>>,
-        ) -> Result<String, String> {
-            unimplemented!()
-        }
-
-        fn reject_error_to_ui(
-            &self,
-            _logger: &Logger,
-            _msg: &NewToUiMessage,
-            _reply_sub_opt: Option<&Recipient<NewFromUiMessage>>,
-        ) -> Result<String, String> {
-            unimplemented!()
-        }
-
-        fn get_context_id(&self, _logger: &Logger, _body: &MessageBody) -> Option<u64> {
             unimplemented!()
         }
     }

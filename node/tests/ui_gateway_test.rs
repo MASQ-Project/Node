@@ -3,7 +3,6 @@
 pub mod utils;
 
 use futures::future::*;
-use node_lib::sub_lib::accountant::{UiFinancialsRequest, UiFinancialsResponse};
 use node_lib::sub_lib::ui_gateway::MessagePath::TwoWay;
 use node_lib::sub_lib::ui_gateway::{
     MessageBody, MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage, DEFAULT_UI_PORT,
@@ -16,6 +15,7 @@ use tokio::prelude::*;
 use tokio::runtime::Runtime;
 use websocket::ClientBuilder;
 use websocket::OwnedMessage;
+use node_lib::ui_gateway::messages::{UiFinancialsRequest, UiFinancialsResponse};
 
 #[test]
 fn ui_gateway_message_integration() {
