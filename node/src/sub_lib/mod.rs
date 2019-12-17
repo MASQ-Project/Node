@@ -26,7 +26,6 @@ pub mod hop;
 pub mod hopper;
 pub mod http_packet_framer;
 pub mod http_response_start_finder;
-pub mod initialization;
 pub mod limiter;
 pub mod main_tools;
 pub mod migrations;

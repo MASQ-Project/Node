@@ -64,7 +64,7 @@ use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::ui_gateway::messages::{UiShutdownOrder, DesResult, UiMessageError};
+use crate::ui_gateway::messages::{UiShutdownOrder, UiMessageError};
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -294,9 +294,9 @@ impl Handler<NewFromUiMessage> for Neighborhood {
     fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<DesResult<UiShutdownOrder>, UiMessageError> = msg.body.try_into();
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> = msg.body.try_into();
         match result {
-            Ok (dr) => self.handle_shutdown_order(client_id, dr.payload),
+            Ok ((payload, _)) => self.handle_shutdown_order(client_id, payload),
             Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
         }
     }

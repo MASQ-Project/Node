@@ -8,10 +8,9 @@ use utils::MASQNode;
 use utils::UiConnection;
 use std::time::{Duration, SystemTime};
 use node_lib::sub_lib::ui_gateway::DEFAULT_UI_PORT;
-use node_lib::sub_lib::initialization::{UiSetupRequest, UiSetupResponse};
 use sysinfo::{System, SystemExt};
 use std::ops::Add;
-use node_lib::ui_gateway::messages::UiShutdownOrder;
+use node_lib::ui_gateway::messages::{UiShutdownOrder, UiSetup, UiStartResponse, UiStartOrder};
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -36,11 +35,14 @@ fn initialization_sequence_integration() {
         CommandConfig::new().opt("--initialization")
     ));
     let mut initialization_client = UiConnection::new(DEFAULT_UI_PORT, "MASQNode-UIv2");
-    let response: UiSetupResponse = initialization_client.transact("setup", UiSetupRequest::new(vec![("dns-servers", "1.1.1.1"), ("neighborhood-mode", "zero-hop")])).unwrap();
+    let response: UiSetup = initialization_client.transact(UiSetup::new(vec![("dns-servers", "1.1.1.1"), ("neighborhood-mode", "zero-hop")])).unwrap();
+
+    let response: UiStartResponse = initialization_client.transact(UiStartOrder{}).unwrap();
+
     let mut active_client = UiConnection::new(response.redirectUiPort, "MASQNode-UIv2");
-    active_client.send ("shutdownOrder", UiShutdownOrder{});
+    active_client.send (UiShutdownOrder{});
     wait_for_process_end (response.newProcessId);
-    initialization_client.send("shutdownOrder", UiShutdownOrder{});
+    initialization_client.send(UiShutdownOrder{});
     node.wait_for_exit().unwrap();
 }
 

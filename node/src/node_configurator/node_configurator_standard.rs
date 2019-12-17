@@ -167,7 +167,7 @@ const HELP_TEXT: &str = indoc!(
         3. Create the port forwarding entries in the router."
 );
 
-fn app() -> App<'static, 'static> {
+pub fn app() -> App<'static, 'static> {
     app_head()
         .after_help(HELP_TEXT)
         .arg(
@@ -360,6 +360,7 @@ pub mod standard {
 
         let (real_user, data_directory, chain_id) =
             real_user_data_directory_and_chain_id(multi_config);
+eprintln! ("real_user: {:?}, data_directory: {:?}, chain_id: {:?}", real_user, data_directory, chain_id);
         privileged_config.real_user = real_user;
         privileged_config.data_directory = data_directory;
         privileged_config.blockchain_bridge_config.chain_id = chain_id;

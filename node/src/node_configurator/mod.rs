@@ -23,7 +23,6 @@ use bip39::Language;
 use clap::{crate_description, crate_version, value_t, App, AppSettings, Arg};
 use dirs::{data_local_dir, home_dir};
 use crate::node_configurator::node_configurator_standard::DEFAULT_UI_PORT_VALUE;
-use lazy_static::lazy_static;
 use rpassword;
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
@@ -38,10 +37,10 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> T;
 }
 
-lazy_static! {
-    static ref DEFAULT_DATA_DIR_VALUE: String =
-        data_directory_default(&RealDirsWrapper {}, "[mainnet | ropsten]");
-}
+//lazy_static! {
+//    static ref DEFAULT_DATA_DIR_VALUE: String =
+//        data_directory_default(&RealDirsWrapper {}, "[mainnet | ropsten]");
+//}
 
 const CHAIN_HELP: &str =
     "The blockchain network SubstratumNode will configure itself to use. You must ensure the \
@@ -127,7 +126,7 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .required(false)
         .takes_value(true)
         .empty_values(false)
-        .default_value(&DEFAULT_DATA_DIR_VALUE)
+//        .default_value(&DEFAULT_DATA_DIR_VALUE)
         .help(DATA_DIRECTORY_HELP)
 }
 
@@ -225,25 +224,30 @@ pub fn db_password_arg(help: &str) -> Arg {
 
 pub fn determine_config_file_path(app: &App, args: &Vec<String>) -> (PathBuf, bool) {
     let orientation_schema = App::new("Preliminary")
+        .arg(chain_arg())
+        .arg(real_user_arg())
         .arg(data_directory_arg())
         .arg(config_file_arg());
     let orientation_args: Vec<Box<dyn VclArg>> = merge(
         Box::new(EnvironmentVcl::new(app)),
         Box::new(CommandLineVcl::new(args.clone())),
     )
-    .vcl_args()
-    .into_iter()
-    .filter(|vcl_arg| (vcl_arg.name() == "--data-directory") || (vcl_arg.name() == "--config-file"))
-    .map(|vcl_arg| vcl_arg.dup())
-    .collect();
+        .vcl_args()
+        .into_iter()
+        .filter(|vcl_arg|
+            (vcl_arg.name() == "--chain") ||
+            (vcl_arg.name() == "--real-user") ||
+            (vcl_arg.name() == "--data-directory") ||
+            (vcl_arg.name() == "--config-file")
+        )
+        .map(|vcl_arg| vcl_arg.dup())
+        .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
-
     let multi_config = MultiConfig::new(&orientation_schema, vec![Box::new(orientation_vcl)]);
     let config_file_path =
         value_m!(multi_config, "config-file", PathBuf).expect("config-file should be defaulted");
     let user_specified = multi_config.arg_matches().occurrences_of("config-file") > 0;
-    let data_directory: PathBuf = value_m!(multi_config, "data-directory", PathBuf)
-        .expect("data-directory should be defaulted");
+    let (_, data_directory, _) = real_user_data_directory_and_chain_id(&multi_config);
     (data_directory.join(config_file_path), user_specified)
 }
 
@@ -307,11 +311,11 @@ pub fn real_user_data_directory_and_chain_id(
 
     let chain_name =
         value_m!(multi_config, "chain", String).expect("--chain improperly defined in clap schema");
+    let dirs_wrapper = RealDirsWrapper{};
 
-    let data_directory = match value_user_specified_m!(multi_config, "data-directory", PathBuf) {
-        (Some(data_directory), true) => data_directory,
-        (Some(_), false) => {
-            let dirs_wrapper = RealDirsWrapper {};
+    let data_directory = match value_m!(multi_config, "data-directory", PathBuf) {
+        Some(data_directory) => data_directory,
+        None => {
             let right_home_dir = real_user
                 .home_dir
                 .as_ref()
@@ -334,7 +338,6 @@ pub fn real_user_data_directory_and_chain_id(
                 .join("MASQ")
                 .join(chain_name.clone())
         }
-        _ => panic!("--data-directory improperly defined in clap schema"),
     };
 
     (

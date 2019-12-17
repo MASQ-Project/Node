@@ -3,39 +3,22 @@
 
 use crate::sub_lib::ui_gateway::MessageBody;
 use serde_derive::{Serialize, Deserialize};
-use std::convert::TryInto;
+use std::convert::{TryInto};
 use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
-use crate::ui_gateway::messages::UiMessageError::{DeserializationError, BadOpcode, BadPayload, BadPath};
-use serde::de::DeserializeOwned;
-use serde::ser::Serialize;
+use crate::ui_gateway::messages::UiMessageError::{DeserializationError, BadOpcode, PayloadError, BadPath};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
     BadOpcode,
     BadPath,
-    BadPayload,
+    PayloadError(u64, String),
     DeserializationError(String),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct DesResult<T: Serialize + DeserializeOwned> {
-    pub payload: T,
-    pub context_id: u64,
-}
-
-impl<T: Serialize + DeserializeOwned> DesResult<T> {
-    pub fn new (payload: T, context_id: u64) -> DesResult<T> {
-        DesResult {
-            payload,
-            context_id
-        }
-    }
 }
 
 macro_rules! one_way_message {
     ($message_type: ty, $opcode: expr) => {
         impl From<($message_type, u64)> for MessageBody {
-            fn from(pair: ($message_type, u64)) -> Self {
+            fn from(pair: ($message_type, u64)) -> MessageBody {
                 let json = serde_json::to_string(&pair.0).expect ("Serialization problem");
                 MessageBody {
                     opcode: $opcode.to_string(),
@@ -45,10 +28,10 @@ macro_rules! one_way_message {
             }
         }
 
-        impl TryInto<DesResult<$message_type>> for MessageBody {
+        impl TryInto<($message_type, u64)> for MessageBody {
             type Error = UiMessageError;
 
-            fn try_into(self) -> Result<DesResult<$message_type>, UiMessageError> {
+            fn try_into(self) -> Result<($message_type, u64), Self::Error> {
                 if &self.opcode != $opcode {
                     return Err(BadOpcode)
                 };
@@ -57,12 +40,12 @@ macro_rules! one_way_message {
                         Ok(item) => item,
                         Err(e) => return Err(DeserializationError(format!("{:?}", e))),
                     },
-                    Err(_) => return Err(BadPayload),
+                    Err((code, message)) => return Err(PayloadError(code, message)),
                 };
                 if let TwoWay(_) = self.path {
                     return Err(BadPath)
                 }
-                Ok(DesResult {payload, context_id: 0})
+                Ok((payload, 0))
             }
         }
     };
@@ -71,7 +54,7 @@ macro_rules! one_way_message {
 macro_rules! two_way_message {
     ($message_type: ty, $opcode: expr) => {
         impl From<($message_type, u64)> for MessageBody {
-            fn from(pair: ($message_type, u64)) -> Self {
+            fn from(pair: ($message_type, u64)) -> MessageBody {
                 let json = serde_json::to_string(&pair.0).expect ("Serialization problem");
                 MessageBody {
                     opcode: $opcode.to_string(),
@@ -81,10 +64,10 @@ macro_rules! two_way_message {
             }
         }
 
-        impl TryInto<DesResult<$message_type>> for MessageBody {
+        impl TryInto<($message_type, u64)> for MessageBody {
             type Error = UiMessageError;
 
-            fn try_into(self) -> Result<DesResult<$message_type>, UiMessageError> {
+            fn try_into(self) -> Result<($message_type, u64), Self::Error> {
                 if &self.opcode != $opcode {
                     return Err(BadOpcode)
                 };
@@ -93,13 +76,13 @@ macro_rules! two_way_message {
                         Ok(item) => item,
                         Err(e) => return Err(DeserializationError(format!("{:?}", e))),
                     },
-                    Err(_) => return Err(BadPayload),
+                    Err((code, message)) => return Err(PayloadError(code, message)),
                 };
                 let context_id = match self.path {
                     TwoWay (context_id) => context_id,
                     OneWay => return Err(BadPath),
                 };
-                Ok(DesResult {payload, context_id})
+                Ok((payload, context_id))
             }
         }
     };
@@ -142,6 +125,39 @@ pub struct UiFinancialsResponse {
 two_way_message!(UiFinancialsResponse, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiSetupValue {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiSetup {
+    pub values: Vec<UiSetupValue>
+}
+two_way_message!(UiSetup, "setup");
+impl UiSetup {
+    pub fn new (pairs: Vec<(&str, &str)>) -> UiSetup {
+        UiSetup{
+            values: pairs.into_iter().map(|(name, value)| UiSetupValue{name: name.to_string(), value: value.to_string()}).collect()
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiStartOrder {}
+two_way_message!(UiStartOrder, "start");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[allow(non_snake_case)]
+pub struct UiStartResponse {
+    pub descriptor: String,
+    pub logFile: String,
+    pub newProcessId: i32,
+    pub redirectUiPort: u16,
+}
+two_way_message!(UiStartResponse, "start");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiShutdownOrder {}
 one_way_message!(UiShutdownOrder, "shutdownOrder");
 
@@ -149,7 +165,7 @@ one_way_message!(UiShutdownOrder, "shutdownOrder");
 mod tests {
     use super::*;
     use crate::sub_lib::ui_gateway::MessagePath::{TwoWay, OneWay};
-    use crate::ui_gateway::messages::UiMessageError::{DeserializationError, BadOpcode, BadPayload, BadPath};
+    use crate::ui_gateway::messages::UiMessageError::{DeserializationError, BadOpcode, PayloadError, BadPath};
 
     #[test]
     fn can_serialize_ui_financials_response() {
@@ -199,7 +215,7 @@ mod tests {
             payload: Ok(json)
         };
 
-        let result: Result<DesResult<UiFinancialsResponse>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = message_body.try_into();
 
         assert_eq! (result, Err(BadOpcode))
     }
@@ -220,7 +236,7 @@ mod tests {
             payload: Ok(json)
         };
 
-        let result: Result<DesResult<UiFinancialsResponse>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = message_body.try_into();
 
         assert_eq! (result, Err(BadPath))
     }
@@ -233,9 +249,9 @@ mod tests {
             payload: Err((100, "error".to_string()))
         };
 
-        let result: Result<DesResult<UiFinancialsResponse>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = message_body.try_into();
 
-        assert_eq! (result, Err(BadPayload))
+        assert_eq! (result, Err(PayloadError(100, "error".to_string())))
     }
 
     #[test]
@@ -247,7 +263,7 @@ mod tests {
             payload: Ok(json)
         };
 
-        let result: Result<DesResult<UiFinancialsResponse>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = message_body.try_into();
 
         assert_eq! (result, Err(DeserializationError("Error(\"expected value\", line: 1, column: 1)".to_string())))
     }
@@ -277,9 +293,9 @@ mod tests {
             payload: Ok(json)
         };
 
-        let result: Result<DesResult<UiFinancialsResponse>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = message_body.try_into();
 
-        assert_eq! (result, Ok(DesResult::new(
+        assert_eq! (result, Ok((
             UiFinancialsResponse {
                 payables: vec![
                     UiPayableAccount {
@@ -308,7 +324,7 @@ mod tests {
         let subject = UiShutdownOrder{};
         let subject_json = serde_json::to_string (&subject).unwrap();
 
-        let result: MessageBody = (subject, 1357).into();
+        let result: MessageBody = MessageBody::from((subject, 1357));
 
         assert_eq! (result, MessageBody {
             opcode: "shutdownOrder".to_string(),
@@ -326,7 +342,7 @@ mod tests {
             payload: Ok(json)
         };
 
-        let result: Result<DesResult<UiShutdownOrder>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> = message_body.try_into();
 
         assert_eq! (result, Err(BadOpcode))
     }
@@ -340,7 +356,7 @@ mod tests {
             payload: Ok(json)
         };
 
-        let result: Result<DesResult<UiShutdownOrder>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> = message_body.try_into();
 
         assert_eq! (result, Err(BadPath))
     }
@@ -353,9 +369,9 @@ mod tests {
             payload: Err((100, "error".to_string()))
         };
 
-        let result: Result<DesResult<UiShutdownOrder>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> = message_body.try_into();
 
-        assert_eq! (result, Err(BadPayload))
+        assert_eq! (result, Err(PayloadError(100, "error".to_string())))
     }
 
     #[test]
@@ -367,7 +383,7 @@ mod tests {
             payload: Ok(json)
         };
 
-        let result: Result<DesResult<UiShutdownOrder>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> = message_body.try_into();
 
         assert_eq! (result, Err(DeserializationError("Error(\"expected value\", line: 1, column: 1)".to_string())))
     }
@@ -381,8 +397,8 @@ mod tests {
             payload: Ok(json)
         };
 
-        let result: Result<DesResult<UiShutdownOrder>, UiMessageError> = message_body.try_into();
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> = message_body.try_into();
 
-        assert_eq! (result, Ok(DesResult::new(UiShutdownOrder {}, 0)));
+        assert_eq! (result, Ok((UiShutdownOrder {}, 0)));
     }
 }

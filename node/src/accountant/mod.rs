@@ -43,7 +43,7 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use crate::ui_gateway::messages::{UiReceivableAccount, UiFinancialsResponse, UiPayableAccount, UiFinancialsRequest, DesResult, UiMessageError};
+use crate::ui_gateway::messages::{UiReceivableAccount, UiFinancialsResponse, UiPayableAccount, UiFinancialsRequest, UiMessageError};
 use std::convert::TryInto;
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 
@@ -285,9 +285,9 @@ impl Handler<NewFromUiMessage> for Accountant {
     fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<DesResult<UiFinancialsRequest>, UiMessageError> = msg.body.try_into();
+        let result: Result<(UiFinancialsRequest, u64), UiMessageError> = msg.body.try_into();
         match result {
-            Ok (dr) => self.handle_financials(client_id, dr.context_id, dr.payload),
+            Ok ((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
             Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
         }
     }
