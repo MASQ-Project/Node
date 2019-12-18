@@ -43,7 +43,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::ui_gateway::{NewFromUiMessage, NewToUiMessage, UiCarrierMessage, UiMessage};
+use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
@@ -61,10 +61,10 @@ use itertools::Itertools;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
-use std::convert::{TryFrom, TryInto};
+use std::convert::{TryFrom};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::ui_gateway::messages::{UiShutdownOrder, UiMessageError};
+use crate::ui_gateway::messages::{UiShutdownOrder, UiMessageError, FromMessageBody};
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -73,7 +73,7 @@ pub struct Neighborhood {
     dot_graph_recipient: Option<Recipient<UiCarrierMessage>>,
     is_connected: bool,
     connected_signal: Option<Recipient<StartMessage>>,
-    _to_ui_message_sub: Option<Recipient<NewToUiMessage>>,
+    _to_ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
@@ -288,13 +288,13 @@ impl Handler<NeighborhoodDotGraphRequest> for Neighborhood {
     }
 }
 
-impl Handler<NewFromUiMessage> for Neighborhood {
+impl Handler<NodeFromUiMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<(UiShutdownOrder, u64), UiMessageError> = msg.body.try_into();
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> = msg.body.fmb();
         match result {
             Ok ((payload, _)) => self.handle_shutdown_order(client_id, payload),
             Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
@@ -414,7 +414,7 @@ impl Neighborhood {
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
             from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
-            from_ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
+            from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
         }
     }
 
@@ -1242,7 +1242,7 @@ mod tests {
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::MessagePath::OneWay;
-    use crate::sub_lib::ui_gateway::{MessageBody, NewFromUiMessage};
+    use crate::sub_lib::ui_gateway::{MessageBody, NodeFromUiMessage};
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -3433,9 +3433,7 @@ mod tests {
     fn node_gossips_to_neighbors_on_startup() {
         let cryptde: &dyn CryptDE = main_cryptde();
         let neighbor = make_node_record(1234, true);
-        let hopper = Recorder::new();
-        let hopper_awaiter = hopper.get_awaiter();
-        let hopper_recording = hopper.get_recording();
+        let (hopper, _, hopper_recording) = make_recorder();
         let neighbor_inside = neighbor.clone();
         let subject = Neighborhood::new(
             cryptde,
@@ -3457,19 +3455,16 @@ mod tests {
             ),
         );
         let this_node = subject.neighborhood_database.root().clone();
-        thread::spawn(move || {
-            let system = System::new("node_gossips_to_neighbors_on_startup");
-            let addr: Addr<Neighborhood> = subject.start();
-            let peer_actors = peer_actors_builder().hopper(hopper).build();
-            addr.try_send(BindMessage { peer_actors }).unwrap();
+        let system = System::new("node_gossips_to_neighbors_on_startup");
+        let addr: Addr<Neighborhood> = subject.start();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub = addr.recipient::<StartMessage>();
+        let sub = addr.recipient::<StartMessage>();
 
-            sub.try_send(StartMessage {}).unwrap();
-
-            system.run();
-        });
-        hopper_awaiter.await_message_count(1);
+        sub.try_send(StartMessage {}).unwrap();
+        System::current().stop();
+        system.run();
         let locked_recording = hopper_recording.lock().unwrap();
         let package_ref: &NoLookupIncipientCoresPackage = locked_recording.get_record(0);
         let neighbor_node_cryptde = CryptDENull::from(neighbor.public_key(), DEFAULT_CHAIN_ID);
@@ -4234,7 +4229,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(NewFromUiMessage {
+            .try_send(NodeFromUiMessage {
                 client_id: 1234,
                 body: MessageBody {
                     opcode: "shutdownOrder".to_string(),
@@ -4273,7 +4268,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(NewFromUiMessage {
+            .try_send(NodeFromUiMessage {
                 client_id: 1234,
                 body: MessageBody {
                     opcode: "booga".to_string(),

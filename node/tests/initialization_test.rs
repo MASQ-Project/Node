@@ -39,10 +39,10 @@ fn initialization_sequence_integration() {
 
     let response: UiStartResponse = initialization_client.transact(UiStartOrder{}).unwrap();
 
-    let mut active_client = UiConnection::new(response.redirectUiPort, "MASQNode-UIv2");
-    active_client.send (UiShutdownOrder{});
-    wait_for_process_end (response.newProcessId);
-    initialization_client.send(UiShutdownOrder{});
+    let mut active_client = UiConnection::new(response.redirect_ui_port, "MASQNode-UIv2");
+    active_client.send (Box::new (UiShutdownOrder{}));
+    wait_for_process_end (response.new_process_id);
+    initialization_client.send(Box::new (UiShutdownOrder{}));
     node.wait_for_exit().unwrap();
 }
 

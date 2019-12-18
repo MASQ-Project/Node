@@ -21,8 +21,8 @@ pub struct UiGatewaySubs {
     pub bind: Recipient<BindMessage>,
     pub ui_message_sub: Recipient<UiCarrierMessage>,
     pub from_ui_message_sub: Recipient<FromUiMessage>,
-    pub new_from_ui_message_sub: Recipient<NewFromUiMessage>,
-    pub new_to_ui_message_sub: Recipient<NewToUiMessage>,
+    pub new_from_ui_message_sub: Recipient<NodeFromUiMessage>,
+    pub new_to_ui_message_sub: Recipient<NodeToUiMessage>,
 }
 
 impl Debug for UiGatewaySubs {
@@ -78,13 +78,13 @@ pub struct MessageBody {
 }
 
 #[derive(Message, PartialEq, Clone, Debug)]
-pub struct NewFromUiMessage {
+pub struct NodeFromUiMessage {
     pub client_id: u64,
     pub body: MessageBody,
 }
 
 #[derive(Message, PartialEq, Clone, Debug)]
-pub struct NewToUiMessage {
+pub struct NodeToUiMessage {
     pub target: MessageTarget,
     pub body: MessageBody,
 }
@@ -105,8 +105,8 @@ mod tests {
             bind: recipient!(recorder, BindMessage),
             ui_message_sub: recipient!(recorder, UiCarrierMessage),
             from_ui_message_sub: recipient!(recorder, FromUiMessage),
-            new_from_ui_message_sub: recipient!(recorder, NewFromUiMessage),
-            new_to_ui_message_sub: recipient!(recorder, NewToUiMessage),
+            new_from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
+            new_to_ui_message_sub: recipient!(recorder, NodeToUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "UiGatewaySubs");

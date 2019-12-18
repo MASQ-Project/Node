@@ -2,17 +2,16 @@
 
 use actix::{Actor, Context, Handler, Message};
 use actix::Recipient;
-use crate::sub_lib::ui_gateway::{NewFromUiMessage, NewToUiMessage};
-use crate::ui_gateway::messages::{UiSetup, UiMessageError};
+use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use crate::ui_gateway::messages::{UiSetup, UiMessageError, FromMessageBody, ToMessageBody, NULL_MESSAGE_BODY};
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 use crate::sub_lib::logger::Logger;
-use std::convert::TryInto;
 
 #[derive(Message, PartialEq, Clone)]
 pub struct DaemonBindMessage {
-    pub to_ui_message_recipient: Recipient<NewToUiMessage>, // for everybody to send UI-bound messages to
-    pub from_ui_message_recipient: Recipient<NewFromUiMessage>, // for the WebsocketSupervisor to send inbound UI messages to the UiGateway
-    pub from_ui_message_recipients: Vec<Recipient<NewFromUiMessage>>, // for the UiGateway to relay inbound UI messages to everybody
+    pub to_ui_message_recipient: Recipient<NodeToUiMessage>, // for everybody to send UI-bound messages to
+    pub from_ui_message_recipient: Recipient<NodeFromUiMessage>, // for the WebsocketSupervisor to send inbound UI messages to the UiGateway
+    pub from_ui_message_recipients: Vec<Recipient<NodeFromUiMessage>>, // for the UiGateway to relay inbound UI messages to everybody
 }
 
 trait Launcher {
@@ -35,7 +34,7 @@ impl LauncherReal {
 
 pub struct Daemon {
     _launcher: Box<dyn Launcher>,
-    ui_gateway_sub: Option<Recipient<NewToUiMessage>>,
+    ui_gateway_sub: Option<Recipient<NodeToUiMessage>>,
     logger: Logger,
 }
 
@@ -51,13 +50,13 @@ impl Handler<DaemonBindMessage> for Daemon {
     }
 }
 
-impl Handler<NewFromUiMessage> for Daemon {
+impl Handler<NodeFromUiMessage> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<(UiSetup, u64), UiMessageError> = msg.body.try_into();
+        let result: Result<(UiSetup, u64), UiMessageError> = msg.body.fmb();
         match result {
             Ok ((payload, context_id)) => self.handle_setup(client_id, context_id, payload),
             Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
@@ -75,11 +74,11 @@ impl Daemon {
     }
 
     fn handle_setup(&mut self, client_id: u64, context_id: u64, _payload: UiSetup) {
-        let msg = NewToUiMessage {
+        let msg = NodeToUiMessage {
             target: ClientId(client_id),
-            body: (UiSetup {
+            body: NULL_MESSAGE_BODY.tmb(UiSetup {
                 values: vec![]
-            }, context_id).into(),
+            }, context_id),
         };
         self.ui_gateway_sub.as_ref().expect("UiGateway is unbound").try_send(msg).expect("UiGateway is dead");
     }
@@ -93,8 +92,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
     use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
-    use crate::ui_gateway::messages::{UiSetup};
-    use std::convert::{TryInto};
+    use crate::ui_gateway::messages::{UiSetup, NULL_MESSAGE_BODY};
     use std::collections::HashSet;
 
     struct LauncherMock {
@@ -130,8 +128,8 @@ mod tests {
 
     fn make_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
         let (stub, _, _) = make_recorder();
-        let stub_sub = stub.start().recipient::<NewFromUiMessage>();
-        let ui_gateway_sub = ui_gateway.start().recipient::<NewToUiMessage>();
+        let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
+        let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
         DaemonBindMessage {
             to_ui_message_recipient: ui_gateway_sub,
             from_ui_message_recipient: stub_sub,
@@ -147,17 +145,17 @@ mod tests {
         let subject_addr = subject.start();
         subject_addr.try_send(make_bind_message(ui_gateway)).unwrap();
 
-        subject_addr.try_send(NewFromUiMessage {
+        subject_addr.try_send(NodeFromUiMessage {
             client_id: 1234,
-            body: (UiSetup{values: vec![]}, 4321).into()
+            body: NULL_MESSAGE_BODY.tmb(UiSetup{values: vec![]}, 4321),
         }).unwrap();
 
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let record = ui_gateway_recording.get_record::<NewToUiMessage>(0).clone();
+        let record = ui_gateway_recording.get_record::<NodeToUiMessage>(0).clone();
         assert_eq! (record.target, ClientId(1234));
-        let (payload, context_id): (UiSetup, u64) = record.body.try_into().unwrap();
+        let (payload, context_id): (UiSetup, u64) = record.body.fmb().unwrap();
         assert_eq! (context_id, 4321);
         let actual_pairs: HashSet<(String, String)> = payload.values.into_iter()
             .map(|value| (value.name, value.value))

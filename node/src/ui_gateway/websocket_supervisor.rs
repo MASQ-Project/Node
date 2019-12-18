@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::ui_gateway::{FromUiMessage, MessageTarget, NewFromUiMessage, NewToUiMessage};
+use crate::sub_lib::ui_gateway::{FromUiMessage, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use crate::sub_lib::utils::localhost;
 use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
 use actix::Recipient;
@@ -54,7 +54,7 @@ impl ClientWrapper for ClientWrapperReal {
 
 pub trait WebSocketSupervisor: Send {
     fn send(&self, client_id: u64, message_json: &str);
-    fn send_msg(&self, msg: NewToUiMessage);
+    fn send_msg(&self, msg: NodeToUiMessage);
 }
 
 pub struct WebSocketSupervisorReal {
@@ -65,7 +65,7 @@ pub struct WebSocketSupervisorReal {
 struct WebSocketSupervisorInner {
     next_client_id: u64,
     from_ui_message: Recipient<FromUiMessage>,
-    from_ui_message_sub: Recipient<NewFromUiMessage>,
+    from_ui_message_sub: Recipient<NodeFromUiMessage>,
     client_id_by_socket_addr: HashMap<SocketAddr, u64>,
     old_client_by_id: HashMap<u64, Box<dyn ClientWrapper>>,
     client_by_id: HashMap<u64, Box<dyn ClientWrapper>>,
@@ -83,7 +83,7 @@ impl WebSocketSupervisor for WebSocketSupervisorReal {
         };
     }
 
-    fn send_msg(&self, msg: NewToUiMessage) {
+    fn send_msg(&self, msg: NodeToUiMessage) {
         let client_ids = match msg.target {
             MessageTarget::ClientId(n) => vec![n],
             MessageTarget::AllClients => {
@@ -100,7 +100,7 @@ impl WebSocketSupervisorReal {
     pub fn new(
         port: u16,
         from_ui_message: Recipient<FromUiMessage>,
-        from_ui_message_sub: Recipient<NewFromUiMessage>,
+        from_ui_message_sub: Recipient<NodeFromUiMessage>,
     ) -> WebSocketSupervisorReal {
         let inner = Arc::new(Mutex::new(WebSocketSupervisorInner {
             next_client_id: 0,
@@ -424,7 +424,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::ui_gateway::MessagePath::OneWay;
     use crate::sub_lib::ui_gateway::{
-        FromUiMessage, MessageBody, MessageTarget, NewFromUiMessage, UiMessage,
+        FromUiMessage, MessageBody, MessageTarget, NodeFromUiMessage, UiMessage,
     };
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -576,11 +576,11 @@ mod tests {
         });
     }
 
-    fn subs(ui_gateway: Recorder) -> (Recipient<FromUiMessage>, Recipient<NewFromUiMessage>) {
+    fn subs(ui_gateway: Recorder) -> (Recipient<FromUiMessage>, Recipient<NodeFromUiMessage>) {
         let addr: Addr<Recorder> = ui_gateway.start();
         (
             addr.clone().recipient::<FromUiMessage>(),
-            addr.recipient::<NewFromUiMessage>(),
+            addr.recipient::<NodeFromUiMessage>(),
         )
     }
 
@@ -777,13 +777,13 @@ mod tests {
             .into_iter()
             .map(|i| {
                 ui_gateway_recording
-                    .get_record::<NewFromUiMessage>(i)
+                    .get_record::<NodeFromUiMessage>(i)
                     .clone()
             })
-            .collect::<Vec<NewFromUiMessage>>();
+            .collect::<Vec<NodeFromUiMessage>>();
         assert_contains(
             &messages,
-            &NewFromUiMessage {
+            &NodeFromUiMessage {
                 client_id: 0,
                 body: MessageBody {
                     opcode: "one".to_string(),
@@ -794,7 +794,7 @@ mod tests {
         );
         assert_contains(
             &messages,
-            &NewFromUiMessage {
+            &NodeFromUiMessage {
                 client_id: 1,
                 body: MessageBody {
                     opcode: "another".to_string(),
@@ -805,7 +805,7 @@ mod tests {
         );
         assert_contains(
             &messages,
-            &NewFromUiMessage {
+            &NodeFromUiMessage {
                 client_id: 0,
                 body: MessageBody {
                     opcode: "athird".to_string(),
@@ -826,7 +826,7 @@ mod tests {
         let subject_inner = WebSocketSupervisorInner {
             next_client_id: 0,
             from_ui_message: from_ui_message.start().recipient::<FromUiMessage>(),
-            from_ui_message_sub: ui_message_sub.start().recipient::<NewFromUiMessage>(),
+            from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
             old_client_by_id: Default::default(),
             client_by_id: Default::default(),
@@ -1083,7 +1083,7 @@ mod tests {
             let another_mock_client = ClientWrapperMock::new();
             let one_client_id = subject.inject_mock_client(one_mock_client, false);
             let another_client_id = subject.inject_mock_client(another_mock_client, false);
-            let msg = NewToUiMessage {
+            let msg = NodeToUiMessage {
                 target: MessageTarget::ClientId(one_client_id),
                 body: MessageBody {
                     opcode: "booga".to_string(),
@@ -1126,7 +1126,7 @@ mod tests {
             another_mock_client.flush_results.push(Ok(()));
             let one_client_id = subject.inject_mock_client(one_mock_client, false);
             let another_client_id = subject.inject_mock_client(another_mock_client, false);
-            let msg = NewToUiMessage {
+            let msg = NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: MessageBody {
                     opcode: "booga".to_string(),
@@ -1202,7 +1202,7 @@ mod tests {
                 .flush_results
                 .push(Err(WebSocketError::NoDataAvailable));
             correspondent = MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
-            let msg = NewToUiMessage {
+            let msg = NodeToUiMessage {
                 target: correspondent,
                 body: MessageBody {
                     opcode: "booga".to_string(),
@@ -1259,7 +1259,7 @@ mod tests {
                 .send_results
                 .push(Err(WebSocketError::NoDataAvailable));
             correspondent = MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
-            let msg = NewToUiMessage {
+            let msg = NodeToUiMessage {
                 target: correspondent,
                 body: MessageBody {
                     opcode: "booga".to_string(),
@@ -1304,7 +1304,7 @@ mod tests {
         let system = System::new("send_msg_fails_to_look_up_client_to_send_to");
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
-            let msg = NewToUiMessage {
+            let msg = NodeToUiMessage {
                 target: MessageTarget::ClientId(7),
                 body: MessageBody {
                     opcode: "booga".to_string(),

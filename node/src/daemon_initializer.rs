@@ -4,13 +4,13 @@ use crate::sub_lib::main_tools::{Command, StdStreams};
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
 use crate::ui_gateway::UiGateway;
 use crate::daemon::{Daemon, DaemonBindMessage};
-use crate::sub_lib::ui_gateway::{UiGatewayConfig, NewFromUiMessage, NewToUiMessage};
+use crate::sub_lib::ui_gateway::{UiGatewayConfig, NodeFromUiMessage, NodeToUiMessage};
 use actix::{Actor, Recipient};
 
 pub struct Recipients {
-    ui_gateway_from_sub: Recipient<NewFromUiMessage>,
-    ui_gateway_to_sub: Recipient<NewToUiMessage>,
-    from_ui_subs: Vec<Recipient<NewFromUiMessage>>,
+    ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
+    ui_gateway_to_sub: Recipient<NodeToUiMessage>,
+    from_ui_subs: Vec<Recipient<NodeFromUiMessage>>,
     bind_message_subs: Vec<Recipient<DaemonBindMessage>>,
 }
 
@@ -28,9 +28,9 @@ impl RecipientsFactory for RecipientsFactoryReal {
         }).start();
         let daemon_addr = Daemon::new().start();
         Recipients {
-            ui_gateway_from_sub: ui_gateway_addr.clone().recipient::<NewFromUiMessage>(),
-            ui_gateway_to_sub: ui_gateway_addr.clone().recipient::<NewToUiMessage>(),
-            from_ui_subs: vec![daemon_addr.clone().recipient::<NewFromUiMessage>()],
+            ui_gateway_from_sub: ui_gateway_addr.clone().recipient::<NodeFromUiMessage>(),
+            ui_gateway_to_sub: ui_gateway_addr.clone().recipient::<NodeToUiMessage>(),
+            from_ui_subs: vec![daemon_addr.clone().recipient::<NodeFromUiMessage>()],
             bind_message_subs: vec![
                 daemon_addr.recipient::<DaemonBindMessage>(),
                 ui_gateway_addr.recipient::<DaemonBindMessage>(),
@@ -98,12 +98,12 @@ mod tests {
 
             let ui_gateway = self.ui_gateway.borrow_mut().take().unwrap();
             let ui_gateway_addr = ui_gateway.start();
-            let ui_gateway_from_sub = ui_gateway_addr.clone().recipient::<NewFromUiMessage>();
-            let ui_gateway_to_sub = ui_gateway_addr.clone().recipient::<NewToUiMessage>();
+            let ui_gateway_from_sub = ui_gateway_addr.clone().recipient::<NodeFromUiMessage>();
+            let ui_gateway_to_sub = ui_gateway_addr.clone().recipient::<NodeToUiMessage>();
 
             let actors = self.actors.borrow_mut().take().unwrap();
             let actor_addrs = actors.into_iter().map(|actor| actor.start()).collect_vec();
-            let from_ui_subs = actor_addrs.iter().map(|addr| addr.clone().recipient::<NewFromUiMessage>()).collect_vec();
+            let from_ui_subs = actor_addrs.iter().map(|addr| addr.clone().recipient::<NodeFromUiMessage>()).collect_vec();
             let mut bind_message_subs = actor_addrs.into_iter().map(|addr| addr.recipient::<DaemonBindMessage>()).collect_vec();
             bind_message_subs.push (ui_gateway_addr.recipient::<DaemonBindMessage>());
             Recipients {

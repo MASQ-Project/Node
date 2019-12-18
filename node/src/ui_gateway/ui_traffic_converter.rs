@@ -2,7 +2,7 @@
 
 use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 use crate::sub_lib::ui_gateway::{
-    MessageBody, MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage,
+    MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage, UiMessage,
 };
 use serde_json::Value;
 
@@ -13,15 +13,15 @@ pub trait UiTrafficConverter: Send {
     fn marshal(&self, ui_message: UiMessage) -> Result<String, String>;
     fn unmarshal(&self, json: &str) -> Result<UiMessage, String>;
 
-    fn new_marshal_from_ui(&self, msg: NewFromUiMessage) -> String;
-    fn new_marshal_to_ui(&self, msg: NewToUiMessage) -> String;
+    fn new_marshal_from_ui(&self, msg: NodeFromUiMessage) -> String;
+    fn new_marshal_to_ui(&self, msg: NodeToUiMessage) -> String;
     fn new_unmarshal_from_ui(&self, json: &str, client_id: u64)
-        -> Result<NewFromUiMessage, String>;
+        -> Result<NodeFromUiMessage, String>;
     fn new_unmarshal_to_ui(
         &self,
         json: &str,
         target: MessageTarget,
-    ) -> Result<NewToUiMessage, String>;
+    ) -> Result<NodeToUiMessage, String>;
 }
 
 #[derive(Default)]
@@ -30,7 +30,7 @@ pub struct UiTrafficConverterReal {}
 impl UiTrafficConverter for UiTrafficConverterReal {
     // TODO: After these methods are obsoleted and removed, get rid of the trait and make the
     // remaining methods into static functions, or possibly TryFrom and TryInto implementations for
-    // NewFromUiMessage and NewToUiMessage.
+    // NodeFromUiMessage and NodeToUiMessage.
     fn marshal(&self, ui_message: UiMessage) -> Result<String, String> {
         serde_json::to_string(&ui_message).map_err(|e| e.to_string())
     }
@@ -39,11 +39,11 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         serde_json::from_str(_json).map_err(|e| e.to_string())
     }
 
-    fn new_marshal_from_ui(&self, msg: NewFromUiMessage) -> String {
+    fn new_marshal_from_ui(&self, msg: NodeFromUiMessage) -> String {
         self.new_marshal(msg.body)
     }
 
-    fn new_marshal_to_ui(&self, msg: NewToUiMessage) -> String {
+    fn new_marshal_to_ui(&self, msg: NodeToUiMessage) -> String {
         self.new_marshal(msg.body)
     }
 
@@ -51,9 +51,9 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         &self,
         json: &str,
         client_id: u64,
-    ) -> Result<NewFromUiMessage, String> {
+    ) -> Result<NodeFromUiMessage, String> {
         match self.new_unmarshal(json) {
-            Ok(body) => Ok(NewFromUiMessage { client_id, body }),
+            Ok(body) => Ok(NodeFromUiMessage { client_id, body }),
             Err(e) => Err(e),
         }
     }
@@ -62,9 +62,9 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         &self,
         json: &str,
         target: MessageTarget,
-    ) -> Result<NewToUiMessage, String> {
+    ) -> Result<NodeToUiMessage, String> {
         match self.new_unmarshal(json) {
-            Ok(body) => Ok(NewToUiMessage { target, body }),
+            Ok(body) => Ok(NodeToUiMessage { target, body }),
             Err(e) => Err(e),
         }
     }
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_from_ui_one_way_for_success() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewFromUiMessage {
+        let ui_msg = NodeFromUiMessage {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_to_ui_one_way_for_success() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewToUiMessage {
+        let ui_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_from_ui_one_way_for_failure() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewFromUiMessage {
+        let ui_msg = NodeFromUiMessage {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -295,7 +295,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_to_ui_one_way_for_failure() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewToUiMessage {
+        let ui_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -321,7 +321,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_from_ui_two_way_for_success() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewFromUiMessage {
+        let ui_msg = NodeFromUiMessage {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_to_ui_two_way_for_success() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewToUiMessage {
+        let ui_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_from_ui_two_way_for_failure() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewFromUiMessage {
+        let ui_msg = NodeFromUiMessage {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_to_ui_two_way_for_failure() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewToUiMessage {
+        let ui_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),

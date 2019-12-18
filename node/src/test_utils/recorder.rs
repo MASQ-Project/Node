@@ -40,7 +40,7 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::ui_gateway::{
-    FromUiMessage, NewFromUiMessage, NewToUiMessage, UiCarrierMessage,
+    FromUiMessage, NodeFromUiMessage, NodeToUiMessage, UiCarrierMessage,
 };
 use crate::test_utils::to_millis;
 use actix::Actor;
@@ -109,8 +109,8 @@ recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
 recorder_message_handler!(IncipientCoresPackage);
 recorder_message_handler!(NeighborhoodDotGraphRequest);
-recorder_message_handler!(NewFromUiMessage);
-recorder_message_handler!(NewToUiMessage);
+recorder_message_handler!(NodeFromUiMessage);
+recorder_message_handler!(NodeToUiMessage);
 recorder_message_handler!(NodeRecordMetadataMessage);
 recorder_message_handler!(NoLookupIncipientCoresPackage);
 recorder_message_handler!(PoolBindMessage);
@@ -391,7 +391,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
-        from_ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
+        from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
     }
 }
 
@@ -410,7 +410,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
         report_new_payments: recipient!(addr, ReceivedPayments),
         report_sent_payments: recipient!(addr, SentPayments),
         get_financial_statistics_sub: recipient!(addr, GetFinancialStatisticsMessage),
-        ui_message_sub: recipient!(addr, NewFromUiMessage),
+        ui_message_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
 
@@ -419,8 +419,8 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
         bind: recipient!(addr, BindMessage),
         ui_message_sub: recipient!(addr, UiCarrierMessage),
         from_ui_message_sub: recipient!(addr, FromUiMessage),
-        new_from_ui_message_sub: recipient!(addr, NewFromUiMessage),
-        new_to_ui_message_sub: recipient!(addr, NewToUiMessage),
+        new_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
+        new_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
     }
 }
 

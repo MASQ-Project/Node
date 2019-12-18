@@ -13,8 +13,8 @@ use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::ui_gateway::{FromUiMessage, NewFromUiMessage, UiCarrierMessage};
-use crate::sub_lib::ui_gateway::{NewToUiMessage, UiGatewaySubs};
+use crate::sub_lib::ui_gateway::{FromUiMessage, NodeFromUiMessage, UiCarrierMessage};
+use crate::sub_lib::ui_gateway::{NodeToUiMessage, UiGatewaySubs};
 use crate::sub_lib::ui_gateway::{UiGatewayConfig, UiMessage};
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisorReal;
@@ -46,7 +46,7 @@ pub struct UiGateway {
     subs: Option<UiGatewayOutSubs>,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     shutdown_supervisor: Box<dyn ShutdownSupervisor>,
-    incoming_message_recipients: Vec<Recipient<NewFromUiMessage>>,
+    incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
     logger: Logger,
 }
 
@@ -69,8 +69,8 @@ impl UiGateway {
             bind: recipient!(addr, BindMessage),
             ui_message_sub: recipient!(addr, UiCarrierMessage),
             from_ui_message_sub: recipient!(addr, FromUiMessage),
-            new_from_ui_message_sub: recipient!(addr, NewFromUiMessage),
-            new_to_ui_message_sub: recipient!(addr, NewToUiMessage),
+            new_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
+            new_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
         }
     }
 }
@@ -153,10 +153,10 @@ impl Handler<DaemonBindMessage> for UiGateway {
     }
 }
 
-impl Handler<NewToUiMessage> for UiGateway {
+impl Handler<NodeToUiMessage> for UiGateway {
     type Result = ();
 
-    fn handle(&mut self, msg: NewToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.websocket_supervisor
             .as_ref()
             .expect("WebsocketSupervisor is unbound")
@@ -164,10 +164,10 @@ impl Handler<NewToUiMessage> for UiGateway {
     }
 }
 
-impl Handler<NewFromUiMessage> for UiGateway {
+impl Handler<NodeFromUiMessage> for UiGateway {
     type Result = ();
 
-    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.incoming_message_recipients
             .iter()
             .for_each(|recipient| {
@@ -292,7 +292,7 @@ mod tests {
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
     use crate::sub_lib::ui_gateway::MessagePath::OneWay;
-    use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget, NewFromUiMessage, UiMessage};
+    use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, UiMessage};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -345,11 +345,11 @@ mod tests {
             self.unmarshal_results.borrow_mut().remove(0)
         }
 
-        fn new_marshal_from_ui(&self, _msg: NewFromUiMessage) -> String {
+        fn new_marshal_from_ui(&self, _msg: NodeFromUiMessage) -> String {
             unimplemented!()
         }
 
-        fn new_marshal_to_ui(&self, _msg: NewToUiMessage) -> String {
+        fn new_marshal_to_ui(&self, _msg: NodeToUiMessage) -> String {
             unimplemented!()
         }
 
@@ -357,7 +357,7 @@ mod tests {
             &self,
             _json: &str,
             _client_id: u64,
-        ) -> Result<NewFromUiMessage, String> {
+        ) -> Result<NodeFromUiMessage, String> {
             unimplemented!()
         }
 
@@ -365,7 +365,7 @@ mod tests {
             &self,
             _json: &str,
             _target: MessageTarget,
-        ) -> Result<NewToUiMessage, String> {
+        ) -> Result<NodeToUiMessage, String> {
             unimplemented!()
         }
     }
@@ -450,7 +450,7 @@ mod tests {
             .neighborhood(neighborhood)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let msg = NewFromUiMessage {
+        let msg = NodeFromUiMessage {
             client_id: 1234,
             body: MessageBody {
                 opcode: "booga".to_string(),
@@ -464,10 +464,10 @@ mod tests {
         System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.get_record::<NewFromUiMessage>(0), &msg);
+        assert_eq!(accountant_recording.get_record::<NodeFromUiMessage>(0), &msg);
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         assert_eq!(
-            neighborhood_recording.get_record::<NewFromUiMessage>(0),
+            neighborhood_recording.get_record::<NodeFromUiMessage>(0),
             &msg
         );
     }
@@ -485,9 +485,9 @@ mod tests {
         let system = System::new("test");
         subject.websocket_supervisor = Some(Box::new(websocket_supervisor));
         subject.incoming_message_recipients =
-            vec![accountant.start().recipient::<NewFromUiMessage>()];
+            vec![accountant.start().recipient::<NodeFromUiMessage>()];
         let subject_addr: Addr<UiGateway> = subject.start();
-        let msg = NewToUiMessage {
+        let msg = NodeToUiMessage {
             target: MessageTarget::ClientId(1234),
             body: MessageBody {
                 opcode: "booga".to_string(),

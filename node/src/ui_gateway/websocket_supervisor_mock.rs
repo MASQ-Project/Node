@@ -2,13 +2,13 @@
 #![cfg(test)]
 
 use std::sync::{Arc, Mutex};
-use crate::sub_lib::ui_gateway::NewToUiMessage;
+use crate::sub_lib::ui_gateway::NodeToUiMessage;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
 
 #[derive(Default)]
 pub struct WebSocketSupervisorMock {
     send_parameters: Arc<Mutex<Vec<(u64, String)>>>,
-    send_msg_parameters: Arc<Mutex<Vec<NewToUiMessage>>>,
+    send_msg_parameters: Arc<Mutex<Vec<NodeToUiMessage>>>,
 }
 
 impl WebSocketSupervisor for WebSocketSupervisorMock {
@@ -19,7 +19,7 @@ impl WebSocketSupervisor for WebSocketSupervisorMock {
             .push((client_id, String::from(message_json)));
     }
 
-    fn send_msg(&self, msg: NewToUiMessage) {
+    fn send_msg(&self, msg: NodeToUiMessage) {
         self.send_msg_parameters.lock().unwrap().push(msg);
     }
 }
@@ -42,7 +42,7 @@ impl WebSocketSupervisorMock {
 
     pub fn send_msg_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<NewToUiMessage>>>,
+        parameters: &Arc<Mutex<Vec<NodeToUiMessage>>>,
     ) -> WebSocketSupervisorMock {
         self.send_msg_parameters = parameters.clone();
         self

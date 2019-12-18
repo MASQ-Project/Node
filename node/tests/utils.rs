@@ -12,15 +12,14 @@ use std::time::Duration;
 use std::time::Instant;
 use websocket::{ClientBuilder, OwnedMessage};
 use node_lib::sub_lib::utils::localhost;
-use node_lib::sub_lib::ui_gateway::{NewFromUiMessage};
+use node_lib::sub_lib::ui_gateway::{NodeFromUiMessage};
 use std::net::TcpStream;
 use websocket::client::sync::Client;
 use serde::{Serialize};
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverterReal, UiTrafficConverter};
 use serde::de::DeserializeOwned;
-use node_lib::ui_gateway::messages::{UiMessageError};
+use node_lib::ui_gateway::messages::{UiMessageError, FromMessageBody, ToMessageBody, NULL_MESSAGE_BODY};
 use node_lib::sub_lib::ui_gateway::MessageTarget::ClientId;
-use std::convert::{TryInto};
 
 pub struct MASQNode {
     pub logfile_contents: String,
@@ -352,10 +351,9 @@ impl UiConnection {
     pub fn send<T: Serialize + DeserializeOwned> (&mut self, payload: T) {
         let context_id = self.context_id;
         self.context_id += 1;
-        let body = (payload, context_id).into();
-        let outgoing_msg = NewFromUiMessage {
+        let outgoing_msg = NodeFromUiMessage {
             client_id: 0, // irrelevant: will be replaced on the other end
-            body
+            body: NULL_MESSAGE_BODY.tmb(payload, context_id)
         };
         let outgoing_msg_json = self.converter.new_marshal_from_ui(outgoing_msg);
         self.client.send_message(&OwnedMessage::Text(outgoing_msg_json)).unwrap();
@@ -368,7 +366,7 @@ impl UiConnection {
         };
         let incoming_msg = self.converter.new_unmarshal_to_ui(&incoming_msg_json, ClientId(0)).expect("Deserialization problem");
         let opcode = incoming_msg.body.opcode.clone();
-        let result: Result<(T, u64), UiMessageError> = incoming_msg.body.try_into();
+        let result: Result<(T, u64), UiMessageError> = incoming_msg.body.fmb();
         match result {
             Ok((payload, _)) => Ok(payload),
             Err(UiMessageError::PayloadError(code, message)) => Err ((code, message)),

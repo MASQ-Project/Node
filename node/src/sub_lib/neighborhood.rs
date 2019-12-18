@@ -11,7 +11,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::ui_gateway::NewFromUiMessage;
+use crate::sub_lib::ui_gateway::NodeFromUiMessage;
 use crate::sub_lib::utils::node_descriptor_delimiter;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -255,7 +255,7 @@ pub struct NeighborhoodSubs {
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub from_ui_gateway: Recipient<NeighborhoodDotGraphRequest>,
-    pub from_ui_message_sub: Recipient<NewFromUiMessage>,
+    pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for NeighborhoodSubs {
@@ -442,7 +442,7 @@ mod tests {
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             from_ui_gateway: recipient!(recorder, NeighborhoodDotGraphRequest),
-            from_ui_message_sub: recipient!(recorder, NewFromUiMessage),
+            from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "NeighborhoodSubs");

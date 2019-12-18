@@ -438,8 +438,8 @@ mod tests {
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::ui_gateway::{FromUiMessage, NewFromUiMessage, UiCarrierMessage};
-    use crate::sub_lib::ui_gateway::{NewToUiMessage, UiGatewayConfig};
+    use crate::sub_lib::ui_gateway::{FromUiMessage, NodeFromUiMessage, UiCarrierMessage};
+    use crate::sub_lib::ui_gateway::{NodeToUiMessage, UiGatewayConfig};
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
@@ -571,7 +571,7 @@ mod tests {
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
                 from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
-                from_ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
+                from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
             }
         }
 
@@ -608,7 +608,7 @@ mod tests {
                 get_financial_statistics_sub: addr
                     .clone()
                     .recipient::<GetFinancialStatisticsMessage>(),
-                ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
+                ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
             }
         }
 
@@ -623,8 +623,8 @@ mod tests {
                 bind: recipient!(addr, BindMessage),
                 ui_message_sub: recipient!(addr, UiCarrierMessage),
                 from_ui_message_sub: recipient!(addr, FromUiMessage),
-                new_from_ui_message_sub: recipient!(addr, NewFromUiMessage),
-                new_to_ui_message_sub: recipient!(addr, NewToUiMessage),
+                new_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
+                new_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
             }
         }
 

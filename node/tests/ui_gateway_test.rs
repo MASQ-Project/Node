@@ -5,7 +5,7 @@ pub mod utils;
 use futures::future::*;
 use node_lib::sub_lib::ui_gateway::MessagePath::TwoWay;
 use node_lib::sub_lib::ui_gateway::{
-    MessageBody, MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage, DEFAULT_UI_PORT,
+    MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage, UiMessage, DEFAULT_UI_PORT,
 };
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
@@ -122,13 +122,13 @@ fn request_financial_information_integration() {
     node.wait_for_log("UIGateway bound", Some(5000));
 
     let payload = UiFinancialsRequest {
-        payableMinimumAmount: 0,
-        payableMaximumAge: 1_000_000_000_000,
-        receivableMinimumAmount: 0,
-        receivableMaximumAge: 1_000_000_000_000,
+        payable_minimum_amount: 0,
+        payable_maximum_age: 1_000_000_000_000,
+        receivable_minimum_amount: 0,
+        receivable_maximum_age: 1_000_000_000_000,
     };
     let converter = UiTrafficConverterReal::new();
-    let request_msg = converter.new_marshal_from_ui(NewFromUiMessage {
+    let request_msg = converter.new_marshal_from_ui(NodeFromUiMessage {
         client_id: 1234,
         body: MessageBody {
             opcode: "financials".to_string(),
@@ -146,7 +146,7 @@ fn request_financial_information_integration() {
             .and_then(|s| s.into_future().map_err(|e| e.0))
             .map(|(m, _)| match m {
                 Some(OwnedMessage::Text(response_json)) => {
-                    let response_msg: NewToUiMessage = UiTrafficConverterReal::new()
+                    let response_msg: NodeToUiMessage = UiTrafficConverterReal::new()
                         .new_unmarshal_to_ui(&response_json, MessageTarget::ClientId(1234))
                         .unwrap();
                     assert_eq!(response_msg.target, MessageTarget::ClientId(1234));
