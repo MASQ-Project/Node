@@ -162,13 +162,10 @@ impl WebSocketSupervisorReal {
         logger: &Logger,
     ) {
         if upgrade.protocols().contains(&String::from("MASQNode-UIv2")) {
-eprintln! ("Trying to accept a v2 upgrade request");
             Self::accept_upgrade_request(upgrade, socket_addr, inner, logger);
         } else if upgrade.protocols().contains(&String::from("MASQNode-UI")) {
-eprintln! ("Trying to accept a v1 upgrade request");
             Self::accept_old_upgrade_request(upgrade, socket_addr, inner, logger);
         } else {
-eprintln! ("Rejecting an upgrade request: {:?}", upgrade.protocols());
             Self::reject_upgrade_request(upgrade, &logger);
         }
     }
@@ -209,7 +206,6 @@ eprintln! ("Rejecting an upgrade request: {:?}", upgrade.protocols());
                 .use_protocol("MASQNode-UIv2")
                 .accept()
                 .map(move |(client, _)| {
-eprintln! ("Handling connection");
                     Self::handle_connection(client, &inner, &logger_clone, socket_addr, false);
                 });
         tokio::spawn(upgrade_future.then(|result| {
@@ -267,11 +263,9 @@ eprintln! ("Handling connection");
             .then(move |result| Self::handle_websocket_errors(result, &logger_2, socket_addr))
             .map(move |owned_message| match owned_message {
                 OwnedMessage::Text(message) => {
-eprintln! ("Handling text");
                     Self::handle_text_message(&inner_1, &logger_1, socket_addr, &message)
                 }
                 OwnedMessage::Close(_) => {
-eprintln! ("Handling close");
                     Self::handle_close_message(&inner_1, &logger_1, socket_addr)
                 }
                 OwnedMessage::Binary(_) => {
@@ -294,7 +288,6 @@ eprintln! ("Handling close");
         let locked_inner = inner_arc.lock().expect("WebSocketSupervisor is poisoned");
         match locked_inner.client_id_by_socket_addr.get(&socket_addr) {
             None => {
-eprintln! ("Unrecognized client");
                 warning!(
                     logger,
                     "WebSocketSupervisor got a message from a client that never connected!"
@@ -311,7 +304,6 @@ eprintln! ("Unrecognized client");
                         })
                         .expect("UiGateway is dead");
                 } else {
-eprintln! ("Unmarshaling incoming message");
                     match UiTrafficConverterReal::new()
                         .new_unmarshal_from_ui(message, *client_id_ref)
                     {

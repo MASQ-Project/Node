@@ -138,6 +138,15 @@ pub struct UiSetupValue {
     pub value: String,
 }
 
+impl UiSetupValue {
+    pub fn new (name: &str, value: &str) -> UiSetupValue {
+        UiSetupValue {
+            name: name.to_string(),
+            value: value.to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiSetup {
     pub values: Vec<UiSetupValue>

@@ -360,7 +360,6 @@ pub mod standard {
 
         let (real_user, data_directory, chain_id) =
             real_user_data_directory_and_chain_id(multi_config);
-eprintln! ("real_user: {:?}, data_directory: {:?}, chain_id: {:?}", real_user, data_directory, chain_id);
         privileged_config.real_user = real_user;
         privileged_config.data_directory = data_directory;
         privileged_config.blockchain_bridge_config.chain_id = chain_id;

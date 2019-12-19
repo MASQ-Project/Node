@@ -3,9 +3,11 @@
 use actix::{Actor, Context, Handler, Message};
 use actix::Recipient;
 use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use crate::ui_gateway::messages::{UiSetup, UiMessageError, FromMessageBody, ToMessageBody};
+use crate::ui_gateway::messages::{UiSetup, UiMessageError, FromMessageBody, ToMessageBody, UiSetupValue};
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 use crate::sub_lib::logger::Logger;
+use std::collections::HashMap;
+use itertools::Itertools;
 
 #[derive(Message, PartialEq, Clone)]
 pub struct DaemonBindMessage {
@@ -73,11 +75,35 @@ impl Daemon {
         }
     }
 
-    fn handle_setup(&mut self, client_id: u64, context_id: u64, _payload: UiSetup) {
+    fn handle_setup(&mut self, client_id: u64, context_id: u64, payload: UiSetup) {
+        let schema = crate::node_configurator::node_configurator_standard::app();
+        let mut pairs: HashMap<String, String> = schema.p.opts
+            .iter()
+            .flat_map(|opt| {
+                let name = opt.b.name.to_string();
+                match opt.v.default_val {
+                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
+                    None => None,
+                }
+            })
+            .collect();
+        pairs.insert ("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
+        payload.values
+            .into_iter ()
+            .for_each(|value| {
+                pairs.insert (value.name, value.value);
+            });
+        let ui_setup_values = pairs.keys().map(|key| {
+                let value = pairs.get(key).expect ("Value disappeared!");
+                UiSetupValue {name: key.clone(), value: value.clone()}
+            })
+            .sorted_by_key (|ui_setup_value| {ui_setup_value.name.clone()})
+            .collect_vec();
+
         let msg = NodeToUiMessage {
             target: ClientId(client_id),
             body: UiSetup {
-                values: vec![]
+                values: ui_setup_values
             }.tmb(context_id),
         };
         self.ui_gateway_sub.as_ref().expect("UiGateway is unbound").try_send(msg).expect("UiGateway is dead");
@@ -161,17 +187,66 @@ mod tests {
             .map(|value| (value.name, value.value))
             .collect();
         let schema = crate::node_configurator::node_configurator_standard::app();
-        let expected_pairs: HashSet<(String, String)> = schema.p.opts
+        let mut expected_pairs: HashSet<(String, String)> = schema.p.opts
             .iter()
-            .map(|opt| {
+            .flat_map(|opt| {
                 let name = opt.b.name.to_string();
-                let value = match opt.v.default_val {
-                    Some(os_str) => os_str.to_str().unwrap().to_string(),
-                    None => "booga".to_string(),
-                };
-                (name, value)
+                match opt.v.default_val {
+                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
+                    None => None,
+                }
             })
             .collect();
+        expected_pairs.insert (("dns-servers".to_string(), "1.1.1.1".to_string()));
+
+        assert_eq! (actual_pairs, expected_pairs);
+    }
+
+    #[test]
+    fn accepts_full_setup_and_returns_settings() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let subject = Daemon::new();
+        let subject_addr = subject.start();
+        subject_addr.try_send(make_bind_message(ui_gateway)).unwrap();
+
+        subject_addr.try_send(NodeFromUiMessage {
+            client_id: 1234,
+            body: UiSetup{values: vec![
+                UiSetupValue::new("chain", "ropsten"),
+                UiSetupValue::new("config-file", "biggles.txt"),
+                UiSetupValue::new("db-password", "goober"),
+                UiSetupValue::new("real-user", "1234:4321:hormel"),
+            ]}.tmb(4321),
+        }).unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let record = ui_gateway_recording.get_record::<NodeToUiMessage>(0).clone();
+        assert_eq! (record.target, ClientId(1234));
+        let (payload, context_id): (UiSetup, u64) = UiSetup::fmb(record.body).unwrap();
+        assert_eq! (context_id, 4321);
+        let actual_pairs: HashMap<String, String> = payload.values.into_iter()
+            .map(|value| (value.name, value.value))
+            .collect();
+        let schema = crate::node_configurator::node_configurator_standard::app();
+        let mut expected_pairs: HashMap<String, String> = schema.p.opts
+            .iter()
+            .flat_map(|opt| {
+                let name = opt.b.name.to_string();
+                match opt.v.default_val {
+                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
+                    None => None,
+                }
+            })
+            .collect();
+        expected_pairs.insert ("dns-servers".to_string(), "1.1.1.1".to_string());
+        expected_pairs.insert ("chain".to_string(), "ropsten".to_string());
+        expected_pairs.insert ("config-file".to_string(), "biggles.txt".to_string());
+        expected_pairs.insert ("db-password".to_string(), "goober".to_string());
+        expected_pairs.insert ("real-user".to_string(), "1234:4321:hormel".to_string());
+
         assert_eq! (actual_pairs, expected_pairs);
     }
 }
