@@ -75,6 +75,18 @@ impl MASQNode {
         self.output.take()
     }
 
+    pub fn start_daemon(config: Option<CommandConfig>) -> MASQNode {
+        let mut command = MASQNode::make_daemon_command(config);
+        eprintln!("{:?}", command);
+        let child = command.spawn().unwrap();
+        thread::sleep(Duration::from_millis(500)); // needs time to open UI socket
+        MASQNode {
+            logfile_contents: String::new(),
+            child: Some(child),
+            output: None,
+        }
+    }
+
     #[allow(dead_code)]
     pub fn start_standard(config: Option<CommandConfig>) -> MASQNode {
         let mut command = MASQNode::make_node_command(config);
@@ -206,6 +218,15 @@ impl MASQNode {
         second_milliseconds + nanosecond_milliseconds
     }
 
+    fn make_daemon_command(config: Option<CommandConfig>) -> process::Command {
+        Self::remove_database();
+        let mut command = command_to_start();
+        let mut args = Self::daemon_args();
+        args.extend(Self::get_extra_args (config));
+        command.args(&args);
+        command
+    }
+
     fn make_node_command(config: Option<CommandConfig>) -> process::Command {
         Self::remove_database();
         let mut command = command_to_start();
@@ -240,6 +261,12 @@ impl MASQNode {
         args.extend(Self::get_extra_args(Some(config)));
         command.args(&args);
         command
+    }
+
+    fn daemon_args() -> Vec<String> {
+        apply_prefix_parameters(CommandConfig::new())
+            .opt("--initialization")
+            .args
     }
 
     fn standard_args() -> Vec<String> {

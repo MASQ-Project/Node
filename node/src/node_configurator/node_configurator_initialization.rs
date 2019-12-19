@@ -1,16 +1,19 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::node_configurator::{app_head, chain_arg, config_file_arg, db_password_arg, NodeConfigurator, DB_PASSWORD_HELP, ui_port_arg};
+use crate::node_configurator::{app_head, chain_arg, config_file_arg, db_password_arg, NodeConfigurator, DB_PASSWORD_HELP, ui_port_arg, data_directory_arg, real_user_arg};
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
-use clap::{App};
+use clap::{App, Arg};
 use std::path::{PathBuf};
+use crate::bootstrapper::RealUser;
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct InitializationConfig {
     pub chain_id: u8,
     pub config_file: PathBuf,
+    pub data_directory: PathBuf,
     pub db_password_opt: Option<String>,
+    pub real_user: RealUser,
     pub ui_port: u16,
 }
 
@@ -28,31 +31,38 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
 
 fn app() -> App<'static, 'static> {
     app_head()
+        .arg(
+            Arg::with_name("initialization")
+                .long("initialization")
+                .required(true)
+                .takes_value(false),
+        )
         .arg(chain_arg())
         .arg(config_file_arg())
+        .arg(data_directory_arg())
         .arg(db_password_arg(DB_PASSWORD_HELP))
+        .arg(real_user_arg())
         .arg(ui_port_arg())
 }
 
 mod initialization {
     use super::*;
     use crate::multi_config::{MultiConfig};
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::test_utils::DEFAULT_CHAIN_ID;
     use clap::{value_t};
+    use crate::node_configurator::{real_user_data_directory_and_chain_id};
 
     pub fn parse_args(
         multi_config: &MultiConfig,
         config: &mut InitializationConfig,
         _streams: &mut StdStreams<'_>,
     ) {
-        if let Some(chain_name) = value_m!(multi_config, "chain", String) {
-            config.chain_id =
-                chain_id_from_name(chain_name.as_str());
-        }
-        else {
-            config.chain_id = DEFAULT_CHAIN_ID;
-        }
+        let (real_user, data_directory, chain_id) =
+            real_user_data_directory_and_chain_id(multi_config);
+eprintln! ("real_user: {:?}, data_directory: {:?}, chain_id: {:?}", real_user, data_directory, chain_id);
+
+        config.chain_id = chain_id;
+        config.data_directory = data_directory;
+        config.real_user = real_user;
 
         config.config_file = value_m!(multi_config, "config-file", PathBuf).expect("--config-file is not properly defaulted");
 
@@ -83,6 +93,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::multi_config::{VirtualCommandLine, CommandLineVcl, MultiConfig};
     use std::str::FromStr;
+    use crate::node_configurator::{RealDirsWrapper, DirsWrapper};
 
     #[test]
     fn can_read_parameters_from_config_file() {
@@ -101,25 +112,30 @@ mod tests {
         };
         let subject = NodeConfiguratorInitialization {};
 
-        let configuration = subject.configure(
+        let config = subject.configure(
             &vec![
                 "".to_string(),
+                "--initialization".to_string(),
                 "--config-file".to_string(), config_file_path.clone().to_str().unwrap().to_string(),
             ],
             &mut FakeStreamHolder::new().streams(),
         );
 
-        assert_eq!(configuration, InitializationConfig {
-            chain_id: chain_id_from_name("ropsten"),
-            config_file: config_file_path,
-            db_password_opt: Some("booga".to_string()),
-            ui_port: 4321,
-        });
+        assert_eq! (config.chain_id, chain_id_from_name("ropsten"));
+        assert_eq! (config.config_file, config_file_path);
+        assert_eq! (config.data_directory, RealDirsWrapper{}.data_dir().unwrap().join("MASQ").join("ropsten"));
+        assert_eq! (config.db_password_opt, Some("booga".to_string()));
+        let default_real_user = RealUser::default().populate();
+        assert_eq! (config.real_user.uid, default_real_user.uid);
+        assert_eq! (config.real_user.gid, default_real_user.gid);
+        assert_eq! (config.real_user.home_dir, default_real_user.home_dir);
+        assert_eq! (config.ui_port, 4321);
     }
 
     #[test]
     fn parse_args_creates_configuration_with_defaults() {
-        let args = ArgsBuilder::new();
+        let args = ArgsBuilder::new()
+            .opt("--initialization");
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -131,21 +147,27 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
         );
 
-        assert_eq!(config, InitializationConfig {
-            chain_id: chain_id_from_name("mainnet"),
-            config_file: PathBuf::from_str("config.toml").unwrap(),
-            db_password_opt: None,
-            ui_port: DEFAULT_UI_PORT,
-        });
+        assert_eq! (config.chain_id, chain_id_from_name("mainnet"));
+        assert_eq! (config.config_file, PathBuf::from_str("config.toml").unwrap());
+        assert_eq! (config.data_directory, RealDirsWrapper{}.data_dir().unwrap().join("MASQ").join("mainnet"));
+        assert_eq! (config.db_password_opt, None);
+        let default_real_user = RealUser::default().populate();
+        assert_eq! (config.real_user.uid, default_real_user.uid);
+        assert_eq! (config.real_user.gid, default_real_user.gid);
+        assert_eq! (config.real_user.home_dir, default_real_user.home_dir);
+        assert_eq! (config.ui_port, DEFAULT_UI_PORT);
     }
 
     #[test]
     fn parse_args_creates_configuration_with_values() {
         let args = ArgsBuilder::new()
+            .opt("--initialization")
             .param("--chain", "ropsten")
             .param("--config-file", "booga.toml")
+            .param("--data-directory", PathBuf::from("first").join("second").join("third").to_str().unwrap())
             .param("--db-password", "goober")
-            .param("--ui-port", "4321");
+            .param("--ui-port", "4321")
+            .param("--real-user", format!("2345:5432:{}", PathBuf::from("home").join("booga").to_str().unwrap()).as_str());
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -157,12 +179,14 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
         );
 
-        assert_eq!(config, InitializationConfig {
-            chain_id: chain_id_from_name("ropsten"),
-            config_file: PathBuf::from_str("booga.toml").unwrap(),
-            db_password_opt: Some("goober".to_string()),
-            ui_port: 4321,
-        });
+        assert_eq! (config.chain_id, chain_id_from_name("ropsten"));
+        assert_eq! (config.config_file, PathBuf::from_str("booga.toml").unwrap());
+        assert_eq! (config.data_directory, PathBuf::from("first").join("second").join("third"));
+        assert_eq! (config.db_password_opt, Some("goober".to_string()));
+        assert_eq! (config.real_user.uid, Some (2345));
+        assert_eq! (config.real_user.gid, Some (5432));
+        assert_eq! (config.real_user.home_dir, Some(PathBuf::from("home").join("booga")));
+        assert_eq! (config.ui_port, 4321);
     }
 
     #[test]

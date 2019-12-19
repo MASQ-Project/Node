@@ -27,7 +27,7 @@ pub fn go(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
         Mode::RecoverWallet => recover_wallet(args, streams),
         Mode::DumpConfig => dump_config(args, streams),
         Mode::Initialization => initialization(args, streams),
-        Mode::RunTheNode => run_the_node(args, streams),
+        Mode::RunTheNode => run_service(args, streams),
     }
 }
 
@@ -39,13 +39,15 @@ fn determine_mode(args: &Vec<String>) -> Mode {
     } else if args.contains(&"--generate-wallet".to_string()) {
         Mode::GenerateWallet
     } else if args.contains(&"--initialization".to_string()) {
+eprintln! ("Initialization mode");
         Mode::Initialization
     } else {
+eprintln! ("Service mode");
         Mode::RunTheNode
     }
 }
 
-fn run_the_node(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
+fn run_service(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     let system = System::new("main");
 
     let mut server_initializer = ServerInitializer::new();

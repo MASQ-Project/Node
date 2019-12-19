@@ -37,11 +37,6 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> T;
 }
 
-//lazy_static! {
-//    static ref DEFAULT_DATA_DIR_VALUE: String =
-//        data_directory_default(&RealDirsWrapper {}, "[mainnet | ropsten]");
-//}
-
 const CHAIN_HELP: &str =
     "The blockchain network SubstratumNode will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";

@@ -85,6 +85,7 @@ mod tests {
     use crate::sub_lib::main_tools::Command;
     use std::cell::RefCell;
     use itertools::Itertools;
+    use crate::node_configurator::{RealDirsWrapper, DirsWrapper};
 
     struct RecipientsFactoryMock{
         ui_gateway: RefCell<Option<Recorder>>,
@@ -134,7 +135,9 @@ mod tests {
         let config = InitializationConfig {
             chain_id: 0, // irrelevant
             config_file: Default::default(), // irrelevant
+            data_directory: RealDirsWrapper{}.data_dir().unwrap(),
             db_password_opt: None, // irrelevant
+            real_user: Default::default(),
             ui_port: 1234
         };
         let recipients_factory = RecipientsFactoryMock::new(ui_gateway, vec![one_actor, another_actor]);
