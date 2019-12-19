@@ -3,7 +3,7 @@
 use actix::{Actor, Context, Handler, Message};
 use actix::Recipient;
 use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use crate::ui_gateway::messages::{UiSetup, UiMessageError, FromMessageBody, ToMessageBody, NULL_MESSAGE_BODY};
+use crate::ui_gateway::messages::{UiSetup, UiMessageError, FromMessageBody, ToMessageBody};
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 use crate::sub_lib::logger::Logger;
 
@@ -56,7 +56,7 @@ impl Handler<NodeFromUiMessage> for Daemon {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<(UiSetup, u64), UiMessageError> = msg.body.fmb();
+        let result: Result<(UiSetup, u64), UiMessageError> = UiSetup::fmb(msg.body);
         match result {
             Ok ((payload, context_id)) => self.handle_setup(client_id, context_id, payload),
             Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
@@ -76,9 +76,9 @@ impl Daemon {
     fn handle_setup(&mut self, client_id: u64, context_id: u64, _payload: UiSetup) {
         let msg = NodeToUiMessage {
             target: ClientId(client_id),
-            body: NULL_MESSAGE_BODY.tmb(UiSetup {
+            body: UiSetup {
                 values: vec![]
-            }, context_id),
+            }.tmb(context_id),
         };
         self.ui_gateway_sub.as_ref().expect("UiGateway is unbound").try_send(msg).expect("UiGateway is dead");
     }
@@ -92,7 +92,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
     use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
-    use crate::ui_gateway::messages::{UiSetup, NULL_MESSAGE_BODY};
+    use crate::ui_gateway::messages::{UiSetup};
     use std::collections::HashSet;
 
     struct LauncherMock {
@@ -147,7 +147,7 @@ mod tests {
 
         subject_addr.try_send(NodeFromUiMessage {
             client_id: 1234,
-            body: NULL_MESSAGE_BODY.tmb(UiSetup{values: vec![]}, 4321),
+            body: UiSetup{values: vec![]}.tmb(4321),
         }).unwrap();
 
         System::current().stop();
@@ -155,7 +155,7 @@ mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording.get_record::<NodeToUiMessage>(0).clone();
         assert_eq! (record.target, ClientId(1234));
-        let (payload, context_id): (UiSetup, u64) = record.body.fmb().unwrap();
+        let (payload, context_id): (UiSetup, u64) = UiSetup::fmb(record.body).unwrap();
         assert_eq! (context_id, 4321);
         let actual_pairs: HashSet<(String, String)> = payload.values.into_iter()
             .map(|value| (value.name, value.value))

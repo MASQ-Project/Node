@@ -294,7 +294,7 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<(UiShutdownOrder, u64), UiMessageError> = msg.body.fmb();
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(msg.body);
         match result {
             Ok ((payload, _)) => self.handle_shutdown_order(client_id, payload),
             Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),

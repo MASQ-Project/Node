@@ -35,14 +35,14 @@ fn initialization_sequence_integration() {
         CommandConfig::new().opt("--initialization")
     ));
     let mut initialization_client = UiConnection::new(DEFAULT_UI_PORT, "MASQNode-UIv2");
-    let response: UiSetup = initialization_client.transact(UiSetup::new(vec![("dns-servers", "1.1.1.1"), ("neighborhood-mode", "zero-hop")])).unwrap();
+    let _: UiSetup = initialization_client.transact(UiSetup::new(vec![("dns-servers", "1.1.1.1"), ("neighborhood-mode", "zero-hop")])).unwrap();
 
     let response: UiStartResponse = initialization_client.transact(UiStartOrder{}).unwrap();
 
     let mut active_client = UiConnection::new(response.redirect_ui_port, "MASQNode-UIv2");
-    active_client.send (Box::new (UiShutdownOrder{}));
+    active_client.send (UiShutdownOrder{});
     wait_for_process_end (response.new_process_id);
-    initialization_client.send(Box::new (UiShutdownOrder{}));
+    initialization_client.send(UiShutdownOrder{});
     node.wait_for_exit().unwrap();
 }
 

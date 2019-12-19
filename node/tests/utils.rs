@@ -15,10 +15,8 @@ use node_lib::sub_lib::utils::localhost;
 use node_lib::sub_lib::ui_gateway::{NodeFromUiMessage};
 use std::net::TcpStream;
 use websocket::client::sync::Client;
-use serde::{Serialize};
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverterReal, UiTrafficConverter};
-use serde::de::DeserializeOwned;
-use node_lib::ui_gateway::messages::{UiMessageError, FromMessageBody, ToMessageBody, NULL_MESSAGE_BODY};
+use node_lib::ui_gateway::messages::{UiMessageError, FromMessageBody, ToMessageBody};
 use node_lib::sub_lib::ui_gateway::MessageTarget::ClientId;
 
 pub struct MASQNode {
@@ -348,25 +346,25 @@ impl UiConnection {
         }
     }
 
-    pub fn send<T: Serialize + DeserializeOwned> (&mut self, payload: T) {
+    pub fn send<T: ToMessageBody> (&mut self, payload: T) {
         let context_id = self.context_id;
         self.context_id += 1;
         let outgoing_msg = NodeFromUiMessage {
             client_id: 0, // irrelevant: will be replaced on the other end
-            body: NULL_MESSAGE_BODY.tmb(payload, context_id)
+            body: payload.tmb(context_id)
         };
         let outgoing_msg_json = self.converter.new_marshal_from_ui(outgoing_msg);
         self.client.send_message(&OwnedMessage::Text(outgoing_msg_json)).unwrap();
     }
 
-    pub fn receive<T: Serialize + DeserializeOwned> (&mut self) -> Result<T, (u64, String)> {
+    pub fn receive<T: FromMessageBody> (&mut self) -> Result<T, (u64, String)> {
         let incoming_msg_json = match self.client.recv_message() {
             Ok(OwnedMessage::Text(json)) => json,
             x => panic!("Expected text; received {:?}", x),
         };
         let incoming_msg = self.converter.new_unmarshal_to_ui(&incoming_msg_json, ClientId(0)).expect("Deserialization problem");
         let opcode = incoming_msg.body.opcode.clone();
-        let result: Result<(T, u64), UiMessageError> = incoming_msg.body.fmb();
+        let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body);
         match result {
             Ok((payload, _)) => Ok(payload),
             Err(UiMessageError::PayloadError(code, message)) => Err ((code, message)),
@@ -374,7 +372,7 @@ impl UiConnection {
         }
     }
 
-    pub fn transact<S: Serialize + DeserializeOwned, R: Serialize + DeserializeOwned> (&mut self, payload: S) -> Result<R, (u64, String)> {
+    pub fn transact<S: ToMessageBody, R: FromMessageBody> (&mut self, payload: S) -> Result<R, (u64, String)> {
         self.send (payload);
         self.receive::<R>()
     }

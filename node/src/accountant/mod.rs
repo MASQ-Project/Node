@@ -43,7 +43,7 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use crate::ui_gateway::messages::{UiReceivableAccount, UiFinancialsResponse, UiPayableAccount, UiFinancialsRequest, UiMessageError, FromMessageBody, ToMessageBody, NULL_MESSAGE_BODY};
+use crate::ui_gateway::messages::{UiReceivableAccount, UiFinancialsResponse, UiPayableAccount, UiFinancialsRequest, UiMessageError, FromMessageBody, ToMessageBody};
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -284,7 +284,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<(UiFinancialsRequest, u64), UiMessageError> = msg.body.fmb();
+        let result: Result<(UiFinancialsRequest, u64), UiMessageError> = UiFinancialsRequest::fmb(msg.body);
         match result {
             Ok ((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
             Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
@@ -625,12 +625,12 @@ impl Accountant {
             })
             .collect_vec();
         let total_receivable = self.receivable_dao.total();
-        let body = NULL_MESSAGE_BODY.tmb(UiFinancialsResponse {
+        let body = UiFinancialsResponse {
             payables,
             total_payable: total_payable,
             receivables,
             total_receivable: total_receivable,
-        }, context_id);
+        }.tmb (context_id);
         self.ui_message_sub
             .as_ref()
             .expect("UiGateway not bound")
