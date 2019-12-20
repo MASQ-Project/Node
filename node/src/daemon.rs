@@ -3,13 +3,15 @@
 use actix::{Actor, Context, Handler, Message};
 use actix::Recipient;
 use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use crate::ui_gateway::messages::{UiSetup, UiMessageError, FromMessageBody, ToMessageBody, UiSetupValue};
+use crate::ui_gateway::messages::{UiSetup, UiMessageError, FromMessageBody, ToMessageBody, UiSetupValue, UiStartOrder, UiStartResponse};
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
+use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 use crate::sub_lib::logger::Logger;
 use std::collections::HashMap;
-use itertools::Itertools;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use std::path::PathBuf;
+use crate::test_utils::main_cryptde;
+use std::iter::FromIterator;
 
 #[derive(Message, PartialEq, Clone)]
 pub struct DaemonBindMessage {
@@ -30,13 +32,13 @@ enum LaunchError {
 }
 
 trait Launcher {
-    fn launch(self, params: Vec<String>) -> Result<LaunchSuccess, LaunchError>;
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError>;
 }
 
 struct LauncherReal {}
 
 impl Launcher for LauncherReal {
-    fn launch(self, _params: Vec<String>) -> Result<LaunchSuccess, LaunchError> {
+    fn launch(&self, _params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
         unimplemented!()
     }
 }
@@ -72,9 +74,17 @@ impl Handler<NodeFromUiMessage> for Daemon {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<(UiSetup, u64), UiMessageError> = UiSetup::fmb(msg.body);
+        // TODO: Gotta be a better way to arrange this code
+        let result: Result<(UiSetup, u64), UiMessageError> = UiSetup::fmb(msg.body.clone());
         match result {
             Ok ((payload, context_id)) => self.handle_setup(client_id, context_id, payload),
+            Err(BadOpcode) => {
+                let result: Result<(UiStartOrder, u64), UiMessageError> = UiStartOrder::fmb(msg.body);
+                match result {
+                    Ok ((_, context_id)) => self.handle_start_order(client_id, context_id),
+                    Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e)
+                }
+            },
             Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
         }
     }
@@ -82,17 +92,7 @@ impl Handler<NodeFromUiMessage> for Daemon {
 
 impl Daemon {
     pub fn new() -> Daemon {
-        let schema = crate::node_configurator::node_configurator_standard::app();
-        let mut params: HashMap<String, String> = schema.p.opts
-            .iter()
-            .flat_map(|opt| {
-                let name = opt.b.name.to_string();
-                match opt.v.default_val {
-                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
-                    None => None,
-                }
-            })
-            .collect();
+        let mut params = HashMap::new();
         params.insert ("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
         Daemon {
             launcher: Box::new(LauncherReal::new()),
@@ -102,26 +102,49 @@ impl Daemon {
         }
     }
 
-    fn handle_setup(&mut self, client_id: u64, context_id: u64, payload: UiSetup) {
-        payload.values
-            .into_iter ()
-            .for_each(|value| {
-                self.params.insert (value.name, value.value);
-            });
-        let ui_setup_values = self.params.keys().map(|key| {
-                let value = self.params.get(key).expect ("Value disappeared!");
-                UiSetupValue {name: key.clone(), value: value.clone()}
+    fn get_default_params() -> HashMap<String, String> {
+        let schema = crate::node_configurator::node_configurator_standard::app();
+        schema.p.opts
+            .iter()
+            .flat_map(|opt| {
+                let name = opt.b.name.to_string();
+                match opt.v.default_val {
+                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
+                    None => None,
+                }
             })
-            .sorted_by_key (|ui_setup_value| {ui_setup_value.name.clone()})
-            .collect_vec();
+            .collect()
+    }
 
+    fn handle_setup(&mut self, client_id: u64, context_id: u64, payload: UiSetup) {
+        let mut report = Self::get_default_params();
+        let params: HashMap<String, String> = HashMap::from_iter(payload.values.into_iter().map (|usv| (usv.name, usv.value)));
+        self.params.extend(params.clone().into_iter());
+        report.extend (self.params.clone().into_iter());
         let msg = NodeToUiMessage {
             target: ClientId(client_id),
             body: UiSetup {
-                values: ui_setup_values
+                values: report.into_iter()
+                    .map(|(name, value)| UiSetupValue {name, value})
+                    .collect()
             }.tmb(context_id),
         };
         self.ui_gateway_sub.as_ref().expect("UiGateway is unbound").try_send(msg).expect("UiGateway is dead");
+    }
+
+    fn handle_start_order(&mut self, client_id: u64, context_id: u64) {
+        match self.launcher.launch (self.params.drain().collect()) {
+            Ok(success) => self.ui_gateway_sub.as_ref().expect ("UiGateway is unbound").try_send(NodeToUiMessage {
+                target: ClientId(client_id),
+                body: UiStartResponse {
+                    descriptor: success.descriptor.to_string(main_cryptde()),
+                    log_file: success.log_file.to_str().expect ("Bad filename").to_string(),
+                    new_process_id: success.new_process_id,
+                    redirect_ui_port: success.redirect_ui_port
+                }.tmb(context_id),
+            }).expect ("UiGateway is dead"),
+            Err(_e) => unimplemented! (),
+        }
     }
 }
 
@@ -136,14 +159,15 @@ mod tests {
     use crate::ui_gateway::messages::{UiSetup, UiStartOrder, UiStartResponse};
     use std::collections::HashSet;
     use crate::test_utils::main_cryptde;
+    use std::iter::FromIterator;
 
     struct LauncherMock {
-        launch_params: Arc<Mutex<Vec<Vec<String>>>>,
+        launch_params: Arc<Mutex<Vec<HashMap<String, String>>>>,
         launch_results: RefCell<Vec<Result<LaunchSuccess, LaunchError>>>,
     }
 
     impl Launcher for LauncherMock {
-        fn launch(self, params: Vec<String>) -> Result<LaunchSuccess, LaunchError> {
+        fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
             self.launch_params.lock().unwrap().push (params);
             self.launch_results.borrow_mut().remove(0)
         }
@@ -157,7 +181,7 @@ mod tests {
             }
         }
 
-        fn launch_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+        fn launch_params(mut self, params: &Arc<Mutex<Vec<HashMap<String, String>>>>) -> Self {
             self.launch_params = params.clone();
             self
         }
@@ -319,9 +343,9 @@ mod tests {
             redirect_ui_port: 2345
         });
         let launch_params = launch_params_arc.lock().unwrap();
-        assert_eq! (*launch_params, vec![vec![
-            "db-password".to_string(), "goober".to_string(),
-            "dns-servers".to_string(), "1.1.1.1".to_string(),
-        ]])
+        assert_eq! (*launch_params, vec![HashMap::from_iter (vec![
+            ("db-password".to_string(), "goober".to_string()),
+            ("dns-servers".to_string(), "1.1.1.1".to_string()),
+        ].into_iter())]);
     }
 }
