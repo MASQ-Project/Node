@@ -10,8 +10,14 @@ use crate::sub_lib::logger::Logger;
 use std::collections::HashMap;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use std::path::PathBuf;
-use crate::test_utils::main_cryptde;
+use crate::test_utils::{main_cryptde, find_free_port};
 use std::iter::FromIterator;
+
+#[cfg(not(target_os = "windows"))]
+use nix::unistd;
+use nix::unistd::{fork, ForkResult};
+use itertools::Itertools;
+use crate::sub_lib::main_tools::StdStreams;
 
 #[derive(Message, PartialEq, Clone)]
 pub struct DaemonBindMessage {
@@ -21,8 +27,6 @@ pub struct DaemonBindMessage {
 }
 
 struct LaunchSuccess {
-    pub descriptor: NodeDescriptor,
-    pub log_file: PathBuf,
     pub new_process_id: i32,
     pub redirect_ui_port: u16,
 }
@@ -38,6 +42,31 @@ trait Launcher {
 struct LauncherReal {}
 
 impl Launcher for LauncherReal {
+
+    #[cfg(not(target_os = "windows"))]
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
+        let ui_port = find_free_port();
+        let mut actual_params: HashMap<String, String> = HashMap::from_iter(params.clone().into_iter());
+        actual_params.insert ("ui-port".to_string(), format! ("{}", ui_port));
+        sorted_params = actual_params.into_iter()
+            .sorted_by_key (|(name, value)| name)
+            .flat_map (|(name, value)| vec![format!("--{}", name), value])
+            .collect_vec();
+        match fork() {
+            Ok(ForkResult::Parent(pid)) => Ok(LaunchSuccess {
+                new_process_id: pid.0,
+                redirect_ui_port: ui_port
+            }),
+            Ok(ForkResult::Child) => {
+                // TODO: send shutdown message to UiGateway or actor system or whatever
+                let exit_code = main_with_args(&sorted_params);
+                std::process::exit (exit_code);
+            },
+            Err(e) => unimplemented! (),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
     fn launch(&self, _params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
         unimplemented!()
     }

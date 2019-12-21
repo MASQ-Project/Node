@@ -68,6 +68,7 @@ trust-dns-proto = "0.8.0"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 daemonize = "0.4.1"
+nix = "0.16.0"
 openssl = {version = "0.10.24", features = ["vendored"]}
 
 [target.'cfg(target_os = "windows")'.dependencies]
