@@ -9,13 +9,13 @@ use node_lib::sub_lib::ui_gateway::{
 };
 use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::assert_matches;
+use node_lib::ui_gateway::messages::{UiFinancialsRequest, UiFinancialsResponse};
 use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
 use std::time::Duration;
 use tokio::prelude::*;
 use tokio::runtime::Runtime;
 use websocket::ClientBuilder;
 use websocket::OwnedMessage;
-use node_lib::ui_gateway::messages::{UiFinancialsRequest, UiFinancialsResponse};
 
 #[test]
 fn ui_gateway_message_integration() {

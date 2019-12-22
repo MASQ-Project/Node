@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 #![cfg(test)]
 
-use std::sync::{Arc, Mutex};
 use crate::sub_lib::ui_gateway::NodeToUiMessage;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
+use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 pub struct WebSocketSupervisorMock {

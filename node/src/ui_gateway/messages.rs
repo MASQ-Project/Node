@@ -1,11 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
-
 use crate::sub_lib::ui_gateway::MessageBody;
-use serde_derive::{Serialize, Deserialize};
 use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
-use crate::ui_gateway::messages::UiMessageError::{DeserializationError, BadOpcode, PayloadError, BadPath};
+use crate::ui_gateway::messages::UiMessageError::{
+    BadOpcode, BadPath, DeserializationError, PayloadError,
+};
 use serde::de::DeserializeOwned;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
@@ -27,11 +28,11 @@ macro_rules! one_way_message {
     ($message_type: ty, $opcode: expr) => {
         impl ToMessageBody for $message_type {
             fn tmb(self, _irrelevant: u64) -> MessageBody {
-                let json = serde_json::to_string(&self).expect ("Serialization problem");
+                let json = serde_json::to_string(&self).expect("Serialization problem");
                 MessageBody {
                     opcode: $opcode.to_string(),
                     path: OneWay,
-                    payload: Ok(json)
+                    payload: Ok(json),
                 }
             }
         }
@@ -39,7 +40,7 @@ macro_rules! one_way_message {
         impl FromMessageBody for $message_type {
             fn fmb(body: MessageBody) -> Result<(Self, u64), UiMessageError> {
                 if body.opcode != $opcode {
-                    return Err(BadOpcode)
+                    return Err(BadOpcode);
                 };
                 let payload = match body.payload {
                     Ok(json) => match serde_json::from_str::<Self>(&json) {
@@ -49,7 +50,7 @@ macro_rules! one_way_message {
                     Err((code, message)) => return Err(PayloadError(code, message)),
                 };
                 if let TwoWay(_) = body.path {
-                    return Err(BadPath)
+                    return Err(BadPath);
                 }
                 Ok((payload, 0))
             }
@@ -61,11 +62,11 @@ macro_rules! two_way_message {
     ($message_type: ty, $opcode: expr) => {
         impl ToMessageBody for $message_type {
             fn tmb(self, context_id: u64) -> MessageBody {
-                let json = serde_json::to_string(&self).expect ("Serialization problem");
+                let json = serde_json::to_string(&self).expect("Serialization problem");
                 MessageBody {
                     opcode: $opcode.to_string(),
                     path: TwoWay(context_id),
-                    payload: Ok(json)
+                    payload: Ok(json),
                 }
             }
         }
@@ -73,7 +74,7 @@ macro_rules! two_way_message {
         impl FromMessageBody for $message_type {
             fn fmb(body: MessageBody) -> Result<(Self, u64), UiMessageError> {
                 if body.opcode != $opcode {
-                    return Err(BadOpcode)
+                    return Err(BadOpcode);
                 };
                 let payload = match body.payload {
                     Ok(json) => match serde_json::from_str::<Self>(&json) {
@@ -83,7 +84,7 @@ macro_rules! two_way_message {
                     Err((code, message)) => return Err(PayloadError(code, message)),
                 };
                 let context_id = match body.path {
-                    TwoWay (context_id) => context_id,
+                    TwoWay(context_id) => context_id,
                     OneWay => return Err(BadPath),
                 };
                 Ok((payload, context_id))
@@ -139,7 +140,7 @@ pub struct UiSetupValue {
 }
 
 impl UiSetupValue {
-    pub fn new (name: &str, value: &str) -> UiSetupValue {
+    pub fn new(name: &str, value: &str) -> UiSetupValue {
         UiSetupValue {
             name: name.to_string(),
             value: value.to_string(),
@@ -149,13 +150,19 @@ impl UiSetupValue {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiSetup {
-    pub values: Vec<UiSetupValue>
+    pub values: Vec<UiSetupValue>,
 }
 two_way_message!(UiSetup, "setup");
 impl UiSetup {
-    pub fn new (pairs: Vec<(&str, &str)>) -> UiSetup {
-        UiSetup{
-            values: pairs.into_iter().map(|(name, value)| UiSetupValue{name: name.to_string(), value: value.to_string()}).collect()
+    pub fn new(pairs: Vec<(&str, &str)>) -> UiSetup {
+        UiSetup {
+            values: pairs
+                .into_iter()
+                .map(|(name, value)| UiSetupValue {
+                    name: name.to_string(),
+                    value: value.to_string(),
+                })
+                .collect(),
         }
     }
 }
@@ -166,9 +173,6 @@ two_way_message!(UiStartOrder, "start");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiStartResponse {
-    pub descriptor: String,
-    #[serde(rename = "logFile")]
-    pub log_file: String,
     #[serde(rename = "newProcessId")]
     pub new_process_id: i32,
     #[serde(rename = "redirectUiPort")]
@@ -183,39 +187,40 @@ one_way_message!(UiShutdownOrder, "shutdownOrder");
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::MessagePath::{TwoWay, OneWay};
-    use crate::ui_gateway::messages::UiMessageError::{DeserializationError, BadOpcode, PayloadError, BadPath};
+    use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
+    use crate::ui_gateway::messages::UiMessageError::{
+        BadOpcode, BadPath, DeserializationError, PayloadError,
+    };
 
     #[test]
     fn can_serialize_ui_financials_response() {
-        let subject = UiFinancialsResponse{
-            payables: vec![
-                UiPayableAccount {
-                    wallet: "wallet".to_string(),
-                    age: 3456,
-                    amount: 4567,
-                    pending_transaction: Some("5678".to_string())
-                }
-            ],
+        let subject = UiFinancialsResponse {
+            payables: vec![UiPayableAccount {
+                wallet: "wallet".to_string(),
+                age: 3456,
+                amount: 4567,
+                pending_transaction: Some("5678".to_string()),
+            }],
             total_payable: 1234,
-            receivables: vec![
-                UiReceivableAccount {
-                    wallet: "tellaw".to_string(),
-                    age: 6789,
-                    amount: 7890
-                }
-            ],
+            receivables: vec![UiReceivableAccount {
+                wallet: "tellaw".to_string(),
+                age: 6789,
+                amount: 7890,
+            }],
             total_receivable: 2345,
         };
-        let subject_json = serde_json::to_string (&subject).unwrap();
+        let subject_json = serde_json::to_string(&subject).unwrap();
 
         let result: MessageBody = UiFinancialsResponse::tmb(subject, 1357);
 
-        assert_eq! (result, MessageBody {
-            opcode: "financials".to_string(),
-            path: TwoWay(1357),
-            payload: Ok(subject_json)
-        });
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "financials".to_string(),
+                path: TwoWay(1357),
+                payload: Ok(subject_json)
+            }
+        );
     }
 
     #[test]
@@ -227,16 +232,18 @@ mod tests {
                 "receivables": [],
                 "totalReceivable": 2345
             }
-        "#.to_string();
+        "#
+        .to_string();
         let message_body = MessageBody {
             opcode: "booga".to_string(),
             path: TwoWay(1234),
-            payload: Ok(json)
+            payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
+            UiFinancialsResponse::fmb(message_body);
 
-        assert_eq! (result, Err(BadOpcode))
+        assert_eq!(result, Err(BadOpcode))
     }
 
     #[test]
@@ -248,16 +255,18 @@ mod tests {
                 "receivables": [],
                 "totalReceivable": 2345
             }
-        "#.to_string();
+        "#
+        .to_string();
         let message_body = MessageBody {
             opcode: "financials".to_string(),
             path: OneWay,
-            payload: Ok(json)
+            payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
+            UiFinancialsResponse::fmb(message_body);
 
-        assert_eq! (result, Err(BadPath))
+        assert_eq!(result, Err(BadPath))
     }
 
     #[test]
@@ -265,12 +274,13 @@ mod tests {
         let message_body = MessageBody {
             opcode: "financials".to_string(),
             path: TwoWay(1234),
-            payload: Err((100, "error".to_string()))
+            payload: Err((100, "error".to_string())),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
+            UiFinancialsResponse::fmb(message_body);
 
-        assert_eq! (result, Err(PayloadError(100, "error".to_string())))
+        assert_eq!(result, Err(PayloadError(100, "error".to_string())))
     }
 
     #[test]
@@ -279,12 +289,18 @@ mod tests {
         let message_body = MessageBody {
             opcode: "financials".to_string(),
             path: TwoWay(1234),
-            payload: Ok(json)
+            payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
+            UiFinancialsResponse::fmb(message_body);
 
-        assert_eq! (result, Err(DeserializationError("Error(\"expected value\", line: 1, column: 1)".to_string())))
+        assert_eq!(
+            result,
+            Err(DeserializationError(
+                "Error(\"expected value\", line: 1, column: 1)".to_string()
+            ))
+        )
     }
 
     #[test]
@@ -305,51 +321,55 @@ mod tests {
                 }],
                 "totalReceivable": 2345
             }
-        "#.to_string();
+        "#
+        .to_string();
         let message_body = MessageBody {
             opcode: "financials".to_string(),
             path: TwoWay(4321),
-            payload: Ok(json)
+            payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> = UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
+            UiFinancialsResponse::fmb(message_body);
 
-        assert_eq! (result, Ok((
-            UiFinancialsResponse {
-                payables: vec![
-                    UiPayableAccount {
+        assert_eq!(
+            result,
+            Ok((
+                UiFinancialsResponse {
+                    payables: vec![UiPayableAccount {
                         wallet: "wallet".to_string(),
                         age: 3456,
                         amount: 4567,
                         pending_transaction: Some("transaction".to_string())
-                    }
-                ],
-                total_payable: 1234,
-                receivables: vec![
-                    UiReceivableAccount {
+                    }],
+                    total_payable: 1234,
+                    receivables: vec![UiReceivableAccount {
                         wallet: "tellaw".to_string(),
                         age: 6789,
                         amount: 7890
-                    }
-                ],
-                total_receivable: 2345
-            },
-            4321
-        )));
+                    }],
+                    total_receivable: 2345
+                },
+                4321
+            ))
+        );
     }
 
     #[test]
     fn can_serialize_ui_shutdown_order() {
-        let subject = UiShutdownOrder{};
-        let subject_json = serde_json::to_string (&subject).unwrap();
+        let subject = UiShutdownOrder {};
+        let subject_json = serde_json::to_string(&subject).unwrap();
 
         let result: MessageBody = subject.tmb(1357);
 
-        assert_eq! (result, MessageBody {
-            opcode: "shutdownOrder".to_string(),
-            path: OneWay,
-            payload: Ok(subject_json)
-        });
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "shutdownOrder".to_string(),
+                path: OneWay,
+                payload: Ok(subject_json)
+            }
+        );
     }
 
     #[test]
@@ -358,12 +378,13 @@ mod tests {
         let message_body = MessageBody {
             opcode: "booga".to_string(),
             path: OneWay,
-            payload: Ok(json)
+            payload: Ok(json),
         };
 
-        let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(message_body);
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> =
+            UiShutdownOrder::fmb(message_body);
 
-        assert_eq! (result, Err(BadOpcode))
+        assert_eq!(result, Err(BadOpcode))
     }
 
     #[test]
@@ -372,12 +393,13 @@ mod tests {
         let message_body = MessageBody {
             opcode: "shutdownOrder".to_string(),
             path: TwoWay(0),
-            payload: Ok(json)
+            payload: Ok(json),
         };
 
-        let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(message_body);
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> =
+            UiShutdownOrder::fmb(message_body);
 
-        assert_eq! (result, Err(BadPath))
+        assert_eq!(result, Err(BadPath))
     }
 
     #[test]
@@ -385,12 +407,13 @@ mod tests {
         let message_body = MessageBody {
             opcode: "shutdownOrder".to_string(),
             path: OneWay,
-            payload: Err((100, "error".to_string()))
+            payload: Err((100, "error".to_string())),
         };
 
-        let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(message_body);
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> =
+            UiShutdownOrder::fmb(message_body);
 
-        assert_eq! (result, Err(PayloadError(100, "error".to_string())))
+        assert_eq!(result, Err(PayloadError(100, "error".to_string())))
     }
 
     #[test]
@@ -399,12 +422,18 @@ mod tests {
         let message_body = MessageBody {
             opcode: "shutdownOrder".to_string(),
             path: OneWay,
-            payload: Ok(json)
+            payload: Ok(json),
         };
 
-        let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(message_body);
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> =
+            UiShutdownOrder::fmb(message_body);
 
-        assert_eq! (result, Err(DeserializationError("Error(\"expected value\", line: 1, column: 1)".to_string())))
+        assert_eq!(
+            result,
+            Err(DeserializationError(
+                "Error(\"expected value\", line: 1, column: 1)".to_string()
+            ))
+        )
     }
 
     #[test]
@@ -413,11 +442,12 @@ mod tests {
         let message_body = MessageBody {
             opcode: "shutdownOrder".to_string(),
             path: OneWay,
-            payload: Ok(json)
+            payload: Ok(json),
         };
 
-        let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(message_body);
+        let result: Result<(UiShutdownOrder, u64), UiMessageError> =
+            UiShutdownOrder::fmb(message_body);
 
-        assert_eq! (result, Ok((UiShutdownOrder {}, 0)));
+        assert_eq!(result, Ok((UiShutdownOrder {}, 0)));
     }
 }

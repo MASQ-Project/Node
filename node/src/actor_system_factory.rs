@@ -694,7 +694,7 @@ mod tests {
 
     #[derive(Clone)]
     struct Parameters<'a> {
-        proxy_client_params: Arc<Mutex<Option<(ProxyClientConfig)>>>,
+        proxy_client_params: Arc<Mutex<Option<ProxyClientConfig>>>,
         proxy_server_params:
             Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,

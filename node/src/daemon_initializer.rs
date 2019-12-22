@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
-use crate::sub_lib::main_tools::{Command, StdStreams};
-use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-use crate::ui_gateway::UiGateway;
 use crate::daemon::{Daemon, DaemonBindMessage};
-use crate::sub_lib::ui_gateway::{UiGatewayConfig, NodeFromUiMessage, NodeToUiMessage};
+use crate::node_configurator::node_configurator_initialization::InitializationConfig;
+use crate::sub_lib::main_tools::{Command, StdStreams};
+use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiGatewayConfig};
+use crate::ui_gateway::UiGateway;
 use actix::{Actor, Recipient};
 
 pub struct Recipients {
@@ -24,8 +24,9 @@ impl RecipientsFactory for RecipientsFactoryReal {
     fn make(&self, ui_port: u16) -> Recipients {
         let ui_gateway_addr = UiGateway::new(&UiGatewayConfig {
             ui_port,
-            node_descriptor: "".to_string() // irrelevant; field should be removed
-        }).start();
+            node_descriptor: "".to_string(), // irrelevant; field should be removed
+        })
+        .start();
         let daemon_addr = Daemon::new().start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient::<NodeFromUiMessage>(),
@@ -58,19 +59,22 @@ impl Command for DaemonInitializer {
             from_ui_message_recipient: recipients.ui_gateway_from_sub,
             from_ui_message_recipients: recipients.from_ui_subs,
         };
-        recipients.bind_message_subs.into_iter()
-            .for_each(|sub| {
-                sub.try_send(bind_message.clone()).expect("DaemonBindMessage recipient is dead")
-            });
+        recipients.bind_message_subs.into_iter().for_each(|sub| {
+            sub.try_send(bind_message.clone())
+                .expect("DaemonBindMessage recipient is dead")
+        });
         0
     }
 }
 
 impl DaemonInitializer {
-    pub fn new (config: InitializationConfig, recipients_factory: Box<dyn RecipientsFactory>) -> DaemonInitializer {
+    pub fn new(
+        config: InitializationConfig,
+        recipients_factory: Box<dyn RecipientsFactory>,
+    ) -> DaemonInitializer {
         DaemonInitializer {
             config,
-            recipients_factory
+            recipients_factory,
         }
     }
 }
@@ -78,16 +82,16 @@ impl DaemonInitializer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::recorder::{make_recorder, Recorder};
-    use actix::System;
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-    use crate::test_utils::FakeStreamHolder;
+    use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
     use crate::sub_lib::main_tools::Command;
-    use std::cell::RefCell;
+    use crate::test_utils::recorder::{make_recorder, Recorder};
+    use crate::test_utils::FakeStreamHolder;
+    use actix::System;
     use itertools::Itertools;
-    use crate::node_configurator::{RealDirsWrapper, DirsWrapper};
+    use std::cell::RefCell;
 
-    struct RecipientsFactoryMock{
+    struct RecipientsFactoryMock {
         ui_gateway: RefCell<Option<Recorder>>,
         actors: RefCell<Option<Vec<Recorder>>>,
         ui_port: RefCell<Option<u16>>,
@@ -104,9 +108,15 @@ mod tests {
 
             let actors = self.actors.borrow_mut().take().unwrap();
             let actor_addrs = actors.into_iter().map(|actor| actor.start()).collect_vec();
-            let from_ui_subs = actor_addrs.iter().map(|addr| addr.clone().recipient::<NodeFromUiMessage>()).collect_vec();
-            let mut bind_message_subs = actor_addrs.into_iter().map(|addr| addr.recipient::<DaemonBindMessage>()).collect_vec();
-            bind_message_subs.push (ui_gateway_addr.recipient::<DaemonBindMessage>());
+            let from_ui_subs = actor_addrs
+                .iter()
+                .map(|addr| addr.clone().recipient::<NodeFromUiMessage>())
+                .collect_vec();
+            let mut bind_message_subs = actor_addrs
+                .into_iter()
+                .map(|addr| addr.recipient::<DaemonBindMessage>())
+                .collect_vec();
+            bind_message_subs.push(ui_gateway_addr.recipient::<DaemonBindMessage>());
             Recipients {
                 ui_gateway_from_sub,
                 ui_gateway_to_sub,
@@ -117,39 +127,40 @@ mod tests {
     }
 
     impl RecipientsFactoryMock {
-        pub fn new (ui_gateway: Recorder, actors: Vec<Recorder>) -> RecipientsFactoryMock {
+        pub fn new(ui_gateway: Recorder, actors: Vec<Recorder>) -> RecipientsFactoryMock {
             RecipientsFactoryMock {
-                ui_gateway: RefCell::new (Some (ui_gateway)),
-                actors: RefCell::new (Some (actors)),
-                ui_port: RefCell::new (None),
+                ui_gateway: RefCell::new(Some(ui_gateway)),
+                actors: RefCell::new(Some(actors)),
+                ui_port: RefCell::new(None),
             }
         }
     }
 
     #[test]
-    fn go_binds_everything_together () {
+    fn go_binds_everything_together() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (one_actor, _, one_actor_recording_arc) = make_recorder();
         let (another_actor, _, another_actor_recording_arc) = make_recorder();
-        let system = System::new ("test");
+        let system = System::new("test");
         let config = InitializationConfig {
-            chain_id: 0, // irrelevant
+            chain_id: 0,                     // irrelevant
             config_file: Default::default(), // irrelevant
-            data_directory: RealDirsWrapper{}.data_dir().unwrap(),
+            data_directory: RealDirsWrapper {}.data_dir().unwrap(),
             db_password_opt: None, // irrelevant
             real_user: Default::default(),
-            ui_port: 1234
+            ui_port: 1234,
         };
-        let recipients_factory = RecipientsFactoryMock::new(ui_gateway, vec![one_actor, another_actor]);
-        let mut subject = DaemonInitializer::new (config, Box::new (recipients_factory));
+        let recipients_factory =
+            RecipientsFactoryMock::new(ui_gateway, vec![one_actor, another_actor]);
+        let mut subject = DaemonInitializer::new(config, Box::new(recipients_factory));
 
         let result = subject.go(&mut FakeStreamHolder::new().streams(), &vec![]);
 
         System::current().stop();
         system.run();
-        assert_eq! (result, 0);
-        assert_eq! (ui_gateway_recording_arc.lock().unwrap().len(), 1);
-        assert_eq! (one_actor_recording_arc.lock().unwrap().len(), 1);
-        assert_eq! (another_actor_recording_arc.lock().unwrap().len(), 1);
+        assert_eq!(result, 0);
+        assert_eq!(ui_gateway_recording_arc.lock().unwrap().len(), 1);
+        assert_eq!(one_actor_recording_arc.lock().unwrap().len(), 1);
+        assert_eq!(another_actor_recording_arc.lock().unwrap().len(), 1);
     }
 }

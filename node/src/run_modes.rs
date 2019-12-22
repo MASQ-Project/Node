@@ -1,7 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal};
 use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_generate_wallet::NodeConfiguratorGenerateWallet;
+use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
 use crate::node_configurator::node_configurator_recover_wallet::NodeConfiguratorRecoverWallet;
 use crate::node_configurator::{NodeConfigurator, WalletCreationConfig};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
@@ -9,8 +11,6 @@ use crate::server_initializer::ServerInitializer;
 use crate::sub_lib::main_tools::{Command, StdStreams};
 use actix::System;
 use futures::future::Future;
-use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
-use crate::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -39,10 +39,10 @@ fn determine_mode(args: &Vec<String>) -> Mode {
     } else if args.contains(&"--generate-wallet".to_string()) {
         Mode::GenerateWallet
     } else if args.contains(&"--initialization".to_string()) {
-eprintln! ("Initialization mode");
+        eprintln!("Initialization mode");
         Mode::Initialization
     } else {
-eprintln! ("Service mode");
+        eprintln!("Service mode");
         Mode::RunTheNode
     }
 }
@@ -75,11 +75,11 @@ fn dump_config(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
 }
 
 fn initialization(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
-    let configurator = NodeConfiguratorInitialization{};
+    let configurator = NodeConfiguratorInitialization {};
     let config = configurator.configure(args, streams);
     let factory = RecipientsFactoryReal::new();
-    let mut initializer = DaemonInitializer::new (config, Box::new(factory));
-    let system = System::new ("daemon");
+    let mut initializer = DaemonInitializer::new(config, Box::new(factory));
+    let system = System::new("daemon");
     initializer.go(streams, args);
     system.run();
     1 // If it exits here, rather than as a result of handling a signal, it's an error
@@ -139,11 +139,23 @@ mod tests {
 
     #[test]
     fn everything_beats_initialization() {
-        check_mode(&["--initialization", "--generate-wallet"], Mode::GenerateWallet);
-        check_mode(&["--initialization", "--recover-wallet"], Mode::RecoverWallet);
+        check_mode(
+            &["--initialization", "--generate-wallet"],
+            Mode::GenerateWallet,
+        );
+        check_mode(
+            &["--initialization", "--recover-wallet"],
+            Mode::RecoverWallet,
+        );
         check_mode(&["--initialization", "--dump-config"], Mode::DumpConfig);
-        check_mode(&["--generate-wallet", "--initialization"], Mode::GenerateWallet);
-        check_mode(&["--recover-wallet", "--initialization"], Mode::RecoverWallet);
+        check_mode(
+            &["--generate-wallet", "--initialization"],
+            Mode::GenerateWallet,
+        );
+        check_mode(
+            &["--recover-wallet", "--initialization"],
+            Mode::RecoverWallet,
+        );
         check_mode(&["--dump-config", "--initialization"], Mode::DumpConfig);
     }
 
@@ -153,7 +165,12 @@ mod tests {
             ["--booga", "--goober", "--generate-wallet", "--dump-config"],
             ["--booga", "--goober", "--recover-wallet", "--dump-config"],
             ["--booga", "--goober", "--initialization", "--dump-config"],
-            ["--generate-wallet", "--recover_wallet", "--initialization", "--dump-config"],
+            [
+                "--generate-wallet",
+                "--recover_wallet",
+                "--initialization",
+                "--dump-config",
+            ],
         ]
         .into_iter()
         .for_each(|args| check_mode(args, Mode::DumpConfig));

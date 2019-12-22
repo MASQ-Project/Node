@@ -1,8 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use node_lib::sub_lib::ui_gateway::MessageTarget::ClientId;
+use node_lib::sub_lib::ui_gateway::NodeFromUiMessage;
+use node_lib::sub_lib::utils::localhost;
 use node_lib::test_utils::TEST_DEFAULT_CHAIN_NAME;
+use node_lib::ui_gateway::messages::{FromMessageBody, ToMessageBody, UiMessageError};
+use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
 use std::env;
 use std::io;
+use std::net::TcpStream;
 use std::ops::Drop;
 use std::path::Path;
 use std::process;
@@ -10,14 +16,8 @@ use std::process::Output;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use websocket::{ClientBuilder, OwnedMessage};
-use node_lib::sub_lib::utils::localhost;
-use node_lib::sub_lib::ui_gateway::{NodeFromUiMessage};
-use std::net::TcpStream;
 use websocket::client::sync::Client;
-use node_lib::ui_gateway::ui_traffic_converter::{UiTrafficConverterReal, UiTrafficConverter};
-use node_lib::ui_gateway::messages::{UiMessageError, FromMessageBody, ToMessageBody};
-use node_lib::sub_lib::ui_gateway::MessageTarget::ClientId;
+use websocket::{ClientBuilder, OwnedMessage};
 
 pub struct MASQNode {
     pub logfile_contents: String,
@@ -222,7 +222,7 @@ impl MASQNode {
         Self::remove_database();
         let mut command = command_to_start();
         let mut args = Self::daemon_args();
-        args.extend(Self::get_extra_args (config));
+        args.extend(Self::get_extra_args(config));
         command.args(&args);
         command
     }
@@ -361,46 +361,55 @@ pub struct UiConnection {
 }
 
 impl UiConnection {
-    pub fn new (port: u16, protocol: &str) -> UiConnection {
+    pub fn new(port: u16, protocol: &str) -> UiConnection {
         let client = ClientBuilder::new(format!("ws://{}:{}", localhost(), port).as_str())
             .unwrap()
             .add_protocol(protocol)
-            .connect_insecure().unwrap();
+            .connect_insecure()
+            .unwrap();
         UiConnection {
             client,
             context_id: 0,
-            converter: UiTrafficConverterReal{},
+            converter: UiTrafficConverterReal {},
         }
     }
 
-    pub fn send<T: ToMessageBody> (&mut self, payload: T) {
+    pub fn send<T: ToMessageBody>(&mut self, payload: T) {
         let context_id = self.context_id;
         self.context_id += 1;
         let outgoing_msg = NodeFromUiMessage {
             client_id: 0, // irrelevant: will be replaced on the other end
-            body: payload.tmb(context_id)
+            body: payload.tmb(context_id),
         };
         let outgoing_msg_json = self.converter.new_marshal_from_ui(outgoing_msg);
-        self.client.send_message(&OwnedMessage::Text(outgoing_msg_json)).unwrap();
+        self.client
+            .send_message(&OwnedMessage::Text(outgoing_msg_json))
+            .unwrap();
     }
 
-    pub fn receive<T: FromMessageBody> (&mut self) -> Result<T, (u64, String)> {
+    pub fn receive<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
         let incoming_msg_json = match self.client.recv_message() {
             Ok(OwnedMessage::Text(json)) => json,
             x => panic!("Expected text; received {:?}", x),
         };
-        let incoming_msg = self.converter.new_unmarshal_to_ui(&incoming_msg_json, ClientId(0)).expect("Deserialization problem");
+        let incoming_msg = self
+            .converter
+            .new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
+            .expect("Deserialization problem");
         let opcode = incoming_msg.body.opcode.clone();
         let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body);
         match result {
             Ok((payload, _)) => Ok(payload),
-            Err(UiMessageError::PayloadError(code, message)) => Err ((code, message)),
-            Err(e) => panic! ("Deserialization problem for {}: {:?}", opcode, e),
+            Err(UiMessageError::PayloadError(code, message)) => Err((code, message)),
+            Err(e) => panic!("Deserialization problem for {}: {:?}", opcode, e),
         }
     }
 
-    pub fn transact<S: ToMessageBody, R: FromMessageBody> (&mut self, payload: S) -> Result<R, (u64, String)> {
-        self.send (payload);
+    pub fn transact<S: ToMessageBody, R: FromMessageBody>(
+        &mut self,
+        payload: S,
+    ) -> Result<R, (u64, String)> {
+        self.send(payload);
         self.receive::<R>()
     }
 }

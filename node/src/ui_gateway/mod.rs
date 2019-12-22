@@ -8,6 +8,7 @@ mod websocket_supervisor;
 #[cfg(test)]
 pub mod websocket_supervisor_mock;
 
+use crate::daemon::DaemonBindMessage;
 use crate::sub_lib::accountant::GetFinancialStatisticsMessage;
 use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
@@ -27,7 +28,6 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use crate::daemon::DaemonBindMessage;
 
 // TODO: Once we switch all the way over to MASQNode-UIv2 protocol, this entire struct should
 // disappear.
@@ -133,7 +133,7 @@ impl Handler<FromUiMessage> for StubRecipient {
 
 impl StubRecipient {
     fn make() -> Recipient<FromUiMessage> {
-        StubRecipient{}.start().recipient::<FromUiMessage>()
+        StubRecipient {}.start().recipient::<FromUiMessage>()
     }
 }
 //TODO Remove this when MASQNode-UIv2 takes over completely
@@ -299,12 +299,12 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::wait_for;
+    use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
 
     impl Default for UiGatewayOutSubs {
         fn default() -> Self {
@@ -464,7 +464,10 @@ mod tests {
         System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.get_record::<NodeFromUiMessage>(0), &msg);
+        assert_eq!(
+            accountant_recording.get_record::<NodeFromUiMessage>(0),
+            &msg
+        );
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         assert_eq!(
             neighborhood_recording.get_record::<NodeFromUiMessage>(0),

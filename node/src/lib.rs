@@ -25,7 +25,6 @@ pub mod json_discriminator_factory;
 pub mod json_framer;
 pub mod json_masquerader;
 mod listener_handler;
-pub mod main;
 pub mod masquerader;
 pub mod neighborhood;
 pub mod node_configurator;

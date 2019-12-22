@@ -13,22 +13,23 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
+use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantConfig, GetFinancialStatisticsMessage};
 use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
-use crate::sub_lib::accountant::{
-    ReportExitServiceConsumedMessage,
-};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{
-    NodeFromUiMessage, NodeToUiMessage, UiCarrierMessage, UiMessage,
-};
+use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
+use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
+use crate::ui_gateway::messages::{
+    FromMessageBody, ToMessageBody, UiFinancialsRequest, UiFinancialsResponse, UiMessageError,
+    UiPayableAccount, UiReceivableAccount,
+};
 use actix::Actor;
 use actix::Addr;
 use actix::AsyncContext;
@@ -43,8 +44,6 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use crate::ui_gateway::messages::{UiReceivableAccount, UiFinancialsResponse, UiPayableAccount, UiFinancialsRequest, UiMessageError, FromMessageBody, ToMessageBody};
-use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -284,10 +283,14 @@ impl Handler<NodeFromUiMessage> for Accountant {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        let result: Result<(UiFinancialsRequest, u64), UiMessageError> = UiFinancialsRequest::fmb(msg.body);
+        let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
+            UiFinancialsRequest::fmb(msg.body);
         match result {
-            Ok ((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
-            Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
+            Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
+            Err(e) => error!(
+                &self.logger,
+                "Bad {} request from client {}: {:?}", opcode, client_id, e
+            ),
         }
     }
 }
@@ -630,11 +633,15 @@ impl Accountant {
             total_payable: total_payable,
             receivables,
             total_receivable: total_receivable,
-        }.tmb (context_id);
+        }
+        .tmb(context_id);
         self.ui_message_sub
             .as_ref()
             .expect("UiGateway not bound")
-            .try_send(NodeToUiMessage {target: ClientId(client_id), body})
+            .try_send(NodeToUiMessage {
+                target: ClientId(client_id),
+                body,
+            })
             .expect("UiGateway is dead");
     }
 }
@@ -665,6 +672,9 @@ pub mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::ui_gateway::messages::{
+        UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
+    };
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
@@ -678,7 +688,6 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
-    use crate::ui_gateway::messages::{UiReceivableAccount, UiPayableAccount, UiFinancialsResponse};
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -1151,8 +1160,9 @@ pub mod tests {
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
-        TestLogHandler::new()
-            .exists_log_containing("ERROR: Accountant: Bad booga request from client 1234: BadOpcode");
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: Accountant: Bad booga request from client 1234: BadOpcode",
+        );
     }
 
     #[test]

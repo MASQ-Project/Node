@@ -1,6 +1,8 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::ui_gateway::{FromUiMessage, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use crate::sub_lib::ui_gateway::{
+    FromUiMessage, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
+};
 use crate::sub_lib::utils::localhost;
 use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
 use actix::Recipient;
@@ -354,7 +356,7 @@ impl WebSocketSupervisorReal {
         socket_addr: SocketAddr,
         message_type: &str,
     ) -> FutureResult<(), ()> {
-eprintln! ("Handling other");
+        eprintln!("Handling other");
         info!(
             logger,
             "UI at {} sent unexpected {} message; ignoring", socket_addr, message_type

@@ -3,7 +3,10 @@
 use crate::blockchain::blockchain_interface::DEFAULT_GAS_PRICE;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator;
-use crate::node_configurator::{app_head, chain_arg, common_validators, config_file_arg, data_directory_arg, db_password_arg, earning_wallet_arg, initialize_database, real_user_arg, NodeConfigurator, ui_port_arg};
+use crate::node_configurator::{
+    app_head, chain_arg, common_validators, config_file_arg, data_directory_arg, db_password_arg,
+    earning_wallet_arg, initialize_database, real_user_arg, ui_port_arg, NodeConfigurator,
+};
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;

@@ -114,7 +114,7 @@ mod tests {
     struct UdpSocketWrapperMock {
         guts: Arc<Mutex<UdpSocketWrapperMockGuts>>,
         recv_from_results: Arc<Mutex<Vec<Result<Async<(usize, SocketAddr)>, Error>>>>,
-        send_to_results: Arc<Mutex<Vec<Result<Async<(usize)>, Error>>>>,
+        send_to_results: Arc<Mutex<Vec<Result<Async<usize>, Error>>>>,
     }
 
     impl UdpSocketWrapperTrait for UdpSocketWrapperMock {
@@ -141,7 +141,7 @@ mod tests {
             result
         }
 
-        fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<(usize)>, Error> {
+        fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<usize>, Error> {
             let mut unwrapped_guts = self.guts.lock().unwrap();
             let guts_ref = unwrapped_guts.borrow_mut();
             let guts: &mut UdpSocketWrapperMockGuts = guts_ref.deref_mut();

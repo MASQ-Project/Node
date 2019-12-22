@@ -24,6 +24,7 @@ use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::logger::Logger;
+use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -35,7 +36,6 @@ use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
-use crate::sub_lib::neighborhood::{ExpectedService};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
@@ -47,6 +47,7 @@ use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiCarrierMe
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
+use crate::ui_gateway::messages::{FromMessageBody, UiMessageError, UiShutdownOrder};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -61,10 +62,9 @@ use itertools::Itertools;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
-use std::convert::{TryFrom};
+use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::ui_gateway::messages::{UiShutdownOrder, UiMessageError, FromMessageBody};
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -296,8 +296,11 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
         let opcode = msg.body.opcode.clone();
         let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(msg.body);
         match result {
-            Ok ((payload, _)) => self.handle_shutdown_order(client_id, payload),
-            Err(e) => error! (&self.logger, "Bad {} request from client {}: {:?}", opcode, client_id, e),
+            Ok((payload, _)) => self.handle_shutdown_order(client_id, payload),
+            Err(e) => error!(
+                &self.logger,
+                "Bad {} request from client {}: {:?}", opcode, client_id, e
+            ),
         }
     }
 }

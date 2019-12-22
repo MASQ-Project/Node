@@ -1,17 +1,18 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 pub mod node_configurator_generate_wallet;
+pub mod node_configurator_initialization;
 pub mod node_configurator_recover_wallet;
 pub mod node_configurator_standard;
-pub mod node_configurator_initialization;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_NAME};
-use crate::node_configurator::node_configurator_standard::UI_PORT_HELP;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
+use crate::node_configurator::node_configurator_standard::DEFAULT_UI_PORT_VALUE;
+use crate::node_configurator::node_configurator_standard::UI_PORT_HELP;
 use crate::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -22,7 +23,6 @@ use crate::sub_lib::wallet::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_
 use bip39::Language;
 use clap::{crate_description, crate_version, value_t, App, AppSettings, Arg};
 use dirs::{data_local_dir, home_dir};
-use crate::node_configurator::node_configurator_standard::DEFAULT_UI_PORT_VALUE;
 use rpassword;
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
@@ -121,7 +121,7 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .required(false)
         .takes_value(true)
         .empty_values(false)
-//        .default_value(&DEFAULT_DATA_DIR_VALUE)
+        //        .default_value(&DEFAULT_DATA_DIR_VALUE)
         .help(DATA_DIRECTORY_HELP)
 }
 
@@ -201,7 +201,7 @@ pub fn ui_port_arg<'a>() -> Arg<'a, 'a> {
         .long("ui-port")
         .value_name("UI-PORT")
         .takes_value(true)
-        .default_value( & DEFAULT_UI_PORT_VALUE)
+        .default_value(&DEFAULT_UI_PORT_VALUE)
         .validator(crate::node_configurator::common_validators::validate_ui_port)
         .help(&UI_PORT_HELP)
 }
@@ -227,16 +227,16 @@ pub fn determine_config_file_path(app: &App, args: &Vec<String>) -> (PathBuf, bo
         Box::new(EnvironmentVcl::new(app)),
         Box::new(CommandLineVcl::new(args.clone())),
     )
-        .vcl_args()
-        .into_iter()
-        .filter(|vcl_arg|
-            (vcl_arg.name() == "--chain") ||
-            (vcl_arg.name() == "--real-user") ||
-            (vcl_arg.name() == "--data-directory") ||
-            (vcl_arg.name() == "--config-file")
-        )
-        .map(|vcl_arg| vcl_arg.dup())
-        .collect();
+    .vcl_args()
+    .into_iter()
+    .filter(|vcl_arg| {
+        (vcl_arg.name() == "--chain")
+            || (vcl_arg.name() == "--real-user")
+            || (vcl_arg.name() == "--data-directory")
+            || (vcl_arg.name() == "--config-file")
+    })
+    .map(|vcl_arg| vcl_arg.dup())
+    .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
     let multi_config = MultiConfig::new(&orientation_schema, vec![Box::new(orientation_vcl)]);
     let config_file_path =
@@ -306,7 +306,7 @@ pub fn real_user_data_directory_and_chain_id(
 
     let chain_name =
         value_m!(multi_config, "chain", String).expect("--chain improperly defined in clap schema");
-    let dirs_wrapper = RealDirsWrapper{};
+    let dirs_wrapper = RealDirsWrapper {};
 
     let data_directory = match value_m!(multi_config, "data-directory", PathBuf) {
         Some(data_directory) => data_directory,
@@ -554,9 +554,9 @@ pub fn flushed_write(target: &mut dyn io::Write, string: &str) {
 }
 
 pub mod common_validators {
+    use crate::node_configurator::node_configurator_standard::LOWEST_USABLE_INSECURE_PORT;
     use regex::Regex;
     use tiny_hderive::bip44::DerivationPath;
-    use crate::node_configurator::node_configurator_standard::LOWEST_USABLE_INSECURE_PORT;
 
     pub fn validate_earning_wallet(value: String) -> Result<(), String> {
         validate_ethereum_address(value.clone()).or_else(|_| validate_derivation_path(value))

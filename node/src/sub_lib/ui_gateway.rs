@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::accountant::FinancialStatisticsMessage;
 use crate::sub_lib::peer_actors::BindMessage;
-use actix::{Message};
+use actix::Message;
 use actix::Recipient;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};

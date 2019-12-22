@@ -15,8 +15,11 @@ pub trait UiTrafficConverter: Send {
 
     fn new_marshal_from_ui(&self, msg: NodeFromUiMessage) -> String;
     fn new_marshal_to_ui(&self, msg: NodeToUiMessage) -> String;
-    fn new_unmarshal_from_ui(&self, json: &str, client_id: u64)
-        -> Result<NodeFromUiMessage, String>;
+    fn new_unmarshal_from_ui(
+        &self,
+        json: &str,
+        client_id: u64,
+    ) -> Result<NodeFromUiMessage, String>;
     fn new_unmarshal_to_ui(
         &self,
         json: &str,
