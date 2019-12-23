@@ -60,7 +60,7 @@ fn wait_for_process_end(process_id: i32) {
             )
         }
         system.refresh_all();
-        #[cfg (target_os = "windows")]
+        #[cfg(target_os = "windows")]
         let process_id = process_id as usize;
         if system.get_process(process_id).is_none() {
             break;
