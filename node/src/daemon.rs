@@ -3,7 +3,6 @@
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use crate::test_utils::find_free_port;
 use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 use crate::ui_gateway::messages::{
     FromMessageBody, ToMessageBody, UiMessageError, UiSetup, UiSetupValue, UiStartOrder,
@@ -15,6 +14,11 @@ use std::collections::HashMap;
 use std::iter::FromIterator;
 
 use crate::sub_lib::main_tools::main_with_args;
+
+
+#[cfg(not(target_os = "windows"))]
+use crate::test_utils::find_free_port;
+#[cfg(not(target_os = "windows"))]
 use itertools::Itertools;
 #[cfg(not(target_os = "windows"))]
 use nix::unistd::{fork, ForkResult};
