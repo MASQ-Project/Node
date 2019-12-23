@@ -13,9 +13,8 @@ use actix::{Actor, Context, Handler, Message};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 
+#[cfg(not(target_os = "windows"))]
 use crate::sub_lib::main_tools::main_with_args;
-
-
 #[cfg(not(target_os = "windows"))]
 use crate::test_utils::find_free_port;
 #[cfg(not(target_os = "windows"))]
