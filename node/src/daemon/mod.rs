@@ -1,83 +1,70 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
+pub mod daemon_initializer;
+#[cfg(target_os = "windows")]
+mod launcher_windows;
+#[cfg(not(target_os = "windows"))]
+mod launcher_not_windows;
+
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
-use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, MessageBody};
 use crate::ui_gateway::messages::UiMessageError::BadOpcode;
-use crate::ui_gateway::messages::{
-    FromMessageBody, ToMessageBody, UiMessageError, UiSetup, UiSetupValue, UiStartOrder,
-    UiStartResponse,
-};
+use crate::ui_gateway::messages::{FromMessageBody, ToMessageBody, UiMessageError, UiSetup, UiSetupValue, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR};
 use actix::Recipient;
 use actix::{Actor, Context, Handler, Message};
 use std::collections::HashMap;
 use std::iter::FromIterator;
+use std::sync::mpsc::{Sender, Receiver};
+use crate::daemon::launcher_not_windows::Launcher;
+use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
 
-#[cfg(not(target_os = "windows"))]
-use crate::sub_lib::main_tools::main_with_args;
-#[cfg(not(target_os = "windows"))]
-use crate::test_utils::find_free_port;
-#[cfg(not(target_os = "windows"))]
-use itertools::Itertools;
-#[cfg(not(target_os = "windows"))]
-use nix::unistd::{fork, ForkResult};
+pub struct Recipients {
+    ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
+    ui_gateway_to_sub: Recipient<NodeToUiMessage>,
+    from_ui_subs: Vec<Recipient<NodeFromUiMessage>>,
+    bind_message_subs: Vec<Recipient<DaemonBindMessage>>,
+}
+
+pub trait RecipientsFactory {
+    fn make(&self, args_sender: Sender<HashMap<String, String>>, ui_port: u16) -> Recipients;
+}
+
+pub struct RecipientsFactoryReal {}
+
+impl RecipientsFactoryReal {
+    pub fn new() -> Self {
+        RecipientsFactoryReal {}
+    }
+}
+
+pub trait ChannelFactory {
+    fn make(&self) -> (Sender<HashMap<String, String>>, Receiver<HashMap<String, String>>);
+}
+
+pub struct ChannelFactoryReal {}
+
+impl ChannelFactoryReal {
+    pub fn new() -> ChannelFactoryReal {
+        ChannelFactoryReal{}
+    }
+}
+
+pub struct LaunchSuccess {
+    pub new_process_id: i32,
+    pub redirect_ui_port: u16,
+}
+
+pub enum LaunchError {
+    #[allow (dead_code)]
+    Unknown
+}
 
 #[derive(Message, PartialEq, Clone)]
 pub struct DaemonBindMessage {
     pub to_ui_message_recipient: Recipient<NodeToUiMessage>, // for everybody to send UI-bound messages to
     pub from_ui_message_recipient: Recipient<NodeFromUiMessage>, // for the WebsocketSupervisor to send inbound UI messages to the UiGateway
     pub from_ui_message_recipients: Vec<Recipient<NodeFromUiMessage>>, // for the UiGateway to relay inbound UI messages to everybody
-}
-
-struct LaunchSuccess {
-    pub new_process_id: i32,
-    pub redirect_ui_port: u16,
-}
-
-enum LaunchError {}
-
-trait Launcher {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError>;
-}
-
-struct LauncherReal {}
-
-impl Launcher for LauncherReal {
-    #[cfg(not(target_os = "windows"))]
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
-        let ui_port = find_free_port();
-        let mut actual_params: HashMap<String, String> =
-            HashMap::from_iter(params.clone().into_iter());
-        actual_params.insert("ui-port".to_string(), format!("{}", ui_port));
-        let sorted_params = actual_params
-            .into_iter()
-            .sorted_by_key(|pair| pair.0.clone())
-            .flat_map(|(name, value)| vec![format!("--{}", name), value])
-            .collect_vec();
-        match fork() {
-            Ok(ForkResult::Parent { child, .. }) => Ok(LaunchSuccess {
-                new_process_id: child.as_raw(),
-                redirect_ui_port: ui_port,
-            }),
-            Ok(ForkResult::Child) => {
-                // TODO: send shutdown message to UiGateway or actor system or whatever
-                let exit_code = main_with_args(&sorted_params);
-                std::process::exit(exit_code);
-            }
-            Err(_e) => unimplemented!(),
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    fn launch(&self, _params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
-        unimplemented!()
-    }
-}
-
-impl LauncherReal {
-    fn new() -> Self {
-        Self {}
-    }
 }
 
 pub struct Daemon {
@@ -129,11 +116,11 @@ impl Handler<NodeFromUiMessage> for Daemon {
 }
 
 impl Daemon {
-    pub fn new() -> Daemon {
+    pub fn new(launcher: Box<dyn Launcher>) -> Daemon {
         let mut params = HashMap::new();
         params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
         Daemon {
-            launcher: Box::new(LauncherReal::new()),
+            launcher,
             params,
             ui_gateway_sub: None,
             logger: Logger::new("Daemon"),
@@ -182,20 +169,33 @@ impl Daemon {
     fn handle_start_order(&mut self, client_id: u64, context_id: u64) {
         match self.launcher.launch(self.params.drain().collect()) {
             Ok(success) => self
-                .ui_gateway_sub
-                .as_ref()
-                .expect("UiGateway is unbound")
-                .try_send(NodeToUiMessage {
-                    target: ClientId(client_id),
-                    body: UiStartResponse {
-                        new_process_id: success.new_process_id,
-                        redirect_ui_port: success.redirect_ui_port,
-                    }
-                    .tmb(context_id),
-                })
-                .expect("UiGateway is dead"),
-            Err(_e) => unimplemented!(),
+                .respond_to_ui (client_id, UiStartResponse {
+                    new_process_id: success.new_process_id,
+                    redirect_ui_port: success.redirect_ui_port,
+                }
+                .tmb(context_id)),
+            Err(LaunchError::Unknown) => self
+                .respond_to_ui (client_id, MessageBody {
+                    opcode: "start".to_string(),
+                    path: TwoWay(context_id),
+                    payload: Err((
+                        NODE_LAUNCH_ERROR,
+                        "Could not launch Node".to_string()
+                    ))
+                }),
         }
+    }
+
+    fn respond_to_ui(&self, client_id: u64, body: MessageBody) {
+        self
+            .ui_gateway_sub
+            .as_ref()
+            .expect("UiGateway is unbound")
+            .try_send(NodeToUiMessage {
+                target: ClientId(client_id),
+                body,
+            })
+            .expect("UiGateway is dead")
     }
 }
 
@@ -204,12 +204,12 @@ mod tests {
     use super::*;
     use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::ui_gateway::messages::{UiSetup, UiStartOrder, UiStartResponse};
+    use crate::ui_gateway::messages::{UiSetup, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR};
     use actix::System;
-    use std::cell::RefCell;
     use std::collections::HashSet;
-    use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
+    use std::cell::RefCell;
+    use crate::daemon::{LaunchSuccess, LaunchError};
 
     struct LauncherMock {
         launch_params: Arc<Mutex<Vec<HashMap<String, String>>>>,
@@ -257,7 +257,7 @@ mod tests {
     fn accepts_empty_setup_and_returns_defaults() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let subject = Daemon::new();
+        let subject = Daemon::new(Box::new(LauncherMock::new()));
         let subject_addr = subject.start();
         subject_addr
             .try_send(make_bind_message(ui_gateway))
@@ -306,7 +306,7 @@ mod tests {
     fn accepts_full_setup_and_returns_settings_then_remembers_them() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let subject = Daemon::new();
+        let subject = Daemon::new(Box::new(LauncherMock::new()));
         let subject_addr = subject.start();
         subject_addr
             .try_send(make_bind_message(ui_gateway))
@@ -384,18 +384,117 @@ mod tests {
     }
 
     #[test]
-    fn accepts_start_order_and_calls_launcher() {
+    fn overrides_defaults() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let subject = Daemon::new(Box::new(LauncherMock::new()));
+        let subject_addr = subject.start();
+        subject_addr
+            .try_send(make_bind_message(ui_gateway))
+            .unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiSetup {
+                    values: vec![
+                        UiSetupValue::new("dns-servers", "192.168.0.1"),
+                    ],
+                }
+                .tmb(4321),
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let record = ui_gateway_recording
+            .get_record::<NodeToUiMessage>(0)
+            .clone();
+        assert_eq!(record.target, ClientId(1234));
+        let (payload, context_id): (UiSetup, u64) = UiSetup::fmb(record.body).unwrap();
+        assert_eq!(context_id, 4321);
+        let actual_pairs: HashMap<String, String> = payload
+            .values
+            .into_iter()
+            .map(|value| (value.name, value.value))
+            .collect();
+        let schema = crate::node_configurator::node_configurator_standard::app();
+        let mut expected_pairs: HashMap<String, String> = schema
+            .p
+            .opts
+            .iter()
+            .flat_map(|opt| {
+                let name = opt.b.name.to_string();
+                match opt.v.default_val {
+                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
+                    None => None,
+                }
+            })
+            .collect();
+        expected_pairs.insert("dns-servers".to_string(), "192.168.0.1".to_string());
+
+        assert_eq!(actual_pairs, expected_pairs);
+    }
+
+    #[test]
+    fn accepts_start_order_launches_and_replies_success() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launch_params_arc = Arc::new(Mutex::new(vec![]));
         let launcher = LauncherMock::new()
             .launch_params(&launch_params_arc)
-            .launch_result(Ok(LaunchSuccess {
-                new_process_id: 1234,
-                redirect_ui_port: 2345,
+            .launch_result(Ok(LaunchSuccess{
+                new_process_id: 2345,
+                redirect_ui_port: 5432
             }));
         let system = System::new("test");
-        let mut subject = Daemon::new();
-        subject.launcher = Box::new(launcher);
+        let mut subject = Daemon::new(Box::new(launcher));
+        subject
+            .params
+            .insert("db-password".to_string(), "goober".to_string());
+        let subject_addr = subject.start();
+        subject_addr
+            .try_send(make_bind_message(ui_gateway))
+            .unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiStartOrder {}.tmb(4321),
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let launch_params = launch_params_arc.lock().unwrap();
+        assert_eq!(*launch_params, vec![HashMap::from_iter(vec![
+            ("db-password", "goober"),
+            ("dns-servers", "1.1.1.1"),
+        ].into_iter().map(|(n, v)| (n.to_string(), v.to_string())))]);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let record = ui_gateway_recording
+            .get_record::<NodeToUiMessage>(0)
+            .clone();
+        assert_eq!(record.target, ClientId(1234));
+        let (payload, context_id): (UiStartResponse, u64) =
+            UiStartResponse::fmb(record.body).unwrap();
+        assert_eq!(context_id, 4321);
+        assert_eq!(
+            payload,
+            UiStartResponse {
+                new_process_id: 2345,
+                redirect_ui_port: 5432
+            }
+        );
+    }
+
+    #[test]
+    fn accepts_start_order_launches_and_replies_failure() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let launcher = LauncherMock::new()
+            .launch_result(Err(LaunchError::Unknown));
+        let system = System::new("test");
+        let mut subject = Daemon::new(Box::new(launcher));
         subject
             .params
             .insert("db-password".to_string(), "goober".to_string());
@@ -418,26 +517,8 @@ mod tests {
             .get_record::<NodeToUiMessage>(0)
             .clone();
         assert_eq!(record.target, ClientId(1234));
-        let (payload, context_id): (UiStartResponse, u64) =
-            UiStartResponse::fmb(record.body).unwrap();
-        assert_eq!(context_id, 4321);
-        assert_eq!(
-            payload,
-            UiStartResponse {
-                new_process_id: 1234,
-                redirect_ui_port: 2345
-            }
-        );
-        let launch_params = launch_params_arc.lock().unwrap();
-        assert_eq!(
-            *launch_params,
-            vec![HashMap::from_iter(
-                vec![
-                    ("db-password".to_string(), "goober".to_string()),
-                    ("dns-servers".to_string(), "1.1.1.1".to_string()),
-                ]
-                .into_iter()
-            )]
-        );
+        let (code, message) = record.body.payload.err().unwrap();
+        assert_eq! (code, NODE_LAUNCH_ERROR);
+        assert_eq! (message, "Could not launch Node".to_string());
     }
 }
