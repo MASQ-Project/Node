@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
-use crate::daemon::{LaunchSuccess, LaunchError, Forker, ForkerReal, LocalForkResult};
+use crate::daemon::{LaunchSuccess, Forker, ForkerReal, LocalForkResult};
 
 impl Forker for ForkerReal {
     fn fork(&self) -> Result<LocalForkResult, String> {
@@ -12,13 +12,13 @@ impl Forker for ForkerReal {
 }
 
 pub trait Launcher {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError>;
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String>;
 }
 
 pub struct LauncherReal {}
 
 impl Launcher for LauncherReal {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
         unimplemented!()
     }
 }
@@ -27,5 +27,15 @@ impl LauncherReal {
     // _sender is needed for the not-Windows side; it's not used here
     pub fn new(_sender: Sender<HashMap<String, String>>) -> Self {
         Self {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nothing () {
+        unimplemented!()
     }
 }
