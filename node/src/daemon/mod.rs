@@ -18,6 +18,7 @@ use std::iter::FromIterator;
 use std::sync::mpsc::{Sender, Receiver};
 use crate::daemon::launcher_not_windows::Launcher;
 use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
+use nix::unistd::{ForkResult, fork};
 
 pub struct Recipients {
     ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
@@ -50,14 +51,28 @@ impl ChannelFactoryReal {
     }
 }
 
+#[derive(PartialEq, Debug)]
 pub struct LaunchSuccess {
     pub new_process_id: i32,
     pub redirect_ui_port: u16,
 }
 
-pub enum LaunchError {
-    #[allow (dead_code)]
-    Unknown
+pub trait Forker {
+    fn fork (&self) -> nix::Result<ForkResult>;
+}
+
+pub struct ForkerReal {}
+
+impl Forker for ForkerReal {
+    fn fork(&self) -> nix::Result<ForkResult> {
+        fork()
+    }
+}
+
+impl ForkerReal {
+    pub fn new () -> Self {
+        Self{}
+    }
 }
 
 #[derive(Message, PartialEq, Clone)]
@@ -174,13 +189,13 @@ impl Daemon {
                     redirect_ui_port: success.redirect_ui_port,
                 }
                 .tmb(context_id)),
-            Err(LaunchError::Unknown) => self
+            Err(s) => self
                 .respond_to_ui (client_id, MessageBody {
                     opcode: "start".to_string(),
                     path: TwoWay(context_id),
                     payload: Err((
                         NODE_LAUNCH_ERROR,
-                        "Could not launch Node".to_string()
+                        format!("Could not launch Node: {}", s),
                     ))
                 }),
         }
@@ -209,15 +224,15 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
     use std::cell::RefCell;
-    use crate::daemon::{LaunchSuccess, LaunchError};
+    use crate::daemon::{LaunchSuccess};
 
     struct LauncherMock {
         launch_params: Arc<Mutex<Vec<HashMap<String, String>>>>,
-        launch_results: RefCell<Vec<Result<LaunchSuccess, LaunchError>>>,
+        launch_results: RefCell<Vec<Result<LaunchSuccess, String>>>,
     }
 
     impl Launcher for LauncherMock {
-        fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
+        fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
             self.launch_params.lock().unwrap().push(params);
             self.launch_results.borrow_mut().remove(0)
         }
@@ -236,7 +251,7 @@ mod tests {
             self
         }
 
-        fn launch_result(self, result: Result<LaunchSuccess, LaunchError>) -> Self {
+        fn launch_result(self, result: Result<LaunchSuccess, String>) -> Self {
             self.launch_results.borrow_mut().push(result);
             self
         }
@@ -492,7 +507,7 @@ mod tests {
     fn accepts_start_order_launches_and_replies_failure() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new()
-            .launch_result(Err(LaunchError::Unknown));
+            .launch_result(Err("booga".to_string()));
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(launcher));
         subject
@@ -519,6 +534,6 @@ mod tests {
         assert_eq!(record.target, ClientId(1234));
         let (code, message) = record.body.payload.err().unwrap();
         assert_eq! (code, NODE_LAUNCH_ERROR);
-        assert_eq! (message, "Could not launch Node".to_string());
+        assert_eq! (message, "Could not launch Node: booga".to_string());
     }
 }

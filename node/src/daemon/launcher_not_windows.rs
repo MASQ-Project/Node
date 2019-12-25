@@ -5,49 +5,140 @@ use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use crate::test_utils::find_free_port;
 use std::iter::FromIterator;
-use itertools::Itertools;
-use nix::unistd::{ForkResult, fork};
-use crate::sub_lib::main_tools::main_with_args;
-use crate::daemon::{LaunchSuccess, LaunchError};
+use nix::unistd::{ForkResult};
+use crate::daemon::{LaunchSuccess, Forker};
+use actix::System;
 
 pub trait Launcher {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError>;
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String>;
 }
 
 pub struct LauncherReal {
-    _sender: Sender<HashMap<String, String>>
+    forker: Box<dyn Forker>,
+    sender: Sender<HashMap<String, String>>,
 }
 
 impl Launcher for LauncherReal {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
         let ui_port = find_free_port();
-        let mut actual_params: HashMap<String, String> =
-            HashMap::from_iter(params.clone().into_iter());
-        actual_params.insert("ui-port".to_string(), format!("{}", ui_port));
-        let sorted_params = actual_params
-            .into_iter()
-            .sorted_by_key(|pair| pair.0.clone())
-            .flat_map(|(name, value)| vec![format!("--{}", name), value])
-            .collect_vec();
-        match fork() {
+        match self.forker.fork() {
             Ok(ForkResult::Parent { child, .. }) => Ok(LaunchSuccess {
                 new_process_id: child.as_raw(),
                 redirect_ui_port: ui_port,
             }),
             Ok(ForkResult::Child) => {
-                // TODO: send shutdown message to UiGateway or actor system or whatever
-                let exit_code = main_with_args(&sorted_params);
-                std::process::exit(exit_code);
+                let mut actual_params: HashMap<String, String> =
+                    HashMap::from_iter(params.clone().into_iter());
+                actual_params.insert("ui-port".to_string(), format!("{}", ui_port));
+                self.sender.send (actual_params).expect ("DaemonInitializer is dead");
+                System::current().stop();
+                // This is useless information
+                Ok(LaunchSuccess {new_process_id: 0, redirect_ui_port: 0})
             }
-            Err(_e) => unimplemented!(),
+            Err(e) => Err(format!("{:?}", e)),
         }
     }
 }
 
 impl LauncherReal {
-    pub fn new(sender: Sender<HashMap<String, String>>) -> Self {
+    pub fn new(forker: Box<dyn Forker>, sender: Sender<HashMap<String, String>>) -> Self {
         Self {
-            _sender: sender
+            forker,
+            sender
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use nix::unistd::Pid;
+    use std::sync::mpsc::TryRecvError;
+    use actix::System;
+
+    struct ForkerMock {
+        fork_results: RefCell<Vec<nix::Result<ForkResult>>>
+    }
+
+    impl Forker for ForkerMock {
+        fn fork(&self) -> nix::Result<ForkResult> {
+            self.fork_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl ForkerMock {
+        fn new () -> Self {
+            ForkerMock {
+                fork_results: RefCell::new (vec![]),
+            }
+        }
+
+        fn fork_result (self, result: nix::Result<ForkResult>) -> Self {
+            self.fork_results.borrow_mut().push (result);
+            self
+        }
+    }
+
+    #[test]
+    fn launch_as_parent_calls_forker_and_returns_without_sending_parameters_or_killing_system_on_success () {
+        let forker = ForkerMock::new()
+            .fork_result(Ok(ForkResult::Parent {
+                child: Pid::from_raw(1234)
+            }));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let subject = LauncherReal::new (Box::new (forker), sender);
+        let params = HashMap::from_iter(vec![
+            ("bname".to_string(), "bvalue".to_string()),
+            ("aname".to_string(), "avalue".to_string())
+        ].into_iter());
+
+        let result = subject.launch (params).unwrap();
+
+        assert_eq! (result.new_process_id, 1234);
+        assert! (result.redirect_ui_port > 1024); // dunno what exactly will be picked
+        let sent_params = receiver.try_recv();
+        assert_eq! (sent_params, Err(TryRecvError::Empty));
+        // Since no actor system is running, if the subject did a System::current().stop(), this test would die.
+    }
+
+    #[test]
+    fn launch_as_child_calls_forker_and_sends_parameters_and_kills_system_on_success () {
+        let forker = ForkerMock::new()
+            .fork_result(Ok(ForkResult::Child));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let subject = LauncherReal::new (Box::new (forker), sender);
+        let params = HashMap::from_iter(vec![
+            ("bname".to_string(), "bvalue".to_string()),
+            ("aname".to_string(), "avalue".to_string())
+        ].into_iter());
+        let system = System::new("test");
+
+        let result = subject.launch (params.clone()).unwrap();
+
+        system.run(); // this should return immediately, because launch() already sent the stop message.
+        assert_eq! (result.new_process_id, 0); // irrelevant
+        assert_eq! (result.redirect_ui_port, 0); // irrelevant
+        let sent_params = receiver.recv().unwrap();
+        assert_eq! (sent_params.get ("aname").unwrap(), "avalue");
+        assert_eq! (sent_params.get ("bname").unwrap(), "bvalue");
+        let ui_port = sent_params.get ("ui-port").unwrap().parse::<u16>().unwrap();
+        assert! (ui_port > 1024); // dunno what exactly will be picked
+    }
+
+    #[test]
+    fn launch_as_calls_forker_and_returns_failure () {
+        let forker = ForkerMock::new()
+            .fork_result(Err(nix::Error::UnsupportedOperation));
+        let (sender, _) = std::sync::mpsc::channel();
+        let subject = LauncherReal::new (Box::new (forker), sender);
+        let params = HashMap::from_iter(vec![
+            ("bname".to_string(), "bvalue".to_string()),
+            ("aname".to_string(), "avalue".to_string())
+        ].into_iter());
+
+        let result = subject.launch (params).err().unwrap();
+
+        assert_eq! (result, format! ("{:?}", nix::Error::UnsupportedOperation));
     }
 }

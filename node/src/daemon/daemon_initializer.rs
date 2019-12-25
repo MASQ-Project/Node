@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
-use crate::daemon::{Daemon, DaemonBindMessage, RecipientsFactory, ChannelFactory, RecipientsFactoryReal, ChannelFactoryReal, Recipients};
+use crate::daemon::{Daemon, DaemonBindMessage, RecipientsFactory, ChannelFactory, RecipientsFactoryReal, ChannelFactoryReal, Recipients, ForkerReal};
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
 use crate::sub_lib::main_tools::{Command, StdStreams, main_with_args};
 use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiGatewayConfig};
@@ -21,7 +21,7 @@ impl RecipientsFactory for RecipientsFactoryReal {
             node_descriptor: "".to_string(), // irrelevant; field should be removed
         })
         .start();
-        let launcher = LauncherReal::new(args_sender);
+        let launcher = LauncherReal::new(Box::new (ForkerReal::new()), args_sender);
         let daemon_addr = Daemon::new(Box::new (launcher)).start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient::<NodeFromUiMessage>(),
