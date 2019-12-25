@@ -55,22 +55,8 @@ pub struct LaunchSuccess {
     pub redirect_ui_port: u16,
 }
 
-// TODO: This can go away and be replaced by ForkResult now
-pub enum LocalForkResult {
-    Parent (i32),
-    Child,
-}
-
-pub trait Forker {
-    fn fork (&self) -> Result<LocalForkResult, String>;
-}
-
-pub struct ForkerReal {}
-
-impl ForkerReal {
-    pub fn new () -> Self {
-        Self{}
-    }
+pub trait Launcher {
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String>;
 }
 
 #[derive(Message, PartialEq, Clone)]
