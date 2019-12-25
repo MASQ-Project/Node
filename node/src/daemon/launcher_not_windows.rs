@@ -33,13 +33,13 @@ pub struct LauncherReal {
 }
 
 impl Launcher for LauncherReal {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
+    fn launch(&self, params: HashMap<String, String>) -> Result<Option<LaunchSuccess>, String> {
         let redirect_ui_port = find_free_port();
         match self.forker.fork() {
-            Ok(ForkResult::Parent {child}) => Ok(LaunchSuccess {
-                new_process_id: child.as_raw(),
+            Ok(ForkResult::Parent {child}) => Ok(Some (LaunchSuccess {
+                new_process_id: child.as_raw() as u32,
                 redirect_ui_port,
-            }),
+            })),
             Ok(ForkResult::Child) => {
                 let mut actual_params: HashMap<String, String> =
                     HashMap::from_iter(params.clone().into_iter());
@@ -47,7 +47,7 @@ impl Launcher for LauncherReal {
                 self.sender.send (actual_params).expect ("DaemonInitializer is dead");
                 System::current().stop();
                 // This is useless information
-                Ok(LaunchSuccess {new_process_id: 0, redirect_ui_port: 0})
+                Ok(None)
             }
             Err(e) => Err(format!("{}", e)),
         }
@@ -106,7 +106,7 @@ mod tests {
             ("aname".to_string(), "avalue".to_string())
         ].into_iter());
 
-        let result = subject.launch (params).unwrap();
+        let result = subject.launch (params).unwrap().unwrap();
 
         assert_eq! (result.new_process_id, 1234);
         assert! (result.redirect_ui_port > 1024); // dunno what exactly will be picked
@@ -131,8 +131,7 @@ mod tests {
         let result = subject.launch (params.clone()).unwrap();
 
         system.run(); // this should return immediately, because launch() already sent the stop message.
-        assert_eq! (result.new_process_id, 0); // irrelevant
-        assert_eq! (result.redirect_ui_port, 0); // irrelevant
+        assert_eq! (result, None);
         let sent_params = receiver.recv().unwrap();
         assert_eq! (sent_params.get ("aname").unwrap(), "avalue");
         assert_eq! (sent_params.get ("bname").unwrap(), "bvalue");

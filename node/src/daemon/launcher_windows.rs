@@ -38,7 +38,7 @@ pub struct LauncherReal {
 }
 
 impl Launcher for LauncherReal {
-    fn launch(&self, mut params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
+    fn launch(&self, mut params: HashMap<String, String>) -> Result<Option<LaunchSuccess>, String> {
         let redirect_ui_port = find_free_port();
         params.insert("ui-port".to_string(), format!("{}", redirect_ui_port));
         let params_vec = params
@@ -47,10 +47,10 @@ impl Launcher for LauncherReal {
             .flat_map (|(n, v)| vec![format!("--{}", n), v])
             .collect_vec();
         match self.execer.exec (params_vec) {
-            Ok (new_process_id) => Ok (LaunchSuccess {
+            Ok (new_process_id) => Ok (Some (LaunchSuccess {
                 new_process_id,
                 redirect_ui_port
-            }),
+            })),
             Err (s) => Err(s)
         }
     }

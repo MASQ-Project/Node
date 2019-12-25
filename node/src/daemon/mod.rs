@@ -56,7 +56,7 @@ pub struct LaunchSuccess {
 }
 
 pub trait Launcher {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String>;
+    fn launch(&self, params: HashMap<String, String>) -> Result<Option<LaunchSuccess>, String>;
 }
 
 #[derive(Message, PartialEq, Clone)]
@@ -167,12 +167,13 @@ impl Daemon {
 
     fn handle_start_order(&mut self, client_id: u64, context_id: u64) {
         match self.launcher.launch(self.params.drain().collect()) {
-            Ok(success) => self
+            Ok(Some(success)) => self
                 .respond_to_ui (client_id, UiStartResponse {
                     new_process_id: success.new_process_id,
                     redirect_ui_port: success.redirect_ui_port,
                 }
                 .tmb(context_id)),
+            Ok(None) => (),
             Err(s) => self
                 .respond_to_ui (client_id, MessageBody {
                     opcode: "start".to_string(),
@@ -212,11 +213,11 @@ mod tests {
 
     struct LauncherMock {
         launch_params: Arc<Mutex<Vec<HashMap<String, String>>>>,
-        launch_results: RefCell<Vec<Result<LaunchSuccess, String>>>,
+        launch_results: RefCell<Vec<Result<Option<LaunchSuccess>, String>>>,
     }
 
     impl Launcher for LauncherMock {
-        fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
+        fn launch(&self, params: HashMap<String, String>) -> Result<Option<LaunchSuccess>, String> {
             self.launch_params.lock().unwrap().push(params);
             self.launch_results.borrow_mut().remove(0)
         }
@@ -235,7 +236,7 @@ mod tests {
             self
         }
 
-        fn launch_result(self, result: Result<LaunchSuccess, String>) -> Self {
+        fn launch_result(self, result: Result<Option<LaunchSuccess>, String>) -> Self {
             self.launch_results.borrow_mut().push(result);
             self
         }
@@ -437,15 +438,15 @@ mod tests {
     }
 
     #[test]
-    fn accepts_start_order_launches_and_replies_success() {
+    fn accepts_start_order_launches_and_replies_parent_success() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launch_params_arc = Arc::new(Mutex::new(vec![]));
         let launcher = LauncherMock::new()
             .launch_params(&launch_params_arc)
-            .launch_result(Ok(LaunchSuccess{
+            .launch_result(Ok(Some(LaunchSuccess{
                 new_process_id: 2345,
                 redirect_ui_port: 5432
-            }));
+            })));
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(launcher));
         subject
@@ -485,6 +486,34 @@ mod tests {
                 redirect_ui_port: 5432
             }
         );
+    }
+
+    #[test]
+    fn accepts_start_order_launches_and_replies_child_success() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let launcher = LauncherMock::new()
+            .launch_result(Ok(None));
+        let system = System::new("test");
+        let mut subject = Daemon::new(Box::new(launcher));
+        subject
+            .params
+            .insert("db-password".to_string(), "goober".to_string());
+        let subject_addr = subject.start();
+        subject_addr
+            .try_send(make_bind_message(ui_gateway))
+            .unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiStartOrder {}.tmb(4321),
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq! (ui_gateway_recording.len(), 0);
     }
 
     #[test]

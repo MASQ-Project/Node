@@ -62,7 +62,7 @@ fn wait_for_process_end(process_id: u32) {
         system.refresh_all();
         #[cfg(target_os = "windows")]
         let process_id = process_id as usize;
-        if system.get_process(process_id).is_none() {
+        if system.get_process(process_id as i32).is_none() {
             break;
         }
         std::thread::sleep(Duration::from_millis(500))
