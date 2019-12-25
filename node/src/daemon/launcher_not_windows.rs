@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn launch_as_calls_forker_and_returns_failure () {
+    fn launch_calls_forker_and_returns_failure () {
         let forker = ForkerMock::new()
             .fork_result(Err("Booga!".to_string()));
         let (sender, _) = std::sync::mpsc::channel();
