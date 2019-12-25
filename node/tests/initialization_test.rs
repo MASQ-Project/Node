@@ -49,7 +49,7 @@ fn initialization_sequence_integration() {
     node.wait_for_exit().unwrap();
 }
 
-fn wait_for_process_end(process_id: i32) {
+fn wait_for_process_end(process_id: u32) {
     let mut system = System::new();
     let deadline = SystemTime::now().add(Duration::from_millis(2000));
     loop {

@@ -51,7 +51,7 @@ impl ChannelFactoryReal {
 
 #[derive(PartialEq, Debug)]
 pub struct LaunchSuccess {
-    pub new_process_id: i32,
+    pub new_process_id: u32,
     pub redirect_ui_port: u16,
 }
 

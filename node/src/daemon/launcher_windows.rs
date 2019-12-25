@@ -6,16 +6,24 @@ use std::sync::mpsc::Sender;
 use crate::daemon::{LaunchSuccess, Launcher};
 use crate::test_utils::find_free_port;
 use itertools::Itertools;
+use std::process::Command;
 
 pub trait Execer {
-    fn exec (&self, params: Vec<String>) -> Result<i32, String>;
+    fn exec (&self, params: Vec<String>) -> Result<u32, String>;
 }
 
 pub struct ExecerReal {}
 
 impl Execer for ExecerReal {
-    fn exec(&self, _params: Vec<String>) -> Result<i32, String> {
-        unimplemented!()
+    fn exec(&self, params: Vec<String>) -> Result<u32, String> {
+        let exe_path = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(e) => return Err (format! ("Cannot find executable: {:?}", e)),
+        };
+        match Command::new (exe_path).args (params).spawn () {
+            Ok(child) => Ok(child.id()),
+            Err(e) => return Err (format! ("Cannot execute command: {:?}", e)),
+        }
     }
 }
 
@@ -35,6 +43,7 @@ impl Launcher for LauncherReal {
         params.insert("ui-port".to_string(), format!("{}", redirect_ui_port));
         let params_vec = params
             .into_iter ()
+            .sorted_by_key (|(n, _)| n.clone())
             .flat_map (|(n, v)| vec![format!("--{}", n), v])
             .collect_vec();
         match self.execer.exec (params_vec) {
@@ -65,11 +74,11 @@ mod tests {
 
     struct ExecerMock {
         exec_params: Arc<Mutex<Vec<Vec<String>>>>,
-        exec_results: RefCell<Vec<Result<i32, String>>>
+        exec_results: RefCell<Vec<Result<u32, String>>>
     }
 
     impl Execer for ExecerMock {
-        fn exec(&self, params: Vec<String>) -> Result<i32, String> {
+        fn exec(&self, params: Vec<String>) -> Result<u32, String> {
             self.exec_params.lock().unwrap().push (params);
             self.exec_results.borrow_mut().remove(0)
         }
@@ -88,7 +97,7 @@ mod tests {
             self
         }
 
-        fn exec_result(self, result: Result<i32, String>) -> Self {
+        fn exec_result(self, result: Result<u32, String>) -> Self {
             self.exec_results.borrow_mut().push (result);
             self
         }

@@ -176,7 +176,7 @@ two_way_message!(UiStartOrder, "start");
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiStartResponse {
     #[serde(rename = "newProcessId")]
-    pub new_process_id: i32,
+    pub new_process_id: u32,
     #[serde(rename = "redirectUiPort")]
     pub redirect_ui_port: u16,
 }
