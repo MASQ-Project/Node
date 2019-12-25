@@ -116,7 +116,7 @@ mod tests {
             ("ui-port".to_string(), "5333".to_string()),
         ].into_iter());
 
-        let result = subject.launch (params.clone()).unwrap();
+        let result = subject.launch (params.clone()).unwrap().unwrap();
 
         assert_eq! (result.new_process_id, 1234);
         assert! (result.redirect_ui_port > 1024);

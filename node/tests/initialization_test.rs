@@ -11,6 +11,7 @@ use sysinfo::{System, SystemExt};
 use utils::CommandConfig;
 use utils::MASQNode;
 use utils::UiConnection;
+use std::convert::TryInto;
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -62,7 +63,7 @@ fn wait_for_process_end(process_id: u32) {
         system.refresh_all();
         #[cfg(target_os = "windows")]
         let process_id = process_id as usize;
-        if system.get_process(process_id as i32).is_none() {
+        if system.get_process((process_id).try_into().unwrap()).is_none() {
             break;
         }
         std::thread::sleep(Duration::from_millis(500))
