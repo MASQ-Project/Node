@@ -11,7 +11,7 @@ use std::collections::HashMap;
 #[cfg(not(target_os = "windows"))]
 use crate::daemon::launcher_not_windows::{LauncherReal};
 #[cfg(target_os = "windows")]
-use crate::daemon::launcher_windows::{Launcher, LauncherReal};
+use crate::daemon::launcher_windows::{LauncherReal};
 use itertools::Itertools;
 
 impl RecipientsFactory for RecipientsFactoryReal {

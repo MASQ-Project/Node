@@ -8,7 +8,7 @@ use crate::daemon::{LaunchSuccess, LaunchError, Forker, ForkerReal, LocalForkRes
 pub struct LauncherReal {}
 
 impl Launcher for LauncherReal {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError> {
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
         unimplemented!()
     }
 }
@@ -17,5 +17,15 @@ impl LauncherReal {
     // _sender is needed for the not-Windows side; it's not used here
     pub fn new(_sender: Sender<HashMap<String, String>>) -> Self {
         Self {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nothing () {
+        unimplemented!()
     }
 }
