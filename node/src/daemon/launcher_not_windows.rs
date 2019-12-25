@@ -6,8 +6,19 @@ use std::sync::mpsc::Sender;
 use crate::test_utils::find_free_port;
 use std::iter::FromIterator;
 use nix::unistd::{ForkResult, fork};
-use crate::daemon::{LaunchSuccess, Forker, ForkerReal, LocalForkResult};
+use crate::daemon::{LaunchSuccess, Launcher};
 use actix::System;
+
+pub enum LocalForkResult {
+    Parent (i32),
+    Child,
+}
+
+pub trait Forker {
+    fn fork (&self) -> Result<LocalForkResult, String>;
+}
+
+pub struct ForkerReal {}
 
 impl Forker for ForkerReal {
     fn fork(&self) -> Result<LocalForkResult, String> {
@@ -19,8 +30,10 @@ impl Forker for ForkerReal {
     }
 }
 
-pub trait Launcher {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String>;
+impl ForkerReal {
+    pub fn new () -> Self {
+        Self{}
+    }
 }
 
 pub struct LauncherReal {
@@ -51,9 +64,9 @@ impl Launcher for LauncherReal {
 }
 
 impl LauncherReal {
-    pub fn new(forker: Box<dyn Forker>, sender: Sender<HashMap<String, String>>) -> Self {
+    pub fn new(sender: Sender<HashMap<String, String>>) -> Self {
         Self {
-            forker,
+            forker: Box::new (ForkerReal::new()),
             sender
         }
     }
@@ -94,7 +107,8 @@ mod tests {
         let forker = ForkerMock::new()
             .fork_result(Ok(LocalForkResult::Parent (1234)));
         let (sender, receiver) = std::sync::mpsc::channel();
-        let subject = LauncherReal::new (Box::new (forker), sender);
+        let mut subject = LauncherReal::new (sender);
+        subject.forker = Box::new (forker);
         let params = HashMap::from_iter(vec![
             ("bname".to_string(), "bvalue".to_string()),
             ("aname".to_string(), "avalue".to_string())
@@ -114,7 +128,8 @@ mod tests {
         let forker = ForkerMock::new()
             .fork_result(Ok(LocalForkResult::Child));
         let (sender, receiver) = std::sync::mpsc::channel();
-        let subject = LauncherReal::new (Box::new (forker), sender);
+        let mut subject = LauncherReal::new (sender);
+        subject.forker = Box::new (forker);
         let params = HashMap::from_iter(vec![
             ("bname".to_string(), "bvalue".to_string()),
             ("aname".to_string(), "avalue".to_string())
@@ -138,7 +153,8 @@ mod tests {
         let forker = ForkerMock::new()
             .fork_result(Err("Booga!".to_string()));
         let (sender, _) = std::sync::mpsc::channel();
-        let subject = LauncherReal::new (Box::new (forker), sender);
+        let mut subject = LauncherReal::new (sender);
+        subject.forker = Box::new (forker);
         let params = HashMap::from_iter(vec![
             ("bname".to_string(), "bvalue".to_string()),
             ("aname".to_string(), "avalue".to_string())

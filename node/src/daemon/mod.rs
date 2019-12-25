@@ -16,10 +16,6 @@ use actix::{Actor, Context, Handler, Message};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::sync::mpsc::{Sender, Receiver};
-#[cfg(target_os = "windows")]
-use crate::daemon::launcher_windows::Launcher;
-#[cfg(not(target_os = "windows"))]
-use crate::daemon::launcher_not_windows::Launcher;
 use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
 
 pub struct Recipients {
@@ -59,21 +55,8 @@ pub struct LaunchSuccess {
     pub redirect_ui_port: u16,
 }
 
-pub enum LocalForkResult {
-    Parent (i32),
-    Child,
-}
-
-pub trait Forker {
-    fn fork (&self) -> Result<LocalForkResult, String>;
-}
-
-pub struct ForkerReal {}
-
-impl ForkerReal {
-    pub fn new () -> Self {
-        Self{}
-    }
+pub trait Launcher {
+    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String>;
 }
 
 #[derive(Message, PartialEq, Clone)]
