@@ -8,6 +8,8 @@ use crate::ui_gateway::messages::UiMessageError::{
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 
+pub const NODE_LAUNCH_ERROR: u64 = 0x8000_0000_0000_0001;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
     BadOpcode,

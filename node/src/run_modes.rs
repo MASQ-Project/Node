@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal};
 use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_generate_wallet::NodeConfiguratorGenerateWallet;
 use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
@@ -11,6 +10,8 @@ use crate::server_initializer::ServerInitializer;
 use crate::sub_lib::main_tools::{Command, StdStreams};
 use actix::System;
 use futures::future::Future;
+use crate::daemon::{ChannelFactoryReal, RecipientsFactoryReal};
+use crate::daemon::daemon_initializer::{DaemonInitializer, RerunnerReal};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -77,12 +78,14 @@ fn dump_config(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
 fn initialization(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     let configurator = NodeConfiguratorInitialization {};
     let config = configurator.configure(args, streams);
-    let factory = RecipientsFactoryReal::new();
-    let mut initializer = DaemonInitializer::new(config, Box::new(factory));
-    let system = System::new("daemon");
+    let mut initializer = DaemonInitializer::new(
+        config,
+        Box::new(ChannelFactoryReal::new()),
+        Box::new(RecipientsFactoryReal::new()),
+        Box::new(RerunnerReal::new()),
+    );
     initializer.go(streams, args);
-    system.run();
-    1 // If it exits here, rather than as a result of handling a signal, it's an error
+    1
 }
 
 fn configuration_run(

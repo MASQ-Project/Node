@@ -14,7 +14,6 @@ mod bootstrapper;
 mod config_dao;
 mod crash_test_dummy;
 mod daemon;
-mod daemon_initializer;
 pub mod database;
 pub mod discriminator;
 mod dispatcher;
