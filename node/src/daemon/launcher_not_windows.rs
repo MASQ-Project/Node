@@ -5,9 +5,19 @@ use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use crate::test_utils::find_free_port;
 use std::iter::FromIterator;
-use nix::unistd::{ForkResult};
-use crate::daemon::{LaunchSuccess, Forker};
+use nix::unistd::{ForkResult, fork};
+use crate::daemon::{LaunchSuccess, Forker, ForkerReal, LocalForkResult};
 use actix::System;
+
+impl Forker for ForkerReal {
+    fn fork(&self) -> Result<LocalForkResult, String> {
+        match fork() {
+            Ok (ForkResult::Parent{child}) => Ok (LocalForkResult::Parent (child.as_raw())),
+            Ok (ForkResult::Child) => Ok (LocalForkResult::Child),
+            Err (e) => Err (format! ("{:?}", e)),
+        }
+    }
+}
 
 pub trait Launcher {
     fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String>;
@@ -20,22 +30,22 @@ pub struct LauncherReal {
 
 impl Launcher for LauncherReal {
     fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
-        let ui_port = find_free_port();
+        let redirect_ui_port = find_free_port();
         match self.forker.fork() {
-            Ok(ForkResult::Parent { child, .. }) => Ok(LaunchSuccess {
-                new_process_id: child.as_raw(),
-                redirect_ui_port: ui_port,
+            Ok(LocalForkResult::Parent (new_process_id)) => Ok(LaunchSuccess {
+                new_process_id,
+                redirect_ui_port,
             }),
-            Ok(ForkResult::Child) => {
+            Ok(LocalForkResult::Child) => {
                 let mut actual_params: HashMap<String, String> =
                     HashMap::from_iter(params.clone().into_iter());
-                actual_params.insert("ui-port".to_string(), format!("{}", ui_port));
+                actual_params.insert("ui-port".to_string(), format!("{}", redirect_ui_port));
                 self.sender.send (actual_params).expect ("DaemonInitializer is dead");
                 System::current().stop();
                 // This is useless information
                 Ok(LaunchSuccess {new_process_id: 0, redirect_ui_port: 0})
             }
-            Err(e) => Err(format!("{:?}", e)),
+            Err(e) => Err(format!("{}", e)),
         }
     }
 }
@@ -53,16 +63,15 @@ impl LauncherReal {
 mod tests {
     use super::*;
     use std::cell::RefCell;
-    use nix::unistd::Pid;
     use std::sync::mpsc::TryRecvError;
     use actix::System;
 
     struct ForkerMock {
-        fork_results: RefCell<Vec<nix::Result<ForkResult>>>
+        fork_results: RefCell<Vec<Result<LocalForkResult, String>>>
     }
 
     impl Forker for ForkerMock {
-        fn fork(&self) -> nix::Result<ForkResult> {
+        fn fork(&self) -> Result<LocalForkResult, String> {
             self.fork_results.borrow_mut().remove(0)
         }
     }
@@ -74,7 +83,7 @@ mod tests {
             }
         }
 
-        fn fork_result (self, result: nix::Result<ForkResult>) -> Self {
+        fn fork_result (self, result: Result<LocalForkResult, String>) -> Self {
             self.fork_results.borrow_mut().push (result);
             self
         }
@@ -83,9 +92,7 @@ mod tests {
     #[test]
     fn launch_as_parent_calls_forker_and_returns_without_sending_parameters_or_killing_system_on_success () {
         let forker = ForkerMock::new()
-            .fork_result(Ok(ForkResult::Parent {
-                child: Pid::from_raw(1234)
-            }));
+            .fork_result(Ok(LocalForkResult::Parent (1234)));
         let (sender, receiver) = std::sync::mpsc::channel();
         let subject = LauncherReal::new (Box::new (forker), sender);
         let params = HashMap::from_iter(vec![
@@ -105,7 +112,7 @@ mod tests {
     #[test]
     fn launch_as_child_calls_forker_and_sends_parameters_and_kills_system_on_success () {
         let forker = ForkerMock::new()
-            .fork_result(Ok(ForkResult::Child));
+            .fork_result(Ok(LocalForkResult::Child));
         let (sender, receiver) = std::sync::mpsc::channel();
         let subject = LauncherReal::new (Box::new (forker), sender);
         let params = HashMap::from_iter(vec![
@@ -129,7 +136,7 @@ mod tests {
     #[test]
     fn launch_as_calls_forker_and_returns_failure () {
         let forker = ForkerMock::new()
-            .fork_result(Err(nix::Error::UnsupportedOperation));
+            .fork_result(Err("Booga!".to_string()));
         let (sender, _) = std::sync::mpsc::channel();
         let subject = LauncherReal::new (Box::new (forker), sender);
         let params = HashMap::from_iter(vec![
@@ -139,6 +146,6 @@ mod tests {
 
         let result = subject.launch (params).err().unwrap();
 
-        assert_eq! (result, format! ("{:?}", nix::Error::UnsupportedOperation));
+        assert_eq! (result, "Booga!".to_string());
     }
 }

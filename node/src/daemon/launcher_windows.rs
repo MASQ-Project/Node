@@ -3,7 +3,13 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
-use crate::daemon::{LaunchSuccess, LaunchError};
+use crate::daemon::{LaunchSuccess, LaunchError, Forker, ForkerReal, LocalForkResult};
+
+impl Forker for ForkerReal {
+    fn fork(&self) -> Result<LocalForkResult, String> {
+        panic! ("fork() should never be called on Windows")
+    }
+}
 
 pub trait Launcher {
     fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, LaunchError>;

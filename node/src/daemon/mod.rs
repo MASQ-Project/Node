@@ -16,9 +16,11 @@ use actix::{Actor, Context, Handler, Message};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::sync::mpsc::{Sender, Receiver};
+#[cfg(target_os = "windows")]
+use crate::daemon::launcher_windows::Launcher;
+#[cfg(not(target_os = "windows"))]
 use crate::daemon::launcher_not_windows::Launcher;
 use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
-use nix::unistd::{ForkResult, fork};
 
 pub struct Recipients {
     ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
@@ -57,17 +59,16 @@ pub struct LaunchSuccess {
     pub redirect_ui_port: u16,
 }
 
+pub enum LocalForkResult {
+    Parent (i32),
+    Child,
+}
+
 pub trait Forker {
-    fn fork (&self) -> nix::Result<ForkResult>;
+    fn fork (&self) -> Result<LocalForkResult, String>;
 }
 
 pub struct ForkerReal {}
-
-impl Forker for ForkerReal {
-    fn fork(&self) -> nix::Result<ForkResult> {
-        fork()
-    }
-}
 
 impl ForkerReal {
     pub fn new () -> Self {
