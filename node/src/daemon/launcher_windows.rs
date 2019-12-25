@@ -3,7 +3,9 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
-use crate::daemon::{LaunchSuccess};
+use crate::daemon::{LaunchSuccess, Launcher};
+use crate::test_utils::find_free_port;
+use itertools::Itertools;
 
 pub trait Execer {
     fn exec (&self, params: Vec<String>) -> Result<i32, String>;
@@ -12,7 +14,7 @@ pub trait Execer {
 pub struct ExecerReal {}
 
 impl Execer for ExecerReal {
-    fn exec(&self, params: Vec<String>) -> Result<i32, String> {
+    fn exec(&self, _params: Vec<String>) -> Result<i32, String> {
         unimplemented!()
     }
 }
@@ -23,17 +25,25 @@ impl ExecerReal {
     }
 }
 
-pub trait Launcher {
-    fn launch(&self, params: HashMap<String, String>) -> Result<LaunchSuccess, String>;
-}
-
 pub struct LauncherReal {
     execer: Box<dyn Execer>
 }
 
 impl Launcher for LauncherReal {
-    fn launch(&self, _params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
-        unimplemented!()
+    fn launch(&self, mut params: HashMap<String, String>) -> Result<LaunchSuccess, String> {
+        let redirect_ui_port = find_free_port();
+        params.insert("ui-port".to_string(), format!("{}", redirect_ui_port));
+        let params_vec = params
+            .into_iter ()
+            .flat_map (|(n, v)| vec![format!("--{}", n), v])
+            .collect_vec();
+        match self.execer.exec (params_vec) {
+            Ok (new_process_id) => Ok (LaunchSuccess {
+                new_process_id,
+                redirect_ui_port
+            }),
+            Err (s) => Err(s)
+        }
     }
 }
 
