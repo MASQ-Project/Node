@@ -8,7 +8,7 @@ use std::iter::FromIterator;
 use nix::unistd::{ForkResult, fork};
 use crate::daemon::{LaunchSuccess, Launcher};
 use actix::System;
-use crate::daemon::launch_verifier::{LaunchVerification, LaunchVerifier, LaunchVerifierReal};
+use crate::daemon::launch_verifier::{LaunchVerifier, LaunchVerifierReal};
 use crate::daemon::launch_verifier::LaunchVerification::{Launched, CleanFailure, DirtyFailure, InterventionRequired};
 
 pub trait Forker {
@@ -82,7 +82,6 @@ mod tests {
     use std::sync::mpsc::TryRecvError;
     use actix::System;
     use nix::unistd::Pid;
-    use crate::daemon::launch_verifier::LaunchVerification;
     use std::sync::{Mutex, Arc};
     use crate::daemon::launch_verifier::LaunchVerification::{Launched, InterventionRequired, CleanFailure, DirtyFailure};
     use crate::daemon::launch_verifier_mock::LaunchVerifierMock;
