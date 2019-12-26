@@ -5,6 +5,7 @@ pub mod daemon_initializer;
 mod launcher_windows;
 #[cfg(not(target_os = "windows"))]
 mod launcher_not_windows;
+mod launch_verifier;
 
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;

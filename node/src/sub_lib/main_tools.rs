@@ -21,5 +21,6 @@ pub fn main_with_args(args: &Vec<String>) -> i32 {
 
     let streams_ref: &mut StdStreams<'_> = &mut streams;
 
+eprintln! ("main_with_args with args: {:?}", args);
     run_modes::go(args, streams_ref)
 }

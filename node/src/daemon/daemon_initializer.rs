@@ -68,7 +68,9 @@ pub struct RerunnerReal {}
 
 impl Rerunner for RerunnerReal {
     fn rerun(&self, args: Vec<String>) {
-        main_with_args(&args);
+        let mut prefixed_args = vec![String::new()];
+        prefixed_args.extend (args);
+        main_with_args(&prefixed_args);
     }
 }
 

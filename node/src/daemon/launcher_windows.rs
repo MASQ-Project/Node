@@ -51,7 +51,7 @@ impl Launcher for LauncherReal {
                 new_process_id,
                 redirect_ui_port
             })),
-            Err (s) => Err(s)
+            Err (s) => return Err(s)
         }
     }
 }

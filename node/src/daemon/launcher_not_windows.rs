@@ -8,6 +8,8 @@ use std::iter::FromIterator;
 use nix::unistd::{ForkResult, fork};
 use crate::daemon::{LaunchSuccess, Launcher};
 use actix::System;
+use crate::daemon::launch_verifier::{LaunchVerification, LaunchVerifier, LaunchVerifierReal};
+use crate::daemon::launch_verifier::LaunchVerification::{Launched, CleanFailure, DirtyFailure, InterventionRequired};
 
 pub trait Forker {
     fn fork (&self) -> nix::Result<ForkResult>;
@@ -30,16 +32,25 @@ impl ForkerReal {
 pub struct LauncherReal {
     forker: Box<dyn Forker>,
     sender: Sender<HashMap<String, String>>,
+    verifier: Box<dyn LaunchVerifier>,
 }
 
 impl Launcher for LauncherReal {
     fn launch(&self, params: HashMap<String, String>) -> Result<Option<LaunchSuccess>, String> {
         let redirect_ui_port = find_free_port();
         match self.forker.fork() {
-            Ok(ForkResult::Parent {child}) => Ok(Some (LaunchSuccess {
-                new_process_id: child.as_raw() as u32,
-                redirect_ui_port,
-            })),
+            Ok(ForkResult::Parent {child}) => {
+                let child_pid = child.as_raw() as u32;
+                match self.verifier.verify_launch(child_pid, redirect_ui_port) {
+                    Launched => Ok(Some(LaunchSuccess {
+                        new_process_id: child.as_raw() as u32,
+                        redirect_ui_port,
+                    })),
+                    CleanFailure => Err (format! ("Node started in process {}, but died immediately.", child_pid)),
+                    DirtyFailure => Err (format! ("Node started in process {}, but was unresponsive and was successfully killed.", child_pid)),
+                    InterventionRequired => Err (format! ("Node started in process {}, but was unresponsive and could not be killed. Manual intervention is required.", child_pid)),
+                }
+            },
             Ok(ForkResult::Child) => {
                 let mut actual_params: HashMap<String, String> =
                     HashMap::from_iter(params.clone().into_iter());
@@ -58,7 +69,8 @@ impl LauncherReal {
     pub fn new(sender: Sender<HashMap<String, String>>) -> Self {
         Self {
             forker: Box::new (ForkerReal::new()),
-            sender
+            sender,
+            verifier: Box::new (LaunchVerifierReal::new()),
         }
     }
 }
@@ -70,6 +82,9 @@ mod tests {
     use std::sync::mpsc::TryRecvError;
     use actix::System;
     use nix::unistd::Pid;
+    use crate::daemon::launch_verifier::LaunchVerification;
+    use std::sync::{Mutex, Arc};
+    use crate::daemon::launch_verifier::LaunchVerification::{Launched, InterventionRequired, CleanFailure, DirtyFailure};
 
     struct ForkerMock {
         fork_results: RefCell<Vec<nix::Result<ForkResult>>>
@@ -94,13 +109,49 @@ mod tests {
         }
     }
 
+    struct LaunchVerifierMock {
+        verify_launch_params: Arc<Mutex<Vec<(u32, u16)>>>,
+        verify_launch_results: RefCell<Vec<LaunchVerification>>,
+    }
+
+    impl LaunchVerifier for LaunchVerifierMock {
+        fn verify_launch(&self, process_id: u32, ui_port: u16) -> LaunchVerification {
+            self.verify_launch_params.lock().unwrap().push ((process_id, ui_port));
+            self.verify_launch_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl LaunchVerifierMock {
+        fn new () -> Self {
+            LaunchVerifierMock {
+                verify_launch_params: Arc::new(Mutex::new(vec![])),
+                verify_launch_results: RefCell::new(vec![])
+            }
+        }
+
+        fn verify_launch_params (mut self, params: &Arc<Mutex<Vec<(u32, u16)>>>) -> Self {
+            self.verify_launch_params = params.clone();
+            self
+        }
+
+        fn verify_launch_result (self, result: LaunchVerification) -> Self {
+            self.verify_launch_results.borrow_mut().push (result);
+            self
+        }
+    }
+
     #[test]
-    fn launch_as_parent_calls_forker_and_returns_without_sending_parameters_or_killing_system_on_success () {
+    fn launch_as_parent_calls_forker_and_verifier_and_returns_without_sending_parameters_or_killing_system_on_success () {
         let forker = ForkerMock::new()
             .fork_result(Ok(ForkResult::Parent {child: Pid::from_raw(1234)}));
         let (sender, receiver) = std::sync::mpsc::channel();
+        let verify_launch_params_arc = Arc::new(Mutex::new (vec![]));
+        let verifier = LaunchVerifierMock::new()
+            .verify_launch_params(&verify_launch_params_arc)
+            .verify_launch_result(Launched);
         let mut subject = LauncherReal::new (sender);
         subject.forker = Box::new (forker);
+        subject.verifier = Box::new (verifier);
         let params = HashMap::from_iter(vec![
             ("bname".to_string(), "bvalue".to_string()),
             ("aname".to_string(), "avalue".to_string())
@@ -112,6 +163,8 @@ mod tests {
         assert! (result.redirect_ui_port > 1024); // dunno what exactly will be picked
         let sent_params = receiver.try_recv();
         assert_eq! (sent_params, Err(TryRecvError::Empty));
+        let verify_launch_params = verify_launch_params_arc.lock().unwrap();
+        assert_eq! (*verify_launch_params, vec![(1234, result.redirect_ui_port)])
         // Since no actor system is running, if the subject did a System::current().stop(), this test would die.
     }
 
@@ -120,8 +173,10 @@ mod tests {
         let forker = ForkerMock::new()
             .fork_result(Ok(ForkResult::Child));
         let (sender, receiver) = std::sync::mpsc::channel();
+        let verifier = LaunchVerifierMock::new();
         let mut subject = LauncherReal::new (sender);
         subject.forker = Box::new (forker);
+        subject.verifier = Box::new (verifier);
         let params = HashMap::from_iter(vec![
             ("bname".to_string(), "bvalue".to_string()),
             ("aname".to_string(), "avalue".to_string())
@@ -154,5 +209,50 @@ mod tests {
         let result = subject.launch (params).err().unwrap();
 
         assert_eq! (result, "Unsupported Operation".to_string());
+    }
+
+    #[test]
+    fn launch_as_parent_calls_forker_and_verifier_and_returns_clean_failure () {
+        let forker = ForkerMock::new()
+            .fork_result(Ok(ForkResult::Parent {child: Pid::from_raw(1234)}));
+        let verifier = LaunchVerifierMock::new()
+            .verify_launch_result(CleanFailure);
+        let mut subject = LauncherReal::new (std::sync::mpsc::channel().0);
+        subject.forker = Box::new (forker);
+        subject.verifier = Box::new (verifier);
+
+        let result = subject.launch (HashMap::new()).err().unwrap();
+
+        assert_eq! (result, format!("Node started in process 1234, but died immediately."));
+    }
+
+    #[test]
+    fn launch_as_parent_calls_forker_and_verifier_and_returns_dirty_failure () {
+        let forker = ForkerMock::new()
+            .fork_result(Ok(ForkResult::Parent {child: Pid::from_raw(1234)}));
+        let verifier = LaunchVerifierMock::new()
+            .verify_launch_result(DirtyFailure);
+        let mut subject = LauncherReal::new (std::sync::mpsc::channel().0);
+        subject.forker = Box::new (forker);
+        subject.verifier = Box::new (verifier);
+
+        let result = subject.launch (HashMap::new()).err().unwrap();
+
+        assert_eq! (result, format!("Node started in process 1234, but was unresponsive and was successfully killed.", ));
+    }
+
+    #[test]
+    fn launch_as_parent_calls_forker_and_verifier_and_returns_intervention_required () {
+        let forker = ForkerMock::new()
+            .fork_result(Ok(ForkResult::Parent {child: Pid::from_raw(1234)}));
+        let verifier = LaunchVerifierMock::new()
+            .verify_launch_result(InterventionRequired);
+        let mut subject = LauncherReal::new (std::sync::mpsc::channel().0);
+        subject.forker = Box::new (forker);
+        subject.verifier = Box::new (verifier);
+
+        let result = subject.launch (HashMap::new()).err().unwrap();
+
+        assert_eq! (result, format!("Node started in process 1234, but was unresponsive and could not be killed. Manual intervention is required."));
     }
 }
