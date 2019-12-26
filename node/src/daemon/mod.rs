@@ -6,6 +6,7 @@ mod launcher_windows;
 #[cfg(not(target_os = "windows"))]
 mod launcher_not_windows;
 mod launch_verifier;
+mod launch_verifier_mock;
 
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;

@@ -85,6 +85,7 @@ mod tests {
     use crate::daemon::launch_verifier::LaunchVerification;
     use std::sync::{Mutex, Arc};
     use crate::daemon::launch_verifier::LaunchVerification::{Launched, InterventionRequired, CleanFailure, DirtyFailure};
+    use crate::daemon::launch_verifier_mock::LaunchVerifierMock;
 
     struct ForkerMock {
         fork_results: RefCell<Vec<nix::Result<ForkResult>>>
@@ -105,37 +106,6 @@ mod tests {
 
         fn fork_result (self, result: nix::Result<ForkResult>) -> Self {
             self.fork_results.borrow_mut().push (result);
-            self
-        }
-    }
-
-    struct LaunchVerifierMock {
-        verify_launch_params: Arc<Mutex<Vec<(u32, u16)>>>,
-        verify_launch_results: RefCell<Vec<LaunchVerification>>,
-    }
-
-    impl LaunchVerifier for LaunchVerifierMock {
-        fn verify_launch(&self, process_id: u32, ui_port: u16) -> LaunchVerification {
-            self.verify_launch_params.lock().unwrap().push ((process_id, ui_port));
-            self.verify_launch_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl LaunchVerifierMock {
-        fn new () -> Self {
-            LaunchVerifierMock {
-                verify_launch_params: Arc::new(Mutex::new(vec![])),
-                verify_launch_results: RefCell::new(vec![])
-            }
-        }
-
-        fn verify_launch_params (mut self, params: &Arc<Mutex<Vec<(u32, u16)>>>) -> Self {
-            self.verify_launch_params = params.clone();
-            self
-        }
-
-        fn verify_launch_result (self, result: LaunchVerification) -> Self {
-            self.verify_launch_results.borrow_mut().push (result);
             self
         }
     }
