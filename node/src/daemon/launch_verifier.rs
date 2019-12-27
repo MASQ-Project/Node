@@ -3,8 +3,6 @@
 use crate::daemon::launch_verifier::LaunchVerification::{Launched, CleanFailure, DirtyFailure, InterventionRequired};
 use std::thread;
 use std::time::Duration;
-use std::net::SocketAddr;
-use crate::sub_lib::utils::localhost;
 use websocket::ClientBuilder;
 use sysinfo::{SystemExt, Signal, ProcessExt, ProcessStatus, Process};
 
@@ -168,6 +166,8 @@ mod tests {
     use crate::test_utils::find_free_port;
     use std::process::{Command, Child};
     use websocket::server::sync::Server;
+    use crate::sub_lib::utils::localhost;
+    use std::net::SocketAddr;
 
     struct VerifierToolsMock {
         can_connect_to_ui_gateway_params: Arc<Mutex<Vec<u16>>>,
@@ -393,7 +393,7 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         let child = Command::new ("tail").args (vec!["-f", "/dev/null"]).spawn().unwrap();
         #[cfg(target_os = "windows")]
-        let child = Command::new ("pause").spawn().unwrap();
+        let child = Command::new ("cmd").args (vec!["/c", "pause"]).spawn().unwrap();
         child
     }
 
