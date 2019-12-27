@@ -6,7 +6,6 @@ use std::time::Duration;
 use std::net::SocketAddr;
 use crate::sub_lib::utils::localhost;
 use websocket::ClientBuilder;
-use nix::unistd::Pid;
 use sysinfo::{SystemExt, Signal, ProcessExt, ProcessStatus, Process};
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
@@ -35,14 +34,14 @@ impl VerifierTools for VerifierToolsReal {
     }
 
     fn process_is_running(&self, process_id: u32) -> bool {
-        match Self::get_process (process_id) {
+        match Self::system_with_process(process_id).get_process(Self::convert_pid(process_id)) {
             None => false,
             Some(process) => Self::is_alive (process),
         }
     }
 
     fn kill_process(&self, process_id: u32) {
-        if let Some(process) = Self::get_process(process_id) {
+        if let Some(process) = Self::system_with_process(process_id).get_process(Self::convert_pid(process_id)) {
             process.kill(Signal::Kill);
         }
     }
@@ -55,11 +54,11 @@ impl VerifierTools for VerifierToolsReal {
 impl VerifierToolsReal {
     fn new () -> Self {Self{}}
 
-    fn get_process (process_id: u32) -> Option<&Process> {
+    fn system_with_process<'a> (process_id: u32) -> sysinfo::System {
         let process_id = Self::convert_pid (process_id);
         let mut system: sysinfo::System = sysinfo::SystemExt::new();
         system.refresh_process(process_id);
-        system.get_process(process_id)
+        system
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -83,7 +82,9 @@ impl VerifierToolsReal {
 
     #[cfg(target_os = "windows")]
     fn is_alive (process: &Process) -> bool {
-        true
+        match process.status() {
+            ProcessStatus::Run => true,
+        }
     }
 }
 
@@ -160,7 +161,6 @@ impl LaunchVerifierReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::runtime::Runtime;
     use std::sync::{Mutex, Arc};
     use std::cell::RefCell;
     use crate::daemon::launch_verifier::LaunchVerification::{Launched, CleanFailure, InterventionRequired};
