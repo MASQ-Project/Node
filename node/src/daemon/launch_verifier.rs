@@ -75,15 +75,18 @@ impl VerifierToolsReal {
         process_id as usize
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     fn is_alive(process: &Process) -> bool {
-        let status = process.status();
-eprintln! ("Status for process {:?}: {:?}", process.pid(), status);
-        match status {
+        match process.status() {
             ProcessStatus::Dead => false,
             ProcessStatus::Zombie => false,
             _ => true,
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn is_alive(process: &Process) -> bool {
+        process.status() != ProcessStatus::Zombie
     }
 
     #[cfg(target_os = "windows")]
