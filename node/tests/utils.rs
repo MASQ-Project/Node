@@ -161,7 +161,7 @@ impl MASQNode {
                 Err(e) => panic!("{:?}", e),
             },
             (Some(_), Some(_)) => panic!("Internal error: Inconsistent MASQ Node state"),
-            (None, None) => panic!("Internal error: MASQ Node is already empty"),
+            (None, None) => None,
         }
     }
 

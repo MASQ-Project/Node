@@ -45,8 +45,8 @@ fn initialization_sequence_integration() {
     let mut service_client = UiConnection::new(response.redirect_ui_port, "MASQNode-UIv2");
     service_client.send(UiShutdownOrder {});
     wait_for_process_end(response.new_process_id);
-    node.kill().unwrap();
-    node.wait_for_exit().unwrap();
+    let _ = node.kill();
+    let _ = node.wait_for_exit();
 }
 
 fn wait_for_process_end(process_id: u32) {
