@@ -26,7 +26,7 @@ impl Execer for ExecerReal {
         };
         match Command::new(exe_path).args(params).spawn() {
             Ok(child) => Ok(child.id()),
-            Err(e) => return Err(format!("Cannot execute command: {:?}", e)),
+            Err(e) => Err(format!("Cannot execute command: {:?}", e)),
         }
     }
 }
@@ -63,7 +63,7 @@ impl Launcher for LauncherReal {
                     InterventionRequired => Err(format! ("Node started in process {}, but was unresponsive and could not be killed. Manual intervention is required.", new_process_id)),
                 }
             }
-            Err(s) => return Err(s),
+            Err(s) => Err(s),
         }
     }
 }
