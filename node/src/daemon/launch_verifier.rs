@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use crate::sub_lib::utils::localhost;
 use websocket::ClientBuilder;
 use nix::unistd::Pid;
-use sysinfo::{SystemExt, Signal, ProcessExt, ProcessStatus};
+use sysinfo::{SystemExt, Signal, ProcessExt, ProcessStatus, Process};
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -35,22 +35,14 @@ impl VerifierTools for VerifierToolsReal {
     }
 
     fn process_is_running(&self, process_id: u32) -> bool {
-        let mut system: sysinfo::System = sysinfo::SystemExt::new();
-        system.refresh_process(process_id as i32);
-        match system.get_process(process_id as i32) {
+        match Self::get_process (process_id) {
             None => false,
-            Some(process) => match process.status() {
-                ProcessStatus::Dead => false,
-                ProcessStatus::Zombie => false,
-                _ => true,
-            }
+            Some(process) => Self::is_alive (process),
         }
     }
 
     fn kill_process(&self, process_id: u32) {
-        let mut system: sysinfo::System = sysinfo::SystemExt::new();
-        system.refresh_process(process_id as i32);
-        if let Some(process) = system.get_process(process_id as i32) {
+        if let Some(process) = Self::get_process(process_id) {
             process.kill(Signal::Kill);
         }
     }
@@ -62,6 +54,37 @@ impl VerifierTools for VerifierToolsReal {
 
 impl VerifierToolsReal {
     fn new () -> Self {Self{}}
+
+    fn get_process (process_id: u32) -> Option<&Process> {
+        let process_id = Self::convert_pid (process_id);
+        let mut system: sysinfo::System = sysinfo::SystemExt::new();
+        system.refresh_process(process_id);
+        system.get_process(process_id)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn convert_pid (process_id: u32) -> i32 {
+        process_id as i32
+    }
+
+    #[cfg(target_os = "windows")]
+    fn convert_pid (process_id: u32) -> usize {
+        process_id as usize
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn is_alive (process: &Process) -> bool {
+        match process.status() {
+            ProcessStatus::Dead => false,
+            ProcessStatus::Zombie => false,
+            _ => true,
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn is_alive (process: &Process) -> bool {
+        true
+    }
 }
 
 #[derive (Debug, PartialEq)]
