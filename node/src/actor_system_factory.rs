@@ -143,9 +143,9 @@ impl ActorSystemFactoryReal {
             proxy_client: proxy_client_subs,
             hopper: hopper_subs,
             neighborhood: neighborhood_subs.clone(),
-            accountant: accountant_subs.clone(),
-            ui_gateway: ui_gateway_subs.clone(),
-            blockchain_bridge: blockchain_bridge_subs.clone(),
+            accountant: accountant_subs,
+            ui_gateway: ui_gateway_subs,
+            blockchain_bridge: blockchain_bridge_subs,
         };
 
         //bind all the actors
@@ -169,7 +169,7 @@ impl ActorSystemFactoryReal {
             .try_send(PoolBindMessage {
                 dispatcher_subs,
                 stream_handler_pool_subs: stream_handler_pool_subs.clone(),
-                neighborhood_subs: neighborhood_subs.clone(),
+                neighborhood_subs,
             })
             .expect("Dispatcher is dead");
 

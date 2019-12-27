@@ -110,8 +110,8 @@ impl Handler<BindMessage> for UiGateway {
         ];
         self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
             self.port,
-            msg.peer_actors.ui_gateway.from_ui_message_sub.clone(),
-            msg.peer_actors.ui_gateway.new_from_ui_message_sub.clone(),
+            msg.peer_actors.ui_gateway.from_ui_message_sub,
+            msg.peer_actors.ui_gateway.new_from_ui_message_sub,
         )));
         debug!(self.logger, "UIGateway bound");
     }

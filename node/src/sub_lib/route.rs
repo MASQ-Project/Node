@@ -165,7 +165,7 @@ impl Route {
 
         Route::back_segment(
             &back,
-            consuming_wallet.clone(),
+            consuming_wallet,
             over_component,
             &mut hops,
             contract_address,

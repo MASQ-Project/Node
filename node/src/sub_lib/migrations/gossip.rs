@@ -51,7 +51,7 @@ impl TryFrom<&Value> for Gossip_0v1 {
                             (Value::Text(field_name), Some(Value::Array(field_value))) => {
                                 if field_name == "node_records" {
                                     let mut mut_node_records = vec![];
-                                    let mut mut_error_opt = error_opt.clone();
+                                    let mut mut_error_opt = error_opt;
                                     for value in field_value {
                                         match (
                                             mut_error_opt.clone(),

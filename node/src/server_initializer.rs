@@ -170,7 +170,7 @@ fn panic_hook(panic_info: AltPanicInfo) {
         Some(location) => format!("{}:{}:{}", location.file, location.line, location.col),
     };
     let message = if let Some(s) = panic_info.payload.downcast_ref::<&str>() {
-        s.to_string()
+        (*s).to_string()
     } else if let Some(s) = panic_info.payload.downcast_ref::<String>() {
         s.clone()
     } else {

@@ -34,6 +34,7 @@ pub trait RecipientsFactory {
     fn make(&self, args_sender: Sender<HashMap<String, String>>, ui_port: u16) -> Recipients;
 }
 
+#[derive(Default)]
 pub struct RecipientsFactoryReal {}
 
 impl RecipientsFactoryReal {
@@ -42,6 +43,7 @@ impl RecipientsFactoryReal {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub trait ChannelFactory {
     fn make(
         &self,
@@ -51,6 +53,7 @@ pub trait ChannelFactory {
     );
 }
 
+#[derive(Default)]
 pub struct ChannelFactoryReal {}
 
 impl ChannelFactoryReal {
@@ -157,7 +160,7 @@ impl Daemon {
         let mut report = Self::get_default_params();
         let params: HashMap<String, String> =
             HashMap::from_iter(payload.values.into_iter().map(|usv| (usv.name, usv.value)));
-        self.params.extend(params.clone().into_iter());
+        self.params.extend(params.into_iter());
         report.extend(self.params.clone().into_iter());
         let msg = NodeToUiMessage {
             target: ClientId(client_id),

@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use std::cmp::Ordering;
+
 pub struct Limiter {
     iterations_remaining: i32,
 }
@@ -24,13 +26,13 @@ impl Limiter {
     }
 
     pub fn should_continue(&mut self) -> bool {
-        if self.iterations_remaining < 0 {
-            true
-        } else if self.iterations_remaining == 0 {
-            false
-        } else {
-            self.iterations_remaining -= 1;
-            true
+        match self.iterations_remaining.cmp(&0) {
+            Ordering::Less => true,
+            Ordering::Equal => false,
+            Ordering::Greater => {
+                self.iterations_remaining -= 1;
+                true
+            }
         }
     }
 }
