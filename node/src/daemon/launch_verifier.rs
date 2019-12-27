@@ -1,6 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
 use crate::daemon::launch_verifier::LaunchVerification::{Launched, CleanFailure, DirtyFailure, InterventionRequired};
+use std::thread;
+use std::time::Duration;
+use std::net::SocketAddr;
+use crate::sub_lib::utils::localhost;
+use websocket::ClientBuilder;
+use nix::unistd::Pid;
+use sysinfo::{SystemExt, Signal, ProcessExt, ProcessStatus};
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -19,20 +26,37 @@ trait VerifierTools {
 struct VerifierToolsReal {}
 
 impl VerifierTools for VerifierToolsReal {
-    fn can_connect_to_ui_gateway(&self, _ui_port: u16) -> bool {
-        unimplemented!()
+    fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
+        let mut builder = match ClientBuilder::new(format!("ws://127.0.0.1:{}", ui_port).as_str()) {
+            Ok(builder) => builder.add_protocol ("MASQNode-UIv2"),
+            Err(e) => panic! (format! ("{:?}", e)),
+        };
+        builder.connect_insecure().is_ok()
     }
 
-    fn process_is_running(&self, _process_id: u32) -> bool {
-        unimplemented!()
+    fn process_is_running(&self, process_id: u32) -> bool {
+        let mut system: sysinfo::System = sysinfo::SystemExt::new();
+        system.refresh_process(process_id as i32);
+        match system.get_process(process_id as i32) {
+            None => false,
+            Some(process) => match process.status() {
+                ProcessStatus::Dead => false,
+                ProcessStatus::Zombie => false,
+                _ => true,
+            }
+        }
     }
 
-    fn kill_process(&self, _process_id: u32) {
-        unimplemented!()
+    fn kill_process(&self, process_id: u32) {
+        let mut system: sysinfo::System = sysinfo::SystemExt::new();
+        system.refresh_process(process_id as i32);
+        if let Some(process) = system.get_process(process_id as i32) {
+            process.kill(Signal::Kill);
+        }
     }
 
-    fn delay(&self, _milliseconds: u64) {
-        unimplemented!()
+    fn delay(&self, milliseconds: u64) {
+        thread::sleep (Duration::from_millis (milliseconds));
     }
 }
 
@@ -113,9 +137,14 @@ impl LaunchVerifierReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::runtime::Runtime;
     use std::sync::{Mutex, Arc};
     use std::cell::RefCell;
     use crate::daemon::launch_verifier::LaunchVerification::{Launched, CleanFailure, InterventionRequired};
+    use std::time::Instant;
+    use crate::test_utils::find_free_port;
+    use std::process::{Command, Child};
+    use websocket::server::sync::Server;
 
     struct VerifierToolsMock {
         can_connect_to_ui_gateway_params: Arc<Mutex<Vec<u16>>>,
@@ -310,5 +339,66 @@ mod tests {
         let process_is_running_params = process_is_running_params_arc.lock().unwrap();
         assert_eq! (process_is_running_params.len() as u64, death_check_count);
         process_is_running_params.iter ().for_each (|pid| assert_eq! (pid, &1234));
+    }
+
+    #[test]
+    fn can_connect_to_ui_gateway_handles_success () {
+        let port = find_free_port();
+        thread::spawn (move || {
+            let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
+            let upgrade = server.accept().expect("Couldn't accept connection");
+            let _ = upgrade.accept().unwrap();
+        });
+        let subject = VerifierToolsReal::new();
+
+        let result = subject.can_connect_to_ui_gateway(port);
+
+        assert_eq!(result, true);
+    }
+
+    #[test]
+    fn can_connect_to_ui_gateway_handles_failure () {
+        let port = find_free_port();
+        let subject = VerifierToolsReal::new();
+
+        let result = subject.can_connect_to_ui_gateway(port);
+
+        assert_eq! (result, false);
+    }
+
+    fn make_long_running_child() -> Child {
+        #[cfg(not(target_os = "windows"))]
+        let child = Command::new ("tail").args (vec!["-f", "/dev/null"]).spawn().unwrap();
+        #[cfg(target_os = "windows")]
+        let child = Command::new ("pause").spawn().unwrap();
+        child
+    }
+
+    #[test]
+    fn kill_process_and_process_is_running_work() {
+        let subject = VerifierToolsReal::new();
+        let child = make_long_running_child();
+
+        let before = subject.process_is_running(child.id());
+
+        subject.kill_process(child.id());
+
+        let after = subject.process_is_running(child.id());
+
+        assert_eq! (before, true);
+        assert_eq! (after, false);
+    }
+
+    #[test]
+    fn delay_works () {
+        let subject = VerifierToolsReal::new();
+        let begin = Instant::now();
+
+        subject.delay (25);
+
+        let end = Instant::now();
+        let interval = end.duration_since(begin).as_millis();
+        assert! (interval >= 25);
+        assert! (interval < 50);
     }
 }

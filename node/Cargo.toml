@@ -45,6 +45,7 @@ serde_json = "1.0.40"
 serde_cbor = "0.10.1"
 sha1 = "0.6.0"
 sodiumoxide = "0.2.2"
+sysinfo = "0.10.3"
 tiny-bip39 = "0.6.2"
 tiny-hderive = "0.2.1"
 tokio = "0.1.22"
@@ -63,7 +64,6 @@ native-tls = {version = "0.2.3", features = ["vendored"]}
 simple-server = "0.4.0"
 serial_test_derive = "0.2.0"
 serial_test = "0.2.0"
-sysinfo = "0.10.2"
 trust-dns-proto = "0.8.0"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
