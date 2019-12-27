@@ -15,14 +15,14 @@ const RESPONSE_CHECK_INTERVAL_MS: u64 = 250;
 const DELAY_FOR_DEATH_MS: u64 = 1000;
 const DEATH_CHECK_INTERVAL_MS: u64 = 250;
 
-trait VerifierTools {
+pub trait VerifierTools {
     fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool;
     fn process_is_running(&self, process_id: u32) -> bool;
     fn kill_process(&self, process_id: u32);
     fn delay(&self, milliseconds: u64);
 }
 
-struct VerifierToolsReal {}
+pub struct VerifierToolsReal {}
 
 impl VerifierTools for VerifierToolsReal {
     fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
@@ -54,7 +54,7 @@ impl VerifierTools for VerifierToolsReal {
 }
 
 impl VerifierToolsReal {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 
@@ -77,7 +77,9 @@ impl VerifierToolsReal {
 
     #[cfg(not(target_os = "windows"))]
     fn is_alive(process: &Process) -> bool {
-        match process.status() {
+        let status = process.status();
+eprintln! ("Status for process {:?}: {:?}", process.pid(), status);
+        match status {
             ProcessStatus::Dead => false,
             ProcessStatus::Zombie => false,
             _ => true,

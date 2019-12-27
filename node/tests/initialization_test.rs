@@ -5,13 +5,12 @@ pub mod utils;
 use node_lib::database::db_initializer::DATABASE_FILE;
 use node_lib::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use node_lib::ui_gateway::messages::{UiSetup, UiShutdownOrder, UiStartOrder, UiStartResponse};
-use std::convert::TryInto;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
-use sysinfo::{System, SystemExt};
 use utils::CommandConfig;
 use utils::MASQNode;
 use utils::UiConnection;
+use node_lib::daemon::launch_verifier::{VerifierToolsReal, VerifierTools};
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -46,12 +45,12 @@ fn initialization_sequence_integration() {
     let mut service_client = UiConnection::new(response.redirect_ui_port, "MASQNode-UIv2");
     service_client.send(UiShutdownOrder {});
     wait_for_process_end(response.new_process_id);
-    initialization_client.send(UiShutdownOrder {});
+    node.kill().unwrap();
     node.wait_for_exit().unwrap();
 }
 
 fn wait_for_process_end(process_id: u32) {
-    let mut system = System::new();
+    let tools = VerifierToolsReal::new();
     let deadline = SystemTime::now().add(Duration::from_millis(2000));
     loop {
         if SystemTime::now().gt(&deadline) {
@@ -60,15 +59,9 @@ fn wait_for_process_end(process_id: u32) {
                 process_id
             )
         }
-        system.refresh_all();
-        #[cfg(target_os = "windows")]
-        let process_id = process_id as usize;
-        if system
-            .get_process((process_id).try_into().unwrap())
-            .is_none()
-        {
+        if !tools.process_is_running (process_id) {
             break;
         }
-        std::thread::sleep(Duration::from_millis(500))
+        tools.delay (500);
     }
 }

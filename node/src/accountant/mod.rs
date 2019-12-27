@@ -44,6 +44,7 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -287,6 +288,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
             UiFinancialsRequest::fmb(msg.body);
         match result {
             Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
+            Err(e) if e == BadOpcode => (),
             Err(e) => error!(
                 &self.logger,
                 "Bad {} request from client {}: {:?}", opcode, client_id, e

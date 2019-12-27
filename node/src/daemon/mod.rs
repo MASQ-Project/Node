@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
 pub mod daemon_initializer;
-mod launch_verifier;
+pub mod launch_verifier;
 mod launch_verifier_mock;
 #[cfg(not(target_os = "windows"))]
 mod launcher_not_windows;
@@ -105,11 +105,12 @@ impl Handler<NodeFromUiMessage> for Daemon {
         let result: Result<(UiSetup, u64), UiMessageError> = UiSetup::fmb(msg.body.clone());
         match result {
             Ok((payload, context_id)) => self.handle_setup(client_id, context_id, payload),
-            Err(BadOpcode) => {
+            Err(e) if e == BadOpcode => {
                 let result: Result<(UiStartOrder, u64), UiMessageError> =
                     UiStartOrder::fmb(msg.body);
                 match result {
                     Ok((_, context_id)) => self.handle_start_order(client_id, context_id),
+                    Err(e) if e == BadOpcode => (),
                     Err(e) => error!(
                         &self.logger,
                         "Bad {} request from client {}: {:?}", opcode, client_id, e

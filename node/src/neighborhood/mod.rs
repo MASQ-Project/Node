@@ -65,6 +65,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -297,6 +298,7 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
         let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(msg.body);
         match result {
             Ok((payload, _)) => self.handle_shutdown_order(client_id, payload),
+            Err(e) if e == BadOpcode => (),
             Err(e) => error!(
                 &self.logger,
                 "Bad {} request from client {}: {:?}", opcode, client_id, e
@@ -1208,8 +1210,9 @@ impl Neighborhood {
     fn handle_shutdown_order(&self, client_id: u64, _msg: UiShutdownOrder) {
         info!(
             self.logger,
-            "Received shutdown order from client {}", client_id
-        )
+            "Received shutdown order from client {}: shutting down hard", client_id
+        );
+        std::process::exit(0);
     }
 }
 

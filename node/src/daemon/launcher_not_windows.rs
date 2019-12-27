@@ -61,7 +61,6 @@ impl Launcher for LauncherReal {
                     .send(actual_params)
                     .expect("DaemonInitializer is dead");
                 System::current().stop();
-                // This is useless information
                 Ok(None)
             }
             Err(e) => Err(format!("{}", e)),
