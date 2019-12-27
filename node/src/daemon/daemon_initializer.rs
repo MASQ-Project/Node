@@ -38,6 +38,7 @@ impl RecipientsFactory for RecipientsFactoryReal {
     }
 }
 
+#[allow(clippy::type_complexity)]
 impl ChannelFactory for ChannelFactoryReal {
     fn make(
         &self,
@@ -72,6 +73,7 @@ pub trait Rerunner {
     fn rerun(&self, args: Vec<String>);
 }
 
+#[derive(Default)]
 pub struct RerunnerReal {}
 
 impl Rerunner for RerunnerReal {
@@ -122,7 +124,7 @@ impl DaemonInitializer {
         let param_vec = param_map
             .into_iter()
             .sorted_by_key(|(key, _)| key.to_string())
-            .flat_map(|(key, value)| vec![format!("--{}", key), format!("{}", value)])
+            .flat_map(|(key, value)| vec![format!("--{}", key), value])
             .collect_vec();
         self.rerunner.rerun(param_vec);
     }

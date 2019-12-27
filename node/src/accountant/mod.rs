@@ -26,6 +26,7 @@ use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
+use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 use crate::ui_gateway::messages::{
     FromMessageBody, ToMessageBody, UiFinancialsRequest, UiFinancialsResponse, UiMessageError,
     UiPayableAccount, UiReceivableAccount,
@@ -44,7 +45,6 @@ use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
@@ -632,9 +632,9 @@ impl Accountant {
         let total_receivable = self.receivable_dao.total();
         let body = UiFinancialsResponse {
             payables,
-            total_payable: total_payable,
+            total_payable,
             receivables,
-            total_receivable: total_receivable,
+            total_receivable,
         }
         .tmb(context_id);
         self.ui_message_sub

@@ -2,6 +2,7 @@
 
 pub mod utils;
 
+use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
 use node_lib::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use node_lib::ui_gateway::messages::{UiSetup, UiShutdownOrder, UiStartOrder, UiStartResponse};
@@ -10,7 +11,6 @@ use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
 use utils::MASQNode;
 use utils::UiConnection;
-use node_lib::daemon::launch_verifier::{VerifierToolsReal, VerifierTools};
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -59,9 +59,9 @@ fn wait_for_process_end(process_id: u32) {
                 process_id
             )
         }
-        if !tools.process_is_running (process_id) {
+        if !tools.process_is_running(process_id) {
             break;
         }
-        tools.delay (500);
+        tools.delay(500);
     }
 }

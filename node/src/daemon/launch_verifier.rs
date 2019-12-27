@@ -22,6 +22,7 @@ pub trait VerifierTools {
     fn delay(&self, milliseconds: u64);
 }
 
+#[derive(Default)]
 pub struct VerifierToolsReal {}
 
 impl VerifierTools for VerifierToolsReal {
@@ -58,7 +59,7 @@ impl VerifierToolsReal {
         Self {}
     }
 
-    fn system_with_process<'a>(process_id: u32) -> sysinfo::System {
+    fn system_with_process(process_id: u32) -> sysinfo::System {
         let process_id = Self::convert_pid(process_id);
         let mut system: sysinfo::System = sysinfo::SystemExt::new();
         system.refresh_process(process_id);
@@ -78,7 +79,7 @@ impl VerifierToolsReal {
     #[cfg(not(target_os = "windows"))]
     fn is_alive(process: &Process) -> bool {
         let status = process.status();
-eprintln! ("Status for process {:?}: {:?}", process.pid(), status);
+        eprintln!("Status for process {:?}: {:?}", process.pid(), status);
         match status {
             ProcessStatus::Dead => false,
             ProcessStatus::Zombie => false,
@@ -110,29 +111,34 @@ pub struct LaunchVerifierReal {
     verifier_tools: Box<dyn VerifierTools>,
 }
 
+impl Default for LaunchVerifierReal {
+    fn default() -> Self {
+        LaunchVerifierReal {
+            verifier_tools: Box::new(VerifierToolsReal::new()),
+        }
+    }
+}
+
 impl LaunchVerifier for LaunchVerifierReal {
     fn verify_launch(&self, process_id: u32, ui_port: u16) -> LaunchVerification {
-        match self.await_ui_connection(ui_port) {
-            true => Launched,
-            false => match self.verifier_tools.process_is_running(process_id) {
-                true => {
-                    self.verifier_tools.kill_process(process_id);
-                    match self.await_process_death(process_id) {
-                        true => DirtyFailure,
-                        false => InterventionRequired,
-                    }
-                }
-                false => CleanFailure,
-            },
+        if self.await_ui_connection(ui_port) {
+            Launched
+        } else if self.verifier_tools.process_is_running(process_id) {
+            self.verifier_tools.kill_process(process_id);
+            if self.await_process_death(process_id) {
+                DirtyFailure
+            } else {
+                InterventionRequired
+            }
+        } else {
+            CleanFailure
         }
     }
 }
 
 impl LaunchVerifierReal {
     pub fn new() -> Self {
-        LaunchVerifierReal {
-            verifier_tools: Box::new(VerifierToolsReal::new()),
-        }
+        Self::default()
     }
 
     fn await_ui_connection(&self, ui_port: u16) -> bool {
@@ -396,7 +402,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         thread::spawn(move || {
             let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
-            tx.send (()).unwrap();
+            tx.send(()).unwrap();
             let upgrade = server.accept().expect("Couldn't accept connection");
             let _ = upgrade.accept().unwrap();
         });

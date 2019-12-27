@@ -47,6 +47,7 @@ use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiCarrierMe
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
+use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 use crate::ui_gateway::messages::{FromMessageBody, UiMessageError, UiShutdownOrder};
 use actix::Addr;
 use actix::Context;
@@ -65,7 +66,6 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -137,7 +137,7 @@ impl Handler<NodeQueryMessage> for Neighborhood {
             Some(node_record_ref) => Some(NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
                 match node_record_ref.node_addr_opt() {
-                    Some(node_addr_ref) => Some(node_addr_ref.clone()),
+                    Some(node_addr_ref) => Some(node_addr_ref),
                     None => None,
                 },
                 node_record_ref.rate_pack().clone(),
@@ -164,7 +164,7 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
             Some(node_record_ref) => Some(NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
                 match node_record_ref.node_addr_opt() {
-                    Some(node_addr) => Some(node_addr.clone()),
+                    Some(node_addr) => Some(node_addr),
                     None => None,
                 },
                 node_record_ref.rate_pack().clone(),
@@ -282,7 +282,7 @@ impl Handler<NeighborhoodDotGraphRequest> for Neighborhood {
             .try_send(UiCarrierMessage {
                 client_id: msg.client_id,
                 data: UiMessage::NeighborhoodDotGraphResponse(
-                    self.neighborhood_database.to_dot_graph().clone(),
+                    self.neighborhood_database.to_dot_graph(),
                 ),
             })
             .expect("DOT graph recipient is dead")

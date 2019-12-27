@@ -55,7 +55,7 @@ impl Launcher for LauncherReal {
             }
             Ok(ForkResult::Child) => {
                 let mut actual_params: HashMap<String, String> =
-                    HashMap::from_iter(params.clone().into_iter());
+                    HashMap::from_iter(params.into_iter());
                 actual_params.insert("ui-port".to_string(), format!("{}", redirect_ui_port));
                 self.sender
                     .send(actual_params)
