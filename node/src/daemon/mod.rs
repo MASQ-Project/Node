@@ -1,24 +1,27 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
 pub mod daemon_initializer;
-#[cfg(target_os = "windows")]
-mod launcher_windows;
-#[cfg(not(target_os = "windows"))]
-mod launcher_not_windows;
 mod launch_verifier;
 mod launch_verifier_mock;
+#[cfg(not(target_os = "windows"))]
+mod launcher_not_windows;
+#[cfg(target_os = "windows")]
+mod launcher_windows;
 
 use crate::sub_lib::logger::Logger;
+use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
-use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, MessageBody};
+use crate::sub_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use crate::ui_gateway::messages::UiMessageError::BadOpcode;
-use crate::ui_gateway::messages::{FromMessageBody, ToMessageBody, UiMessageError, UiSetup, UiSetupValue, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR};
+use crate::ui_gateway::messages::{
+    FromMessageBody, ToMessageBody, UiMessageError, UiSetup, UiSetupValue, UiStartOrder,
+    UiStartResponse, NODE_LAUNCH_ERROR,
+};
 use actix::Recipient;
 use actix::{Actor, Context, Handler, Message};
 use std::collections::HashMap;
 use std::iter::FromIterator;
-use std::sync::mpsc::{Sender, Receiver};
-use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
+use std::sync::mpsc::{Receiver, Sender};
 
 pub struct Recipients {
     ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
@@ -40,14 +43,19 @@ impl RecipientsFactoryReal {
 }
 
 pub trait ChannelFactory {
-    fn make(&self) -> (Sender<HashMap<String, String>>, Receiver<HashMap<String, String>>);
+    fn make(
+        &self,
+    ) -> (
+        Sender<HashMap<String, String>>,
+        Receiver<HashMap<String, String>>,
+    );
 }
 
 pub struct ChannelFactoryReal {}
 
 impl ChannelFactoryReal {
     pub fn new() -> ChannelFactoryReal {
-        ChannelFactoryReal{}
+        ChannelFactoryReal {}
     }
 }
 
@@ -169,28 +177,28 @@ impl Daemon {
 
     fn handle_start_order(&mut self, client_id: u64, context_id: u64) {
         match self.launcher.launch(self.params.drain().collect()) {
-            Ok(Some(success)) => self
-                .respond_to_ui (client_id, UiStartResponse {
+            Ok(Some(success)) => self.respond_to_ui(
+                client_id,
+                UiStartResponse {
                     new_process_id: success.new_process_id,
                     redirect_ui_port: success.redirect_ui_port,
                 }
-                .tmb(context_id)),
+                .tmb(context_id),
+            ),
             Ok(None) => (),
-            Err(s) => self
-                .respond_to_ui (client_id, MessageBody {
+            Err(s) => self.respond_to_ui(
+                client_id,
+                MessageBody {
                     opcode: "start".to_string(),
                     path: TwoWay(context_id),
-                    payload: Err((
-                        NODE_LAUNCH_ERROR,
-                        format!("Could not launch Node: {}", s),
-                    ))
-                }),
+                    payload: Err((NODE_LAUNCH_ERROR, format!("Could not launch Node: {}", s))),
+                },
+            ),
         }
     }
 
     fn respond_to_ui(&self, client_id: u64, body: MessageBody) {
-        self
-            .ui_gateway_sub
+        self.ui_gateway_sub
             .as_ref()
             .expect("UiGateway is unbound")
             .try_send(NodeToUiMessage {
@@ -204,14 +212,14 @@ impl Daemon {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::LaunchSuccess;
     use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::ui_gateway::messages::{UiSetup, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR};
     use actix::System;
+    use std::cell::RefCell;
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
-    use std::cell::RefCell;
-    use crate::daemon::{LaunchSuccess};
 
     struct LauncherMock {
         launch_params: Arc<Mutex<Vec<HashMap<String, String>>>>,
@@ -399,9 +407,7 @@ mod tests {
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
                 body: UiSetup {
-                    values: vec![
-                        UiSetupValue::new("dns-servers", "192.168.0.1"),
-                    ],
+                    values: vec![UiSetupValue::new("dns-servers", "192.168.0.1")],
                 }
                 .tmb(4321),
             })
@@ -445,9 +451,9 @@ mod tests {
         let launch_params_arc = Arc::new(Mutex::new(vec![]));
         let launcher = LauncherMock::new()
             .launch_params(&launch_params_arc)
-            .launch_result(Ok(Some(LaunchSuccess{
+            .launch_result(Ok(Some(LaunchSuccess {
                 new_process_id: 2345,
-                redirect_ui_port: 5432
+                redirect_ui_port: 5432,
             })));
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(launcher));
@@ -469,10 +475,14 @@ mod tests {
         System::current().stop();
         system.run();
         let launch_params = launch_params_arc.lock().unwrap();
-        assert_eq!(*launch_params, vec![HashMap::from_iter(vec![
-            ("db-password", "goober"),
-            ("dns-servers", "1.1.1.1"),
-        ].into_iter().map(|(n, v)| (n.to_string(), v.to_string())))]);
+        assert_eq!(
+            *launch_params,
+            vec![HashMap::from_iter(
+                vec![("db-password", "goober"), ("dns-servers", "1.1.1.1"),]
+                    .into_iter()
+                    .map(|(n, v)| (n.to_string(), v.to_string()))
+            )]
+        );
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -493,8 +503,7 @@ mod tests {
     #[test]
     fn accepts_start_order_launches_and_replies_child_success() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let launcher = LauncherMock::new()
-            .launch_result(Ok(None));
+        let launcher = LauncherMock::new().launch_result(Ok(None));
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(launcher));
         subject
@@ -515,14 +524,13 @@ mod tests {
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq! (ui_gateway_recording.len(), 0);
+        assert_eq!(ui_gateway_recording.len(), 0);
     }
 
     #[test]
     fn accepts_start_order_launches_and_replies_failure() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let launcher = LauncherMock::new()
-            .launch_result(Err("booga".to_string()));
+        let launcher = LauncherMock::new().launch_result(Err("booga".to_string()));
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(launcher));
         subject
@@ -548,7 +556,7 @@ mod tests {
             .clone();
         assert_eq!(record.target, ClientId(1234));
         let (code, message) = record.body.payload.err().unwrap();
-        assert_eq! (code, NODE_LAUNCH_ERROR);
-        assert_eq! (message, "Could not launch Node: booga".to_string());
+        assert_eq!(code, NODE_LAUNCH_ERROR);
+        assert_eq!(message, "Could not launch Node: booga".to_string());
     }
 }

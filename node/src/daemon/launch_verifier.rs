@@ -1,10 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
-use crate::daemon::launch_verifier::LaunchVerification::{Launched, CleanFailure, DirtyFailure, InterventionRequired};
+use crate::daemon::launch_verifier::LaunchVerification::{
+    CleanFailure, DirtyFailure, InterventionRequired, Launched,
+};
 use std::thread;
 use std::time::Duration;
+use sysinfo::{Process, ProcessExt, ProcessStatus, Signal, SystemExt};
 use websocket::ClientBuilder;
-use sysinfo::{SystemExt, Signal, ProcessExt, ProcessStatus, Process};
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -14,10 +16,10 @@ const DELAY_FOR_DEATH_MS: u64 = 1000;
 const DEATH_CHECK_INTERVAL_MS: u64 = 250;
 
 trait VerifierTools {
-    fn can_connect_to_ui_gateway (&self, ui_port: u16) -> bool;
-    fn process_is_running (&self, process_id: u32) -> bool;
-    fn kill_process (&self, process_id: u32);
-    fn delay (&self, milliseconds: u64);
+    fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool;
+    fn process_is_running(&self, process_id: u32) -> bool;
+    fn kill_process(&self, process_id: u32);
+    fn delay(&self, milliseconds: u64);
 }
 
 struct VerifierToolsReal {}
@@ -25,8 +27,8 @@ struct VerifierToolsReal {}
 impl VerifierTools for VerifierToolsReal {
     fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
         let mut builder = match ClientBuilder::new(format!("ws://127.0.0.1:{}", ui_port).as_str()) {
-            Ok(builder) => builder.add_protocol ("MASQNode-UIv2"),
-            Err(e) => panic! (format! ("{:?}", e)),
+            Ok(builder) => builder.add_protocol("MASQNode-UIv2"),
+            Err(e) => panic!(format!("{:?}", e)),
         };
         builder.connect_insecure().is_ok()
     }
@@ -34,43 +36,47 @@ impl VerifierTools for VerifierToolsReal {
     fn process_is_running(&self, process_id: u32) -> bool {
         match Self::system_with_process(process_id).get_process(Self::convert_pid(process_id)) {
             None => false,
-            Some(process) => Self::is_alive (process),
+            Some(process) => Self::is_alive(process),
         }
     }
 
     fn kill_process(&self, process_id: u32) {
-        if let Some(process) = Self::system_with_process(process_id).get_process(Self::convert_pid(process_id)) {
+        if let Some(process) =
+            Self::system_with_process(process_id).get_process(Self::convert_pid(process_id))
+        {
             process.kill(Signal::Kill);
         }
     }
 
     fn delay(&self, milliseconds: u64) {
-        thread::sleep (Duration::from_millis (milliseconds));
+        thread::sleep(Duration::from_millis(milliseconds));
     }
 }
 
 impl VerifierToolsReal {
-    fn new () -> Self {Self{}}
+    fn new() -> Self {
+        Self {}
+    }
 
-    fn system_with_process<'a> (process_id: u32) -> sysinfo::System {
-        let process_id = Self::convert_pid (process_id);
+    fn system_with_process<'a>(process_id: u32) -> sysinfo::System {
+        let process_id = Self::convert_pid(process_id);
         let mut system: sysinfo::System = sysinfo::SystemExt::new();
         system.refresh_process(process_id);
         system
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn convert_pid (process_id: u32) -> i32 {
+    fn convert_pid(process_id: u32) -> i32 {
         process_id as i32
     }
 
     #[cfg(target_os = "windows")]
-    fn convert_pid (process_id: u32) -> usize {
+    fn convert_pid(process_id: u32) -> usize {
         process_id as usize
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn is_alive (process: &Process) -> bool {
+    fn is_alive(process: &Process) -> bool {
         match process.status() {
             ProcessStatus::Dead => false,
             ProcessStatus::Zombie => false,
@@ -79,23 +85,23 @@ impl VerifierToolsReal {
     }
 
     #[cfg(target_os = "windows")]
-    fn is_alive (process: &Process) -> bool {
+    fn is_alive(process: &Process) -> bool {
         match process.status() {
             ProcessStatus::Run => true,
         }
     }
 }
 
-#[derive (Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum LaunchVerification {
-    Launched, // Responded to contact via UiGateway
-    CleanFailure, // No response from UiGateway, no process at process_id
-    DirtyFailure, // No response from UiGateway, process at process_id, killed, disappeared
+    Launched,             // Responded to contact via UiGateway
+    CleanFailure,         // No response from UiGateway, no process at process_id
+    DirtyFailure,         // No response from UiGateway, process at process_id, killed, disappeared
     InterventionRequired, // No response from UiGateway, process at process_id, killed, still there
 }
 
 pub trait LaunchVerifier {
-    fn verify_launch (&self, process_id: u32, ui_port: u16) -> LaunchVerification;
+    fn verify_launch(&self, process_id: u32, ui_port: u16) -> LaunchVerification;
 }
 
 pub struct LaunchVerifierReal {
@@ -104,7 +110,7 @@ pub struct LaunchVerifierReal {
 
 impl LaunchVerifier for LaunchVerifierReal {
     fn verify_launch(&self, process_id: u32, ui_port: u16) -> LaunchVerification {
-        match self.await_ui_connection (ui_port) {
+        match self.await_ui_connection(ui_port) {
             true => Launched,
             false => match self.verifier_tools.process_is_running(process_id) {
                 true => {
@@ -113,17 +119,17 @@ impl LaunchVerifier for LaunchVerifierReal {
                         true => DirtyFailure,
                         false => InterventionRequired,
                     }
-                },
-                false => CleanFailure
-            }
+                }
+                false => CleanFailure,
+            },
         }
     }
 }
 
 impl LaunchVerifierReal {
-    pub fn new () -> Self {
-        LaunchVerifierReal{
-            verifier_tools: Box::new (VerifierToolsReal::new())
+    pub fn new() -> Self {
+        LaunchVerifierReal {
+            verifier_tools: Box::new(VerifierToolsReal::new()),
         }
     }
 
@@ -131,12 +137,12 @@ impl LaunchVerifierReal {
         let mut accumulated_delay = 0;
         loop {
             if self.verifier_tools.can_connect_to_ui_gateway(ui_port) {
-                return true
+                return true;
             }
             if accumulated_delay > DELAY_FOR_RESPONSE_MS {
-                return false
+                return false;
             }
-            self.verifier_tools.delay (RESPONSE_CHECK_INTERVAL_MS);
+            self.verifier_tools.delay(RESPONSE_CHECK_INTERVAL_MS);
             accumulated_delay += RESPONSE_CHECK_INTERVAL_MS;
         }
     }
@@ -144,13 +150,13 @@ impl LaunchVerifierReal {
     fn await_process_death(&self, pid: u32) -> bool {
         let mut accumulated_delay = 0;
         loop {
-            self.verifier_tools.delay (DEATH_CHECK_INTERVAL_MS);
+            self.verifier_tools.delay(DEATH_CHECK_INTERVAL_MS);
             accumulated_delay += DEATH_CHECK_INTERVAL_MS;
             if accumulated_delay > DELAY_FOR_DEATH_MS {
-                return false
+                return false;
             }
             if !self.verifier_tools.process_is_running(pid) {
-                return true
+                return true;
             }
         }
     }
@@ -159,15 +165,17 @@ impl LaunchVerifierReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, Arc};
-    use std::cell::RefCell;
-    use crate::daemon::launch_verifier::LaunchVerification::{Launched, CleanFailure, InterventionRequired};
-    use std::time::Instant;
-    use crate::test_utils::find_free_port;
-    use std::process::{Command, Child};
-    use websocket::server::sync::Server;
+    use crate::daemon::launch_verifier::LaunchVerification::{
+        CleanFailure, InterventionRequired, Launched,
+    };
     use crate::sub_lib::utils::localhost;
+    use crate::test_utils::find_free_port;
+    use std::cell::RefCell;
     use std::net::SocketAddr;
+    use std::process::{Child, Command};
+    use std::sync::{Arc, Mutex};
+    use std::time::Instant;
+    use websocket::server::sync::Server;
 
     struct VerifierToolsMock {
         can_connect_to_ui_gateway_params: Arc<Mutex<Vec<u16>>>,
@@ -180,12 +188,20 @@ mod tests {
 
     impl VerifierTools for VerifierToolsMock {
         fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
-            self.can_connect_to_ui_gateway_params.lock().unwrap().push(ui_port);
-            self.can_connect_to_ui_gateway_results.borrow_mut().remove(0)
+            self.can_connect_to_ui_gateway_params
+                .lock()
+                .unwrap()
+                .push(ui_port);
+            self.can_connect_to_ui_gateway_results
+                .borrow_mut()
+                .remove(0)
         }
 
         fn process_is_running(&self, process_id: u32) -> bool {
-            self.process_is_running_params.lock().unwrap().push(process_id);
+            self.process_is_running_params
+                .lock()
+                .unwrap()
+                .push(process_id);
             self.process_is_running_results.borrow_mut().remove(0)
         }
 
@@ -199,7 +215,7 @@ mod tests {
     }
 
     impl VerifierToolsMock {
-        fn new () -> Self {
+        fn new() -> Self {
             VerifierToolsMock {
                 can_connect_to_ui_gateway_params: Arc::new(Mutex::new(vec![])),
                 can_connect_to_ui_gateway_results: RefCell::new(vec![]),
@@ -216,7 +232,9 @@ mod tests {
         }
 
         fn can_connect_to_ui_gateway_result(self, result: bool) -> Self {
-            self.can_connect_to_ui_gateway_results.borrow_mut().push (result);
+            self.can_connect_to_ui_gateway_results
+                .borrow_mut()
+                .push(result);
             self
         }
 
@@ -226,7 +244,7 @@ mod tests {
         }
 
         fn process_is_running_result(self, result: bool) -> Self {
-            self.process_is_running_results.borrow_mut().push (result);
+            self.process_is_running_results.borrow_mut().push(result);
             self
         }
 
@@ -252,18 +270,18 @@ mod tests {
             .can_connect_to_ui_gateway_result(false)
             .can_connect_to_ui_gateway_result(true);
         let mut subject = LaunchVerifierReal::new();
-        subject.verifier_tools = Box::new (tools);
+        subject.verifier_tools = Box::new(tools);
 
-        let result = subject.verify_launch (1234, 4321);
+        let result = subject.verify_launch(1234, 4321);
 
-        assert_eq! (result, Launched);
+        assert_eq!(result, Launched);
         let can_connect_to_ui_gateway_parms = can_connect_to_ui_gateway_params_arc.lock().unwrap();
-        assert_eq! (*can_connect_to_ui_gateway_parms, vec![4321, 4321, 4321]);
+        assert_eq!(*can_connect_to_ui_gateway_parms, vec![4321, 4321, 4321]);
         let delay_params = delay_parms_arc.lock().unwrap();
-        assert_eq! (*delay_params, vec![
-            RESPONSE_CHECK_INTERVAL_MS,
-            RESPONSE_CHECK_INTERVAL_MS,
-        ]);
+        assert_eq!(
+            *delay_params,
+            vec![RESPONSE_CHECK_INTERVAL_MS, RESPONSE_CHECK_INTERVAL_MS,]
+        );
     }
 
     #[test]
@@ -272,26 +290,26 @@ mod tests {
         let delay_params_arc = Arc::new(Mutex::new(vec![]));
         let process_is_running_params_arc = Arc::new(Mutex::new(vec![]));
         let mut tools = VerifierToolsMock::new()
-            .delay_params (&delay_params_arc)
-            .process_is_running_params (&process_is_running_params_arc)
+            .delay_params(&delay_params_arc)
+            .process_is_running_params(&process_is_running_params_arc)
             .can_connect_to_ui_gateway_result(false);
         for _ in 0..connect_failure_count {
-            tools = tools
-                .can_connect_to_ui_gateway_result(false);
+            tools = tools.can_connect_to_ui_gateway_result(false);
         }
-        tools = tools
-            .process_is_running_result(false);
+        tools = tools.process_is_running_result(false);
         let mut subject = LaunchVerifierReal::new();
-        subject.verifier_tools = Box::new (tools);
+        subject.verifier_tools = Box::new(tools);
 
-        let result = subject.verify_launch (1234, 4321);
+        let result = subject.verify_launch(1234, 4321);
 
-        assert_eq! (result, CleanFailure);
+        assert_eq!(result, CleanFailure);
         let delay_params = delay_params_arc.lock().unwrap();
-        assert_eq! (delay_params.len() as u64, connect_failure_count);
-        delay_params.iter ().for_each (|delay| assert_eq! (delay, &RESPONSE_CHECK_INTERVAL_MS));
+        assert_eq!(delay_params.len() as u64, connect_failure_count);
+        delay_params
+            .iter()
+            .for_each(|delay| assert_eq!(delay, &RESPONSE_CHECK_INTERVAL_MS));
         let process_is_running_params = process_is_running_params_arc.lock().unwrap();
-        assert_eq! (*process_is_running_params, vec![1234]);
+        assert_eq!(*process_is_running_params, vec![1234]);
     }
 
     #[test]
@@ -301,31 +319,32 @@ mod tests {
         let kill_process_params_arc = Arc::new(Mutex::new(vec![]));
         let process_is_running_params_arc = Arc::new(Mutex::new(vec![]));
         let mut tools = VerifierToolsMock::new()
-            .delay_params (&delay_params_arc)
-            .process_is_running_params (&process_is_running_params_arc)
-            .kill_process_params (&kill_process_params_arc)
+            .delay_params(&delay_params_arc)
+            .process_is_running_params(&process_is_running_params_arc)
+            .kill_process_params(&kill_process_params_arc)
             .can_connect_to_ui_gateway_result(false);
         for _ in 0..connect_failure_count {
-            tools = tools
-                .can_connect_to_ui_gateway_result(false);
+            tools = tools.can_connect_to_ui_gateway_result(false);
         }
         tools = tools
             .process_is_running_result(true)
             .process_is_running_result(true)
             .process_is_running_result(false);
         let mut subject = LaunchVerifierReal::new();
-        subject.verifier_tools = Box::new (tools);
+        subject.verifier_tools = Box::new(tools);
 
-        let result = subject.verify_launch (1234, 4321);
+        let result = subject.verify_launch(1234, 4321);
 
-        assert_eq! (result, DirtyFailure);
+        assert_eq!(result, DirtyFailure);
         let delay_params = delay_params_arc.lock().unwrap();
-        assert_eq! (delay_params.len() as u64, connect_failure_count + 2);
-        delay_params.iter ().for_each (|delay| assert_eq! (delay, &RESPONSE_CHECK_INTERVAL_MS));
+        assert_eq!(delay_params.len() as u64, connect_failure_count + 2);
+        delay_params
+            .iter()
+            .for_each(|delay| assert_eq!(delay, &RESPONSE_CHECK_INTERVAL_MS));
         let kill_process_params = kill_process_params_arc.lock().unwrap();
-        assert_eq! (*kill_process_params, vec![1234]);
+        assert_eq!(*kill_process_params, vec![1234]);
         let process_is_running_params = process_is_running_params_arc.lock().unwrap();
-        assert_eq! (*process_is_running_params, vec![1234, 1234, 1234]);
+        assert_eq!(*process_is_running_params, vec![1234, 1234, 1234]);
     }
 
     #[test]
@@ -336,43 +355,51 @@ mod tests {
         let kill_process_params_arc = Arc::new(Mutex::new(vec![]));
         let process_is_running_params_arc = Arc::new(Mutex::new(vec![]));
         let mut tools = VerifierToolsMock::new()
-            .delay_params (&delay_params_arc)
-            .process_is_running_params (&process_is_running_params_arc)
-            .kill_process_params (&kill_process_params_arc)
+            .delay_params(&delay_params_arc)
+            .process_is_running_params(&process_is_running_params_arc)
+            .kill_process_params(&kill_process_params_arc)
             .can_connect_to_ui_gateway_result(false);
         for _ in 0..connect_failure_count {
-            tools = tools
-                .can_connect_to_ui_gateway_result(false);
+            tools = tools.can_connect_to_ui_gateway_result(false);
         }
         for _ in 0..death_check_count {
-            tools = tools
-                .process_is_running_result(true);
+            tools = tools.process_is_running_result(true);
         }
         let mut subject = LaunchVerifierReal::new();
-        subject.verifier_tools = Box::new (tools);
+        subject.verifier_tools = Box::new(tools);
 
-        let result = subject.verify_launch (1234, 4321);
+        let result = subject.verify_launch(1234, 4321);
 
-        assert_eq! (result, InterventionRequired);
+        assert_eq!(result, InterventionRequired);
         let delay_params = delay_params_arc.lock().unwrap();
-        assert_eq! (delay_params.len() as u64, connect_failure_count + death_check_count);
-        delay_params.iter ().for_each (|delay| assert_eq! (delay, &RESPONSE_CHECK_INTERVAL_MS));
+        assert_eq!(
+            delay_params.len() as u64,
+            connect_failure_count + death_check_count
+        );
+        delay_params
+            .iter()
+            .for_each(|delay| assert_eq!(delay, &RESPONSE_CHECK_INTERVAL_MS));
         let kill_process_params = kill_process_params_arc.lock().unwrap();
-        assert_eq! (*kill_process_params, vec![1234]);
+        assert_eq!(*kill_process_params, vec![1234]);
         let process_is_running_params = process_is_running_params_arc.lock().unwrap();
-        assert_eq! (process_is_running_params.len() as u64, death_check_count);
-        process_is_running_params.iter ().for_each (|pid| assert_eq! (pid, &1234));
+        assert_eq!(process_is_running_params.len() as u64, death_check_count);
+        process_is_running_params
+            .iter()
+            .for_each(|pid| assert_eq!(pid, &1234));
     }
 
     #[test]
-    fn can_connect_to_ui_gateway_handles_success () {
+    fn can_connect_to_ui_gateway_handles_success() {
         let port = find_free_port();
-        thread::spawn (move || {
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
             let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
+            tx.send (()).unwrap();
             let upgrade = server.accept().expect("Couldn't accept connection");
             let _ = upgrade.accept().unwrap();
         });
         let subject = VerifierToolsReal::new();
+        rx.recv().unwrap();
 
         let result = subject.can_connect_to_ui_gateway(port);
 
@@ -380,20 +407,26 @@ mod tests {
     }
 
     #[test]
-    fn can_connect_to_ui_gateway_handles_failure () {
+    fn can_connect_to_ui_gateway_handles_failure() {
         let port = find_free_port();
         let subject = VerifierToolsReal::new();
 
         let result = subject.can_connect_to_ui_gateway(port);
 
-        assert_eq! (result, false);
+        assert_eq!(result, false);
     }
 
     fn make_long_running_child() -> Child {
         #[cfg(not(target_os = "windows"))]
-        let child = Command::new ("tail").args (vec!["-f", "/dev/null"]).spawn().unwrap();
+        let child = Command::new("tail")
+            .args(vec!["-f", "/dev/null"])
+            .spawn()
+            .unwrap();
         #[cfg(target_os = "windows")]
-        let child = Command::new ("cmd").args (vec!["/c", "pause"]).spawn().unwrap();
+        let child = Command::new("cmd")
+            .args(vec!["/c", "pause"])
+            .spawn()
+            .unwrap();
         child
     }
 
@@ -408,20 +441,20 @@ mod tests {
 
         let after = subject.process_is_running(child.id());
 
-        assert_eq! (before, true);
-        assert_eq! (after, false);
+        assert_eq!(before, true);
+        assert_eq!(after, false);
     }
 
     #[test]
-    fn delay_works () {
+    fn delay_works() {
         let subject = VerifierToolsReal::new();
         let begin = Instant::now();
 
-        subject.delay (25);
+        subject.delay(25);
 
         let end = Instant::now();
         let interval = end.duration_since(begin).as_millis();
-        assert! (interval >= 25);
-        assert! (interval < 50);
+        assert!(interval >= 25);
+        assert!(interval < 50);
     }
 }

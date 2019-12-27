@@ -1,5 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::daemon::daemon_initializer::{DaemonInitializer, RerunnerReal};
+use crate::daemon::{ChannelFactoryReal, RecipientsFactoryReal};
 use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_generate_wallet::NodeConfiguratorGenerateWallet;
 use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
@@ -10,8 +12,6 @@ use crate::server_initializer::ServerInitializer;
 use crate::sub_lib::main_tools::{Command, StdStreams};
 use actix::System;
 use futures::future::Future;
-use crate::daemon::{ChannelFactoryReal, RecipientsFactoryReal};
-use crate::daemon::daemon_initializer::{DaemonInitializer, RerunnerReal};
 
 #[derive(Debug, PartialEq)]
 enum Mode {

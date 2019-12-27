@@ -1,18 +1,21 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
-use crate::daemon::{Daemon, DaemonBindMessage, RecipientsFactory, ChannelFactory, RecipientsFactoryReal, ChannelFactoryReal, Recipients};
+#[cfg(not(target_os = "windows"))]
+use crate::daemon::launcher_not_windows::LauncherReal;
+#[cfg(target_os = "windows")]
+use crate::daemon::launcher_windows::LauncherReal;
+use crate::daemon::{
+    ChannelFactory, ChannelFactoryReal, Daemon, DaemonBindMessage, Recipients, RecipientsFactory,
+    RecipientsFactoryReal,
+};
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-use crate::sub_lib::main_tools::{Command, StdStreams, main_with_args};
+use crate::sub_lib::main_tools::{main_with_args, Command, StdStreams};
 use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiGatewayConfig};
 use crate::ui_gateway::UiGateway;
 use actix::{Actor, System, SystemRunner};
-use std::sync::mpsc::{Sender, Receiver};
-use std::collections::HashMap;
-#[cfg(not(target_os = "windows"))]
-use crate::daemon::launcher_not_windows::{LauncherReal};
-#[cfg(target_os = "windows")]
-use crate::daemon::launcher_windows::{LauncherReal};
 use itertools::Itertools;
+use std::collections::HashMap;
+use std::sync::mpsc::{Receiver, Sender};
 
 impl RecipientsFactory for RecipientsFactoryReal {
     fn make(&self, args_sender: Sender<HashMap<String, String>>, ui_port: u16) -> Recipients {
@@ -22,7 +25,7 @@ impl RecipientsFactory for RecipientsFactoryReal {
         })
         .start();
         let launcher = LauncherReal::new(args_sender);
-        let daemon_addr = Daemon::new(Box::new (launcher)).start();
+        let daemon_addr = Daemon::new(Box::new(launcher)).start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient::<NodeFromUiMessage>(),
             ui_gateway_to_sub: ui_gateway_addr.clone().recipient::<NodeToUiMessage>(),
@@ -36,7 +39,12 @@ impl RecipientsFactory for RecipientsFactoryReal {
 }
 
 impl ChannelFactory for ChannelFactoryReal {
-    fn make(&self) -> (Sender<HashMap<String, String>>, Receiver<HashMap<String, String>>) {
+    fn make(
+        &self,
+    ) -> (
+        Sender<HashMap<String, String>>,
+        Receiver<HashMap<String, String>>,
+    ) {
         std::sync::mpsc::channel()
     }
 }
@@ -61,7 +69,7 @@ impl Command for DaemonInitializer {
 }
 
 pub trait Rerunner {
-    fn rerun (&self, args: Vec<String>);
+    fn rerun(&self, args: Vec<String>);
 }
 
 pub struct RerunnerReal {}
@@ -69,14 +77,14 @@ pub struct RerunnerReal {}
 impl Rerunner for RerunnerReal {
     fn rerun(&self, args: Vec<String>) {
         let mut prefixed_args = vec![String::new()];
-        prefixed_args.extend (args);
+        prefixed_args.extend(args);
         main_with_args(&prefixed_args);
     }
 }
 
 impl RerunnerReal {
-    pub fn new () -> RerunnerReal {
-        RerunnerReal{}
+    pub fn new() -> RerunnerReal {
+        RerunnerReal {}
     }
 }
 
@@ -111,26 +119,27 @@ impl DaemonInitializer {
     fn split(&mut self, system: SystemRunner, receiver: Receiver<HashMap<String, String>>) {
         system.run();
         let param_map = receiver.recv().expect("Daemon is dead");
-        let param_vec = param_map.into_iter()
+        let param_vec = param_map
+            .into_iter()
             .sorted_by_key(|(key, _)| key.to_string())
-            .flat_map (|(key, value)| vec![format!("--{}", key), format!("{}", value)])
+            .flat_map(|(key, value)| vec![format!("--{}", key), format!("{}", value)])
             .collect_vec();
-        self.rerunner.rerun (param_vec);
+        self.rerunner.rerun(param_vec);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::{ChannelFactory, Recipients, RecipientsFactory};
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
     use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
     use itertools::Itertools;
     use std::cell::RefCell;
-    use std::sync::{Mutex, Arc};
-    use crate::daemon::{RecipientsFactory, Recipients, ChannelFactory};
     use std::iter::FromIterator;
+    use std::sync::{Arc, Mutex};
 
     struct RecipientsFactoryMock {
         ui_gateway: RefCell<Option<Recorder>>,
@@ -181,24 +190,38 @@ mod tests {
     }
 
     struct ChannelFactoryMock {
-        make_results: RefCell<Vec<(Sender<HashMap<String, String>>, Receiver<HashMap<String, String>>)>>
+        make_results: RefCell<
+            Vec<(
+                Sender<HashMap<String, String>>,
+                Receiver<HashMap<String, String>>,
+            )>,
+        >,
     }
 
     impl ChannelFactory for ChannelFactoryMock {
-        fn make(&self) -> (Sender<HashMap<String, String>>, Receiver<HashMap<String, String>>) {
-            self.make_results.borrow_mut().remove (0)
+        fn make(
+            &self,
+        ) -> (
+            Sender<HashMap<String, String>>,
+            Receiver<HashMap<String, String>>,
+        ) {
+            self.make_results.borrow_mut().remove(0)
         }
     }
 
     impl ChannelFactoryMock {
-        pub fn new () -> ChannelFactoryMock {
+        pub fn new() -> ChannelFactoryMock {
             ChannelFactoryMock {
-                make_results: RefCell::new (vec![]),
+                make_results: RefCell::new(vec![]),
             }
         }
 
-        pub fn _make_result (self, sender: Sender<HashMap<String, String>>, receiver: Receiver<HashMap<String, String>>) -> Self {
-            self.make_results.borrow_mut().push ((sender, receiver));
+        pub fn _make_result(
+            self,
+            sender: Sender<HashMap<String, String>>,
+            receiver: Receiver<HashMap<String, String>>,
+        ) -> Self {
+            self.make_results.borrow_mut().push((sender, receiver));
             self
         }
     }
@@ -209,18 +232,18 @@ mod tests {
 
     impl Rerunner for RerunnerMock {
         fn rerun(&self, args: Vec<String>) {
-            self.rerun_parameters.lock().unwrap().push (args);
+            self.rerun_parameters.lock().unwrap().push(args);
         }
     }
 
     impl RerunnerMock {
-        fn new () -> RerunnerMock {
+        fn new() -> RerunnerMock {
             RerunnerMock {
-                rerun_parameters: Arc::new (Mutex::new (vec![])),
+                rerun_parameters: Arc::new(Mutex::new(vec![])),
             }
         }
 
-        fn rerun_parameters (mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+        fn rerun_parameters(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
             self.rerun_parameters = params.clone();
             self
         }
@@ -244,7 +267,12 @@ mod tests {
         let recipients_factory =
             RecipientsFactoryMock::new(ui_gateway, vec![one_actor, another_actor]);
         let rerunner = RerunnerMock::new();
-        let mut subject = DaemonInitializer::new(config, Box::new(channel_factory), Box::new(recipients_factory), Box::new (rerunner));
+        let mut subject = DaemonInitializer::new(
+            config,
+            Box::new(channel_factory),
+            Box::new(recipients_factory),
+            Box::new(rerunner),
+        );
 
         subject.bind(std::sync::mpsc::channel().0);
 
@@ -269,23 +297,34 @@ mod tests {
         };
         let (sender, receiver) = std::sync::mpsc::channel::<HashMap<String, String>>();
         let channel_factory = ChannelFactoryMock::new();
-        let recipients_factory =
-            RecipientsFactoryMock::new(ui_gateway, vec![]);
-        let rerun_parameters_arc = Arc::new (Mutex::new (vec![]));
+        let recipients_factory = RecipientsFactoryMock::new(ui_gateway, vec![]);
+        let rerun_parameters_arc = Arc::new(Mutex::new(vec![]));
         let rerunner = RerunnerMock::new().rerun_parameters(&rerun_parameters_arc);
-        let mut subject = DaemonInitializer::new(config, Box::new(channel_factory), Box::new(recipients_factory), Box::new (rerunner));
-        let msg = HashMap::from_iter(vec![("address", "123 Main St."), ("name", "Billy")].into_iter().map(|(n, v)| (n.to_string(), v.to_string())));
-        sender.send (msg).unwrap();
+        let mut subject = DaemonInitializer::new(
+            config,
+            Box::new(channel_factory),
+            Box::new(recipients_factory),
+            Box::new(rerunner),
+        );
+        let msg = HashMap::from_iter(
+            vec![("address", "123 Main St."), ("name", "Billy")]
+                .into_iter()
+                .map(|(n, v)| (n.to_string(), v.to_string())),
+        );
+        sender.send(msg).unwrap();
         System::current().stop();
 
-        subject.split (system, receiver);
+        subject.split(system, receiver);
 
         let mut rerun_parameters = rerun_parameters_arc.lock().unwrap();
-        assert_eq! (rerun_parameters.remove(0), vec![
-            "--address".to_string(),
-            "123 Main St.".to_string(),
-            "--name".to_string(),
-            "Billy".to_string(),
-        ]);
+        assert_eq!(
+            rerun_parameters.remove(0),
+            vec![
+                "--address".to_string(),
+                "123 Main St.".to_string(),
+                "--name".to_string(),
+                "Billy".to_string(),
+            ]
+        );
     }
 }
