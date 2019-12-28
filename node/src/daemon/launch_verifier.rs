@@ -87,7 +87,7 @@ impl VerifierToolsReal {
 
     #[cfg(target_os = "macos")]
     fn is_alive(process: &Process) -> bool {
-        match process_status() {
+        match process.status() {
             ProcessStatus::Zombie => false,
             _ => true,
         }
