@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
-use crate::sub_lib::ui_gateway::MessageBody;
+use crate::sub_lib::ui_gateway::{MessageBody};
 use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 use crate::ui_gateway::messages::UiMessageError::{
     BadOpcode, BadPath, DeserializationError, PayloadError,
@@ -9,6 +9,7 @@ use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 
 pub const NODE_LAUNCH_ERROR: u64 = 0x8000_0000_0000_0001;
+pub const NODE_NOT_RUNNING_ERROR: u64 = 0x8000_0000_0000_0002;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
@@ -111,7 +112,7 @@ pub struct UiReceivableAccount {
     pub amount: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiFinancialsRequest {
     #[serde(rename = "payableMinimumAmount")]
     pub payable_minimum_amount: u64,
@@ -185,6 +186,15 @@ two_way_message!(UiStartResponse, "start");
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiShutdownOrder {}
 one_way_message!(UiShutdownOrder, "shutdownOrder");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiRedirect {
+    pub port: u16,
+    pub opcode: String,
+    #[serde(rename = "payloadJson")]
+    pub payload_json: String,
+}
+one_way_message!(UiRedirect, "redirect");
 
 #[cfg(test)]
 mod tests {
