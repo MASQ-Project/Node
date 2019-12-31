@@ -3,10 +3,7 @@
 pub mod daemon_initializer;
 pub mod launch_verifier;
 mod launch_verifier_mock;
-#[cfg(not(target_os = "windows"))]
-mod launcher_not_windows;
-#[cfg(target_os = "windows")]
-mod launcher_windows;
+mod launcher;
 
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::MessagePath::{TwoWay, OneWay};

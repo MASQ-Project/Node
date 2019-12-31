@@ -1,9 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
-#[cfg(not(target_os = "windows"))]
-use crate::daemon::launcher_not_windows::LauncherReal;
-#[cfg(target_os = "windows")]
-use crate::daemon::launcher_windows::LauncherReal;
+use crate::daemon::launcher::LauncherReal;
 use crate::daemon::{
     ChannelFactory, ChannelFactoryReal, Daemon, DaemonBindMessage, Recipients, RecipientsFactory,
     RecipientsFactoryReal,

@@ -374,9 +374,13 @@ impl UiConnection {
         }
     }
 
-    pub fn send<T: ToMessageBody>(&mut self, payload: T) {
+    pub fn send<T: ToMessageBody>(&mut self, payload: T){
         let context_id = self.context_id;
         self.context_id += 1;
+        self.send_with_context_id(payload, context_id)
+    }
+
+    pub fn send_with_context_id<T: ToMessageBody>(&mut self, payload: T, context_id: u64) {
         let outgoing_msg = NodeFromUiMessage {
             client_id: 0, // irrelevant: will be replaced on the other end
             body: payload.tmb(context_id),
@@ -410,6 +414,15 @@ impl UiConnection {
         payload: S,
     ) -> Result<R, (u64, String)> {
         self.send(payload);
+        self.receive::<R>()
+    }
+
+    pub fn transact_with_context_id<S: ToMessageBody, R: FromMessageBody>(
+        &mut self,
+        payload: S,
+        context_id: u64
+    ) -> Result<R, (u64, String)> {
+        self.send_with_context_id(payload, context_id);
         self.receive::<R>()
     }
 }

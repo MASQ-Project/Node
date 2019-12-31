@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
-#![cfg(target_os = "windows")]
 
 use crate::daemon::launch_verifier::LaunchVerification::{
     CleanFailure, DirtyFailure, InterventionRequired, Launched,
