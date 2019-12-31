@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
-use crate::sub_lib::ui_gateway::{MessageBody};
+use crate::sub_lib::ui_gateway::MessageBody;
 use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 use crate::ui_gateway::messages::UiMessageError::{
     BadOpcode, BadPath, DeserializationError, PayloadError,

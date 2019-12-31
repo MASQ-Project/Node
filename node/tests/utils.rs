@@ -374,7 +374,7 @@ impl UiConnection {
         }
     }
 
-    pub fn send<T: ToMessageBody>(&mut self, payload: T){
+    pub fn send<T: ToMessageBody>(&mut self, payload: T) {
         let context_id = self.context_id;
         self.context_id += 1;
         self.send_with_context_id(payload, context_id)
@@ -420,7 +420,7 @@ impl UiConnection {
     pub fn transact_with_context_id<S: ToMessageBody, R: FromMessageBody>(
         &mut self,
         payload: S,
-        context_id: u64
+        context_id: u64,
     ) -> Result<R, (u64, String)> {
         self.send_with_context_id(payload, context_id);
         self.receive::<R>()

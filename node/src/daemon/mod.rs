@@ -6,11 +6,14 @@ mod launch_verifier_mock;
 mod launcher;
 
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::ui_gateway::MessagePath::{TwoWay, OneWay};
+use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 use crate::sub_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use crate::ui_gateway::messages::UiMessageError::BadOpcode;
-use crate::ui_gateway::messages::{FromMessageBody, ToMessageBody, UiMessageError, UiSetup, UiSetupValue, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR, UiRedirect, NODE_NOT_RUNNING_ERROR};
+use crate::ui_gateway::messages::{
+    FromMessageBody, ToMessageBody, UiMessageError, UiRedirect, UiSetup, UiSetupValue,
+    UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+};
 use actix::Recipient;
 use actix::{Actor, Context, Handler, Message};
 use std::collections::HashMap;
@@ -110,8 +113,8 @@ impl Handler<NodeFromUiMessage> for Daemon {
                 match result {
                     Ok((_, context_id)) => self.handle_start_order(client_id, context_id),
                     Err(e) if e == BadOpcode => {
-                        self.handle_unexpected_message (msg.client_id, msg.body);
-                    },
+                        self.handle_unexpected_message(msg.client_id, msg.body);
+                    }
                     Err(e) => error!(
                         &self.logger,
                         "Bad {} request from client {}: {:?}", opcode, client_id, e
@@ -182,17 +185,17 @@ impl Daemon {
     fn handle_start_order(&mut self, client_id: u64, context_id: u64) {
         match self.launcher.launch(self.params.drain().collect()) {
             Ok(Some(success)) => {
-                self.node_process_id = Some (success.new_process_id);
-                self.node_ui_port = Some (success.redirect_ui_port);
+                self.node_process_id = Some(success.new_process_id);
+                self.node_ui_port = Some(success.redirect_ui_port);
                 self.respond_to_ui(
                     client_id,
                     UiStartResponse {
                         new_process_id: success.new_process_id,
                         redirect_ui_port: success.redirect_ui_port,
                     }
-                        .tmb(context_id),
+                    .tmb(context_id),
                 )
-            },
+            }
             Ok(None) => (),
             Err(s) => self.respond_to_ui(
                 client_id,
@@ -207,29 +210,39 @@ impl Daemon {
 
     fn handle_unexpected_message(&mut self, client_id: u64, body: MessageBody) {
         match self.node_ui_port {
-            Some (port) => self.ui_gateway_sub
+            Some(port) => self
+                .ui_gateway_sub
                 .as_ref()
-                .expect ("UiGateway is unbound")
+                .expect("UiGateway is unbound")
                 .try_send(NodeToUiMessage {
                     target: ClientId(client_id),
                     body: UiRedirect {
                         port,
                         opcode: body.opcode,
                         payload_json: match body.payload {
-                            Ok (json) => json,
-                            Err ((_code, _message)) => unimplemented! (),
-                        }
-                    }.tmb(0)}).expect ("UiGateway is dead"),
-            None => self.ui_gateway_sub
+                            Ok(json) => json,
+                            Err((_code, _message)) => unimplemented!(),
+                        },
+                    }
+                    .tmb(0),
+                })
+                .expect("UiGateway is dead"),
+            None => self
+                .ui_gateway_sub
                 .as_ref()
-                .expect ("UiGateway is unbound")
+                .expect("UiGateway is unbound")
                 .try_send(NodeToUiMessage {
                     target: ClientId(client_id),
-                    body: MessageBody{
+                    body: MessageBody {
                         opcode: "redirect".to_string(),
                         path: OneWay,
-                        payload: Err((NODE_NOT_RUNNING_ERROR, format! ("Cannot handle {} request: Node is not running", body.opcode))),
-                    }}).expect ("UiGateway is dead")
+                        payload: Err((
+                            NODE_NOT_RUNNING_ERROR,
+                            format!("Cannot handle {} request: Node is not running", body.opcode),
+                        )),
+                    },
+                })
+                .expect("UiGateway is dead"),
         }
     }
 
@@ -251,7 +264,10 @@ mod tests {
     use crate::daemon::LaunchSuccess;
     use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::ui_gateway::messages::{UiSetup, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR, UiFinancialsRequest, UiRedirect, NODE_NOT_RUNNING_ERROR};
+    use crate::ui_gateway::messages::{
+        UiFinancialsRequest, UiRedirect, UiSetup, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR,
+        NODE_NOT_RUNNING_ERROR,
+    };
     use actix::System;
     use std::cell::RefCell;
     use std::collections::HashSet;
@@ -599,18 +615,17 @@ mod tests {
     #[test]
     fn sets_process_id_and_node_ui_port_upon_node_launch_success() {
         let (ui_gateway, _, _) = make_recorder();
-        let launcher = LauncherMock::new()
-            .launch_result (Ok (Some (LaunchSuccess {
-                new_process_id: 54321,
-                redirect_ui_port: 7777
-            })));
+        let launcher = LauncherMock::new().launch_result(Ok(Some(LaunchSuccess {
+            new_process_id: 54321,
+            redirect_ui_port: 7777,
+        })));
         let mut subject = Daemon::new(Box::new(launcher));
-        subject.ui_gateway_sub = Some (ui_gateway.start().recipient());
+        subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
 
-        subject.handle_start_order (1234, 2345);
+        subject.handle_start_order(1234, 2345);
 
-        assert_eq! (subject.node_process_id, Some(54321));
-        assert_eq! (subject.node_ui_port, Some(7777));
+        assert_eq!(subject.node_process_id, Some(54321));
+        assert_eq!(subject.node_ui_port, Some(7777));
     }
 
     #[test]
@@ -627,8 +642,9 @@ mod tests {
             payable_minimum_amount: 0,
             payable_maximum_age: 0,
             receivable_minimum_amount: 0,
-            receivable_maximum_age: 0
-        }.tmb(4321);
+            receivable_maximum_age: 0,
+        }
+        .tmb(4321);
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -645,8 +661,7 @@ mod tests {
             .clone();
         assert_eq!(record.target, ClientId(1234));
         assert_eq!(record.body.path, OneWay);
-        let (payload, context_id): (UiRedirect, u64) =
-            UiRedirect::fmb(record.body).unwrap();
+        let (payload, context_id): (UiRedirect, u64) = UiRedirect::fmb(record.body).unwrap();
         assert_eq!(context_id, 0);
         assert_eq!(
             payload,
@@ -672,8 +687,9 @@ mod tests {
             payable_minimum_amount: 0,
             payable_maximum_age: 0,
             receivable_minimum_amount: 0,
-            receivable_maximum_age: 0
-        }.tmb(4321);
+            receivable_maximum_age: 0,
+        }
+        .tmb(4321);
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -689,6 +705,12 @@ mod tests {
             .get_record::<NodeToUiMessage>(0)
             .clone();
         assert_eq!(record.target, ClientId(1234));
-        assert_eq!(record.body.payload, Err((NODE_NOT_RUNNING_ERROR, "Cannot handle financials request: Node is not running".to_string())));
+        assert_eq!(
+            record.body.payload,
+            Err((
+                NODE_NOT_RUNNING_ERROR,
+                "Cannot handle financials request: Node is not running".to_string()
+            ))
+        );
     }
 }
