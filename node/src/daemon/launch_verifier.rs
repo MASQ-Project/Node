@@ -503,11 +503,6 @@ mod tests {
             assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Sleep), true);
             assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Stop), true);
             assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Zombie), false);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Tracing), true);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Dead), true);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Wakekill), true);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Waking), true);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Parked), true);
             assert_eq!(
                 VerifierToolsReal::is_alive(ProcessStatus::Unknown(0)),
                 false
@@ -516,24 +511,7 @@ mod tests {
         }
         #[cfg(target_os = "windows")]
         {
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Idle), false);
             assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Run), true);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Sleep), false);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Stop), false);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Zombie), false);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Tracing), false);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Dead), false);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Wakekill), false);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Waking), false);
-            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Parked), false);
-            assert_eq!(
-                VerifierToolsReal::is_alive(ProcessStatus::Unknown(0)),
-                false
-            );
-            assert_eq!(
-                VerifierToolsReal::is_alive(ProcessStatus::Unknown(1)),
-                false
-            );
         }
     }
 }
