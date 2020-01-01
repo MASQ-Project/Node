@@ -89,7 +89,7 @@ impl VerifierToolsReal {
     fn is_alive(process_status: ProcessStatus) -> bool {
         let result = match process_status {
             ProcessStatus::Zombie => false,
-            Unknown(0) => false, // This value was observed in practice; its meaning is unclear.
+            ProcessStatus::Unknown(0) => false, // This value was observed in practice; its meaning is unclear.
             _ => true,
         };
         eprintln!(
