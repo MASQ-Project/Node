@@ -5,7 +5,7 @@ use crate::daemon::launch_verifier::LaunchVerification::{
 };
 use std::thread;
 use std::time::Duration;
-use sysinfo::{Process, ProcessExt, ProcessStatus, Signal, SystemExt};
+use sysinfo::{ProcessExt, ProcessStatus, Signal, SystemExt};
 use websocket::ClientBuilder;
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
@@ -37,7 +37,7 @@ impl VerifierTools for VerifierToolsReal {
     fn process_is_running(&self, process_id: u32) -> bool {
         match Self::system_with_process(process_id).get_process(Self::convert_pid(process_id)) {
             None => false,
-            Some(process) => Self::is_alive(process),
+            Some(process) => Self::is_alive(process.status()),
         }
     }
 
@@ -77,8 +77,8 @@ impl VerifierToolsReal {
     }
 
     #[cfg(target_os = "linux")]
-    fn is_alive(process: &Process) -> bool {
-        match process.status() {
+    fn is_alive(process_status: ProcessStatus) -> bool {
+        match process_status {
             ProcessStatus::Dead => false,
             ProcessStatus::Zombie => false,
             _ => true,
@@ -86,16 +86,21 @@ impl VerifierToolsReal {
     }
 
     #[cfg(target_os = "macos")]
-    fn is_alive(process: &Process) -> bool {
-        match process.status() {
+    fn is_alive(process_status: ProcessStatus) -> bool {
+        let result = match process_status {
             ProcessStatus::Zombie => false,
             _ => true,
-        }
+        };
+        eprintln!(
+            "Process status is {:?}; is_alive() returns {}",
+            process_status, result
+        );
+        result
     }
 
     #[cfg(target_os = "windows")]
-    fn is_alive(process: &Process) -> bool {
-        match process.status() {
+    fn is_alive(process_status: ProcessStatus) -> bool {
+        match process_status {
             ProcessStatus::Run => true,
         }
     }
