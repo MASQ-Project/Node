@@ -41,6 +41,7 @@ fn initialization_sequence_integration() {
         .transact(UiSetup::new(vec![
             ("dns-servers", "1.1.1.1"),
             ("neighborhood-mode", "zero-hop"),
+            ("log-level", "trace"),
         ]))
         .unwrap();
     let financials_request = UiFinancialsRequest {

@@ -221,7 +221,7 @@ impl WebSocketSupervisorReal {
     fn reject_upgrade_request(upgrade: WsUpgrade<TcpStream, BytesMut>, logger: &Logger) {
         info!(
             logger,
-            "UI attempted connection without protocol MASQNode-UI: {:?}",
+            "UI attempted connection without protocol MASQNode-UI or MASQNode-UIv2: {:?}",
             upgrade.protocols()
         );
         tokio::spawn(upgrade.reject().then(|_| ok::<(), ()>(())));
