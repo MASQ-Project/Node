@@ -89,6 +89,7 @@ impl VerifierToolsReal {
     fn is_alive(process_status: ProcessStatus) -> bool {
         let result = match process_status {
             ProcessStatus::Zombie => false,
+            Unknown(0) => false, // This value was observed in practice; its meaning is unclear.
             _ => true,
         };
         eprintln!(
@@ -102,6 +103,7 @@ impl VerifierToolsReal {
     fn is_alive(process_status: ProcessStatus) -> bool {
         match process_status {
             ProcessStatus::Run => true,
+            _ => false,
         }
     }
 }
@@ -475,5 +477,63 @@ mod tests {
         let interval = end.duration_since(begin).as_millis();
         assert!(interval >= 25);
         assert!(interval < 50);
+    }
+
+    #[test]
+    fn is_alive_works() {
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Idle), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Run), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Sleep), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Stop), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Zombie), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Tracing), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Dead), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Wakekill), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Waking), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Parked), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Unknown(0)), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Unknown(1)), true);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Idle), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Run), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Sleep), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Stop), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Zombie), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Tracing), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Dead), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Wakekill), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Waking), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Parked), true);
+            assert_eq!(
+                VerifierToolsReal::is_alive(ProcessStatus::Unknown(0)),
+                false
+            );
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Unknown(1)), true);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Idle), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Run), true);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Sleep), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Stop), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Zombie), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Tracing), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Dead), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Wakekill), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Waking), false);
+            assert_eq!(VerifierToolsReal::is_alive(ProcessStatus::Parked), false);
+            assert_eq!(
+                VerifierToolsReal::is_alive(ProcessStatus::Unknown(0)),
+                false
+            );
+            assert_eq!(
+                VerifierToolsReal::is_alive(ProcessStatus::Unknown(1)),
+                false
+            );
+        }
     }
 }
