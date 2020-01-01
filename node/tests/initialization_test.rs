@@ -93,7 +93,10 @@ fn initialization_sequence_integration() {
     eprintln!("Killing Daemon");
     let _ = daemon.kill();
     eprintln!("Waiting for Daemon to stop");
-    let _ = daemon.wait_for_exit();
+    match daemon.wait_for_exit() {
+        None => eprintln! ("wait_for_exit produced no output: weird"),
+        Some(output) => eprintln! ("wait_for_exit produced exit status {:?} and stdout:\n------\n{}\n------\nstderr:\n------\n{}\n------\n", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)),
+    }
 }
 
 fn wait_for_process_end(process_id: u32) {
