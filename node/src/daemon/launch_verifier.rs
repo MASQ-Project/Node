@@ -87,23 +87,17 @@ impl VerifierToolsReal {
 
     #[cfg(target_os = "macos")]
     fn is_alive(process_status: ProcessStatus) -> bool {
-        let result = match process_status {
+        match process_status {
             ProcessStatus::Zombie => false,
             ProcessStatus::Unknown(0) => false, // This value was observed in practice; its meaning is unclear.
             _ => true,
-        };
-        eprintln!(
-            "Process status is {:?}; is_alive() returns {}",
-            process_status, result
-        );
-        result
+        }
     }
 
     #[cfg(target_os = "windows")]
     fn is_alive(process_status: ProcessStatus) -> bool {
         match process_status {
             ProcessStatus::Run => true,
-            _ => false,
         }
     }
 }
