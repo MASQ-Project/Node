@@ -4,6 +4,7 @@ pub mod utils;
 
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
+use node_lib::test_utils::find_free_port;
 use node_lib::ui_gateway::messages::ToMessageBody;
 use node_lib::ui_gateway::messages::{
     UiFinancialsRequest, UiRedirect, UiSetup, UiShutdownOrder, UiStartOrder, UiStartResponse,
@@ -14,7 +15,6 @@ use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
 use utils::MASQNode;
 use utils::UiConnection;
-use node_lib::test_utils::find_free_port;
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -36,7 +36,9 @@ fn clap_help_does_not_initialize_database_integration() {
 #[test]
 fn initialization_sequence_integration() {
     let daemon_port = find_free_port();
-    let mut daemon = MASQNode::start_daemon(Some (CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str())));
+    let mut daemon = MASQNode::start_daemon(Some(
+        CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str()),
+    ));
     let mut initialization_client = UiConnection::new(daemon_port, "MASQNode-UIv2");
     let _: UiSetup = initialization_client
         .transact(UiSetup::new(vec![
