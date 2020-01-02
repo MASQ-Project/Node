@@ -38,7 +38,7 @@ pub trait NodeConfigurator<T> {
 }
 
 const CHAIN_HELP: &str =
-    "The blockchain network SubstratumNode will configure itself to use. You must ensure the \
+    "The blockchain network MASQ Node will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
 pub const CONFIG_FILE_HELP: &str =
     "Optional TOML file containing configuration that doesn't often change. Should contain only \

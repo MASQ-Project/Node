@@ -15,7 +15,7 @@ use std::time::Duration;
 
 #[test]
 #[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the
-                           // SubstratumNode will be immediately reclaimed.
+                           // MASQNode will be immediately reclaimed.
 fn tls_through_node_integration() {
     let node = utils::MASQNode::start_standard(None);
     let mut tls_stream = {
