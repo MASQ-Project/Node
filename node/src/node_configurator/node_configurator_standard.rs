@@ -7,15 +7,13 @@ use crate::node_configurator::{
     app_head, chain_arg, common_validators, config_file_arg, data_directory_arg, db_password_arg,
     earning_wallet_arg, initialize_database, real_user_arg, ui_port_arg, NodeConfigurator,
 };
+use crate::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use clap::{App, Arg};
 use indoc::indoc;
 use lazy_static::lazy_static;
-
-pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
-pub const HIGHEST_USABLE_PORT: u16 = 65535;
 
 pub struct NodeConfiguratorStandardPrivileged {}
 
@@ -278,7 +276,7 @@ pub fn app() -> App<'static, 'static> {
                 .help(NEIGHBORS_HELP),
         )
         .arg(real_user_arg())
-        .arg(ui_port_arg())
+        .arg(ui_port_arg(&UI_PORT_HELP))
 }
 
 pub mod standard {

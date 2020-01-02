@@ -55,23 +55,17 @@ fn initialization_sequence_integration() {
     };
     let context_id = 1234;
 
-    eprintln!("Sending first financials request");
     let not_running_financials_response = initialization_client
         .transact_with_context_id::<UiFinancialsRequest, UiRedirect>(
             financials_request.clone(),
             context_id,
         )
         .unwrap_err();
-    eprintln!("Sending start order");
     let start_response: UiStartResponse = initialization_client.transact(UiStartOrder {}).unwrap();
-    //eprintln! ("Reconnecting to Daemon");
-    //    let mut initialization_client = UiConnection::new(DEFAULT_UI_PORT, "MASQNode-UIv2");
-    eprintln!("Sending second financials request");
     let running_financials_response: UiRedirect = initialization_client
         .transact_with_context_id(financials_request.clone(), context_id)
         .unwrap();
 
-    eprintln!("Asserting responses"); // Never gets here
     assert_eq!(not_running_financials_response.0, NODE_NOT_RUNNING_ERROR);
     assert_eq!(
         not_running_financials_response.1,
@@ -87,15 +81,10 @@ fn initialization_sequence_integration() {
     let actual_payload: UiFinancialsRequest =
         serde_json::from_str(&running_financials_response.payload_json).unwrap();
     assert_eq!(actual_payload, expected_payload);
-    eprintln!("Connecting to Node");
     let mut service_client = UiConnection::new(start_response.redirect_ui_port, "MASQNode-UIv2");
-    eprintln!("Sending shutdown order");
     service_client.send(UiShutdownOrder {});
-    eprintln!("Waiting for Node to stop");
     wait_for_process_end(start_response.new_process_id);
-    eprintln!("Killing Daemon");
     let _ = daemon.kill();
-    eprintln!("Waiting for Daemon to stop");
     match daemon.wait_for_exit() {
         None => eprintln! ("wait_for_exit produced no output: weird"),
         Some(output) => eprintln! ("wait_for_exit produced exit status {:?} and stdout:\n------\n{}\n------\nstderr:\n------\n{}\n------\n", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)),

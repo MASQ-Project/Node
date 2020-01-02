@@ -295,10 +295,6 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        eprintln!(
-            "Neighborhood received {} message from client {}",
-            opcode, client_id
-        );
         let result: Result<(UiShutdownOrder, u64), UiMessageError> = UiShutdownOrder::fmb(msg.body);
         match result {
             Ok((payload, _)) => self.handle_shutdown_order(client_id, payload),
@@ -1217,9 +1213,7 @@ impl Neighborhood {
             self.logger,
             "Received shutdown order from client {}: shutting down hard", client_id
         );
-        eprintln!("Processing shutdown order");
         std::process::exit(0);
-        eprintln!("Should have shut down by now");
     }
 }
 

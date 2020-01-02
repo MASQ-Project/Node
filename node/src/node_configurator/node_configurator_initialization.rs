@@ -5,10 +5,21 @@ use crate::node_configurator::{
     app_head, chain_arg, config_file_arg, data_directory_arg, db_password_arg, real_user_arg,
     ui_port_arg, NodeConfigurator, DB_PASSWORD_HELP,
 };
+use crate::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use clap::{App, Arg};
+use lazy_static::lazy_static;
 use std::path::PathBuf;
+
+lazy_static! {
+    static ref UI_PORT_HELP: String = format!(
+        "The port at which user interfaces will connect to the Daemon. (This is NOT the port at which \
+        interfaces will connect to the Node: no one will know that until after the Node starts. \
+        Best to accept the default unless you know what you're doing. Must be between {} and {}.",
+        LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
+    );
+}
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct InitializationConfig {
@@ -45,7 +56,7 @@ fn app() -> App<'static, 'static> {
         .arg(data_directory_arg())
         .arg(db_password_arg(DB_PASSWORD_HELP))
         .arg(real_user_arg())
-        .arg(ui_port_arg())
+        .arg(ui_port_arg(&UI_PORT_HELP))
 }
 
 mod initialization {
@@ -61,10 +72,6 @@ mod initialization {
     ) {
         let (real_user, data_directory, chain_id) =
             real_user_data_directory_and_chain_id(multi_config);
-        eprintln!(
-            "real_user: {:?}, data_directory: {:?}, chain_id: {:?}",
-            real_user, data_directory, chain_id
-        );
 
         config.chain_id = chain_id;
         config.data_directory = data_directory;

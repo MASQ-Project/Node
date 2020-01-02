@@ -157,10 +157,6 @@ impl Handler<NodeToUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        eprintln!(
-            "UiGateway instructed to send {} message to {:?}",
-            msg.body.opcode, msg.target
-        );
         self.websocket_supervisor
             .as_ref()
             .expect("WebsocketSupervisor is unbound")
@@ -172,12 +168,6 @@ impl Handler<NodeFromUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        eprintln!(
-            "UiGateway broadcasting incoming {} message from UI {} to {} recipients",
-            msg.body.opcode,
-            msg.client_id,
-            self.incoming_message_recipients.len()
-        );
         self.incoming_message_recipients
             .iter()
             .for_each(|recipient| {

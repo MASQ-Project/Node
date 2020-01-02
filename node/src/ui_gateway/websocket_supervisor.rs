@@ -356,7 +356,6 @@ impl WebSocketSupervisorReal {
         socket_addr: SocketAddr,
         message_type: &str,
     ) -> FutureResult<(), ()> {
-        eprintln!("Handling other");
         info!(
             logger,
             "UI at {} sent unexpected {} message; ignoring", socket_addr, message_type

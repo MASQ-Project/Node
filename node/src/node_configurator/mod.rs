@@ -12,7 +12,6 @@ use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use crate::node_configurator::node_configurator_standard::DEFAULT_UI_PORT_VALUE;
-use crate::node_configurator::node_configurator_standard::UI_PORT_HELP;
 use crate::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -121,7 +120,6 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .required(false)
         .takes_value(true)
         .empty_values(false)
-        //        .default_value(&DEFAULT_DATA_DIR_VALUE)
         .help(DATA_DIRECTORY_HELP)
 }
 
@@ -196,14 +194,14 @@ pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
         .hidden(true)
 }
 
-pub fn ui_port_arg<'a>() -> Arg<'a, 'a> {
+pub fn ui_port_arg(help: &str) -> Arg {
     Arg::with_name("ui-port")
         .long("ui-port")
         .value_name("UI-PORT")
         .takes_value(true)
         .default_value(&DEFAULT_UI_PORT_VALUE)
         .validator(crate::node_configurator::common_validators::validate_ui_port)
-        .help(&UI_PORT_HELP)
+        .help(help)
 }
 
 pub fn db_password_arg(help: &str) -> Arg {
@@ -554,7 +552,7 @@ pub fn flushed_write(target: &mut dyn io::Write, string: &str) {
 }
 
 pub mod common_validators {
-    use crate::node_configurator::node_configurator_standard::LOWEST_USABLE_INSECURE_PORT;
+    use crate::persistent_configuration::LOWEST_USABLE_INSECURE_PORT;
     use regex::Regex;
     use tiny_hderive::bip44::DerivationPath;
 
