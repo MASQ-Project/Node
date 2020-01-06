@@ -1,10 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::bootstrapper::RealUser;
-use crate::node_configurator::{
-    app_head, chain_arg, config_file_arg, data_directory_arg, db_password_arg, real_user_arg,
-    ui_port_arg, NodeConfigurator, DB_PASSWORD_HELP,
-};
+use crate::node_configurator::{app_head, chain_arg, data_directory_arg, db_password_arg, real_user_arg, ui_port_arg, NodeConfigurator, DB_PASSWORD_HELP, CONFIG_FILE_HELP};
 use crate::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
@@ -24,7 +21,7 @@ lazy_static! {
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct InitializationConfig {
     pub chain_id: u8,
-    pub config_file: PathBuf,
+    pub config_file_opt: Option<PathBuf>,
     pub data_directory: PathBuf,
     pub db_password_opt: Option<String>,
     pub real_user: RealUser,
@@ -43,7 +40,7 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
     }
 }
 
-fn app() -> App<'static, 'static> {
+pub fn app() -> App<'static, 'static> {
     app_head()
         .arg(
             Arg::with_name("initialization")
@@ -52,7 +49,13 @@ fn app() -> App<'static, 'static> {
                 .takes_value(false),
         )
         .arg(chain_arg())
-        .arg(config_file_arg())
+        .arg(Arg::with_name("config-file")
+            .long("config-file")
+            .value_name("FILE-PATH")
+            .takes_value(true)
+            .required(false)
+            .help(CONFIG_FILE_HELP)
+        )
         .arg(data_directory_arg())
         .arg(db_password_arg(DB_PASSWORD_HELP))
         .arg(real_user_arg())
@@ -76,21 +79,10 @@ mod initialization {
         config.chain_id = chain_id;
         config.data_directory = data_directory;
         config.real_user = real_user;
-
-        config.config_file = value_m!(multi_config, "config-file", PathBuf)
-            .expect("--config-file is not properly defaulted");
-
-        if let Some(db_password) = value_m!(multi_config, "db-password", String) {
-            config.db_password_opt = Some(db_password);
-        } else {
-            config.db_password_opt = None;
-        }
-
-        if let Some(ui_port) = value_m!(multi_config, "ui-port", u16) {
-            config.ui_port = ui_port;
-        } else {
-            config.ui_port = DEFAULT_UI_PORT;
-        }
+        config.config_file_opt = value_m!(multi_config, "config-file", PathBuf);
+        config.db_password_opt = value_m!(multi_config, "db-password", String);
+        config.ui_port = value_m!(multi_config, "ui-port", u16).unwrap_or(DEFAULT_UI_PORT);
+eprintln! ("Args parsed: {:?}", config);
     }
 }
 
@@ -138,7 +130,7 @@ mod tests {
         );
 
         assert_eq!(config.chain_id, chain_id_from_name("ropsten"));
-        assert_eq!(config.config_file, config_file_path);
+        assert_eq!(config.config_file_opt, Some(config_file_path));
         assert_eq!(
             config.data_directory,
             RealDirsWrapper {}
@@ -170,10 +162,7 @@ mod tests {
         );
 
         assert_eq!(config.chain_id, chain_id_from_name("mainnet"));
-        assert_eq!(
-            config.config_file,
-            PathBuf::from_str("config.toml").unwrap()
-        );
+        assert_eq!(config.config_file_opt, None);
         assert_eq!(
             config.data_directory,
             RealDirsWrapper {}
@@ -226,7 +215,7 @@ mod tests {
         );
 
         assert_eq!(config.chain_id, chain_id_from_name("ropsten"));
-        assert_eq!(config.config_file, PathBuf::from_str("booga.toml").unwrap());
+        assert_eq!(config.config_file_opt, Some(PathBuf::from_str("booga.toml").unwrap()));
         assert_eq!(
             config.data_directory,
             PathBuf::from("first").join("second").join("third")

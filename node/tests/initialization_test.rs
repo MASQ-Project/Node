@@ -79,7 +79,7 @@ fn initialization_sequence_integration() {
     let json = financials_request.tmb(context_id).payload.unwrap();
     let expected_payload: UiFinancialsRequest = serde_json::from_str(&json).unwrap();
     let actual_payload: UiFinancialsRequest =
-        serde_json::from_str(&running_financials_response.payload_json).unwrap();
+        serde_json::from_str(&running_financials_response.payload).unwrap();
     assert_eq!(actual_payload, expected_payload);
     let mut service_client = UiConnection::new(start_response.redirect_ui_port, "MASQNode-UIv2");
     service_client.send(UiShutdownOrder {});

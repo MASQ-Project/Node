@@ -28,6 +28,7 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 // TODO: Once we switch all the way over to MASQNode-UIv2 protocol, this entire struct should
 // disappear.
@@ -141,7 +142,9 @@ impl StubRecipient {
 impl Handler<DaemonBindMessage> for UiGateway {
     type Result = ();
 
-    fn handle(&mut self, msg: DaemonBindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DaemonBindMessage, ctx: &mut Self::Context) -> Self::Result {
+debug!(self.logger, "UiGateway handling DaemonBindMessage");
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.subs = None;
         self.incoming_message_recipients = msg.from_ui_message_recipients;
         self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
@@ -157,6 +160,7 @@ impl Handler<NodeToUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+debug!(self.logger, "UiGateway handling NodeToUiMessage to {:?}: {}", msg.target, msg.body.opcode);
         self.websocket_supervisor
             .as_ref()
             .expect("WebsocketSupervisor is unbound")
@@ -168,13 +172,15 @@ impl Handler<NodeFromUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.incoming_message_recipients
-            .iter()
-            .for_each(|recipient| {
+debug!(self.logger, "UiGateway handling NodeFromUiMessage from client {}: {}", msg.client_id, msg.body.opcode);
+        let len = self.incoming_message_recipients.len();
+        (0..len).into_iter()
+            .for_each (|idx| {
+                let recipient = &self.incoming_message_recipients[idx];
                 recipient
                     .try_send(msg.clone())
-                    .expect("A NewUiMessage recipient has died.")
-            })
+                    .expect(format!("UiGateway's NodeFromUiMessage recipient #{} has died.", idx).as_str())
+            });
     }
 }
 

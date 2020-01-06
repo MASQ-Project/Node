@@ -367,6 +367,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
             self.config.data_directory.clone(),
             &self.config.real_user,
             self.config.log_level,
+            None,
         );
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
@@ -889,7 +890,8 @@ mod tests {
             vec![(
                 data_dir,
                 RealUser::new(Some(123), Some(456), Some("/home/booga".into())),
-                LevelFilter::Warn
+                LevelFilter::Warn,
+                None,
             )]
         )
     }

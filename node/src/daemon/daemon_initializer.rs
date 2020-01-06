@@ -11,6 +11,8 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 use crate::blockchain::blockchain_interface::chain_name_from_id;
+use crate::server_initializer::{LoggerInitializerWrapperReal, LoggerInitializerWrapper};
+use flexi_logger::LevelFilter;
 
 pub trait RecipientsFactory {
     fn make(&self, seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -31,7 +33,6 @@ impl RecipientsFactory for RecipientsFactoryReal {
             ui_gateway_to_sub: ui_gateway_addr.clone().recipient(),
             from_ui_subs: vec![
                 daemon_addr.clone().recipient(),
-                ui_gateway_addr.clone().recipient(),
             ],
             bind_message_subs: vec![
                 daemon_addr.recipient(),
@@ -106,6 +107,13 @@ impl DaemonInitializer {
         recipients_factory: Box<dyn RecipientsFactory>,
         rerunner: Box<dyn Rerunner>,
     ) -> DaemonInitializer {
+eprintln! ("DaemonInitializer received configuration: {:?}", config);
+        LoggerInitializerWrapperReal{}.init(
+            config.data_directory.clone(),
+            &config.real_user,
+            LevelFilter::Trace,
+            Some("daemon"),
+        );
         DaemonInitializer {
             config,
             channel_factory,
@@ -116,9 +124,11 @@ impl DaemonInitializer {
 
     fn bind(&mut self, sender: Sender<HashMap<String, String>>) {
         let launcher = LauncherReal::new(sender);
+eprintln! ("DaemonInitializer binding from config: {:?}", self.config);
         let mut params = HashMap::new();
         params.insert ("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should be the regular system DNS server
         params.extend (self.seed_params());
+eprintln! ("DaemonInitializer bound params: {:?}", params);
         let recipients = self.recipients_factory.make (&params, Box::new (launcher), self.config.ui_port);
         let bind_message = DaemonBindMessage {
             to_ui_message_recipient: recipients.ui_gateway_to_sub,
@@ -150,7 +160,9 @@ impl DaemonInitializer {
         seed_params.insert("data-directory".to_string(), self.config.data_directory.to_string_lossy().to_string());
         seed_params.insert("real-user".to_string(), self.config.real_user.to_string());
         seed_params.insert("chain".to_string(), chain_name_from_id(self.config.chain_id).to_string());
-        seed_params.insert("config-file".to_string(), self.config.config_file.to_string_lossy().to_string());
+        if let Some(config_file) = self.config.config_file_opt.clone() {
+            seed_params.insert("config-file".to_string(), config_file.to_string_lossy().to_string());
+        }
         seed_params
     }
 }
@@ -266,7 +278,7 @@ mod tests {
     fn bind_incorporates_seed_params() {
         let config = InitializationConfig {
             chain_id: chain_id_from_name("ropsten"),
-            config_file: PathBuf::from ("not_default.toml"),
+            config_file_opt: Some(PathBuf::from ("not_default.toml")),
             data_directory: PathBuf::from("not_default_data"),
             db_password_opt: Some("booga".to_string()),
             real_user: RealUser::from_str("123:456:not_default_home").unwrap(),
@@ -308,7 +320,7 @@ mod tests {
         let recipients = make_recipients (ui_gateway, daemon);
         let config = InitializationConfig {
             chain_id: 0,                     // irrelevant
-            config_file: Default::default(), // irrelevant
+            config_file_opt: Default::default(), // irrelevant
             data_directory: RealDirsWrapper {}.data_dir().unwrap(),
             db_password_opt: None, // irrelevant
             real_user: Default::default(),
@@ -343,7 +355,7 @@ mod tests {
         let system = System::new("test");
         let config = InitializationConfig {
             chain_id: 0,                     // irrelevant
-            config_file: Default::default(), // irrelevant
+            config_file_opt: Default::default(), // irrelevant
             data_directory: RealDirsWrapper {}.data_dir().unwrap(),
             db_password_opt: None, // irrelevant
             real_user: Default::default(),

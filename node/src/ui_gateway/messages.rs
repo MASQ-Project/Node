@@ -191,8 +191,9 @@ one_way_message!(UiShutdownOrder, "shutdownOrder");
 pub struct UiRedirect {
     pub port: u16,
     pub opcode: String,
-    #[serde(rename = "payloadJson")]
-    pub payload_json: String,
+    #[serde(rename = "contextId")]
+    pub context_id: Option<u64>,
+    pub payload: String,
 }
 one_way_message!(UiRedirect, "redirect");
 

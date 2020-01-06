@@ -19,6 +19,7 @@ use actix::{Actor, Context, Handler, Message};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::sync::mpsc::{Receiver, Sender};
+use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Recipients {
     ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
@@ -79,8 +80,11 @@ impl Actor for Daemon {
 impl Handler<DaemonBindMessage> for Daemon {
     type Result = ();
 
-    fn handle(&mut self, msg: DaemonBindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DaemonBindMessage, ctx: &mut Self::Context) -> Self::Result {
+debug!(&self.logger, "Handling DaemonBindMessage");
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.ui_gateway_sub = Some(msg.to_ui_message_recipient);
+debug!(&self.logger, "DaemonBindMessage handled");
     }
 }
 
@@ -88,6 +92,7 @@ impl Handler<NodeFromUiMessage> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+debug!(&self.logger, "Handing NodeFromUiMessage from client {}: {}", msg.client_id, msg.body.opcode);
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
         // TODO: Gotta be a better way to arrange this code
@@ -113,11 +118,14 @@ impl Handler<NodeFromUiMessage> for Daemon {
                 "Bad {} request from client {}: {:?}", opcode, client_id, e
             ),
         }
+debug!(&self.logger, "NodeFromUiMessage handled");
     }
 }
 
 impl Daemon {
     pub fn new(seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>) -> Daemon {
+let logger = Logger::new("Daemon");
+debug!(&logger, "Constructing Daemon");
         let mut params = HashMap::new();
         params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
         vec!["chain", "config-file", "data-directory", "db-password", "real-user"].into_iter()
@@ -126,18 +134,20 @@ impl Daemon {
                     params.insert(key.to_string(), value.clone());
                 }
             );
-        Daemon {
+        let result = Daemon {
             launcher,
             params,
             ui_gateway_sub: None,
             node_process_id: None,
             node_ui_port: None,
             logger: Logger::new("Daemon"),
-        }
+        };
+debug!(&result.logger, "Daemon constructed");
+        result
     }
 
     fn get_default_params() -> HashMap<String, String> {
-        let schema = crate::node_configurator::node_configurator_standard::app();
+        let schema = crate::node_configurator::node_configurator_initialization::app();
         schema
             .p
             .opts
@@ -212,7 +222,11 @@ impl Daemon {
                     body: UiRedirect {
                         port,
                         opcode: body.opcode,
-                        payload_json: match body.payload {
+                        context_id: match body.path {
+                            OneWay => None,
+                            TwoWay(context_id) => Some(context_id),
+                        },
+                        payload: match body.payload {
                             Ok(json) => json,
                             Err((_code, _message)) => unimplemented!(),
                         },
@@ -257,10 +271,7 @@ mod tests {
     use crate::daemon::LaunchSuccess;
     use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::ui_gateway::messages::{
-        UiFinancialsRequest, UiRedirect, UiSetup, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR,
-        NODE_NOT_RUNNING_ERROR,
-    };
+    use crate::ui_gateway::messages::{UiFinancialsRequest, UiRedirect, UiSetup, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR, UiShutdownOrder};
     use actix::System;
     use std::cell::RefCell;
     use std::collections::HashSet;
@@ -682,7 +693,49 @@ mod tests {
             UiRedirect {
                 port: 7777,
                 opcode: body.opcode,
-                payload_json: body.payload.unwrap(),
+                context_id: Some(4321),
+                payload: body.payload.unwrap(),
+            }
+        );
+    }
+
+    #[test]
+    fn accepts_shutdown_order_after_start_and_returns_redirect() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let mut subject = Daemon::new(&HashMap::new(), Box::new(LauncherMock::new()));
+        subject.node_ui_port = Some(7777);
+        let subject_addr = subject.start();
+        subject_addr
+            .try_send(make_bind_message(ui_gateway))
+            .unwrap();
+        let body: MessageBody = UiShutdownOrder {}
+        .tmb(4321); // Context ID is irrelevant
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: body.clone(),
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let record = ui_gateway_recording
+            .get_record::<NodeToUiMessage>(0)
+            .clone();
+        assert_eq!(record.target, ClientId(1234));
+        assert_eq!(record.body.path, OneWay);
+        let (payload, context_id): (UiRedirect, u64) = UiRedirect::fmb(record.body).unwrap();
+        assert_eq!(context_id, 0);
+        assert_eq!(
+            payload,
+            UiRedirect {
+                port: 7777,
+                opcode: body.opcode,
+                context_id: None,
+                payload: body.payload.unwrap(),
             }
         );
     }

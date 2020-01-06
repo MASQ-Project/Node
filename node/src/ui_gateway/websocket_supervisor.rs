@@ -124,7 +124,10 @@ impl WebSocketSupervisorReal {
             Ok(())
         });
         tokio::spawn(foreach_result.then(move |result| match result {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                debug!(logger_1, "WebSocketSupervisor accepted a connection");
+                Ok(())
+            },
             Err(_) => {
                 error!(
                     logger_1,
