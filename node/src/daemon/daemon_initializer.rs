@@ -25,6 +25,7 @@ pub trait RecipientsFactory {
     ) -> Recipients;
 }
 
+#[derive(Default)]
 pub struct RecipientsFactoryReal {}
 
 impl RecipientsFactory for RecipientsFactoryReal {
@@ -51,7 +52,7 @@ impl RecipientsFactory for RecipientsFactoryReal {
 
 impl RecipientsFactoryReal {
     pub fn new() -> Self {
-        Self {}
+        Self::default()
     }
 }
 

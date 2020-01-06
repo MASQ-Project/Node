@@ -142,15 +142,14 @@ impl Daemon {
                 params.insert(key.to_string(), value.clone());
             }
         });
-        let result = Daemon {
+        Daemon {
             launcher,
             params,
             ui_gateway_sub: None,
             node_process_id: None,
             node_ui_port: None,
             logger: Logger::new("Daemon"),
-        };
-        result
+        }
     }
 
     fn get_default_params() -> HashMap<String, String> {

@@ -171,11 +171,11 @@ impl Handler<NodeFromUiMessage> for UiGateway {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let len = self.incoming_message_recipients.len();
-        (0..len).into_iter().for_each(|idx| {
+        (0..len).for_each(|idx| {
             let recipient = &self.incoming_message_recipients[idx];
-            recipient.try_send(msg.clone()).expect(
-                format!("UiGateway's NodeFromUiMessage recipient #{} has died.", idx).as_str(),
-            )
+            recipient.try_send(msg.clone()).unwrap_or_else(|_| {
+                panic!("UiGateway's NodeFromUiMessage recipient #{} has died.", idx)
+            })
         });
     }
 }
