@@ -207,17 +207,18 @@ impl RealUser {
     }
 
     pub fn to_string(&self) -> String {
-        format! ("{}:{}:{}",
+        format!(
+            "{}:{}:{}",
             match self.uid {
-                Some (uid) => format! ("{}", uid),
+                Some(uid) => format!("{}", uid),
                 None => "".to_string(),
             },
             match self.gid {
-                Some (gid) => format! ("{}", gid),
+                Some(gid) => format!("{}", gid),
                 None => "".to_string(),
             },
             match &self.home_dir {
-                Some (home_dir) => home_dir.to_string_lossy().to_string(),
+                Some(home_dir) => home_dir.to_string_lossy().to_string(),
                 None => "".to_string(),
             },
         )
@@ -776,7 +777,7 @@ mod tests {
 
         let result = subject.to_string();
 
-        assert_eq! (result, "123:456:booga".to_string());
+        assert_eq!(result, "123:456:booga".to_string());
     }
 
     #[test]
@@ -785,7 +786,7 @@ mod tests {
 
         let result = subject.to_string();
 
-        assert_eq! (result, "::".to_string());
+        assert_eq!(result, "::".to_string());
     }
 
     #[test]

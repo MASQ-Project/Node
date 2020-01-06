@@ -93,13 +93,25 @@ impl Default for ServerInitializer {
 }
 
 pub trait LoggerInitializerWrapper: Send {
-    fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter, discriminant_opt: Option<&str>);
+    fn init(
+        &mut self,
+        file_path: PathBuf,
+        real_user: &RealUser,
+        log_level: LevelFilter,
+        discriminant_opt: Option<&str>,
+    );
 }
 
 pub struct LoggerInitializerWrapperReal {}
 
 impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
-    fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter, discriminant_opt: Option<&str>) {
+    fn init(
+        &mut self,
+        file_path: PathBuf,
+        real_user: &RealUser,
+        log_level: LevelFilter,
+        discriminant_opt: Option<&str>,
+    ) {
         let mut logger = Logger::with(
             LogSpecBuilder::new()
                 .default(log_level)
@@ -121,10 +133,15 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         if let Some(discriminant) = discriminant_opt {
             logger = logger.discriminant(discriminant);
         }
-        logger.start()
-        .expect("Logging subsystem failed to start");
+        logger.start().expect("Logging subsystem failed to start");
         let privilege_dropper = PrivilegeDropperReal::new();
-        let logfile_name = file_path.join(format!("MASQNode_{}rCURRENT.log", match discriminant_opt {Some(discriminant) => format!("{}_", discriminant), None => "".to_string()}));
+        let logfile_name = file_path.join(format!(
+            "MASQNode_{}rCURRENT.log",
+            match discriminant_opt {
+                Some(discriminant) => format!("{}_", discriminant),
+                None => "".to_string(),
+            }
+        ));
         privilege_dropper.chown(&logfile_name, real_user);
         std::panic::set_hook(Box::new(|panic_info| {
             panic_hook(AltPanicInfo::from(panic_info))
@@ -267,11 +284,22 @@ pub mod test_utils {
     }
 
     impl LoggerInitializerWrapper for LoggerInitializerWrapperMock {
-        fn init(&mut self, file_path: PathBuf, real_user: &RealUser, log_level: LevelFilter, name_segment: Option<&str>) {
-            self.init_parameters
-                .lock()
-                .unwrap()
-                .push((file_path, real_user.clone(), log_level, match name_segment{Some(s) => Some (s.to_string()), None => None}));
+        fn init(
+            &mut self,
+            file_path: PathBuf,
+            real_user: &RealUser,
+            log_level: LevelFilter,
+            name_segment: Option<&str>,
+        ) {
+            self.init_parameters.lock().unwrap().push((
+                file_path,
+                real_user.clone(),
+                log_level,
+                match name_segment {
+                    Some(s) => Some(s.to_string()),
+                    None => None,
+                },
+            ));
             assert!(init_test_logging());
         }
     }

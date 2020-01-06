@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::daemon::daemon_initializer::{DaemonInitializer, RerunnerReal, RecipientsFactoryReal};
-use crate::daemon::{ChannelFactoryReal};
+use crate::daemon::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal, RerunnerReal};
+use crate::daemon::ChannelFactoryReal;
 use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_generate_wallet::NodeConfiguratorGenerateWallet;
 use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;

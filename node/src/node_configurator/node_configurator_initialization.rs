@@ -1,7 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::bootstrapper::RealUser;
-use crate::node_configurator::{app_head, chain_arg, data_directory_arg, db_password_arg, real_user_arg, ui_port_arg, NodeConfigurator, DB_PASSWORD_HELP, CONFIG_FILE_HELP};
+use crate::node_configurator::{
+    app_head, chain_arg, data_directory_arg, db_password_arg, real_user_arg, ui_port_arg,
+    NodeConfigurator, CONFIG_FILE_HELP, DB_PASSWORD_HELP,
+};
 use crate::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
@@ -49,12 +52,13 @@ pub fn app() -> App<'static, 'static> {
                 .takes_value(false),
         )
         .arg(chain_arg())
-        .arg(Arg::with_name("config-file")
-            .long("config-file")
-            .value_name("FILE-PATH")
-            .takes_value(true)
-            .required(false)
-            .help(CONFIG_FILE_HELP)
+        .arg(
+            Arg::with_name("config-file")
+                .long("config-file")
+                .value_name("FILE-PATH")
+                .takes_value(true)
+                .required(false)
+                .help(CONFIG_FILE_HELP),
         )
         .arg(data_directory_arg())
         .arg(db_password_arg(DB_PASSWORD_HELP))
@@ -82,7 +86,6 @@ mod initialization {
         config.config_file_opt = value_m!(multi_config, "config-file", PathBuf);
         config.db_password_opt = value_m!(multi_config, "db-password", String);
         config.ui_port = value_m!(multi_config, "ui-port", u16).unwrap_or(DEFAULT_UI_PORT);
-eprintln! ("Args parsed: {:?}", config);
     }
 }
 
@@ -215,7 +218,10 @@ mod tests {
         );
 
         assert_eq!(config.chain_id, chain_id_from_name("ropsten"));
-        assert_eq!(config.config_file_opt, Some(PathBuf::from_str("booga.toml").unwrap()));
+        assert_eq!(
+            config.config_file_opt,
+            Some(PathBuf::from_str("booga.toml").unwrap())
+        );
         assert_eq!(
             config.data_directory,
             PathBuf::from("first").join("second").join("third")

@@ -1,50 +1,57 @@
 // Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
 
+use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::daemon::launcher::LauncherReal;
-use crate::daemon::{ChannelFactory, ChannelFactoryReal, Daemon, DaemonBindMessage, Recipients, Launcher};
+use crate::daemon::{
+    ChannelFactory, ChannelFactoryReal, Daemon, DaemonBindMessage, Launcher, Recipients,
+};
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
+use crate::server_initializer::{LoggerInitializerWrapper, LoggerInitializerWrapperReal};
 use crate::sub_lib::main_tools::{main_with_args, Command, StdStreams};
-use crate::sub_lib::ui_gateway::{UiGatewayConfig};
+use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::ui_gateway::UiGateway;
 use actix::{Actor, System, SystemRunner};
+use flexi_logger::LevelFilter;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
-use crate::blockchain::blockchain_interface::chain_name_from_id;
-use crate::server_initializer::{LoggerInitializerWrapperReal, LoggerInitializerWrapper};
-use flexi_logger::LevelFilter;
 
 pub trait RecipientsFactory {
-    fn make(&self, seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
+    fn make(
+        &self,
+        seed_params: &HashMap<String, String>,
+        launcher: Box<dyn Launcher>,
+        ui_port: u16,
+    ) -> Recipients;
 }
 
 pub struct RecipientsFactoryReal {}
 
 impl RecipientsFactory for RecipientsFactoryReal {
-    fn make(&self, seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
+    fn make(
+        &self,
+        seed_params: &HashMap<String, String>,
+        launcher: Box<dyn Launcher>,
+        ui_port: u16,
+    ) -> Recipients {
         let ui_gateway_addr = UiGateway::new(&UiGatewayConfig {
             ui_port,
             node_descriptor: "".to_string(), // irrelevant; field should be removed
         })
-            .start();
+        .start();
         let daemon_addr = Daemon::new(seed_params, launcher).start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient(),
             ui_gateway_to_sub: ui_gateway_addr.clone().recipient(),
-            from_ui_subs: vec![
-                daemon_addr.clone().recipient(),
-            ],
-            bind_message_subs: vec![
-                daemon_addr.recipient(),
-                ui_gateway_addr.recipient()
-            ]
+            from_ui_subs: vec![daemon_addr.clone().recipient()],
+            bind_message_subs: vec![daemon_addr.recipient(), ui_gateway_addr.recipient()],
         }
     }
 }
 
 impl RecipientsFactoryReal {
     pub fn new() -> Self {
-        Self{}
+        Self {}
     }
 }
 
@@ -107,8 +114,7 @@ impl DaemonInitializer {
         recipients_factory: Box<dyn RecipientsFactory>,
         rerunner: Box<dyn Rerunner>,
     ) -> DaemonInitializer {
-eprintln! ("DaemonInitializer received configuration: {:?}", config);
-        LoggerInitializerWrapperReal{}.init(
+        LoggerInitializerWrapperReal {}.init(
             config.data_directory.clone(),
             &config.real_user,
             LevelFilter::Trace,
@@ -124,12 +130,12 @@ eprintln! ("DaemonInitializer received configuration: {:?}", config);
 
     fn bind(&mut self, sender: Sender<HashMap<String, String>>) {
         let launcher = LauncherReal::new(sender);
-eprintln! ("DaemonInitializer binding from config: {:?}", self.config);
         let mut params = HashMap::new();
-        params.insert ("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should be the regular system DNS server
-        params.extend (self.seed_params());
-eprintln! ("DaemonInitializer bound params: {:?}", params);
-        let recipients = self.recipients_factory.make (&params, Box::new (launcher), self.config.ui_port);
+        params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should be the regular system DNS server
+        params.extend(self.seed_params());
+        let recipients =
+            self.recipients_factory
+                .make(&params, Box::new(launcher), self.config.ui_port);
         let bind_message = DaemonBindMessage {
             to_ui_message_recipient: recipients.ui_gateway_to_sub,
             from_ui_message_recipient: recipients.ui_gateway_from_sub,
@@ -154,14 +160,23 @@ eprintln! ("DaemonInitializer bound params: {:?}", params);
 
     fn seed_params(&self) -> HashMap<String, String> {
         let mut seed_params = HashMap::new();
-        if let Some (db_password) = self.config.db_password_opt.clone() {
-            seed_params.insert ("db-password".to_string(), db_password);
+        if let Some(db_password) = self.config.db_password_opt.clone() {
+            seed_params.insert("db-password".to_string(), db_password);
         };
-        seed_params.insert("data-directory".to_string(), self.config.data_directory.to_string_lossy().to_string());
+        seed_params.insert(
+            "data-directory".to_string(),
+            self.config.data_directory.to_string_lossy().to_string(),
+        );
         seed_params.insert("real-user".to_string(), self.config.real_user.to_string());
-        seed_params.insert("chain".to_string(), chain_name_from_id(self.config.chain_id).to_string());
+        seed_params.insert(
+            "chain".to_string(),
+            chain_name_from_id(self.config.chain_id).to_string(),
+        );
         if let Some(config_file) = self.config.config_file_opt.clone() {
-            seed_params.insert("config-file".to_string(), config_file.to_string_lossy().to_string());
+            seed_params.insert(
+                "config-file".to_string(),
+                config_file.to_string_lossy().to_string(),
+            );
         }
         seed_params
     }
@@ -170,6 +185,8 @@ eprintln! ("DaemonInitializer bound params: {:?}", params);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::chain_id_from_name;
+    use crate::bootstrapper::RealUser;
     use crate::daemon::{ChannelFactory, Recipients};
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
     use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
@@ -177,11 +194,9 @@ mod tests {
     use actix::System;
     use std::cell::RefCell;
     use std::iter::FromIterator;
-    use std::sync::{Arc, Mutex};
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::bootstrapper::RealUser;
-    use std::str::FromStr;
     use std::path::PathBuf;
+    use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
 
     struct RecipientsFactoryMock {
         make_params: Arc<Mutex<Vec<(HashMap<String, String>, Box<dyn Launcher>, u16)>>>,
@@ -189,8 +204,16 @@ mod tests {
     }
 
     impl RecipientsFactory for RecipientsFactoryMock {
-        fn make(&self, seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
-            self.make_params.lock().unwrap().push ((seed_params.clone(), launcher, ui_port));
+        fn make(
+            &self,
+            seed_params: &HashMap<String, String>,
+            launcher: Box<dyn Launcher>,
+            ui_port: u16,
+        ) -> Recipients {
+            self.make_params
+                .lock()
+                .unwrap()
+                .push((seed_params.clone(), launcher, ui_port));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -198,18 +221,21 @@ mod tests {
     impl RecipientsFactoryMock {
         fn new() -> Self {
             Self {
-                make_params: Arc::new (Mutex::new (vec![])),
-                make_results: RefCell::new (vec![]),
+                make_params: Arc::new(Mutex::new(vec![])),
+                make_results: RefCell::new(vec![]),
             }
         }
 
-        fn make_params(mut self, params: &Arc<Mutex<Vec<(HashMap<String, String>, Box<dyn Launcher>, u16)>>>) -> Self {
+        fn make_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(HashMap<String, String>, Box<dyn Launcher>, u16)>>>,
+        ) -> Self {
             self.make_params = params.clone();
             self
         }
 
-        fn make_result (self, result: Recipients) -> Self {
-            self.make_results.borrow_mut().push (result);
+        fn make_result(self, result: Recipients) -> Self {
+            self.make_results.borrow_mut().push(result);
             self
         }
     }
@@ -278,17 +304,16 @@ mod tests {
     fn bind_incorporates_seed_params() {
         let config = InitializationConfig {
             chain_id: chain_id_from_name("ropsten"),
-            config_file_opt: Some(PathBuf::from ("not_default.toml")),
+            config_file_opt: Some(PathBuf::from("not_default.toml")),
             data_directory: PathBuf::from("not_default_data"),
             db_password_opt: Some("booga".to_string()),
             real_user: RealUser::from_str("123:456:not_default_home").unwrap(),
             ui_port: 1234,
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let recipients_factory =
-            RecipientsFactoryMock::new()
-                .make_params (&make_params_arc)
-                .make_result (make_recipients(Recorder::new(), Recorder::new()));
+        let recipients_factory = RecipientsFactoryMock::new()
+            .make_params(&make_params_arc)
+            .make_result(make_recipients(Recorder::new(), Recorder::new()));
         let mut subject = DaemonInitializer::new(
             config,
             Box::new(ChannelFactoryMock::new()),
@@ -298,18 +323,22 @@ mod tests {
 
         subject.bind(std::sync::mpsc::channel().0);
 
-        let expected_seed_params = HashMap::from_iter(vec![
-            ("chain", "ropsten"),
-            ("config-file", "not_default.toml"),
-            ("data-directory", "not_default_data"),
-            ("db-password", "booga"),
-            ("real-user", "123:456:not_default_home"),
-            ("dns-servers", "1.1.1.1"),
-        ].into_iter().map (|(k, v)| (k.to_string(), v.to_string())));
+        let expected_seed_params = HashMap::from_iter(
+            vec![
+                ("chain", "ropsten"),
+                ("config-file", "not_default.toml"),
+                ("data-directory", "not_default_data"),
+                ("db-password", "booga"),
+                ("real-user", "123:456:not_default_home"),
+                ("dns-servers", "1.1.1.1"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
         let mut make_params = make_params_arc.lock().unwrap();
         let (seed_params, _, port) = make_params.remove(0);
-        assert_eq! (seed_params, expected_seed_params);
-        assert_eq! (port, 1234);
+        assert_eq!(seed_params, expected_seed_params);
+        assert_eq!(port, 1234);
     }
 
     #[test]
@@ -317,9 +346,9 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (daemon, _, daemon_recording_arc) = make_recorder();
         let system = System::new("test");
-        let recipients = make_recipients (ui_gateway, daemon);
+        let recipients = make_recipients(ui_gateway, daemon);
         let config = InitializationConfig {
-            chain_id: 0,                     // irrelevant
+            chain_id: 0,                         // irrelevant
             config_file_opt: Default::default(), // irrelevant
             data_directory: RealDirsWrapper {}.data_dir().unwrap(),
             db_password_opt: None, // irrelevant
@@ -327,9 +356,7 @@ mod tests {
             ui_port: 1234,
         };
         let channel_factory = ChannelFactoryMock::new();
-        let addr_factory =
-            RecipientsFactoryMock::new()
-                .make_result(recipients);
+        let addr_factory = RecipientsFactoryMock::new().make_result(recipients);
         let rerunner = RerunnerMock::new();
         let mut subject = DaemonInitializer::new(
             config,
@@ -354,7 +381,7 @@ mod tests {
     fn split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args() {
         let system = System::new("test");
         let config = InitializationConfig {
-            chain_id: 0,                     // irrelevant
+            chain_id: 0,                         // irrelevant
             config_file_opt: Default::default(), // irrelevant
             data_directory: RealDirsWrapper {}.data_dir().unwrap(),
             db_password_opt: None, // irrelevant
@@ -394,7 +421,7 @@ mod tests {
         );
     }
 
-    fn make_recipients (ui_gateway: Recorder, daemon: Recorder) -> Recipients {
+    fn make_recipients(ui_gateway: Recorder, daemon: Recorder) -> Recipients {
         let ui_gateway_addr = ui_gateway.start();
         let daemon_addr = daemon.start();
         Recipients {
@@ -404,10 +431,7 @@ mod tests {
                 daemon_addr.clone().recipient(),
                 ui_gateway_addr.clone().recipient(),
             ],
-            bind_message_subs: vec![
-                daemon_addr.recipient(),
-                ui_gateway_addr.recipient()
-            ]
+            bind_message_subs: vec![daemon_addr.recipient(), ui_gateway_addr.recipient()],
         }
     }
 }

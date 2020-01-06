@@ -127,7 +127,7 @@ impl WebSocketSupervisorReal {
             Ok(_) => {
                 debug!(logger_1, "WebSocketSupervisor accepted a connection");
                 Ok(())
-            },
+            }
             Err(_) => {
                 error!(
                     logger_1,

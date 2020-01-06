@@ -9,6 +9,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
 use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 use crate::sub_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
+use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::ui_gateway::messages::UiMessageError::BadOpcode;
 use crate::ui_gateway::messages::{
     FromMessageBody, ToMessageBody, UiMessageError, UiRedirect, UiSetup, UiSetupValue,
@@ -19,7 +20,6 @@ use actix::{Actor, Context, Handler, Message};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::sync::mpsc::{Receiver, Sender};
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 
 pub struct Recipients {
     ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
@@ -81,10 +81,10 @@ impl Handler<DaemonBindMessage> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: DaemonBindMessage, ctx: &mut Self::Context) -> Self::Result {
-debug!(&self.logger, "Handling DaemonBindMessage");
+        debug!(&self.logger, "Handling DaemonBindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.ui_gateway_sub = Some(msg.to_ui_message_recipient);
-debug!(&self.logger, "DaemonBindMessage handled");
+        debug!(&self.logger, "DaemonBindMessage handled");
     }
 }
 
@@ -92,7 +92,10 @@ impl Handler<NodeFromUiMessage> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-debug!(&self.logger, "Handing NodeFromUiMessage from client {}: {}", msg.client_id, msg.body.opcode);
+        debug!(
+            &self.logger,
+            "Handing NodeFromUiMessage from client {}: {}", msg.client_id, msg.body.opcode
+        );
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
         // TODO: Gotta be a better way to arrange this code
@@ -118,22 +121,27 @@ debug!(&self.logger, "Handing NodeFromUiMessage from client {}: {}", msg.client_
                 "Bad {} request from client {}: {:?}", opcode, client_id, e
             ),
         }
-debug!(&self.logger, "NodeFromUiMessage handled");
+        debug!(&self.logger, "NodeFromUiMessage handled");
     }
 }
 
 impl Daemon {
     pub fn new(seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>) -> Daemon {
-let logger = Logger::new("Daemon");
-debug!(&logger, "Constructing Daemon");
         let mut params = HashMap::new();
         params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
-        vec!["chain", "config-file", "data-directory", "db-password", "real-user"].into_iter()
-            .for_each(|key|
-                if let Some(value) = seed_params.get(key) {
-                    params.insert(key.to_string(), value.clone());
-                }
-            );
+        vec![
+            "chain",
+            "config-file",
+            "data-directory",
+            "db-password",
+            "real-user",
+        ]
+        .into_iter()
+        .for_each(|key| {
+            if let Some(value) = seed_params.get(key) {
+                params.insert(key.to_string(), value.clone());
+            }
+        });
         let result = Daemon {
             launcher,
             params,
@@ -142,7 +150,6 @@ debug!(&logger, "Constructing Daemon");
             node_ui_port: None,
             logger: Logger::new("Daemon"),
         };
-debug!(&result.logger, "Daemon constructed");
         result
     }
 
@@ -271,7 +278,10 @@ mod tests {
     use crate::daemon::LaunchSuccess;
     use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::ui_gateway::messages::{UiFinancialsRequest, UiRedirect, UiSetup, UiStartOrder, UiStartResponse, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR, UiShutdownOrder};
+    use crate::ui_gateway::messages::{
+        UiFinancialsRequest, UiRedirect, UiSetup, UiShutdownOrder, UiStartOrder, UiStartResponse,
+        NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+    };
     use actix::System;
     use std::cell::RefCell;
     use std::collections::HashSet;
@@ -320,24 +330,36 @@ mod tests {
     }
 
     #[test]
-    fn accepts_filled_out_config_and_initializes_setup () {
+    fn accepts_filled_out_config_and_initializes_setup() {
         let mut seed_params = HashMap::new();
         seed_params.insert("chain".to_string(), "ropsten".to_string());
         seed_params.insert("config-file".to_string(), "non_default.toml".to_string());
         seed_params.insert("data-directory".to_string(), "non_default_data".to_string());
         seed_params.insert("db-password".to_string(), "booga".to_string());
-        seed_params.insert("real-user".to_string(), "123:456:non_default_home".to_string());
+        seed_params.insert(
+            "real-user".to_string(),
+            "123:456:non_default_home".to_string(),
+        );
         seed_params.insert("ui-port".to_string(), "4444".to_string()); // this should be ignored
 
         let subject = Daemon::new(&seed_params, Box::new(LauncherMock::new()));
 
-        assert_eq! (subject.params.get("chain").unwrap(), "ropsten");
-        assert_eq! (subject.params.get("config-file").unwrap(), "non_default.toml");
-        assert_eq! (subject.params.get("data-directory").unwrap(), "non_default_data");
-        assert_eq! (subject.params.get("db-password").unwrap(), "booga");
-        assert_eq! (subject.params.get("real-user").unwrap(), "123:456:non_default_home");
-        assert_eq! (subject.params.get("ui-port"), None);
-        assert_eq! (subject.params.get("crash-point"), None);
+        assert_eq!(subject.params.get("chain").unwrap(), "ropsten");
+        assert_eq!(
+            subject.params.get("config-file").unwrap(),
+            "non_default.toml"
+        );
+        assert_eq!(
+            subject.params.get("data-directory").unwrap(),
+            "non_default_data"
+        );
+        assert_eq!(subject.params.get("db-password").unwrap(), "booga");
+        assert_eq!(
+            subject.params.get("real-user").unwrap(),
+            "123:456:non_default_home"
+        );
+        assert_eq!(subject.params.get("ui-port"), None);
+        assert_eq!(subject.params.get("crash-point"), None);
     }
 
     #[test]
@@ -709,8 +731,7 @@ mod tests {
         subject_addr
             .try_send(make_bind_message(ui_gateway))
             .unwrap();
-        let body: MessageBody = UiShutdownOrder {}
-        .tmb(4321); // Context ID is irrelevant
+        let body: MessageBody = UiShutdownOrder {}.tmb(4321); // Context ID is irrelevant
 
         subject_addr
             .try_send(NodeFromUiMessage {
