@@ -27,19 +27,6 @@ pub struct Recipients {
     bind_message_subs: Vec<Recipient<DaemonBindMessage>>,
 }
 
-pub trait RecipientsFactory {
-    fn make(&self, args_sender: Sender<HashMap<String, String>>, ui_port: u16) -> Recipients;
-}
-
-#[derive(Default)]
-pub struct RecipientsFactoryReal {}
-
-impl RecipientsFactoryReal {
-    pub fn new() -> Self {
-        RecipientsFactoryReal {}
-    }
-}
-
 #[allow(clippy::type_complexity)]
 pub trait ChannelFactory {
     fn make(
@@ -130,9 +117,15 @@ impl Handler<NodeFromUiMessage> for Daemon {
 }
 
 impl Daemon {
-    pub fn new(launcher: Box<dyn Launcher>) -> Daemon {
+    pub fn new(seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>) -> Daemon {
         let mut params = HashMap::new();
         params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
+        vec!["chain", "config-file", "data-directory", "db-password", "real-user"].into_iter()
+            .for_each(|key|
+                if let Some(value) = seed_params.get(key) {
+                    params.insert(key.to_string(), value.clone());
+                }
+            );
         Daemon {
             launcher,
             params,
@@ -316,10 +309,31 @@ mod tests {
     }
 
     #[test]
+    fn accepts_filled_out_config_and_initializes_setup () {
+        let mut seed_params = HashMap::new();
+        seed_params.insert("chain".to_string(), "ropsten".to_string());
+        seed_params.insert("config-file".to_string(), "non_default.toml".to_string());
+        seed_params.insert("data-directory".to_string(), "non_default_data".to_string());
+        seed_params.insert("db-password".to_string(), "booga".to_string());
+        seed_params.insert("real-user".to_string(), "123:456:non_default_home".to_string());
+        seed_params.insert("ui-port".to_string(), "4444".to_string()); // this should be ignored
+
+        let subject = Daemon::new(&seed_params, Box::new(LauncherMock::new()));
+
+        assert_eq! (subject.params.get("chain").unwrap(), "ropsten");
+        assert_eq! (subject.params.get("config-file").unwrap(), "non_default.toml");
+        assert_eq! (subject.params.get("data-directory").unwrap(), "non_default_data");
+        assert_eq! (subject.params.get("db-password").unwrap(), "booga");
+        assert_eq! (subject.params.get("real-user").unwrap(), "123:456:non_default_home");
+        assert_eq! (subject.params.get("ui-port"), None);
+        assert_eq! (subject.params.get("crash-point"), None);
+    }
+
+    #[test]
     fn accepts_empty_setup_and_returns_defaults() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let subject = Daemon::new(Box::new(LauncherMock::new()));
+        let subject = Daemon::new(&HashMap::new(), Box::new(LauncherMock::new()));
         let subject_addr = subject.start();
         subject_addr
             .try_send(make_bind_message(ui_gateway))
@@ -368,7 +382,7 @@ mod tests {
     fn accepts_full_setup_and_returns_settings_then_remembers_them() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let subject = Daemon::new(Box::new(LauncherMock::new()));
+        let subject = Daemon::new(&HashMap::new(), Box::new(LauncherMock::new()));
         let subject_addr = subject.start();
         subject_addr
             .try_send(make_bind_message(ui_gateway))
@@ -449,7 +463,7 @@ mod tests {
     fn overrides_defaults() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let subject = Daemon::new(Box::new(LauncherMock::new()));
+        let subject = Daemon::new(&HashMap::new(), Box::new(LauncherMock::new()));
         let subject_addr = subject.start();
         subject_addr
             .try_send(make_bind_message(ui_gateway))
@@ -508,7 +522,7 @@ mod tests {
                 redirect_ui_port: 5432,
             })));
         let system = System::new("test");
-        let mut subject = Daemon::new(Box::new(launcher));
+        let mut subject = Daemon::new(&HashMap::new(), Box::new(launcher));
         subject
             .params
             .insert("db-password".to_string(), "goober".to_string());
@@ -557,7 +571,7 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new().launch_result(Ok(None));
         let system = System::new("test");
-        let mut subject = Daemon::new(Box::new(launcher));
+        let mut subject = Daemon::new(&HashMap::new(), Box::new(launcher));
         subject
             .params
             .insert("db-password".to_string(), "goober".to_string());
@@ -584,7 +598,7 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new().launch_result(Err("booga".to_string()));
         let system = System::new("test");
-        let mut subject = Daemon::new(Box::new(launcher));
+        let mut subject = Daemon::new(&HashMap::new(), Box::new(launcher));
         subject
             .params
             .insert("db-password".to_string(), "goober".to_string());
@@ -619,7 +633,7 @@ mod tests {
             new_process_id: 54321,
             redirect_ui_port: 7777,
         })));
-        let mut subject = Daemon::new(Box::new(launcher));
+        let mut subject = Daemon::new(&HashMap::new(), Box::new(launcher));
         subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
 
         subject.handle_start_order(1234, 2345);
@@ -632,7 +646,7 @@ mod tests {
     fn accepts_financials_request_after_start_and_returns_redirect() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        let mut subject = Daemon::new(&HashMap::new(), Box::new(LauncherMock::new()));
         subject.node_ui_port = Some(7777);
         let subject_addr = subject.start();
         subject_addr
@@ -677,7 +691,7 @@ mod tests {
     fn accepts_financials_request_before_start_and_returns_error() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        let mut subject = Daemon::new(&HashMap::new(), Box::new(LauncherMock::new()));
         subject.node_ui_port = None;
         let subject_addr = subject.start();
         subject_addr
