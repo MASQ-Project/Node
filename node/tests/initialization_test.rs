@@ -11,11 +11,11 @@ use node_lib::ui_gateway::messages::{
     NODE_NOT_RUNNING_ERROR,
 };
 use std::ops::Add;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
 use utils::MASQNode;
 use utils::UiConnection;
-use std::path::PathBuf;
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -46,7 +46,14 @@ fn initialization_sequence_integration() {
             ("dns-servers", "1.1.1.1"),
             ("neighborhood-mode", "zero-hop"),
             ("log-level", "trace"),
-            ("data-directory", &PathBuf::from("generated").join("test").join("initialization_sequence_integration").to_string_lossy().to_string())
+            (
+                "data-directory",
+                &PathBuf::from("generated")
+                    .join("test")
+                    .join("initialization_sequence_integration")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
         ]))
         .unwrap();
     let financials_request = UiFinancialsRequest {
