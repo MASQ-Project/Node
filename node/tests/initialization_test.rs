@@ -41,6 +41,13 @@ fn initialization_sequence_integration() {
         CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str()),
     ));
     let mut initialization_client = UiConnection::new(daemon_port, "MASQNode-UIv2");
+    let data_directory = std::env::current_dir().unwrap()
+        .join("generated")
+        .join("test")
+        .join("initialization_sequence_integration")
+        .to_string_lossy()
+        .to_string();
+eprintln! ("Starting Node with data-directory '{}'", data_directory);
     let _: UiSetup = initialization_client
         .transact(UiSetup::new(vec![
             ("dns-servers", "1.1.1.1"),
@@ -48,11 +55,7 @@ fn initialization_sequence_integration() {
             ("log-level", "trace"),
             (
                 "data-directory",
-                &PathBuf::from("generated")
-                    .join("test")
-                    .join("initialization_sequence_integration")
-                    .to_string_lossy()
-                    .to_string(),
+                &data_directory,
             ),
         ]))
         .unwrap();
