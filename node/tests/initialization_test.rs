@@ -11,7 +11,6 @@ use node_lib::ui_gateway::messages::{
     NODE_NOT_RUNNING_ERROR,
 };
 use std::ops::Add;
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
 use utils::MASQNode;
@@ -41,22 +40,20 @@ fn initialization_sequence_integration() {
         CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str()),
     ));
     let mut initialization_client = UiConnection::new(daemon_port, "MASQNode-UIv2");
-    let data_directory = std::env::current_dir().unwrap()
+    let data_directory = std::env::current_dir()
+        .unwrap()
         .join("generated")
         .join("test")
         .join("initialization_sequence_integration")
         .to_string_lossy()
         .to_string();
-eprintln! ("Starting Node with data-directory '{}'", data_directory);
+    eprintln!("Starting Node with data-directory '{}'", data_directory);
     let _: UiSetup = initialization_client
         .transact(UiSetup::new(vec![
             ("dns-servers", "1.1.1.1"),
             ("neighborhood-mode", "zero-hop"),
             ("log-level", "trace"),
-            (
-                "data-directory",
-                &data_directory,
-            ),
+            ("data-directory", &data_directory),
         ]))
         .unwrap();
     let financials_request = UiFinancialsRequest {
