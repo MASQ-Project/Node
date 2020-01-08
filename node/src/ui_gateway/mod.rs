@@ -301,13 +301,13 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::wait_for;
+    use crate::ui_gateway::ui_traffic_converter::UnmarshalError;
     use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
-    use crate::ui_gateway::ui_traffic_converter::{UnmarshalError};
 
     impl Default for UiGatewayOutSubs {
         fn default() -> Self {

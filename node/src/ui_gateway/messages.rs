@@ -10,6 +10,7 @@ use serde_derive::{Deserialize, Serialize};
 
 pub const NODE_LAUNCH_ERROR: u64 = 0x8000_0000_0000_0001;
 pub const NODE_NOT_RUNNING_ERROR: u64 = 0x8000_0000_0000_0002;
+pub const UNMARSHAL_ERROR: u64 = 0x8000_0000_0000_0003;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
