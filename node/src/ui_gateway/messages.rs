@@ -197,6 +197,14 @@ pub struct UiRedirect {
 }
 one_way_message!(UiRedirect, "redirect");
 
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiUnmarshalError {
+    pub message: String,
+    #[serde(rename = "badData")]
+    pub bad_data: String,
+}
+one_way_message!(UiUnmarshalError, "unmarshalError");
+
 #[cfg(test)]
 mod tests {
     use super::*;
