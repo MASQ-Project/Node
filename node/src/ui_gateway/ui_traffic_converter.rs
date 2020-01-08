@@ -5,9 +5,46 @@ use crate::sub_lib::ui_gateway::{
     MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage, UiMessage,
 };
 use serde_json::Value;
+use crate::ui_gateway::ui_traffic_converter::TrafficConversionError::{MissingFieldError, JsonSyntaxError, FieldTypeError, NotJsonObjectError};
+use crate::ui_gateway::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
+use std::fmt::Display;
 
 #[allow(dead_code)]
 pub const BROADCAST: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum TrafficConversionError {
+    JsonSyntaxError(String), // couldn't parse as JSON
+    NotJsonObjectError(String), // root level wasn't a JSON object
+    MissingFieldError(String), // noncritical field missing; can send error message under same opcode
+    FieldTypeError(String, String, String), // noncritical field was mistyped; can send error message under same opcode
+}
+
+impl Display for TrafficConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            JsonSyntaxError(s) => write!(f, "Couldn't parse text as JSON: {}", s),
+            NotJsonObjectError(s) => write!(f, "Root was not a JSON object:\n------\n{}\n------\n", s),
+            MissingFieldError(field) => write!(f, "Required field was missing: {}", field),
+            FieldTypeError(field, wanted, got) => write!(f, "Field {} should have been of type {}, but was '{}' instead", field, wanted, got),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum UnmarshalError {
+    Critical(TrafficConversionError),
+    NonCritical(String, TrafficConversionError),
+}
+
+impl Display for UnmarshalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            Critical(e) => write!(f, "Critical error unmarshalling unidentified message: {}", e),
+            NonCritical(opcode, e) => write!(f, "Error unmarshalling '{}' message: {}", opcode, e),
+        }
+    }
+}
 
 pub trait UiTrafficConverter: Send {
     fn marshal(&self, ui_message: UiMessage) -> Result<String, String>;
@@ -19,12 +56,12 @@ pub trait UiTrafficConverter: Send {
         &self,
         json: &str,
         client_id: u64,
-    ) -> Result<NodeFromUiMessage, String>;
+    ) -> Result<NodeFromUiMessage, UnmarshalError>;
     fn new_unmarshal_to_ui(
         &self,
         json: &str,
         target: MessageTarget,
-    ) -> Result<NodeToUiMessage, String>;
+    ) -> Result<NodeToUiMessage, UnmarshalError>;
 }
 
 #[derive(Default)]
@@ -54,7 +91,7 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         &self,
         json: &str,
         client_id: u64,
-    ) -> Result<NodeFromUiMessage, String> {
+    ) -> Result<NodeFromUiMessage, UnmarshalError> {
         match self.new_unmarshal(json) {
             Ok(body) => Ok(NodeFromUiMessage { client_id, body }),
             Err(e) => Err(e),
@@ -65,7 +102,7 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         &self,
         json: &str,
         target: MessageTarget,
-    ) -> Result<NodeToUiMessage, String> {
+    ) -> Result<NodeToUiMessage, UnmarshalError> {
         match self.new_unmarshal(json) {
             Ok(body) => Ok(NodeToUiMessage { target, body }),
             Err(e) => Err(e),
@@ -94,14 +131,20 @@ impl UiTrafficConverterReal {
         format!("{{{}{}{}}}", opcode_section, path_section, payload_section)
     }
 
-    fn new_unmarshal(&self, json: &str) -> Result<MessageBody, String> {
+    fn new_unmarshal(&self, json: &str) -> Result<MessageBody, UnmarshalError> {
         match serde_json::from_str(json) {
             Ok(Value::Object(map)) => {
-                let opcode = Self::get_string(&map, "opcode")?;
+                let opcode = match Self::get_string(&map, "opcode") {
+                    Ok (s) => s,
+                    Err(MissingFieldError(s)) => return Err(Critical(MissingFieldError(s))),
+                    Err(FieldTypeError(a, b, c)) => return Err(Critical(FieldTypeError(a, b, c))),
+                    Err(e) => return Err(Critical(e)),
+                };
                 let path = match Self::get_u64(&map, "contextId") {
                     Ok(context_id) => TwoWay(context_id),
-                    Err(s) if s == "contextId field is missing" => OneWay,
-                    Err(s) => return Err(s),
+                    Err(MissingFieldError(_)) => OneWay,
+                    Err(FieldTypeError(a, b, c)) => return Err(Critical(FieldTypeError(a, b, c))),
+                    Err(e) => return Err(Critical(e)),
                 };
                 match map.get("payload") {
                     Some(Value::Object(payload_map)) => {
@@ -113,61 +156,49 @@ impl UiTrafficConverterReal {
                             payload: Ok(payload),
                         })
                     }
-                    Some(other_value) => Err(format!(
-                        "payload should have been of type Value::Object, not {:?}",
-                        other_value
-                    )),
+                    Some(other_value) => Err(NonCritical(opcode, FieldTypeError("payload".to_string(), "object".to_string(), format!("{:?}", other_value)))),
                     None => match map.get("error") {
                         Some(Value::Object(error_map)) => {
-                            let code = Self::get_u64(&error_map, "code")?;
-                            let message = Self::get_string(&error_map, "message")?;
+                            let code = match Self::get_u64(&error_map, "code") {
+                                Ok(code) => code,
+                                Err(e) => return Err(NonCritical(opcode, e)),
+                            };
+                            let message = match Self::get_string(&error_map, "message") {
+                                Ok(message) => message,
+                                Err(e) => return Err(NonCritical(opcode, e)),
+                            };
                             Ok(MessageBody {
                                 opcode,
                                 path,
                                 payload: Err((code, message)),
                             })
                         }
-                        Some(other_value) => Err(format!(
-                            "error should have been of type Value::Object, not {:?}",
-                            other_value
-                        )),
-                        None => Err("Neither payload nor error field is present".to_string()),
+                        Some(other_value) => Err(NonCritical(opcode, FieldTypeError("error".to_string(), "object".to_string(), other_value.to_string()))),
+                        None => Err(NonCritical(opcode, MissingFieldError("payload, error".to_string()))),
                     },
                 }
             }
-            Ok(x) => Err(format!(
-                "JSON packet should have been of type Value::Object, not {:?}",
-                x
-            )),
-            Err(e) => Err(format!(
-                "Packet could not be parsed as JSON: '{}' - {:?}",
-                json, e
-            )),
+            Ok(e) => Err(Critical(NotJsonObjectError(e.to_string()))),
+            Err(e) => Err(Critical(JsonSyntaxError(format!("{:?}", e)))),
         }
     }
 
-    fn get_string(map: &serde_json::map::Map<String, Value>, name: &str) -> Result<String, String> {
+    fn get_string(map: &serde_json::map::Map<String, Value>, name: &str) -> Result<String, TrafficConversionError> {
         match map.get(name) {
             Some(Value::String(s)) => Ok(s.clone()),
-            Some(x) => Err(format!(
-                "{} should have been of type Value::String, not {:?}",
-                name, x
-            )),
-            None => Err(format!("{} field is missing", name)),
+            Some(x) => Err(FieldTypeError(name.to_string(), "string".to_string(), x.to_string())),
+            None => Err(MissingFieldError(name.to_string())),
         }
     }
 
-    fn get_u64(map: &serde_json::map::Map<String, Value>, name: &str) -> Result<u64, String> {
+    fn get_u64(map: &serde_json::map::Map<String, Value>, name: &str) -> Result<u64, TrafficConversionError> {
         match map.get(name) {
             Some(Value::Number(n)) => match n.as_u64() {
                 Some(n) => Ok(n),
-                None => Err(format!("Cannot convert from JSON to u64: {:?}", n)),
+                None => Err(FieldTypeError(name.to_string(), "u64".to_string(), n.to_string())),
             },
-            Some(x) => Err(format!(
-                "{} should have been of type Value::Number, not {:?}",
-                name, x
-            )),
-            None => Err(format!("{} field is missing", name)),
+            Some(x) => Err(FieldTypeError(name.to_string(), "u64".to_string(), x.to_string())),
+            None => Err(MissingFieldError(name.to_string())),
         }
     }
 }
@@ -178,6 +209,7 @@ mod tests {
     use crate::sub_lib::ui_gateway::MessagePath::OneWay;
     use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget};
     use serde_json::Number;
+    use crate::ui_gateway::ui_traffic_converter::TrafficConversionError::{FieldTypeError, JsonSyntaxError, NotJsonObjectError, MissingFieldError};
 
     #[test]
     fn a_shutdown_message_is_properly_marshalled_and_unmarshalled() {
@@ -450,7 +482,8 @@ mod tests {
 
         let result = subject.new_unmarshal_from_ui(json, 1234);
 
-        assert_eq!(result, Err("opcode field is missing".to_string()))
+        assert_eq!(result,
+                   Err(Critical(MissingFieldError("opcode".to_string()))))
     }
 
     #[test]
@@ -462,12 +495,12 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("opcode should have been of type Value::String, not Bool(false)".to_string())
+            Err(Critical(FieldTypeError("opcode".to_string(), "string".to_string(), "false".to_string())))
         )
     }
 
     #[test]
-    fn new_unmarshaling_handles_missing_payload() {
+    fn new_unmarshaling_handles_missing_payload_and_error() {
         let subject = UiTrafficConverterReal::new();
         let json = r#"{"opcode": "whomp"}"#;
 
@@ -475,7 +508,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Neither payload nor error field is present".to_string())
+            Err(NonCritical("whomp".to_string(), MissingFieldError("payload, error".to_string())))
         )
     }
 
@@ -488,7 +521,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("payload should have been of type Value::Object, not Number(1)".to_string())
+            Err(NonCritical("whomp".to_string(), FieldTypeError("payload".to_string(), "object".to_string(), "Number(1)".to_string())))
         )
     }
 
@@ -501,7 +534,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("error should have been of type Value::Object, not Number(1)".to_string())
+            Err(NonCritical("whomp".to_string(), FieldTypeError("error".to_string(), "object".to_string(), "1".to_string())))
         )
     }
 
@@ -512,7 +545,7 @@ mod tests {
 
         let result = subject.new_unmarshal_from_ui(json, 1234);
 
-        assert_eq! (result, Err("JSON packet should have been of type Value::Object, not Array([Number(1), Number(2), Number(3), Number(4)])".to_string()))
+        assert_eq! (result, Err(Critical(NotJsonObjectError("[1,2,3,4]".to_string()))));
     }
 
     #[test]
@@ -522,7 +555,7 @@ mod tests {
 
         let result = subject.new_unmarshal_to_ui(json, MessageTarget::ClientId(1234));
 
-        assert_eq! (result, Err("Packet could not be parsed as JSON: '}--{' - Error(\"expected value\", line: 1, column: 1)".to_string()))
+        assert_eq! (result, Err(Critical(JsonSyntaxError("Error(\"expected value\", line: 1, column: 1)".to_string()))));
     }
 
     #[test]
@@ -534,7 +567,25 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Cannot convert from JSON to u64: Number(-47)".to_string())
+            Err(FieldTypeError("bad_u64".to_string(), "u64".to_string(), "-47".to_string()))
         )
+    }
+
+    #[test]
+    fn display_works_for_traffic_conversion_error() {
+        let a = "a".to_string();
+        let b = "b".to_string();
+        let c = "c".to_string();
+        assert_eq!(JsonSyntaxError(a.clone()).to_string(), "Couldn't parse text as JSON: a".to_string());
+        assert_eq!(NotJsonObjectError(a.clone()).to_string(), "Root was not a JSON object:\n------\na\n------\n".to_string());
+        assert_eq!(MissingFieldError(a.clone()).to_string(), "Required field was missing: a".to_string());
+        assert_eq!(FieldTypeError(a, b, c).to_string(), "Field a should have been of type b, but was 'c' instead".to_string());
+    }
+
+    #[test]
+    fn display_works_for_unmarshal_error() {
+        let error = MissingFieldError("booga".to_string());
+        assert_eq!(Critical(error.clone()).to_string(), "Critical error unmarshalling unidentified message: Required field was missing: booga".to_string());
+        assert_eq!(NonCritical("whomp".to_string(), error).to_string(), "Error unmarshalling 'whomp' message: Required field was missing: booga".to_string());
     }
 }

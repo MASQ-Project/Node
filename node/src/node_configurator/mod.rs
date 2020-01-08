@@ -216,7 +216,7 @@ pub fn db_password_arg(help: &str) -> Arg {
 }
 
 pub fn determine_config_file_path(app: &App, args: &Vec<String>) -> (PathBuf, bool) {
-    let orientation_schema = App::new("Preliminary")
+    let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
         .arg(data_directory_arg())

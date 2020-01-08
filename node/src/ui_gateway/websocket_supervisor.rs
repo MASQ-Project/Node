@@ -633,7 +633,7 @@ mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.await_log_containing(
-            "UI attempted connection without protocol MASQNode-UI: [\"bad-protocol\"]",
+            "UI attempted connection without protocol MASQNode-UI or MASQNode-UIv2: [\"bad-protocol\"]",
             1000,
         );
     }
@@ -856,7 +856,7 @@ mod tests {
         )
         .wait();
 
-        TestLogHandler::new().exists_log_containing("ERROR: test: Bad message from client 0 at 1.2.3.4:1234: Packet could not be parsed as JSON: '}: I am badly-formatted JSON :{' - Error(\"expected value\", line: 1, column: 1):\n}: I am badly-formatted JSON :{\n");
+        TestLogHandler::new().exists_log_containing("ERROR: test: Bad message from client 0 at 1.2.3.4:1234: Critical error unmarshalling unidentified message: Couldn't parse text as JSON: Error(\"expected value\", line: 1, column: 1):\n}: I am badly-formatted JSON :{");
     }
 
     #[test]

@@ -307,6 +307,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use crate::ui_gateway::ui_traffic_converter::{UnmarshalError};
 
     impl Default for UiGatewayOutSubs {
         fn default() -> Self {
@@ -359,7 +360,7 @@ mod tests {
             &self,
             _json: &str,
             _client_id: u64,
-        ) -> Result<NodeFromUiMessage, String> {
+        ) -> Result<NodeFromUiMessage, UnmarshalError> {
             unimplemented!()
         }
 
@@ -367,7 +368,7 @@ mod tests {
             &self,
             _json: &str,
             _target: MessageTarget,
-        ) -> Result<NodeToUiMessage, String> {
+        ) -> Result<NodeToUiMessage, UnmarshalError> {
             unimplemented!()
         }
     }
