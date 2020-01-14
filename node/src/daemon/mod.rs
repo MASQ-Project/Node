@@ -129,13 +129,11 @@ impl Daemon {
     pub fn new(seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>) -> Daemon {
         let mut params = HashMap::new();
         params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
-        vec![
-            "chain",
-            "config-file",
-            "data-directory",
-            "db-password",
-            "real-user",
-        ]
+        #[cfg(not(target_os = "windows"))]
+        let transferred_keys = vec!["chain", "config-file", "data-directory", "db-password", "real-user"];
+        #[cfg(target_os = "windows")]
+        let transferred_keys = vec!["chain", "config-file", "data-directory", "db-password"];
+        transferred_keys
         .into_iter()
         .for_each(|key| {
             if let Some(value) = seed_params.get(key) {
@@ -152,7 +150,7 @@ impl Daemon {
         }
     }
 
-    fn get_default_params() -> HashMap<String, String> {
+    pub fn get_default_params() -> HashMap<String, String> {
         let schema = crate::node_configurator::node_configurator_initialization::app();
         schema
             .p
@@ -160,6 +158,12 @@ impl Daemon {
             .iter()
             .flat_map(|opt| {
                 let name = opt.b.name.to_string();
+                #[cfg(target_os = "windows")]
+                {
+                    if &name == "real-user" {
+                        return None
+                    }
+                }
                 match opt.v.default_val {
                     Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
                     None => None,
@@ -353,9 +357,15 @@ mod tests {
             "non_default_data"
         );
         assert_eq!(subject.params.get("db-password").unwrap(), "booga");
+#[cfg(not(target_os = "windows"))]
         assert_eq!(
             subject.params.get("real-user").unwrap(),
             "123:456:non_default_home"
+        );
+#[cfg(target_os = "windows")]
+        assert_eq!(
+            subject.params.get("real-user"),
+            None,
         );
         assert_eq!(subject.params.get("ui-port"), None);
         assert_eq!(subject.params.get("crash-point"), None);
@@ -392,19 +402,7 @@ mod tests {
             .into_iter()
             .map(|value| (value.name, value.value))
             .collect();
-        let schema = crate::node_configurator::node_configurator_standard::app();
-        let mut expected_pairs: HashSet<(String, String)> = schema
-            .p
-            .opts
-            .iter()
-            .flat_map(|opt| {
-                let name = opt.b.name.to_string();
-                match opt.v.default_val {
-                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
-                    None => None,
-                }
-            })
-            .collect();
+        let mut expected_pairs: HashSet<(String, String)> = Daemon::get_default_params().into_iter().collect();
         expected_pairs.insert(("dns-servers".to_string(), "1.1.1.1".to_string()));
 
         assert_eq!(actual_pairs, expected_pairs);
@@ -455,19 +453,7 @@ mod tests {
             .into_iter()
             .map(|value| (value.name, value.value))
             .collect();
-        let schema = crate::node_configurator::node_configurator_standard::app();
-        let mut expected_pairs: HashMap<String, String> = schema
-            .p
-            .opts
-            .iter()
-            .flat_map(|opt| {
-                let name = opt.b.name.to_string();
-                match opt.v.default_val {
-                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
-                    None => None,
-                }
-            })
-            .collect();
+        let mut expected_pairs = Daemon::get_default_params();
         expected_pairs.insert("dns-servers".to_string(), "1.1.1.1".to_string());
         expected_pairs.insert("chain".to_string(), "ropsten".to_string());
         expected_pairs.insert("config-file".to_string(), "biggles.txt".to_string());
@@ -525,19 +511,7 @@ mod tests {
             .into_iter()
             .map(|value| (value.name, value.value))
             .collect();
-        let schema = crate::node_configurator::node_configurator_standard::app();
-        let mut expected_pairs: HashMap<String, String> = schema
-            .p
-            .opts
-            .iter()
-            .flat_map(|opt| {
-                let name = opt.b.name.to_string();
-                match opt.v.default_val {
-                    Some(os_str) => Some((name, os_str.to_str().unwrap().to_string())),
-                    None => None,
-                }
-            })
-            .collect();
+        let mut expected_pairs = Daemon::get_default_params();
         expected_pairs.insert("dns-servers".to_string(), "192.168.0.1".to_string());
 
         assert_eq!(actual_pairs, expected_pairs);
