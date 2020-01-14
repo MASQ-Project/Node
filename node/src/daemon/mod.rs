@@ -130,12 +130,16 @@ impl Daemon {
         let mut params = HashMap::new();
         params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
         #[cfg(not(target_os = "windows"))]
-        let transferred_keys = vec!["chain", "config-file", "data-directory", "db-password", "real-user"];
+        let transferred_keys = vec![
+            "chain",
+            "config-file",
+            "data-directory",
+            "db-password",
+            "real-user",
+        ];
         #[cfg(target_os = "windows")]
         let transferred_keys = vec!["chain", "config-file", "data-directory", "db-password"];
-        transferred_keys
-        .into_iter()
-        .for_each(|key| {
+        transferred_keys.into_iter().for_each(|key| {
             if let Some(value) = seed_params.get(key) {
                 params.insert(key.to_string(), value.clone());
             }
@@ -161,7 +165,7 @@ impl Daemon {
                 #[cfg(target_os = "windows")]
                 {
                     if &name == "real-user" {
-                        return None
+                        return None;
                     }
                 }
                 match opt.v.default_val {
@@ -357,16 +361,13 @@ mod tests {
             "non_default_data"
         );
         assert_eq!(subject.params.get("db-password").unwrap(), "booga");
-#[cfg(not(target_os = "windows"))]
+        #[cfg(not(target_os = "windows"))]
         assert_eq!(
             subject.params.get("real-user").unwrap(),
             "123:456:non_default_home"
         );
-#[cfg(target_os = "windows")]
-        assert_eq!(
-            subject.params.get("real-user"),
-            None,
-        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(subject.params.get("real-user"), None,);
         assert_eq!(subject.params.get("ui-port"), None);
         assert_eq!(subject.params.get("crash-point"), None);
     }
@@ -402,7 +403,8 @@ mod tests {
             .into_iter()
             .map(|value| (value.name, value.value))
             .collect();
-        let mut expected_pairs: HashSet<(String, String)> = Daemon::get_default_params().into_iter().collect();
+        let mut expected_pairs: HashSet<(String, String)> =
+            Daemon::get_default_params().into_iter().collect();
         expected_pairs.insert(("dns-servers".to_string(), "1.1.1.1".to_string()));
 
         assert_eq!(actual_pairs, expected_pairs);
