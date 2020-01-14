@@ -98,7 +98,7 @@ impl Handler<NodeFromUiMessage> for Daemon {
         );
         let client_id = msg.client_id;
         let opcode = msg.body.opcode.clone();
-        // TODO: Gotta be a better way to arrange this code
+        // TODO: Gotta be a better way to arrange this code; but I'll wait until there are more than 2 choices
         let result: Result<(UiSetup, u64), UiMessageError> = UiSetup::fmb(msg.body.clone());
         match result {
             Ok((payload, context_id)) => self.handle_setup(client_id, context_id, payload),

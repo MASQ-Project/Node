@@ -47,7 +47,6 @@ fn initialization_sequence_integration() {
         .join("initialization_sequence_integration")
         .to_string_lossy()
         .to_string();
-    eprintln!("Starting Node with data-directory '{}'", data_directory);
     let _: UiSetup = initialization_client
         .transact(UiSetup::new(vec![
             ("dns-servers", "1.1.1.1"),

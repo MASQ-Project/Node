@@ -70,13 +70,9 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                             "originator_public_key" => {
                                 originator_public_key_opt = value_to_type::<PublicKey>(v)
                             }
-                            _ => {
-                                eprintln!("Skipping: {:?}, {:?}", k, v);
-                            }
+                            _ => (),
                         },
-                        _ => {
-                            eprintln!("Skipping: {:?}, {:?}", k, v);
-                        }
+                        _ => (),
                     }
                 });
                 let mut missing_fields: Vec<&str> = vec![];
