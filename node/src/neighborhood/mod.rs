@@ -1033,7 +1033,7 @@ impl Neighborhood {
     // target key, if any, in target, and minimum hop count in hops_remaining. Return value is
     // a list of all the node sequences that will either go from the origin to the target in
     // hops_remaining or more hops with no cycles, or from the origin hops_remaining hops out into
-    // the Substratum Network. No round trips; if you want a round trip, call this method twice.
+    // the MASQ Network. No round trips; if you want a round trip, call this method twice.
     // If the return value is empty, no qualifying route was found.
     fn complete_routes<'a>(
         &'a self,

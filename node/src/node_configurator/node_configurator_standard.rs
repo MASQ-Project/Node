@@ -119,19 +119,19 @@ const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in 
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
 const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relates to other Nodes.\n\n\
-     zero-hop means that your Node will operate as its own Substratum Network and will not communicate with any \
+     zero-hop means that your Node will operate as its own MASQ Network and will not communicate with any \
      other Nodes. --ip, --neighbors, and --clandestine-port are incompatible with --neighborhood_mode \
      zero-hop.\n\n\
      originate-only means that your Node will not accept connections from any other Node; it \
      will only originate connections to other Nodes. This will reduce your Node's opportunity to route \
      data (it will only ever have two neighbors, so the number of routes it can participate in is limited), \
-     it will reduce redundancy in the Substratum Network, and it will prevent your Node from acting as \
+     it will reduce redundancy in the MASQ Network, and it will prevent your Node from acting as \
      a connection point for other Nodes to get on the Network; but it will enable your Node to operate in \
      an environment where your network hookup is preventing you from accepting connections, and it means \
      that you don't have to forward any incoming ports through your router. --ip and --clandestine_port \
      are incompatible with --neighborhood_mode originate-only.\n\n\
      consume-only means that your Node will not accept connections from or route data for any other Node; \
-     it will only consume services from the Substratum Network. This mode is appropriate for devices that \
+     it will only consume services from the MASQ Network. This mode is appropriate for devices that \
      cannot maintain a constant IP address or stay constantly on the Network. --ip and --clandestine_port \
      are incompatible with --neighborhood_mode consume-only.\n\n\
      standard means that your Node will operate fully unconstrained, both originating and accepting \
