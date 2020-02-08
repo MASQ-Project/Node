@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use node_lib::test_utils::TEST_DEFAULT_CHAIN_NAME;
 use std::env;
 use std::io;
 use std::ops::Drop;
@@ -241,6 +242,7 @@ impl MASQNode {
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )
+            .pair("--chain", TEST_DEFAULT_CHAIN_NAME)
             .pair("--log-level", "trace")
             .args
     }

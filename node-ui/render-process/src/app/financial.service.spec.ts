@@ -4,8 +4,6 @@ import {TestBed} from '@angular/core/testing';
 import {ElectronService} from './electron.service';
 import * as td from 'testdouble';
 import {FinancialService} from './financial.service';
-import {asyncScheduler} from 'rxjs';
-import {AsyncScheduler} from 'rxjs/internal/scheduler/AsyncScheduler';
 
 describe('FinancialService', () => {
   let financialStatsResponseListener;
@@ -27,7 +25,6 @@ describe('FinancialService', () => {
       providers: [
         FinancialService,
         {provide: ElectronService, useValue: stubElectronService},
-        {provide: AsyncScheduler, useValue: asyncScheduler},
       ]
     });
     service = TestBed.get(FinancialService);

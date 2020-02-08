@@ -1,14 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{decodex, CryptDE};
+use crate::sub_lib::cryptde::{CodexError, CryptData};
 use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType, NoLookupIncipientCoresPackage};
 use crate::sub_lib::route::Route;
-use crate::sub_lib::route::RouteError;
 use serde_derive::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
@@ -34,8 +33,8 @@ impl LiveCoresPackage {
 
     pub fn to_next_live(
         mut self,
-        cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
-    ) -> Result<(LiveHop, LiveCoresPackage), RouteError> {
+        cryptde: &dyn CryptDE, // must be the main CryptDE of the Node to which the top hop is encrypted
+    ) -> Result<(LiveHop, LiveCoresPackage), CodexError> {
         let next_hop = self.route.shift(cryptde)?;
         let next_live = LiveCoresPackage::new(self.route, self.payload);
         Ok((next_hop, next_live))
@@ -60,7 +59,7 @@ impl LiveCoresPackage {
 
     pub fn from_incipient(
         incipient: IncipientCoresPackage,
-        cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
+        cryptde: &dyn CryptDE, // must be the main CryptDE of the Node to which the top hop is encrypted
     ) -> Result<(LiveCoresPackage, LiveHop), String> {
         let mut route = incipient.route.clone();
         let next_hop = match route.shift(cryptde) {
@@ -71,23 +70,24 @@ impl LiveCoresPackage {
     }
 
     pub fn to_expired(
-        self,
+        &self,
         immediate_neighbor_addr: SocketAddr,
-        cryptde: &dyn CryptDE, // Must be the CryptDE of the Node for which the payload is intended.
-    ) -> Result<ExpiredCoresPackage<MessageType>, String> {
-        let top_hop = match self.route.next_hop(cryptde) {
-            Err(e) => return Err(format!("{:?}", e)),
-            Ok(hop) => hop,
-        };
-        decodex::<MessageType>(cryptde, &self.payload).map(|decoded_payload| {
+        main_cryptde: &dyn CryptDE, // Must be the main CryptDE of the Node for which the payload is intended.
+        payload_cryptde: &dyn CryptDE, // Must be the main or alias CryptDE of the Node for which the payload is intended.
+    ) -> Result<ExpiredCoresPackage<MessageType>, CodexError> {
+        let top_hop = self.route.next_hop(main_cryptde)?;
+        match decodex::<MessageType>(payload_cryptde, &self.payload).map(|decoded_payload| {
             ExpiredCoresPackage::new(
                 immediate_neighbor_addr,
                 top_hop.payer.map(|p| p.wallet),
-                self.route,
+                self.route.clone(),
                 decoded_payload,
                 self.payload.len(),
             )
-        })
+        }) {
+            Ok(ecp) => Ok(ecp),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -101,10 +101,10 @@ mod tests {
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::node_addr::NodeAddr;
-    use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::route::{Route, RouteError};
     use crate::test_utils::{
-        cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
+        main_cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
         DEFAULT_CHAIN_ID,
     };
     use std::net::{IpAddr, SocketAddr};
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {
         let payload = CryptData::new(&[5, 6]);
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(
@@ -138,7 +138,7 @@ mod tests {
         let destination_cryptde = CryptDENull::from(&destination_key, DEFAULT_CHAIN_ID);
         let relay_key = PublicKey::new(&[1, 2]);
         let relay_cryptde = CryptDENull::from(&relay_key, DEFAULT_CHAIN_ID);
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
         let encrypted_payload = cryptde
             .encode(&destination_key, &PlainData::new(&serialized_payload))
@@ -188,14 +188,17 @@ mod tests {
     fn to_next_live_complains_about_bad_input() {
         let subject = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
 
-        let result = subject.to_next_live(cryptde());
+        let result = subject.to_next_live(main_cryptde());
 
-        assert_eq!(result, Err(RouteError::EmptyRoute));
+        assert_eq!(
+            result,
+            Err(CodexError::RoutingError(RouteError::EmptyRoute))
+        );
     }
 
     #[test]
     fn live_cores_package_can_be_constructed_from_no_lookup_incipient_cores_package() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key34 = PublicKey::new(&[3, 4]);
         let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &vec![1234]);
         let mut route = Route::single_hop(&key34, cryptde).unwrap();
@@ -215,7 +218,7 @@ mod tests {
 
     #[test]
     fn from_no_lookup_incipient_relays_errors() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let blank_key = PublicKey::new(&[]);
         let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &vec![1234]);
 
@@ -228,7 +231,7 @@ mod tests {
 
         assert_eq!(
             Err(String::from(
-                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+                "Could not encrypt payload: EncryptionError(EmptyKey)"
             )),
             result
         )
@@ -236,7 +239,7 @@ mod tests {
 
     #[test]
     fn live_cores_package_can_be_constructed_from_incipient_cores_package() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -271,7 +274,7 @@ mod tests {
 
     #[test]
     fn from_incipient_complains_about_problems_decrypting_next_hop() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let incipient = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
@@ -283,7 +286,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(String::from("Could not decrypt next hop: EmptyRoute"))
+            Err(String::from(
+                "Could not decrypt next hop: RoutingError(EmptyRoute)"
+            ))
         );
     }
 
@@ -297,7 +302,7 @@ mod tests {
         let relay_cryptde = CryptDENull::from(&relay_key, DEFAULT_CHAIN_ID);
         let second_stop_key = PublicKey::new(&[5, 6]);
         let second_stop_cryptde = CryptDENull::from(&second_stop_key, DEFAULT_CHAIN_ID);
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let encrypted_payload = encodex(cryptde, &first_stop_key, &payload).unwrap();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = contract_address(DEFAULT_CHAIN_ID);
@@ -317,7 +322,11 @@ mod tests {
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
 
         let result = subject
-            .to_expired(immediate_neighbor_ip, &first_stop_cryptde)
+            .to_expired(
+                immediate_neighbor_ip,
+                &first_stop_cryptde,
+                &first_stop_cryptde,
+            )
             .unwrap();
 
         assert_eq!(result.immediate_neighbor, immediate_neighbor_ip);
@@ -379,12 +388,19 @@ mod tests {
     fn to_expired_complains_about_bad_route() {
         let subject = LiveCoresPackage::new(
             Route { hops: vec![] },
-            CryptData::new(cryptde().private_key().as_slice()),
+            CryptData::new(main_cryptde().private_key().as_slice()),
         );
 
-        let result = subject.to_expired(SocketAddr::from_str("1.2.3.4:1234").unwrap(), cryptde());
+        let result = subject.to_expired(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            main_cryptde(),
+            main_cryptde(),
+        );
 
-        assert_eq!(result, Err(format!("{:?}", RouteError::EmptyRoute)));
+        assert_eq!(
+            result,
+            Err(CodexError::RoutingError(RouteError::EmptyRoute))
+        );
     }
 
     #[test]

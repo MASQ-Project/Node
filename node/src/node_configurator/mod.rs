@@ -5,12 +5,14 @@ pub mod node_configurator_recover_wallet;
 pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::bip39::{Bip39, Bip39Error};
+use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_NAME};
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use crate::persistent_configuration::{
+    PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::wallet::Wallet;
@@ -76,7 +78,7 @@ pub const REAL_USER_HELP: &str =
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
      you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
      like <uid>:<gid>:<home directory>.";
-pub const WALLET_PASSWORD_HELP: &str =
+pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to encrypt your consuming wallet in the MASQ Node database or decrypt a keystore file. Can be changed \
      later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
      insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
@@ -197,10 +199,10 @@ pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
         .hidden(true)
 }
 
-pub fn wallet_password_arg(help: &str) -> Arg {
-    Arg::with_name("wallet-password")
-        .long("wallet-password")
-        .value_name("WALLET-PASSWORD")
+pub fn db_password_arg(help: &str) -> Arg {
+    Arg::with_name("db-password")
+        .long("db-password")
+        .value_name("DB-PASSWORD")
         .required(false)
         .takes_value(true)
         .min_values(0)
@@ -240,15 +242,17 @@ pub fn create_wallet(
         persistent_config.set_earning_wallet_address(address)
     }
     if let Some(derivation_path_info) = &config.derivation_path_info_opt {
-        persistent_config.set_mnemonic_seed(
-            &derivation_path_info.mnemonic_seed,
-            &derivation_path_info.wallet_password,
-        );
+        persistent_config
+            .set_mnemonic_seed(
+                &derivation_path_info.mnemonic_seed,
+                &derivation_path_info.db_password,
+            )
+            .expect("Failed to set mnemonic seed");
         if let Some(consuming_derivation_path) = &derivation_path_info.consuming_derivation_path_opt
         {
             persistent_config.set_consuming_wallet_derivation_path(
                 consuming_derivation_path,
-                &derivation_path_info.wallet_password,
+                &derivation_path_info.db_password,
             )
         }
     }
@@ -268,6 +272,16 @@ pub fn initialize_database(
             )
         });
     Box::new(PersistentConfigurationReal::from(conn))
+}
+
+pub fn update_db_password(
+    wallet_config: &WalletCreationConfig,
+    persistent_config: &dyn PersistentConfiguration,
+) {
+    match &wallet_config.derivation_path_info_opt {
+        Some(dpwi) => persistent_config.set_password(&dpwi.db_password),
+        None => (),
+    }
 }
 
 pub fn real_user_data_directory_and_chain_id(
@@ -331,13 +345,13 @@ pub fn prepare_initialization_mode<'a>(
 
     let (_, data_directory, chain_id) = real_user_data_directory_and_chain_id(&multi_config);
     let persistent_config_box = initialize_database(&data_directory, chain_id);
-    if persistent_config_box.encrypted_mnemonic_seed().is_some() {
+    if mnemonic_seed_exists(persistent_config_box.as_ref()) {
         exit(1, "Cannot re-initialize Node: already initialized")
     }
     (multi_config, persistent_config_box)
 }
 
-pub fn request_wallet_encryption_password(
+pub fn request_new_db_password(
     streams: &mut StdStreams,
     possible_preamble: Option<&str>,
     prompt: &str,
@@ -367,12 +381,15 @@ pub fn request_wallet_encryption_password(
     }
 }
 
-pub fn request_wallet_decryption_password(
+pub fn request_existing_db_password(
     streams: &mut StdStreams,
     possible_preamble: Option<&str>,
     prompt: &str,
-    encrypted_mnemonic_seed: &str,
+    persistent_config: &dyn PersistentConfiguration,
 ) -> Option<String> {
+    if persistent_config.check_password("bad password") == None {
+        return None;
+    }
     if let Some(preamble) = possible_preamble {
         flushed_write(streams.stdout, &format!("{}\n", preamble))
     };
@@ -380,10 +397,10 @@ pub fn request_wallet_decryption_password(
         if password.is_empty() {
             return Err("Password must not be blank.".to_string());
         }
-        match Bip39::decrypt_bytes(encrypted_mnemonic_seed, &password) {
-            Ok(_) => Ok(()),
-            Err(Bip39Error::DecryptionFailure(_)) => Err("Incorrect password.".to_string()),
-            Err(e) => panic!("Could not verify password: {:?}", e),
+        match persistent_config.check_password(password) {
+            None => panic!("Database password disappeared"),
+            Some(true) => Ok(()),
+            Some(false) => Err("Incorrect password.".to_string()),
         }
     };
     match request_password_with_retry(prompt, streams, |streams| {
@@ -407,6 +424,13 @@ pub fn cannot_be_blank(password: &str) -> Result<(), String> {
         Err("Password cannot be blank.".to_string())
     } else {
         Ok(())
+    }
+}
+
+pub fn mnemonic_seed_exists(persistent_config: &dyn PersistentConfiguration) -> bool {
+    match persistent_config.mnemonic_seed("bad password") {
+        Ok(Some(_)) | Err(PersistentConfigError::PasswordError) => true,
+        _ => false,
     }
 }
 
@@ -601,7 +625,7 @@ pub enum Either<L: Debug + PartialEq, R: Debug + PartialEq> {
 #[derive(PartialEq, Debug)]
 pub struct DerivationPathWalletInfo {
     pub mnemonic_seed: PlainData,
-    pub wallet_password: String,
+    pub db_password: String,
     pub consuming_derivation_path_opt: Option<String>,
 }
 
@@ -622,9 +646,9 @@ pub trait WalletCreationConfigMaker {
             Some(mp) => mp,
             None => self.make_mnemonic_passphrase(multi_config, streams),
         };
-        let wallet_password = match value_m!(multi_config, "wallet-password", String) {
+        let db_password = match value_m!(multi_config, "db-password", String) {
             Some(wp) => wp,
-            None => self.make_wallet_password(streams),
+            None => self.make_db_password(streams),
         };
         let consuming_derivation_path = match value_m!(multi_config, "consuming-wallet", String) {
             Some(cdp) => cdp,
@@ -666,15 +690,15 @@ pub trait WalletCreationConfigMaker {
             },
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
                 mnemonic_seed,
-                wallet_password,
+                db_password,
                 consuming_derivation_path_opt: Some(consuming_derivation_path),
             }),
             real_user,
         }
     }
 
-    fn make_wallet_password(&self, streams: &mut StdStreams) -> String {
-        match request_wallet_encryption_password(
+    fn make_db_password(&self, streams: &mut StdStreams) -> String {
+        match request_new_db_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed later)..."),
             "  Enter password: ",
@@ -930,7 +954,7 @@ mod tests {
     fn data_directory_default_works() {
         let mock_dirs_wrapper = MockDirsWrapper::new().data_dir_result(Some("mocked/path".into()));
 
-        let result = data_directory_default(&mock_dirs_wrapper, TEST_DEFAULT_CHAIN_NAME);
+        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
 
         let expected = PathBuf::from("mocked/path")
             .join("MASQ")
@@ -952,7 +976,9 @@ mod tests {
                 .initialize(&data_dir, DEFAULT_CHAIN_ID)
                 .unwrap();
             let persistent_config = PersistentConfigurationReal::from(conn);
-            persistent_config.set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password");
+            persistent_config
+                .set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password")
+                .unwrap();
         }
         let app = App::new("test".to_string())
             .arg(data_directory_arg())
@@ -1105,25 +1131,22 @@ mod tests {
     }
 
     #[test]
-    fn request_wallet_decryption_password_happy_path() {
+    fn request_database_password_happy_path() {
         let stdout_writer = &mut ByteArrayWriter::new();
         let streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let mnemonic_seed = Seed::new(
-            &Mnemonic::new(MnemonicType::Words12, Language::English),
-            "phrase",
-        );
-        let encrypted_mnemonic_seed =
-            Bip39::encrypt_bytes(&mnemonic_seed, "Too Many S3cr3ts!").unwrap();
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_result(Some(false))
+            .check_password_result(Some(true));
 
-        let actual = request_wallet_decryption_password(
+        let actual = request_existing_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
-            &encrypted_mnemonic_seed,
+            &persistent_configuration,
         );
 
         assert_eq!(actual, Some("Too Many S3cr3ts!".to_string()));
@@ -1136,24 +1159,22 @@ mod tests {
     }
 
     #[test]
-    fn request_wallet_decryption_password_rejects_blank_password() {
+    fn request_database_password_rejects_blank_password() {
         let stdout_writer = &mut ByteArrayWriter::new();
         let streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"\nbooga\n"[..]),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let mnemonic_seed = Seed::new(
-            &Mnemonic::new(MnemonicType::Words12, Language::English),
-            "phrase",
-        );
-        let encrypted_mnemonic_seed = Bip39::encrypt_bytes(&mnemonic_seed, "booga").unwrap();
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_result(Some(false))
+            .check_password_result(Some(true));
 
-        let actual = request_wallet_decryption_password(
+        let actual = request_existing_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
-            &encrypted_mnemonic_seed,
+            &persistent_configuration,
         );
 
         assert_eq!(actual, Some("booga".to_string()));
@@ -1168,27 +1189,28 @@ mod tests {
     }
 
     #[test]
-    fn request_wallet_decryption_password_detects_bad_passwords() {
+    fn request_database_password_detects_bad_passwords() {
         let stdout_writer = &mut ByteArrayWriter::new();
         let streams = &mut StdStreams {
             stdin: &mut Cursor::new(
-                &b"bad password\nanother bad password\nfinal bad password\n"[..],
+                &b"first bad password\nanother bad password\nfinal bad password\n"[..],
             ),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
-        let mnemonic_seed = Seed::new(
-            &Mnemonic::new(MnemonicType::Words12, Language::English),
-            "phrase",
-        );
-        let encrypted_mnemonic_seed =
-            Bip39::encrypt_bytes(&mnemonic_seed, "Too Many S3cr3ts!").unwrap();
+        let check_password_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_params(&check_password_params_arc)
+            .check_password_result(Some(false))
+            .check_password_result(Some(false))
+            .check_password_result(Some(false))
+            .check_password_result(Some(false));
 
-        let actual = request_wallet_decryption_password(
+        let actual = request_existing_db_password(
             streams,
             Some("Decrypt wallet"),
             "Enter password: ",
-            &encrypted_mnemonic_seed,
+            &persistent_configuration,
         );
 
         assert_eq!(actual, None);
@@ -1203,6 +1225,38 @@ mod tests {
              Incorrect password. Giving up.\n"
                 .to_string()
         );
+        let check_password_params = check_password_params_arc.lock().unwrap();
+        assert_eq!(
+            *check_password_params,
+            vec![
+                "bad password".to_string(),
+                "first bad password".to_string(),
+                "another bad password".to_string(),
+                "final bad password".to_string()
+            ]
+        )
+    }
+
+    #[test]
+    fn request_database_password_aborts_before_prompting_if_database_has_no_password() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b""[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let persistent_configuration =
+            PersistentConfigurationMock::new().check_password_result(None);
+
+        let actual = request_existing_db_password(
+            streams,
+            Some("Decrypt wallet"),
+            "Enter password: ",
+            &persistent_configuration,
+        );
+
+        assert_eq!(actual, None);
+        assert_eq!(stdout_writer.get_string(), "".to_string());
     }
 
     #[test]
@@ -1216,7 +1270,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = request_wallet_encryption_password(
+        let actual = request_new_db_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
              later)..."), "  Enter password: ", "Confirm password: ",
@@ -1244,7 +1298,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = request_wallet_encryption_password(
+        let actual = request_new_db_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
              later)..."), "  Enter password: ", "\nConfirm password: ",
@@ -1274,7 +1328,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
 
-        let actual = request_wallet_encryption_password(
+        let actual = request_new_db_password(
             streams,
             Some("\n\nPlease provide a password to encrypt your wallet (This password can be changed \
              later)..."), "  Enter password: ", "Confirm password: ",
@@ -1343,7 +1397,7 @@ mod tests {
                     .arg(earning_wallet_arg("", |_| Ok(())))
                     .arg(mnemonic_passphrase_arg())
                     .arg(real_user_arg())
-                    .arg(wallet_password_arg(WALLET_PASSWORD_HELP)),
+                    .arg(db_password_arg(DB_PASSWORD_HELP)),
             }
         }
     }
@@ -1355,9 +1409,7 @@ mod tests {
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
-            stdin: &mut Cursor::new(
-                &b"a terrible wallet password\na terrible wallet password\n"[..],
-            ),
+            stdin: &mut Cursor::new(&b"a terrible db password\na terrible db password\n"[..]),
             stdout: stdout_writer,
             stderr: &mut ByteArrayWriter::new(),
         };
@@ -1382,7 +1434,7 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
-                    wallet_password: "a terrible wallet password".to_string(),
+                    db_password: "a terrible db password".to_string(),
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
@@ -1400,7 +1452,7 @@ mod tests {
             .param("--consuming-wallet", "m/44'/60'/1'/2/3")
             .param("--earning-wallet", "m/44'/60'/3'/2/1")
             .param("--mnemonic-passphrase", "mnemonic passphrase")
-            .param("--wallet-password", "wallet password")
+            .param("--db-password", "db password")
             .param("--real-user", "123::");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
@@ -1429,7 +1481,7 @@ mod tests {
                 earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
-                    wallet_password: "wallet password".to_string(),
+                    db_password: "db password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
                 }),
                 real_user: RealUser::new(Some(123), None, None),
@@ -1447,7 +1499,7 @@ mod tests {
                 "0x0123456789ABCDEF0123456789ABCDEF01234567",
             )
             .param("--mnemonic-passphrase", "mnemonic passphrase")
-            .param("--wallet-password", "wallet password")
+            .param("--db-password", "db password")
             .param("--real-user", "123::");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
@@ -1471,7 +1523,7 @@ mod tests {
                 ),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: TameWalletCreationConfigMaker::hardcoded_mnemonic_seed(),
-                    wallet_password: "wallet password".to_string(),
+                    db_password: "db password".to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
                 }),
                 real_user: RealUser::new(Some(123), None, None),
@@ -1505,7 +1557,7 @@ mod tests {
             earning_wallet_address_opt: Some(earning_address.clone()),
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
                 mnemonic_seed: PlainData::new(seed.as_ref()),
-                wallet_password: "wallet password".to_string(),
+                db_password: "db password".to_string(),
                 consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
             }),
             real_user: RealUser::null(),
@@ -1515,6 +1567,7 @@ mod tests {
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
+            .set_mnemonic_seed_result(Ok(()))
             .set_consuming_wallet_derivation_path_params(
                 &set_consuming_wallet_derivation_path_params_arc,
             )
@@ -1525,7 +1578,7 @@ mod tests {
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
-            vec![(seed.as_ref().to_vec(), "wallet password".to_string())]
+            vec![(seed.as_ref().to_vec(), "db password".to_string())]
         );
         let set_consuming_wallet_derivation_path_params =
             set_consuming_wallet_derivation_path_params_arc
@@ -1533,10 +1586,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *set_consuming_wallet_derivation_path_params,
-            vec![(
-                "m/44'/60'/1'/2/3".to_string(),
-                "wallet password".to_string()
-            )]
+            vec![("m/44'/60'/1'/2/3".to_string(), "db password".to_string())]
         );
         let set_earning_wallet_address_params =
             set_earning_wallet_address_params_arc.lock().unwrap();
@@ -1551,7 +1601,7 @@ mod tests {
             ),
             derivation_path_info_opt: Some(DerivationPathWalletInfo {
                 mnemonic_seed: PlainData::new(&[1, 2, 3, 4]),
-                wallet_password: "wallet password".to_string(),
+                db_password: "db password".to_string(),
                 consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
             }),
             real_user: RealUser::null(),
@@ -1561,6 +1611,7 @@ mod tests {
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
+            .set_mnemonic_seed_result(Ok(()))
             .set_consuming_wallet_derivation_path_params(
                 &set_consuming_wallet_derivation_path_params_arc,
             )
@@ -1571,7 +1622,7 @@ mod tests {
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
-            vec![(vec![1u8, 2u8, 3u8, 4u8], "wallet password".to_string())]
+            vec![(vec![1u8, 2u8, 3u8, 4u8], "db password".to_string())]
         );
         let set_consuming_wallet_derivation_path_params =
             set_consuming_wallet_derivation_path_params_arc
@@ -1579,10 +1630,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *set_consuming_wallet_derivation_path_params,
-            vec![(
-                "m/44'/60'/1'/2/3".to_string(),
-                "wallet password".to_string()
-            )]
+            vec![("m/44'/60'/1'/2/3".to_string(), "db password".to_string())]
         );
         let set_earning_wallet_address_params =
             set_earning_wallet_address_params_arc.lock().unwrap();
@@ -1590,5 +1638,43 @@ mod tests {
             *set_earning_wallet_address_params,
             vec!["0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q".to_string()]
         );
+    }
+
+    #[test]
+    pub fn update_db_password_does_nothing_if_no_derivation_path_info_is_supplied() {
+        let wallet_config = WalletCreationConfig {
+            earning_wallet_address_opt: None,
+            derivation_path_info_opt: None,
+            real_user: RealUser::default(),
+        };
+        let set_password_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config =
+            PersistentConfigurationMock::new().set_password_params(&set_password_params_arc);
+
+        update_db_password(&wallet_config, &persistent_config);
+
+        let set_password_params = set_password_params_arc.lock().unwrap();
+        assert!(set_password_params.is_empty());
+    }
+
+    #[test]
+    pub fn update_db_password_sets_password_if_derivation_path_info_is_supplied() {
+        let wallet_config = WalletCreationConfig {
+            earning_wallet_address_opt: None,
+            derivation_path_info_opt: Some(DerivationPathWalletInfo {
+                mnemonic_seed: PlainData::new(&[]),
+                db_password: "booga".to_string(),
+                consuming_derivation_path_opt: None,
+            }),
+            real_user: RealUser::default(),
+        };
+        let set_password_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config =
+            PersistentConfigurationMock::new().set_password_params(&set_password_params_arc);
+
+        update_db_password(&wallet_config, &persistent_config);
+
+        let set_password_params = set_password_params_arc.lock().unwrap();
+        assert_eq!(*set_password_params, vec!["booga".to_string()]);
     }
 }

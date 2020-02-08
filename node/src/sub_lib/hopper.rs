@@ -1,15 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::neighborhood::gossip::Gossip;
+use crate::neighborhood::gossip::Gossip_0v1;
 use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::neighborhood::GossipFailure_0v1;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
+use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
@@ -63,10 +65,11 @@ pub struct IncipientCoresPackage {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MessageType {
-    ClientRequest(ClientRequestPayload),
-    ClientResponse(ClientResponsePayload),
-    Gossip(Gossip),
-    DnsResolveFailed(DnsResolveFailure),
+    ClientRequest(VersionedData<ClientRequestPayload_0v1>),
+    ClientResponse(VersionedData<ClientResponsePayload_0v1>),
+    Gossip(VersionedData<Gossip_0v1>),
+    GossipFailure(VersionedData<GossipFailure_0v1>),
+    DnsResolveFailed(VersionedData<DnsResolveFailure_0v1>),
 }
 
 impl IncipientCoresPackage {
@@ -118,7 +121,8 @@ impl<T> ExpiredCoresPackage<T> {
 
 #[derive(Clone)]
 pub struct HopperConfig {
-    pub cryptde: &'static dyn CryptDE,
+    pub main_cryptde: &'static dyn CryptDE,
+    pub alias_cryptde: &'static dyn CryptDE,
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
     pub is_decentralized: bool,
@@ -147,7 +151,7 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::{
-        cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
+        main_cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
     };
     use actix::Actor;
     use std::net::IpAddr;
@@ -169,7 +173,7 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_is_created_correctly() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let public_key = PublicKey::new(&[1, 2]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1, 2, 3, 4]);
         let payload = make_meaningless_message_type();
@@ -193,7 +197,7 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let result = NoLookupIncipientCoresPackage::new(
             cryptde,
             &PublicKey::new(&[]),
@@ -203,14 +207,14 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+                "Could not encrypt payload: EncryptionError(EmptyKey)"
             ))
         );
     }
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -241,7 +245,7 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let result = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
@@ -252,7 +256,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Could not encrypt payload: \"Encryption error: EmptyKey\""
+                "Could not encrypt payload: EncryptionError(EmptyKey)"
             ))
         );
     }
@@ -262,7 +266,7 @@ mod tests {
         let immediate_neighbor = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),

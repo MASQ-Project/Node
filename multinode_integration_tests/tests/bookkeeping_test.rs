@@ -6,6 +6,7 @@ use multinode_integration_tests_lib::masq_real_node::{
 };
 use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
+use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
@@ -30,9 +31,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     client.send_chunk(request);
     let response = String::from_utf8(client.wait_for_chunk()).unwrap();
     assert!(
-        response.contains(
-            "This domain is established to be used for illustrative examples in documents."
-        ),
+        response.contains("<h1>Example Domain</h1>"),
         "Not from example.com:\n{}",
         response
     );
@@ -110,6 +109,7 @@ pub fn start_lonely_real_node(cluster: &mut MASQNodeCluster) -> MASQRealNode {
         NodeStartupConfigBuilder::standard()
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
             .consuming_wallet_info(make_consuming_wallet_info(&index.to_string()))
+            .chain(chain_name_from_id(cluster.chain_id))
             .build(),
     )
 }
@@ -120,6 +120,7 @@ pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor)
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
+            .chain(chain_name_from_id(cluster.chain_id))
             .build(),
     )
 }

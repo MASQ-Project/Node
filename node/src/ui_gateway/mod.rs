@@ -5,12 +5,12 @@ pub mod ui_traffic_converter;
 mod websocket_supervisor;
 
 use crate::sub_lib::accountant::GetFinancialStatisticsMessage;
-use crate::sub_lib::blockchain_bridge::{SetGasPriceMsg, SetWalletPasswordMsg};
+use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
+use crate::sub_lib::ui_gateway::{FromUiMessage, NewFromUiMessage, UiCarrierMessage};
+use crate::sub_lib::ui_gateway::{NewToUiMessage, UiGatewaySubs};
 use crate::sub_lib::ui_gateway::{UiGatewayConfig, UiMessage};
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisorReal;
@@ -26,7 +26,7 @@ use actix::Recipient;
 
 struct UiGatewayOutSubs {
     ui_message_sub: Recipient<UiCarrierMessage>,
-    blockchain_bridge_set_consuming_wallet_password_sub: Recipient<SetWalletPasswordMsg>,
+    blockchain_bridge_set_consuming_db_password_sub: Recipient<SetDbPasswordMsg>,
     blockchain_bridge_set_gas_price_sub: Recipient<SetGasPriceMsg>,
     accountant_get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
     neighborhood: Recipient<NeighborhoodDotGraphRequest>,
@@ -39,6 +39,7 @@ pub struct UiGateway {
     subs: Option<UiGatewayOutSubs>,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     shutdown_supervisor: Box<dyn ShutdownSupervisor>,
+    incoming_message_recipients: Vec<Recipient<NewFromUiMessage>>,
     logger: Logger,
 }
 
@@ -51,6 +52,7 @@ impl UiGateway {
             subs: None,
             websocket_supervisor: None,
             shutdown_supervisor: Box::new(ShutdownSupervisorReal::new()),
+            incoming_message_recipients: vec![],
             logger: Logger::new("UiGateway"),
         }
     }
@@ -60,6 +62,8 @@ impl UiGateway {
             bind: recipient!(addr, BindMessage),
             ui_message_sub: recipient!(addr, UiCarrierMessage),
             from_ui_message_sub: recipient!(addr, FromUiMessage),
+            new_from_ui_message_sub: recipient!(addr, NewFromUiMessage),
+            new_to_ui_message_sub: recipient!(addr, NewToUiMessage),
         }
     }
 }
@@ -75,10 +79,10 @@ impl Handler<BindMessage> for UiGateway {
         //        ctx.set_mailbox_capacity(?);
         let subs = UiGatewayOutSubs {
             ui_message_sub: msg.peer_actors.ui_gateway.ui_message_sub.clone(),
-            blockchain_bridge_set_consuming_wallet_password_sub: msg
+            blockchain_bridge_set_consuming_db_password_sub: msg
                 .peer_actors
                 .blockchain_bridge
-                .set_consuming_wallet_password_sub
+                .set_consuming_db_password_sub
                 .clone(),
             blockchain_bridge_set_gas_price_sub: msg
                 .peer_actors
@@ -93,11 +97,41 @@ impl Handler<BindMessage> for UiGateway {
             neighborhood: msg.peer_actors.neighborhood.from_ui_gateway.clone(),
         };
         self.subs = Some(subs);
+        self.incoming_message_recipients = vec![
+            msg.peer_actors.accountant.ui_message_sub.clone(),
+            msg.peer_actors.neighborhood.from_ui_message_sub.clone(),
+        ];
         self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
             self.port,
             msg.peer_actors.ui_gateway.from_ui_message_sub.clone(),
+            msg.peer_actors.ui_gateway.new_from_ui_message_sub.clone(),
         )));
         info!(self.logger, "UIGateway bound");
+    }
+}
+
+impl Handler<NewToUiMessage> for UiGateway {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.websocket_supervisor
+            .as_ref()
+            .expect("WebsocketSupervisor is unbound")
+            .send_msg(msg)
+    }
+}
+
+impl Handler<NewFromUiMessage> for UiGateway {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.incoming_message_recipients
+            .iter()
+            .for_each(|recipient| {
+                recipient
+                    .try_send(msg.clone())
+                    .expect("A NewUiMessage recipient has died.")
+            })
     }
 }
 
@@ -107,12 +141,12 @@ impl Handler<UiCarrierMessage> for UiGateway {
     // All UI messages, both inbound and outbound, come through here
     fn handle(&mut self, msg: UiCarrierMessage, _ctx: &mut Self::Context) -> Self::Result {
         match msg.data {
-            UiMessage::SetWalletPassword(password) => {
+            UiMessage::SetDbPassword(password) => {
                 self.subs
                     .as_ref()
                     .expect("UiGateway is unbound")
-                    .blockchain_bridge_set_consuming_wallet_password_sub
-                    .try_send(SetWalletPasswordMsg {
+                    .blockchain_bridge_set_consuming_db_password_sub
+                    .try_send(SetDbPasswordMsg {
                         client_id: msg.client_id,
                         password,
                     })
@@ -143,7 +177,7 @@ impl Handler<UiCarrierMessage> for UiGateway {
                 .expect("UiGateway is dead"),
             UiMessage::SetGasPrice(gas_price) => set_gas_price(self, msg.client_id, &gas_price),
             UiMessage::NodeDescriptor(_)
-            | UiMessage::SetWalletPasswordResponse(_)
+            | UiMessage::SetDbPasswordResponse(_)
             | UiMessage::FinancialStatisticsResponse(_)
             | UiMessage::SetGasPriceResponse(_)
             | UiMessage::NeighborhoodDotGraphResponse(_) => {
@@ -213,8 +247,9 @@ impl Handler<FromUiMessage> for UiGateway {
 mod tests {
     use super::*;
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
-    use crate::sub_lib::blockchain_bridge::SetWalletPasswordMsg;
-    use crate::sub_lib::ui_gateway::UiMessage;
+    use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
+    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
+    use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget, NewFromUiMessage, UiMessage};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -233,10 +268,9 @@ mod tests {
             let addr = recorder.start();
             UiGatewayOutSubs {
                 ui_message_sub: addr.clone().recipient::<UiCarrierMessage>(),
-                blockchain_bridge_set_consuming_wallet_password_sub: addr
+                blockchain_bridge_set_consuming_db_password_sub: addr
                     .clone()
-                    .recipient::<SetWalletPasswordMsg>(
-                ),
+                    .recipient::<SetDbPasswordMsg>(),
                 blockchain_bridge_set_gas_price_sub: addr.clone().recipient::<SetGasPriceMsg>(),
                 accountant_get_financial_statistics_sub: addr
                     .clone()
@@ -265,6 +299,52 @@ mod tests {
                 .unwrap()
                 .push(String::from(json));
             self.unmarshal_results.borrow_mut().remove(0)
+        }
+
+        fn new_marshal_from_ui(&self, _msg: NewFromUiMessage) -> String {
+            unimplemented!()
+        }
+
+        fn new_marshal_to_ui(&self, _msg: NewToUiMessage) -> String {
+            unimplemented!()
+        }
+
+        fn new_unmarshal_from_ui(
+            &self,
+            _json: &str,
+            _client_id: u64,
+        ) -> Result<NewFromUiMessage, String> {
+            unimplemented!()
+        }
+
+        fn new_unmarshal_to_ui(
+            &self,
+            _json: &str,
+            _target: MessageTarget,
+        ) -> Result<NewToUiMessage, String> {
+            unimplemented!()
+        }
+
+        fn reject_error_from_ui(
+            &self,
+            _logger: &Logger,
+            _msg: &NewFromUiMessage,
+            _reply_sub_opt: Option<&Recipient<NewToUiMessage>>,
+        ) -> Result<String, String> {
+            unimplemented!()
+        }
+
+        fn reject_error_to_ui(
+            &self,
+            _logger: &Logger,
+            _msg: &NewToUiMessage,
+            _reply_sub_opt: Option<&Recipient<NewFromUiMessage>>,
+        ) -> Result<String, String> {
+            unimplemented!()
+        }
+
+        fn get_context_id(&self, _logger: &Logger, _body: &MessageBody) -> Option<u64> {
+            unimplemented!()
         }
     }
 
@@ -310,6 +390,7 @@ mod tests {
     #[derive(Default)]
     struct WebSocketSupervisorMock {
         send_parameters: Arc<Mutex<Vec<(u64, String)>>>,
+        send_msg_parameters: Arc<Mutex<Vec<NewToUiMessage>>>,
     }
 
     impl WebSocketSupervisor for WebSocketSupervisorMock {
@@ -319,12 +400,17 @@ mod tests {
                 .unwrap()
                 .push((client_id, String::from(message_json)));
         }
+
+        fn send_msg(&self, msg: NewToUiMessage) {
+            self.send_msg_parameters.lock().unwrap().push(msg);
+        }
     }
 
     impl WebSocketSupervisorMock {
         fn new() -> WebSocketSupervisorMock {
             WebSocketSupervisorMock {
                 send_parameters: Arc::new(Mutex::new(vec![])),
+                send_msg_parameters: Arc::new(Mutex::new(vec![])),
             }
         }
 
@@ -333,6 +419,14 @@ mod tests {
             parameters: &Arc<Mutex<Vec<(u64, String)>>>,
         ) -> WebSocketSupervisorMock {
             self.send_parameters = parameters.clone();
+            self
+        }
+
+        fn send_msg_parameters(
+            mut self,
+            parameters: &Arc<Mutex<Vec<NewToUiMessage>>>,
+        ) -> WebSocketSupervisorMock {
+            self.send_msg_parameters = parameters.clone();
             self
         }
     }
@@ -361,6 +455,77 @@ mod tests {
             self.shutdown_parameters = parameters.clone();
             self
         }
+    }
+
+    #[test]
+    fn inbound_ui_message_is_disseminated_properly() {
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let subject = UiGateway::new(&UiGatewayConfig {
+            ui_port: find_free_port(),
+            node_descriptor: String::from(""),
+        });
+        let system = System::new("test");
+        let subject_addr: Addr<UiGateway> = subject.start();
+        let peer_actors = peer_actors_builder()
+            .accountant(accountant)
+            .neighborhood(neighborhood)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let msg = NewFromUiMessage {
+            client_id: 1234,
+            body: MessageBody {
+                opcode: "booga".to_string(),
+                path: OneWay,
+                payload: Ok("{}".to_string()),
+            },
+        };
+
+        subject_addr.try_send(msg.clone()).unwrap();
+
+        System::current().stop();
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.get_record::<NewFromUiMessage>(0), &msg);
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        assert_eq!(
+            neighborhood_recording.get_record::<NewFromUiMessage>(0),
+            &msg
+        );
+    }
+
+    #[test]
+    fn outbound_ui_message_goes_only_to_websocket_supervisor() {
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let send_msg_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let websocket_supervisor =
+            WebSocketSupervisorMock::new().send_msg_parameters(&send_msg_parameters_arc);
+        let mut subject = UiGateway::new(&UiGatewayConfig {
+            ui_port: find_free_port(),
+            node_descriptor: String::from(""),
+        });
+        let system = System::new("test");
+        subject.websocket_supervisor = Some(Box::new(websocket_supervisor));
+        subject.incoming_message_recipients =
+            vec![accountant.start().recipient::<NewFromUiMessage>()];
+        let subject_addr: Addr<UiGateway> = subject.start();
+        let msg = NewToUiMessage {
+            target: MessageTarget::ClientId(1234),
+            body: MessageBody {
+                opcode: "booga".to_string(),
+                path: OneWay,
+                payload: Ok("{}".to_string()),
+            },
+        };
+
+        subject_addr.try_send(msg.clone()).unwrap();
+
+        System::current().stop();
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+        let send_parameters = send_msg_parameters_arc.lock().unwrap();
+        assert_eq!(send_parameters[0], msg);
     }
 
     #[test]
@@ -395,14 +560,14 @@ mod tests {
     }
 
     #[test]
-    fn receiving_a_set_consuming_wallet_password_message_sends_traffic_to_blockchain_bridge() {
+    fn receiving_a_set_consuming_db_password_message_sends_traffic_to_blockchain_bridge() {
         let (blockchain_bridge, _, blockchain_bridge_recorder_arc) = make_recorder();
         let subject = UiGateway::new(&UiGatewayConfig {
             ui_port: find_free_port(),
             node_descriptor: String::from(""),
         });
         let system = System::new(
-            "receiving_a_set_consuming_wallet_password_message_sends_traffic_to_blockchain_bridge",
+            "receiving_a_set_consuming_db_password_message_sends_traffic_to_blockchain_bridge",
         );
         let addr: Addr<UiGateway> = subject.start();
         let mut peer_actors = peer_actors_builder()
@@ -413,7 +578,7 @@ mod tests {
 
         addr.try_send(UiCarrierMessage {
             client_id: 0,
-            data: UiMessage::SetWalletPassword("booga".to_string()),
+            data: UiMessage::SetDbPassword("booga".to_string()),
         })
         .unwrap();
 
@@ -421,8 +586,8 @@ mod tests {
         system.run();
         let blockchain_bridge_recorder = blockchain_bridge_recorder_arc.lock().unwrap();
         assert_eq!(
-            blockchain_bridge_recorder.get_record::<SetWalletPasswordMsg>(0),
-            &SetWalletPasswordMsg {
+            blockchain_bridge_recorder.get_record::<SetDbPasswordMsg>(0),
+            &SetDbPasswordMsg {
                 client_id: 0,
                 password: "booga".to_string(),
             }
@@ -564,12 +729,12 @@ mod tests {
     }
 
     #[test]
-    fn set_consuming_wallet_password_response_message_is_directed_to_websocket_supervisor() {
+    fn set_consuming_db_password_response_message_is_directed_to_websocket_supervisor() {
         let (ui_gateway_recorder, _, _) = make_recorder();
         let receive_parameters_arc = Arc::new(Mutex::new(vec![]));
 
         let system = System::new(
-            "set_consuming_wallet_password_response_message_is_directed_to_websocket_supervisor",
+            "set_consuming_db_password_response_message_is_directed_to_websocket_supervisor",
         );
         let mut subject = UiGateway::new(&UiGatewayConfig {
             ui_port: find_free_port(),
@@ -590,7 +755,7 @@ mod tests {
             .ui_message_sub
             .try_send(UiCarrierMessage {
                 client_id: 1234,
-                data: UiMessage::SetWalletPasswordResponse(true),
+                data: UiMessage::SetDbPasswordResponse(true),
             })
             .unwrap();
 
@@ -609,7 +774,7 @@ mod tests {
                 .unwrap(),
             &(
                 1234 as u64,
-                serde_json::to_string(&UiMessage::SetWalletPasswordResponse(true)).unwrap()
+                serde_json::to_string(&UiMessage::SetDbPasswordResponse(true)).unwrap()
             )
         )
     }

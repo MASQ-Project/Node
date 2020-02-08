@@ -8,6 +8,7 @@ pub mod data_hunk_framer;
 pub mod environment_guard;
 pub mod little_tcp_server;
 pub mod logging;
+pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
 pub mod stream_connector_mock;
@@ -30,8 +31,8 @@ use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-use crate::sub_lib::proxy_server::{ClientRequestPayload, ProxyProtocol};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -72,11 +73,16 @@ pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
 pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten"; //For testing only
 
 lazy_static! {
-    static ref CRYPT_DE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
+    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
+    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
 }
 
-pub fn cryptde() -> &'static CryptDENull {
-    &CRYPT_DE_NULL
+pub fn main_cryptde() -> &'static CryptDENull {
+    &MAIN_CRYPTDE_NULL
+}
+
+pub fn alias_cryptde() -> &'static CryptDENull {
+    &ALIAS_CRYPTDE_NULL
 }
 
 #[derive(Default)]
@@ -267,7 +273,7 @@ pub fn make_meaningless_stream_key() -> StreamKey {
 }
 
 pub fn make_meaningless_message_type() -> MessageType {
-    DnsResolveFailure::new(make_meaningless_stream_key()).into()
+    DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
 }
 
 pub fn make_meaningless_route() -> Route {
@@ -279,7 +285,7 @@ pub fn make_meaningless_route() -> Route {
             ],
             Component::ProxyClient,
         ),
-        cryptde(),
+        main_cryptde(),
         Some(make_paying_wallet(b"irrelevant")),
         Some(contract_address(DEFAULT_CHAIN_ID)),
     )
@@ -294,7 +300,7 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
     PlainData::from(
         repeat(vec![0xABu8, 0xCDu8])
             .take(16)
-            .flat_map(|x| x)
+            .flatten()
             .collect::<Vec<u8>>(),
     )
 }
@@ -304,7 +310,8 @@ pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
         .earning_wallet_from_address_result(None)
         .consuming_wallet_derivation_path_result(None)
         .consuming_wallet_public_key_result(None)
-        .encrypted_mnemonic_seed_result(None)
+        .mnemonic_seed_result(Ok(None))
+        .past_neighbors_result(Ok(None))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -362,9 +369,8 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
     data
 }
 
-pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload {
-    ClientRequestPayload {
-        version: ClientRequestPayload::version(),
+pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
+    ClientRequestPayload_0v1 {
         stream_key: StreamKey::new(
             cryptde.public_key().clone(),
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -377,9 +383,8 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
     }
 }
 
-pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload {
-    ClientResponsePayload {
-        version: ClientResponsePayload::version(),
+pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload_0v1 {
+    ClientResponsePayload_0v1 {
         stream_key: StreamKey::new(
             cryptde.public_key().clone(),
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -630,7 +635,7 @@ mod tests {
 
     #[test]
     fn characterize_zero_hop_route() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key = cryptde.public_key();
 
         let subject = zero_hop_route_response(&key, cryptde);
@@ -662,7 +667,7 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_client() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key = cryptde.public_key();
 
         let subject = route_to_proxy_client(&key, cryptde);
@@ -686,7 +691,7 @@ mod tests {
 
     #[test]
     fn characterize_route_from_proxy_client() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key = cryptde.public_key();
 
         let subject = route_from_proxy_client(&key, cryptde);
@@ -710,7 +715,7 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_server() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let key = cryptde.public_key();
 
         let subject = route_to_proxy_server(&key, cryptde);

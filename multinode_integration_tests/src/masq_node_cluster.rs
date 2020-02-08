@@ -56,6 +56,7 @@ impl MASQNodeCluster {
     pub fn prepare_real_node(&mut self, config: &NodeStartupConfig) -> (String, usize) {
         let index = self.startup_configs.len() + 1;
         let name = MASQRealNode::make_name(index);
+        self.next_index = index + 1;
         self.startup_configs
             .insert((name.clone(), index), config.clone());
         MASQRealNode::prepare(&name);
@@ -153,7 +154,7 @@ impl MASQNodeCluster {
             .real_nodes
             .values()
             .into_iter()
-            .find(|node| node.public_key() == key)
+            .find(|node| node.main_public_key() == key)
         {
             Some(node_ref) => Some(node_ref.clone()),
             None => None,
@@ -196,14 +197,14 @@ impl MASQNodeCluster {
     }
 
     fn cleanup() -> Result<(), String> {
-        MASQNodeCluster::stop_running_nodes()?;
+        MASQNodeCluster::stop_running_containers()?;
         if Self::is_in_jenkins() {
             Self::disconnect_network()
         }
         MASQNodeCluster::remove_network_if_running()
     }
 
-    fn stop_running_nodes() -> Result<(), String> {
+    fn stop_running_containers() -> Result<(), String> {
         let mut command = Command::new(
             "docker",
             Command::strings(vec!["ps", "-q", "--filter", "ancestor=test_node_image"]),

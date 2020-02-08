@@ -7,10 +7,10 @@ use multinode_integration_tests_lib::multinode_gossip::{
     parse_gossip, GossipType, MultinodeGossip, StandardBuilder,
 };
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
+use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 use node_lib::neighborhood::gossip_acceptor::MAX_DEGREE;
-use node_lib::neighborhood::neighborhood_test_utils::db_from_node;
-use node_lib::neighborhood::neighborhood_test_utils::make_node_record;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::thread;
 use std::time::Duration;
 
@@ -22,6 +22,7 @@ fn graph_connects_but_does_not_over_connect() {
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .fake_public_key(&PublicKey::new(&[4, 3, 2, 0]))
+            .chain(chain_name_from_id(cluster.chain_id))
             .build(),
     );
     let real_nodes = (1..neighborhood_size)
@@ -30,6 +31,7 @@ fn graph_connects_but_does_not_over_connect() {
                 NodeStartupConfigBuilder::standard()
                     .neighbor(first_node.node_reference())
                     .fake_public_key(&PublicKey::new(&[4, 3, 2, index as u8]))
+                    .chain(chain_name_from_id(cluster.chain_id))
                     .build(),
             )
         })
@@ -37,7 +39,7 @@ fn graph_connects_but_does_not_over_connect() {
     let last_node = real_nodes.last().unwrap();
     let mock_node =
         cluster.start_mock_node_with_public_key(vec![10000], &PublicKey::new(&[1, 2, 3, 4]));
-    let dont_count_these = vec![mock_node.public_key()];
+    let dont_count_these = vec![mock_node.main_public_key()];
     // Wait for Gossip to abate
     thread::sleep(Duration::from_millis(2000));
 
@@ -49,7 +51,7 @@ fn graph_connects_but_does_not_over_connect() {
     }
     let standard_gossip = StandardBuilder::new()
         .add_masq_node(&mock_node, 100)
-        .half_neighbors(mock_node.public_key(), last_node.public_key())
+        .half_neighbors(mock_node.main_public_key(), last_node.main_public_key())
         .build();
     mock_node
         .transmit_multinode_gossip(last_node, &standard_gossip)
@@ -99,7 +101,7 @@ fn lots_of_stalled_nodes_dont_prevent_acceptance_of_new_node() {
         .unwrap();
     match parse_gossip(&gossip, sender) {
         GossipType::IntroductionGossip(introduction) => {
-            assert_eq!(introduction.introducer_key(), root_node.public_key());
+            assert_eq!(introduction.introducer_key(), root_node.main_public_key());
             assert_eq!(introduction.introducee_key(), full_neighbor_key);
         }
         _ => panic!("Received unexpected Gossip when expecting Introduction"),

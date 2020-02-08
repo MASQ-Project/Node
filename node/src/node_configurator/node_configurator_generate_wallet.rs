@@ -5,10 +5,11 @@ use crate::blockchain::bip39::Bip39;
 use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
     app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
-    data_directory_arg, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
-    prepare_initialization_mode, real_user_arg, request_password_with_confirmation,
-    request_password_with_retry, wallet_password_arg, Either, NodeConfigurator,
-    WalletCreationConfig, WalletCreationConfigMaker, EARNING_WALLET_HELP, WALLET_PASSWORD_HELP,
+    data_directory_arg, db_password_arg, earning_wallet_arg, flushed_write, language_arg,
+    mnemonic_passphrase_arg, mnemonic_seed_exists, prepare_initialization_mode, real_user_arg,
+    request_password_with_confirmation, request_password_with_retry, update_db_password, Either,
+    NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP,
+    EARNING_WALLET_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -33,6 +34,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
         let config = self.parse_args(&multi_config, streams, persistent_config);
 
         create_wallet(&config, persistent_config);
+        update_db_password(&config, persistent_config);
 
         config
     }
@@ -148,7 +150,7 @@ impl NodeConfiguratorGenerateWallet {
                 .arg(language_arg())
                 .arg(mnemonic_passphrase_arg())
                 .arg(real_user_arg())
-                .arg(wallet_password_arg(WALLET_PASSWORD_HELP))
+                .arg(db_password_arg(DB_PASSWORD_HELP))
                 .arg(
                     Arg::with_name("word-count")
                         .long("word-count")
@@ -168,7 +170,7 @@ impl NodeConfiguratorGenerateWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
-        if persistent_config.encrypted_mnemonic_seed().is_some() {
+        if mnemonic_seed_exists(persistent_config) {
             panic!("Can't generate wallets: mnemonic seed has already been created")
         }
         self.make_wallet_creation_config(multi_config, streams)
@@ -320,11 +322,11 @@ impl NodeConfiguratorGenerateWallet {
 mod tests {
     use super::*;
     use crate::bootstrapper::RealUser;
-    use crate::config_dao::{ConfigDao, ConfigDaoReal};
+    use crate::config_dao::ConfigDaoReal;
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::multi_config::{CommandLineVcl, VirtualCommandLine};
-    use crate::node_configurator::DerivationPathWalletInfo;
+    use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
@@ -424,24 +426,26 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_creates_configurations() {
+    fn exercise_configure() {
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_generate_wallet",
-            "parse_args_creates_configurations",
+            "exercise_configure",
         );
-
-        let password = "secret-wallet-password";
+        let password = "secret-db-password";
+        let consuming_path = "m/44'/60'/0'/77/78";
+        let earning_path = "m/44'/60'/0'/78/77";
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
-            .param("--wallet-password", password)
-            .param("--consuming-wallet", "m/44'/60'/0'/77/78")
-            .param("--earning-wallet", "m/44'/60'/0'/78/77")
+            .param("--db-password", password)
+            .param("--consuming-wallet", consuming_path)
+            .param("--earning-wallet", earning_path)
             .param("--language", "español")
             .param("--word-count", "15")
             .param("--mnemonic-passphrase", "Mortimer")
-            .param("--real-user", "123:456:/home/booga");
+            .param("--real-user", "123:456:/home/booga")
+            .into();
         let mut subject = NodeConfiguratorGenerateWallet::new();
         let make_parameters_arc = Arc::new(Mutex::new(vec![]));
         let expected_mnemonic = Mnemonic::new(MnemonicType::Words15, Language::Spanish);
@@ -449,15 +453,11 @@ mod tests {
             .make_parameters(&make_parameters_arc)
             .make_result(expected_mnemonic.clone());
         subject.mnemonic_factory = Box::new(mnemonic_factory);
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = MultiConfig::new(&subject.app, vcls);
 
-        let config = subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &make_default_persistent_configuration(),
-        );
+        let config = subject.configure(&args, &mut FakeStreamHolder::new().streams());
+
+        let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
+        assert_eq!(persistent_config.check_password(password), Some(true));
         let mut make_parameters = make_parameters_arc.lock().unwrap();
         assert_eq_debug(
             make_parameters.remove(0),
@@ -474,7 +474,7 @@ mod tests {
                     mnemonic_seed: PlainData::new(
                         Seed::new(&expected_mnemonic, "Mortimer").as_ref()
                     ),
-                    wallet_password: password.to_string(),
+                    db_password: password.to_string(),
                     consuming_derivation_path_opt: Some("m/44'/60'/0'/77/78".to_string()),
                 }),
                 real_user: RealUser::new(Some(123), Some(456), Some("/home/booga".into()))
@@ -487,7 +487,7 @@ mod tests {
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
-            .param("--wallet-password", "password123")
+            .param("--db-password", "password123")
             .param("--mnemonic-passphrase", "Mortimer");
         let mut subject = NodeConfiguratorGenerateWallet::new();
         let make_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -523,7 +523,7 @@ mod tests {
                     mnemonic_seed: PlainData::new(
                         Seed::new(&expected_mnemonic, "Mortimer").as_ref()
                     ),
-                    wallet_password: "password123".to_string(),
+                    db_password: "password123".to_string(),
                     consuming_derivation_path_opt: Some(
                         DEFAULT_CONSUMING_DERIVATION_PATH.to_string()
                     ),
@@ -615,13 +615,16 @@ mod tests {
         let conn = db_initializer::DbInitializerReal::new()
             .initialize(&data_directory, DEFAULT_CHAIN_ID)
             .unwrap();
-        let config_dao = ConfigDaoReal::new(conn);
-        config_dao.set_string("seed", "booga booga").unwrap();
+        let persistent_config =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
+        persistent_config
+            .set_mnemonic_seed(b"booga booga", "rick-rolled")
+            .unwrap();
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", data_directory.to_str().unwrap())
-            .param("--wallet-password", "rick-rolled");
+            .param("--db-password", "rick-rolled");
         let subject = NodeConfiguratorGenerateWallet::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
@@ -629,7 +632,7 @@ mod tests {
         subject.parse_args(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            &PersistentConfigurationReal::new(Box::new(config_dao)),
+            &persistent_config,
         );
     }
 }

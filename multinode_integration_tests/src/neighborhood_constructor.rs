@@ -6,13 +6,16 @@ use crate::masq_node_cluster::MASQNodeCluster;
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
 use crate::multinode_gossip::{Standard, StandardBuilder};
-use node_lib::neighborhood::gossip::Gossip;
+use node_lib::blockchain::blockchain_interface::chain_name_from_id;
+use node_lib::neighborhood::gossip::Gossip_0v1;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use node_lib::neighborhood::neighborhood_test_utils::db_from_node;
 use node_lib::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use node_lib::sub_lib::utils::time_t_timestamp;
+use node_lib::test_utils::neighborhood_test_utils::db_from_node;
 use std::collections::{BTreeSet, HashMap};
 use std::convert::TryInto;
 use std::time::Duration;
@@ -65,6 +68,7 @@ pub fn construct_neighborhood(
             .consuming_wallet_info(make_consuming_wallet_info(
                 model_db.root().public_key().to_string().as_str(),
             ))
+            .chain(chain_name_from_id(cluster.chain_id))
             .build(),
     );
     let (mock_node_map, adjacent_mock_node_keys) =
@@ -88,15 +92,15 @@ fn make_mock_node_map(
     let adjacent_mock_nodes = form_mock_node_skeleton(cluster, &model_db, &real_node);
     let adjacent_mock_node_keys = adjacent_mock_nodes
         .iter()
-        .map(|node| node.public_key().clone())
+        .map(|node| node.main_public_key().clone())
         .collect::<Vec<PublicKey>>();
     let mut mock_node_map = adjacent_mock_nodes
         .into_iter()
-        .map(|node| (node.public_key().clone(), node))
+        .map(|node| (node.main_public_key().clone(), node))
         .collect::<HashMap<PublicKey, MASQMockNode>>();
     additional_keys_to_mock.iter().for_each(|key| {
         let mock_node = cluster.start_mock_node_with_public_key(vec![10000], key);
-        let mock_node_key = mock_node.public_key().clone();
+        let mock_node_key = mock_node.main_public_key().clone();
         mock_node_map.insert(mock_node_key, mock_node);
     });
     (mock_node_map, adjacent_mock_node_keys)
@@ -126,7 +130,7 @@ fn make_modified_db(
     modified_db.root_mut().set_version(2);
     modified_nodes
         .iter()
-        .filter(|node| node.public_key() != real_node.public_key())
+        .filter(|node| node.public_key() != real_node.main_public_key())
         .for_each(|node| {
             let mut cloned_node = node.clone();
             cloned_node.set_version(2);
@@ -141,7 +145,7 @@ fn make_and_send_final_setup_gossip(
     modified_nodes: &Vec<NodeRecord>,
     real_node: &MASQRealNode,
 ) {
-    let gossip_source_key = gossip_source_mock_node.public_key().clone();
+    let gossip_source_key = gossip_source_mock_node.main_public_key().clone();
     let gossip_source_node = modified_nodes
         .iter()
         .find(|node| node.public_key() == &gossip_source_key)
@@ -156,7 +160,9 @@ fn make_and_send_final_setup_gossip(
             cloned_node.resign();
             gossip_db.add_node(cloned_node).unwrap();
         });
-    let gossip: Gossip = GossipProducerReal::new().produce(&gossip_db, real_node.public_key());
+    let gossip: Gossip_0v1 = GossipProducerReal::new()
+        .produce(&mut gossip_db, real_node.main_public_key())
+        .unwrap();
     gossip_source_mock_node
         .transmit_multinode_gossip(real_node, &Standard::from(&gossip.try_into().unwrap()))
         .unwrap();
@@ -187,7 +193,7 @@ fn form_mock_node_skeleton(
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             let standard_gossip = StandardBuilder::new()
                 .add_masq_node(&node, 1)
-                .half_neighbors(node.public_key(), real_node.public_key())
+                .half_neighbors(node.main_public_key(), real_node.main_public_key())
                 .chain_id(cluster.chain_id)
                 .build();
             node.transmit_multinode_gossip(real_node, &standard_gossip)
@@ -208,6 +214,7 @@ fn modify_node(
         None => model_node.node_addr_opt(),
     };
     gossip_node.metadata.node_addr_opt = node_addr_opt;
+    gossip_node.inner.rate_pack = DEFAULT_RATE_PACK.clone();
     gossip_node.inner.version = 2;
     gossip_node.inner.neighbors = model_node
         .half_neighbor_keys()
@@ -242,6 +249,7 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
         inner: agr.inner.clone(),
         metadata: NodeRecordMetadata {
             desirable: true,
+            last_update: time_t_timestamp(),
             node_addr_opt: agr.node_addr_opt.clone(),
         },
         signed_gossip: agr.signed_gossip.clone(),

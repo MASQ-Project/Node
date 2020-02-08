@@ -1,28 +1,54 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::sub_lib::cryptde;
-use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::CryptdecError;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
 use rand::prelude::*;
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct CryptDENull {
     private_key: PrivateKey,
     public_key: PublicKey,
     digest: [u8; 32],
+    next_symmetric_key_seed: Arc<Mutex<u64>>,
 }
 
 impl CryptDE for CryptDENull {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
-        Self::encode_with_key_data(public_key.as_slice(), data)
+        Self::encode_with_key_data(&Self::other_key_data(public_key.as_slice()), data)
     }
 
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError> {
         Self::decode_with_key_data(self.private_key.as_slice(), data)
+    }
+
+    fn encode_sym(&self, key: &SymmetricKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        Self::encode_with_key_data(key.as_slice(), data)
+    }
+
+    fn decode_sym(&self, key: &SymmetricKey, data: &CryptData) -> Result<PlainData, CryptdecError> {
+        Self::decode_with_key_data(key.as_slice(), data)
+    }
+
+    fn gen_key_sym(&self) -> SymmetricKey {
+        let mut seed = {
+            let mut seed = self.next_symmetric_key_seed.lock().unwrap();
+            let value: u64 = *seed.deref();
+            *seed.deref_mut() = value.wrapping_add(1);
+            value
+        };
+        let mut key_data = [0u8; 8];
+        for i in 0..8 {
+            key_data[i] = (seed & 0xFF) as u8;
+            seed >>= 8;
+        }
+        SymmetricKey::new(&key_data)
     }
 
     fn random(&self, dest: &mut [u8]) {
@@ -45,13 +71,14 @@ impl CryptDE for CryptDENull {
             private_key: self.private_key.clone(),
             public_key: self.public_key.clone(),
             digest: self.digest,
+            next_symmetric_key_seed: self.next_symmetric_key_seed.clone(),
         })
     }
 
     fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError> {
         let hash = self.hash(data);
         Self::encode_with_key_data(
-            self.private_key().as_slice(),
+            &Self::other_key_data(self.private_key().as_slice()),
             &PlainData::new(hash.as_slice()),
         )
     }
@@ -118,8 +145,10 @@ impl CryptDENull {
             private_key,
             public_key,
             digest,
+            next_symmetric_key_seed: Arc::new(Mutex::new(0x0123_4567_89AB_CDEF)),
         }
     }
+
     pub fn from(public_key: &PublicKey, chain_id: u8) -> CryptDENull {
         let mut result = CryptDENull::new(chain_id);
         result.set_key_pair(public_key, chain_id);
@@ -150,10 +179,7 @@ impl CryptDENull {
         } else if data.is_empty() {
             Err(CryptdecError::EmptyData)
         } else {
-            let other_key = Self::other_key_data(key_data);
-            Ok(CryptData::new(
-                &[&other_key.as_slice(), data.as_slice()].concat()[..],
-            ))
+            Ok(CryptData::new(&[key_data, data.as_slice()].concat()[..]))
         }
     }
 
@@ -163,22 +189,21 @@ impl CryptDENull {
         } else if data.is_empty() {
             Err(CryptdecError::EmptyData)
         } else if key_data.len() > data.len() {
-            Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
+            Err(CryptdecError::InvalidKey(CryptDENull::wrong_key_message(
                 key_data, data,
             )))
         } else {
             let (k, d) = data.as_slice().split_at(key_data.len());
             if k != key_data {
-                Err(CryptdecError::InvalidKey(CryptDENull::invalid_key_message(
-                    key_data, data,
-                )))
+                eprintln!("{}", Self::wrong_key_message(key_data, data));
+                Err(CryptdecError::OpeningFailed)
             } else {
                 Ok(PlainData::new(d))
             }
         }
     }
 
-    fn invalid_key_message(key_data: &[u8], data: &CryptData) -> String {
+    fn wrong_key_message(key_data: &[u8], data: &CryptData) -> String {
         let prefix_len = std::cmp::min(key_data.len(), data.len());
         let vec = Vec::from(&data.as_slice()[0..prefix_len]);
         format!(
@@ -186,17 +211,23 @@ impl CryptDENull {
             key_data, vec
         )
     }
+
+    #[allow(dead_code)]
+    fn set_next_symmetric_key_seed(&mut self, seed: u64) {
+        let mut guarded_seed = self.next_symmetric_key_seed.lock().unwrap();
+        *guarded_seed.deref_mut() = seed;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{cryptde, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use ethsign_crypto::Keccak256;
 
     #[test]
     fn encode_with_empty_key() {
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let result = subject.encode(&PublicKey::new(b""), &PlainData::new(b"data"));
 
@@ -205,7 +236,7 @@ mod tests {
 
     #[test]
     fn encode_with_empty_data() {
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let result = subject.encode(&PublicKey::new(b"key"), &PlainData::new(b""));
 
@@ -214,7 +245,7 @@ mod tests {
 
     #[test]
     fn encode_with_key_and_data() {
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let result = subject.encode(&PublicKey::new(b"key"), &PlainData::new(b"data"));
 
@@ -225,7 +256,7 @@ mod tests {
 
     #[test]
     fn decode_with_empty_key() {
-        let mut subject = cryptde().clone();
+        let mut subject = main_cryptde().clone();
         subject.private_key = PrivateKey::new(b"");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
@@ -235,7 +266,7 @@ mod tests {
 
     #[test]
     fn decode_with_empty_data() {
-        let mut subject = cryptde().clone();
+        let mut subject = main_cryptde().clone();
         subject.private_key = PrivateKey::new(b"key");
 
         let result = subject.decode(&CryptData::new(b""));
@@ -245,7 +276,7 @@ mod tests {
 
     #[test]
     fn decode_with_key_and_data() {
-        let mut subject = cryptde().clone();
+        let mut subject = main_cryptde().clone();
         subject.private_key = PrivateKey::new(b"key");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
@@ -254,18 +285,18 @@ mod tests {
     }
 
     #[test]
-    fn decode_with_invalid_key_and_data() {
-        let mut subject = cryptde().clone();
+    fn decode_with_incorrect_private_key() {
+        let mut subject = main_cryptde().clone();
         subject.private_key = PrivateKey::new(b"badKey");
 
         let result = subject.decode(&CryptData::new(b"keydataxyz"));
 
-        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [98, 97, 100, 75, 101, 121] data beginning with [107, 101, 121, 100, 97, 116]")), result.err().unwrap());
+        assert_eq!(CryptdecError::OpeningFailed, result.err().unwrap());
     }
 
     #[test]
     fn decode_with_key_exceeding_data_length() {
-        let mut subject = cryptde().clone();
+        let mut subject = main_cryptde().clone();
         subject.private_key = PrivateKey::new(b"invalidkey");
 
         let result = subject.decode(&CryptData::new(b"keydata"));
@@ -274,8 +305,121 @@ mod tests {
     }
 
     #[test]
+    fn gen_key_sym_produces_different_keys_on_successive_calls() {
+        let subject = main_cryptde();
+
+        let one_key = subject.gen_key_sym();
+        let another_key = subject.gen_key_sym();
+        let third_key = subject.gen_key_sym();
+
+        assert_ne!(one_key, another_key);
+        assert_ne!(another_key, third_key);
+        assert_ne!(third_key, one_key);
+    }
+
+    #[test]
+    fn gen_key_sym_can_be_controlled_and_wraps_properly() {
+        let mut subject = main_cryptde().clone();
+
+        subject.set_next_symmetric_key_seed(0xFFFFFFFFFFFFFFFF);
+        let key1 = subject.gen_key_sym();
+        let key2 = subject.gen_key_sym();
+
+        assert_eq!(
+            key1.as_slice(),
+            &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+        );
+        assert_eq!(
+            key2.as_slice(),
+            &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        );
+    }
+
+    #[test]
+    fn encode_sym_with_empty_key() {
+        let subject = main_cryptde();
+        let key = SymmetricKey::new(b"");
+
+        let result = subject.encode_sym(&key, &PlainData::new(b"data"));
+
+        assert_eq!(CryptdecError::EmptyKey, result.err().unwrap());
+    }
+
+    #[test]
+    fn encode_sym_with_empty_data() {
+        let subject = main_cryptde();
+        let key = subject.gen_key_sym();
+
+        let result = subject.encode_sym(&key, &PlainData::new(b""));
+
+        assert_eq!(CryptdecError::EmptyData, result.err().unwrap());
+    }
+
+    #[test]
+    fn encode_sym_with_key_and_data() {
+        let subject = main_cryptde();
+        let key = SymmetricKey::new(b"key");
+
+        let result = subject.encode_sym(&key, &PlainData::new(b"data"));
+
+        let mut data: Vec<u8> = key.into();
+        data.extend(b"data".iter());
+        assert_eq!(CryptData::new(&data[..]), result.ok().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_empty_key() {
+        let subject = main_cryptde().clone();
+        let key = SymmetricKey::new(b"");
+
+        let result = subject.decode_sym(&key, &CryptData::new(b"keydata"));
+
+        assert_eq!(CryptdecError::EmptyKey, result.err().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_empty_data() {
+        let subject = main_cryptde().clone();
+        let key = subject.gen_key_sym();
+
+        let result = subject.decode_sym(&key, &CryptData::new(b""));
+
+        assert_eq!(CryptdecError::EmptyData, result.err().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_key_and_data() {
+        let subject = main_cryptde().clone();
+        let key = SymmetricKey::new(b"key");
+
+        let result = subject.decode_sym(&key, &CryptData::new(b"keydata"));
+
+        assert_eq!(PlainData::new(b"data"), result.ok().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_wrong_key() {
+        let subject = main_cryptde().clone();
+        let key = SymmetricKey::new(b"badKey");
+
+        let result = subject.decode_sym(&key, &CryptData::new(b"keydataxyz"));
+
+        assert_eq!(CryptdecError::OpeningFailed, result.err().unwrap());
+    }
+
+    #[test]
+    fn decode_sym_with_key_exceeding_data_length() {
+        let subject = main_cryptde().clone();
+        let key = SymmetricKey::new(b"invalidkey");
+
+        let result = subject.decode_sym(&key, &CryptData::new(b"keydata"));
+
+        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")), result.err().unwrap());
+    }
+
+    #[test]
     fn random_is_pretty_predictable() {
-        let subject = cryptde();
+        let subject = main_cryptde();
         let mut dest: [u8; 11] = [0; 11];
 
         subject.random(&mut dest[..]);
@@ -300,7 +444,7 @@ mod tests {
 
     #[test]
     fn generated_keys_work_with_each_other() {
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject
@@ -308,6 +452,31 @@ mod tests {
             .unwrap();
         let decrypted_data = subject.decode(&encrypted_data).unwrap();
         assert_eq!(expected_data, decrypted_data);
+    }
+
+    #[test]
+    fn symmetric_encryption_works_with_same_key() {
+        let subject = main_cryptde();
+
+        let key = subject.gen_key_sym();
+        let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
+        let encrypted_data = subject.encode_sym(&key, &expected_data).unwrap();
+        let decrypted_data = subject.decode_sym(&key, &encrypted_data).unwrap();
+        assert_eq!(expected_data, decrypted_data);
+    }
+
+    #[test]
+    fn symmetric_encryption_fails_with_different_keys() {
+        let subject = main_cryptde();
+
+        let key1 = subject.gen_key_sym();
+        let key2 = subject.gen_key_sym();
+        let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
+        let encrypted_data = subject.encode_sym(&key1, &expected_data).unwrap();
+
+        let result = subject.decode_sym(&key2, &encrypted_data);
+
+        assert_eq!(result, Err(CryptdecError::OpeningFailed));
     }
 
     #[test]
@@ -340,7 +509,7 @@ mod tests {
 
     #[test]
     fn dup_works() {
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let result = subject.dup();
 
@@ -350,7 +519,7 @@ mod tests {
 
     #[test]
     fn stringifies_public_key_properly() {
-        let subject = cryptde();
+        let subject = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4]);
 
         let result = subject.public_key_to_descriptor_fragment(&public_key);
@@ -360,7 +529,7 @@ mod tests {
 
     #[test]
     fn destringifies_public_key_properly() {
-        let subject = cryptde();
+        let subject = main_cryptde();
         let half_key = "AQIDBA";
 
         let result = subject.descriptor_fragment_to_first_contact_public_key(half_key);
@@ -370,7 +539,7 @@ mod tests {
 
     #[test]
     fn fails_to_destringify_public_key_properly() {
-        let subject = cryptde();
+        let subject = main_cryptde();
         let half_key = "((]--$";
 
         let result = subject.descriptor_fragment_to_first_contact_public_key(half_key);
@@ -426,7 +595,7 @@ mod tests {
     #[test]
     fn verifying_a_good_signature_works() {
         let data = PlainData::new(HASHABLE_DATA.as_bytes());
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let signature = subject.sign(&data).unwrap();
         let result = subject.verify_signature(&data, &signature, &subject.public_key());
@@ -437,7 +606,7 @@ mod tests {
     #[test]
     fn verifying_a_bad_signature_fails() {
         let data = PlainData::new(HASHABLE_DATA.as_bytes());
-        let subject = cryptde();
+        let subject = main_cryptde();
         let mut modified = Vec::from(HASHABLE_DATA.as_bytes());
         modified[0] = modified[0] + 1;
         let different_data = PlainData::from(modified);
@@ -452,7 +621,7 @@ mod tests {
     fn hashing_produces_the_same_value_for_the_same_data() {
         let some_data = PlainData::new(HASHABLE_DATA.as_bytes());
         let more_data = some_data.clone();
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let some_result = subject.hash(&some_data);
         let more_result = subject.hash(&more_data);
@@ -466,7 +635,7 @@ mod tests {
         let mut modified = Vec::from(HASHABLE_DATA.as_bytes());
         modified[0] = modified[0] + 1;
         let different_data = PlainData::from(modified);
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let some_result = subject.hash(&some_data);
         let different_result = subject.hash(&different_data);
@@ -478,7 +647,7 @@ mod tests {
     fn hashing_produces_the_same_length_for_long_and_short_data() {
         let long_data = PlainData::new(HASHABLE_DATA.as_bytes());
         let short_data = PlainData::new(&[1, 2, 3, 4]);
-        let subject = cryptde();
+        let subject = main_cryptde();
 
         let long_result = subject.hash(&long_data);
         let short_result = subject.hash(&short_data);
@@ -488,7 +657,7 @@ mod tests {
 
     #[test]
     fn hashing_produces_a_digest_with_the_smart_contract_address() {
-        let subject = &cryptde();
+        let subject = &main_cryptde();
         let merged = [
             subject.public_key().as_ref(),
             contract_address(DEFAULT_CHAIN_ID).as_ref(),

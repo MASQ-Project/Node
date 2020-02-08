@@ -8,7 +8,7 @@ use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::proxy_client::{InboundServerData, ProxyClientSubs};
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
@@ -48,7 +48,7 @@ impl Clone for StreamEstablisher {
 impl StreamEstablisher {
     pub fn establish_stream(
         &mut self,
-        payload: &ClientRequestPayload,
+        payload: &ClientRequestPayload_0v1,
         ip_addrs: Vec<IpAddr>,
         target_hostname: String,
     ) -> io::Result<Box<dyn SenderWrapper<SequencedPacket>>> {
@@ -82,7 +82,7 @@ impl StreamEstablisher {
 
     fn spawn_stream_reader(
         &self,
-        payload: &ClientRequestPayload,
+        payload: &ClientRequestPayload_0v1,
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
     ) -> io::Result<()> {
@@ -129,7 +129,7 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::test_utils::cryptde;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -171,7 +171,7 @@ mod tests {
             ];
 
             let subject = StreamEstablisher {
-                cryptde: cryptde(),
+                cryptde: main_cryptde(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
@@ -181,8 +181,7 @@ mod tests {
             };
             subject
                 .spawn_stream_reader(
-                    &ClientRequestPayload {
-                        version: ClientRequestPayload::version(),
+                    &ClientRequestPayload_0v1 {
                         stream_key: make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket {
                             data: vec![],

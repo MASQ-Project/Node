@@ -19,6 +19,8 @@ pub struct UiGatewaySubs {
     pub bind: Recipient<BindMessage>,
     pub ui_message_sub: Recipient<UiCarrierMessage>,
     pub from_ui_message_sub: Recipient<FromUiMessage>,
+    pub new_from_ui_message_sub: Recipient<NewFromUiMessage>,
+    pub new_to_ui_message_sub: Recipient<NewToUiMessage>,
 }
 
 impl Debug for UiGatewaySubs {
@@ -39,8 +41,8 @@ pub enum UiMessage {
     FinancialStatisticsResponse(FinancialStatisticsMessage),
     SetGasPrice(String),
     SetGasPriceResponse(bool),
-    SetWalletPassword(String),
-    SetWalletPasswordResponse(bool),
+    SetDbPassword(String),
+    SetDbPasswordResponse(bool),
     GetNodeDescriptor,
     NodeDescriptor(String),
     NeighborhoodDotGraphRequest,
@@ -54,8 +56,40 @@ pub struct FromUiMessage {
     pub json: String,
 }
 
+#[derive(PartialEq, Clone, Debug)]
+pub enum MessageTarget {
+    ClientId(u64),
+    AllClients,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum MessagePath {
+    OneWay,
+    TwoWay(u64), // context_id
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct MessageBody {
+    pub opcode: String,
+    pub path: MessagePath,
+    pub payload: Result<String, (u64, String)>, // <success payload as JSON, (error code, error message)>
+}
+
+#[derive(Message, PartialEq, Clone, Debug)]
+pub struct NewFromUiMessage {
+    pub client_id: u64,
+    pub body: MessageBody,
+}
+
+#[derive(Message, PartialEq, Clone, Debug)]
+pub struct NewToUiMessage {
+    pub target: MessageTarget,
+    pub body: MessageBody,
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::sub_lib::peer_actors::BindMessage;
     use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage, UiGatewaySubs};
     use crate::test_utils::recorder::Recorder;
@@ -69,6 +103,8 @@ mod tests {
             bind: recipient!(recorder, BindMessage),
             ui_message_sub: recipient!(recorder, UiCarrierMessage),
             from_ui_message_sub: recipient!(recorder, FromUiMessage),
+            new_from_ui_message_sub: recipient!(recorder, NewFromUiMessage),
+            new_to_ui_message_sub: recipient!(recorder, NewToUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "UiGatewaySubs");

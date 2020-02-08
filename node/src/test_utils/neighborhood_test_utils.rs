@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use super::neighborhood_database::NeighborhoodDatabase;
-use super::node_record::NodeRecord;
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
-use crate::neighborhood::node_record::NodeRecordInner;
+use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
+use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
 use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -26,18 +26,18 @@ impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord 
 }
 
 pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
-    let a = ((n / 1000) % 10) as u8;
-    let b = ((n / 100) % 10) as u8;
-    let c = ((n / 10) % 10) as u8;
-    let d = (n % 10) as u8;
-    let key = PublicKey::new(&[a, b, c, d]);
-    let ip_addr = IpAddr::V4(Ipv4Addr::new(a, b, c, d));
+    let seg1 = ((n / 1000) % 10) as u8;
+    let seg2 = ((n / 100) % 10) as u8;
+    let seg3 = ((n / 10) % 10) as u8;
+    let seg4 = (n % 10) as u8;
+    let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
+    let ip_addr = IpAddr::V4(Ipv4Addr::new(seg1, seg2, seg3, seg4));
     let node_addr = NodeAddr::new(&ip_addr, &vec![n % 10000]);
 
     NodeRecord::new_for_tests(
         &key,
         if has_ip { Some(&node_addr) } else { None },
-        n as u64,
+        u64::from(n),
         true,
         true,
     )
@@ -57,7 +57,7 @@ pub fn make_node_record_f(
 
 pub fn make_global_cryptde_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let mut node_record = make_node_record(n, has_ip);
-    node_record.inner.public_key = cryptde().public_key().clone();
+    node_record.inner.public_key = main_cryptde().public_key().clone();
     node_record.resign();
     node_record
 }
@@ -80,7 +80,7 @@ pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,
 ) -> Neighborhood {
-    let cryptde = cryptde();
+    let cryptde: &dyn CryptDE = main_cryptde();
     if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }
@@ -88,8 +88,12 @@ pub fn neighborhood_from_nodes(
     config.neighborhood_config = match neighbor_opt {
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                root.node_addr_opt().expect("Test-drive me!"),
-                vec![NodeDescriptor::from(neighbor).to_string(cryptde, DEFAULT_CHAIN_ID)],
+                root.node_addr_opt().unwrap(),
+                vec![NodeDescriptor::from((
+                    neighbor,
+                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    cryptde,
+                ))],
                 root.rate_pack().clone(),
             ),
         },
@@ -99,6 +103,7 @@ pub fn neighborhood_from_nodes(
     };
     config.earning_wallet = root.earning_wallet();
     config.consuming_wallet = Some(make_paying_wallet(b"consuming"));
+    config.db_password_opt = Some("password".to_string());
     Neighborhood::new(cryptde, &config)
 }
 
@@ -192,9 +197,9 @@ impl PartialEq for NodeRecord {
         if self.signature != other.signature {
             return false;
         }
-        let self_nri: NodeRecordInner =
+        let self_nri: NodeRecordInner_0v1 =
             serde_cbor::de::from_slice(self.signed_gossip.as_slice()).unwrap();
-        let other_nri: NodeRecordInner =
+        let other_nri: NodeRecordInner_0v1 =
             serde_cbor::de::from_slice(other.signed_gossip.as_slice()).unwrap();
         self_nri == other_nri
     }

@@ -3,21 +3,20 @@ use crate::accountant::payable_dao::Payment;
 use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainResult, Transaction};
-use crate::neighborhood::gossip::Gossip;
+use crate::neighborhood::gossip::Gossip_0v1;
 use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, GetFinancialStatisticsMessage};
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetWalletPasswordMsg};
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::DispatcherNodeQueryMessage;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
@@ -26,17 +25,22 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::proxy_client::{ClientResponsePayload, InboundServerData};
-use crate::sub_lib::proxy_client::{DnsResolveFailure, ProxyClientSubs};
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
+use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload};
+use crate::sub_lib::proxy_server::{
+    AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
+};
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
+use crate::sub_lib::ui_gateway::{
+    FromUiMessage, NewFromUiMessage, NewToUiMessage, UiCarrierMessage,
+};
 use crate::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;
@@ -85,10 +89,11 @@ macro_rules! recorder_message_handler {
 }
 
 recorder_message_handler!(ExpiredCoresPackage<MessageType>);
-recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload>);
-recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload>);
-recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure>);
-recorder_message_handler!(ExpiredCoresPackage<Gossip>);
+recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload_0v1>);
+recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload_0v1>);
+recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure_0v1>);
+recorder_message_handler!(ExpiredCoresPackage<GossipFailure_0v1>);
+recorder_message_handler!(ExpiredCoresPackage<Gossip_0v1>);
 recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(TransmitDataMsg);
 recorder_message_handler!(BindMessage);
@@ -100,16 +105,18 @@ recorder_message_handler!(RemoveNeighborMessage);
 recorder_message_handler!(DispatcherNodeQueryResponse);
 recorder_message_handler!(DispatcherNodeQueryMessage);
 recorder_message_handler!(UiCarrierMessage);
+recorder_message_handler!(NewFromUiMessage);
+recorder_message_handler!(NewToUiMessage);
 recorder_message_handler!(FromUiMessage);
 recorder_message_handler!(GetFinancialStatisticsMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportExitServiceConsumedMessage);
-recorder_message_handler!(SetWalletPasswordMsg);
+recorder_message_handler!(SetDbPasswordMsg);
 recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(SetConsumingWalletMessage);
-recorder_message_handler!(DnsResolveFailure);
+recorder_message_handler!(DnsResolveFailure_0v1);
 recorder_message_handler!(NodeRecordMetadataMessage);
 recorder_message_handler!(ReceivedPayments);
 recorder_message_handler!(SentPayments);
@@ -326,10 +333,10 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         from_dispatcher: recipient!(addr, InboundClientData),
         from_hopper: addr
             .clone()
-            .recipient::<ExpiredCoresPackage<ClientResponsePayload>>(),
+            .recipient::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(),
         dns_failure_from_hopper: addr
             .clone()
-            .recipient::<ExpiredCoresPackage<DnsResolveFailure>>(),
+            .recipient::<ExpiredCoresPackage<DnsResolveFailure_0v1>>(),
         add_return_route: recipient!(addr, AddReturnRouteMessage),
         add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -360,9 +367,9 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
         bind: recipient!(addr, BindMessage),
         from_hopper: addr
             .clone()
-            .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
+            .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
         inbound_server_data: recipient!(addr, InboundServerData),
-        dns_resolve_failed: recipient!(addr, DnsResolveFailure),
+        dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
     }
 }
 
@@ -373,12 +380,16 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         node_query: recipient!(addr, NodeQueryMessage),
         route_query: recipient!(addr, RouteQueryMessage),
         update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
-        from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip>>(),
+        from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
+        gossip_failure: addr
+            .clone()
+            .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
+        from_ui_message_sub: addr.clone().recipient::<NewFromUiMessage>(),
     }
 }
 
@@ -397,6 +408,7 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
         report_new_payments: recipient!(addr, ReceivedPayments),
         report_sent_payments: recipient!(addr, SentPayments),
         get_financial_statistics_sub: recipient!(addr, GetFinancialStatisticsMessage),
+        ui_message_sub: recipient!(addr, NewFromUiMessage),
     }
 }
 
@@ -405,6 +417,8 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
         bind: recipient!(addr, BindMessage),
         ui_message_sub: recipient!(addr, UiCarrierMessage),
         from_ui_message_sub: recipient!(addr, FromUiMessage),
+        new_from_ui_message_sub: recipient!(addr, NewFromUiMessage),
+        new_to_ui_message_sub: recipient!(addr, NewToUiMessage),
     }
 }
 
@@ -414,7 +428,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
         report_accounts_payable: recipient!(addr, ReportAccountsPayable),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
-        set_consuming_wallet_password_sub: recipient!(addr, SetWalletPasswordMsg),
+        set_consuming_db_password_sub: recipient!(addr, SetDbPasswordMsg),
     }
 }
 

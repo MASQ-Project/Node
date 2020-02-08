@@ -23,12 +23,13 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
-use crate::sub_lib::proxy_client::{ClientResponsePayload, DnsResolveFailure};
-use crate::sub_lib::proxy_server::ClientRequestPayload;
+use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
@@ -91,17 +92,21 @@ impl Handler<BindMessage> for ProxyClient {
     }
 }
 
-impl Handler<ExpiredCoresPackage<ClientRequestPayload>> for ProxyClient {
+impl Handler<ExpiredCoresPackage<ClientRequestPayload_0v1>> for ProxyClient {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ExpiredCoresPackage<ClientRequestPayload>,
+        msg: ExpiredCoresPackage<ClientRequestPayload_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
+        let is_zero_hop = match msg.remaining_route.next_hop(self.cryptde) {
+            Ok(live_hop) => &live_hop.public_key == self.cryptde.public_key(),
+            Err(_) => false,
+        };
         let payload = msg.payload;
         let paying_wallet = msg.paying_wallet;
-        if paying_wallet.is_some() || &payload.originator_public_key == self.cryptde.public_key() {
+        if paying_wallet.is_some() || is_zero_hop {
             let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
             let return_route = msg.remaining_route;
             let latest_stream_context = StreamContext {
@@ -164,10 +169,10 @@ impl Handler<InboundServerData> for ProxyClient {
     }
 }
 
-impl Handler<DnsResolveFailure> for ProxyClient {
+impl Handler<DnsResolveFailure_0v1> for ProxyClient {
     type Result = ();
 
-    fn handle(&mut self, msg: DnsResolveFailure, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DnsResolveFailure_0v1, _ctx: &mut Self::Context) -> Self::Result {
         let stream_key = msg.stream_key;
         let stream_context_opt = self.stream_contexts.get(&stream_key);
         match stream_context_opt {
@@ -175,7 +180,10 @@ impl Handler<DnsResolveFailure> for ProxyClient {
                 let package = IncipientCoresPackage::new(
                     self.cryptde,
                     stream_context.return_route.clone(),
-                    MessageType::DnsResolveFailed(msg),
+                    MessageType::DnsResolveFailed(VersionedData::new(
+                        &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
+                        &msg,
+                    )),
                     &stream_context.payload_destination_key,
                 )
                 .expect("Failed to create IncipientCoresPackage");
@@ -223,9 +231,9 @@ impl ProxyClient {
             bind: addr.clone().recipient::<BindMessage>(),
             from_hopper: addr
                 .clone()
-                .recipient::<ExpiredCoresPackage<ClientRequestPayload>>(),
+                .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
             inbound_server_data: addr.clone().recipient::<InboundServerData>(),
-            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure>(),
+            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure_0v1>(),
         }
     }
 
@@ -238,15 +246,17 @@ impl ProxyClient {
         let msg_data_len = msg.data.len() as u32;
         let msg_source = msg.source;
         let msg_sequence_number = msg.sequence_number;
-        let payload = MessageType::ClientResponse(ClientResponsePayload {
-            version: ClientResponsePayload::version(),
-            stream_key: msg.stream_key,
-            sequenced_packet: SequencedPacket {
-                data: msg.data,
-                sequence_number: msg.sequence_number,
-                last_data: msg.last_data,
+        let payload = MessageType::ClientResponse(VersionedData::new(
+            &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+            &ClientResponsePayload_0v1 {
+                stream_key: msg.stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: msg.data,
+                    sequence_number: msg.sequence_number,
+                    last_data: msg.last_data,
+                },
             },
-        });
+        ));
         debug!(
             self.logger,
             "Sending ClientResponsePayload to Hopper: stream {}, sequence {}, length {}",
@@ -309,6 +319,7 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::resolver_wrapper::ResolverWrapper;
@@ -317,12 +328,14 @@ mod tests {
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::proxy_client::ClientResponsePayload;
-    use crate::sub_lib::proxy_server::ClientRequestPayload;
+    use crate::sub_lib::proxy_client::ClientResponsePayload_0v1;
+    use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::sub_lib::route::Route;
+    use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::sequence_buffer::SequencedPacket;
+    use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -344,11 +357,15 @@ mod tests {
     }
 
     pub struct StreamHandlerPoolMock {
-        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>)>>>,
+        process_package_parameters: Arc<Mutex<Vec<(ClientRequestPayload_0v1, Option<Wallet>)>>>,
     }
 
     impl StreamHandlerPool for StreamHandlerPoolMock {
-        fn process_package(&self, payload: ClientRequestPayload, paying_wallet: Option<Wallet>) {
+        fn process_package(
+            &self,
+            payload: ClientRequestPayload_0v1,
+            paying_wallet: Option<Wallet>,
+        ) {
             self.process_package_parameters
                 .lock()
                 .unwrap()
@@ -365,7 +382,7 @@ mod tests {
 
         pub fn process_package_parameters(
             self,
-            parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload, Option<Wallet>)>>>,
+            parameters: &mut Arc<Mutex<Vec<(ClientRequestPayload_0v1, Option<Wallet>)>>>,
         ) -> StreamHandlerPoolMock {
             *parameters = self.process_package_parameters.clone();
             self
@@ -452,7 +469,7 @@ mod tests {
     )]
     fn at_least_one_dns_server_must_be_provided() {
         ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -476,7 +493,7 @@ mod tests {
             .make_result(Box::new(pool));
         let peer_actors = peer_actors_builder().build();
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![
                 SocketAddr::from_str("4.3.2.1:4321").unwrap(),
                 SocketAddr::from_str("5.4.3.2:5432").unwrap(),
@@ -520,8 +537,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "StreamHandlerPool unbound")]
     fn panics_if_unbound() {
-        let request = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n".to_vec(),
@@ -533,7 +549,7 @@ mod tests {
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"originator_public_key"[..]),
         };
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
@@ -559,7 +575,7 @@ mod tests {
     #[test]
     fn logs_nonexistent_stream_key_during_dns_resolution_failure() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let stream_key_inner = stream_key.clone();
         thread::spawn(move || {
@@ -575,7 +591,7 @@ mod tests {
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             system.run();
@@ -592,7 +608,7 @@ mod tests {
     #[test]
     fn forwards_dns_resolve_failed_to_hopper() {
         init_test_logging();
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let return_route = make_meaningless_route();
@@ -624,12 +640,12 @@ mod tests {
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             subject_subs
                 .dns_resolve_failed
-                .try_send(DnsResolveFailure::new(stream_key_inner))
+                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
             system.run();
@@ -637,7 +653,7 @@ mod tests {
 
         hopper_awaiter.await_message_count(1);
 
-        let message_type: MessageType = DnsResolveFailure::new(stream_key).into();
+        let message_type: MessageType = DnsResolveFailure_0v1::new(stream_key).into();
         assert_eq!(
             &IncipientCoresPackage::new(cryptde, return_route, message_type, &originator_key)
                 .unwrap(),
@@ -657,9 +673,8 @@ mod tests {
 
     #[test]
     fn data_from_hopper_is_relayed_to_stream_handler_pool() {
-        let cryptde = cryptde();
-        let request = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let cryptde = main_cryptde();
+        let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -713,9 +728,8 @@ mod tests {
     #[test]
     fn refuse_to_provide_exit_services_with_no_paying_wallet() {
         init_test_logging();
-        let cryptde = cryptde();
-        let request = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let cryptde = main_cryptde();
+        let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -768,9 +782,9 @@ mod tests {
 
     #[test]
     fn does_provide_zero_hop_exit_services_with_no_paying_wallet() {
-        let cryptde = cryptde();
-        let request = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
@@ -780,12 +794,22 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
+        let zero_hop_remaining_route = Route::one_way(
+            RouteSegment::new(
+                vec![main_cryptde.public_key(), main_cryptde.public_key()],
+                Component::ProxyServer,
+            ),
+            main_cryptde,
+            None,
+            Some(TESTNET_CONTRACT_ADDRESS),
+        )
+        .unwrap();
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,
-            make_meaningless_route(),
+            zero_hop_remaining_route,
             request.clone().into(),
             0,
         );
@@ -803,7 +827,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde: main_cryptde,
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
@@ -830,7 +854,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -894,17 +918,19 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
-                cryptde(),
+                main_cryptde(),
                 make_meaningless_route(),
-                MessageType::ClientResponse(ClientResponsePayload {
-                    version: ClientResponsePayload::version(),
-                    stream_key: stream_key.clone(),
-                    sequenced_packet: SequencedPacket {
-                        data: Vec::from(data),
-                        sequence_number: 1234,
-                        last_data: false,
-                    },
-                }),
+                MessageType::ClientResponse(VersionedData::new(
+                    &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                    &ClientResponsePayload_0v1 {
+                        stream_key: stream_key.clone(),
+                        sequenced_packet: SequencedPacket {
+                            data: Vec::from(data),
+                            sequence_number: 1234,
+                            last_data: false,
+                        },
+                    }
+                )),
                 &PublicKey::new(&b"abcd"[..]),
             )
             .unwrap()
@@ -912,17 +938,19 @@ mod tests {
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(1),
             &IncipientCoresPackage::new(
-                cryptde(),
+                main_cryptde(),
                 make_meaningless_route(),
-                MessageType::ClientResponse(ClientResponsePayload {
-                    version: ClientResponsePayload::version(),
-                    stream_key: stream_key.clone(),
-                    sequenced_packet: SequencedPacket {
-                        data: Vec::from(data),
-                        sequence_number: 1235,
-                        last_data: true,
-                    },
-                }),
+                MessageType::ClientResponse(VersionedData::new(
+                    &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                    &ClientResponsePayload_0v1 {
+                        stream_key: stream_key.clone(),
+                        sequenced_packet: SequencedPacket {
+                            data: Vec::from(data),
+                            sequence_number: 1235,
+                            last_data: true,
+                        },
+                    }
+                )),
                 &PublicKey::new(&b"abcd"[..]),
             )
             .unwrap()
@@ -962,7 +990,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1012,7 +1040,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde(),
+            cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1048,12 +1076,12 @@ mod tests {
         assert_eq!(hopper_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(format!("ERROR: ProxyClient: Could not create CORES package for {}-byte response from 1.2.3.4:5678, seq 1234: Could not encrypt payload: \"Encryption error: EmptyKey\" - ignoring", data.len()).as_str());
+        TestLogHandler::new().exists_log_containing(format!("ERROR: ProxyClient: Could not create CORES package for {}-byte response from 1.2.3.4:5678, seq 1234: Could not encrypt payload: EncryptionError(EmptyKey) - ignoring", data.len()).as_str());
     }
 
     #[test]
     fn new_return_route_overwrites_existing_return_route() {
-        let cryptde = cryptde();
+        let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
@@ -1089,8 +1117,7 @@ mod tests {
             .accountant(accountant)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let payload = ClientRequestPayload {
-            version: ClientRequestPayload::version(),
+        let payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
                 data: vec![],
@@ -1132,15 +1159,17 @@ mod tests {
         let expected_icp = IncipientCoresPackage::new(
             cryptde,
             new_return_route,
-            MessageType::ClientResponse(ClientResponsePayload {
-                version: ClientResponsePayload::version(),
-                stream_key,
-                sequenced_packet: SequencedPacket {
-                    data: Vec::from(data.clone()),
-                    sequence_number: 1234,
-                    last_data: false,
+            MessageType::ClientResponse(VersionedData::new(
+                &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
+                &ClientResponsePayload_0v1 {
+                    stream_key,
+                    sequenced_packet: SequencedPacket {
+                        data: Vec::from(data.clone()),
+                        sequence_number: 1234,
+                        last_data: false,
+                    },
                 },
-            }),
+            )),
             &originator_public_key,
         )
         .unwrap();

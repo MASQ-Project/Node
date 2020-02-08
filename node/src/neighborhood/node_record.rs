@@ -1,13 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
-use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
@@ -16,8 +17,8 @@ use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct NodeRecordInner {
-    pub data_version: DataVersion,
+#[allow(non_camel_case_types)]
+pub struct NodeRecordInner_0v1 {
     pub public_key: PublicKey,
     pub earning_wallet: Wallet,
     pub rate_pack: RatePack,
@@ -27,13 +28,7 @@ pub struct NodeRecordInner {
     pub version: u32,
 }
 
-impl NodeRecordInner {
-    pub fn data_version() -> DataVersion {
-        DataVersion::new(1, 0).expect("Internal Error")
-    }
-}
-
-impl TryFrom<GossipNodeRecord> for NodeRecordInner {
+impl TryFrom<GossipNodeRecord> for NodeRecordInner_0v1 {
     type Error = String;
 
     fn try_from(gnr: GossipNodeRecord) -> Result<Self, Self::Error> {
@@ -44,11 +39,11 @@ impl TryFrom<GossipNodeRecord> for NodeRecordInner {
     }
 }
 
-impl TryFrom<&GossipNodeRecord> for NodeRecordInner {
+impl TryFrom<&GossipNodeRecord> for NodeRecordInner_0v1 {
     type Error = String;
 
     fn try_from(gnr_addr_ref: &GossipNodeRecord) -> Result<Self, Self::Error> {
-        NodeRecordInner::try_from(gnr_addr_ref.clone())
+        NodeRecordInner_0v1::try_from(gnr_addr_ref.clone())
     }
 }
 
@@ -59,7 +54,7 @@ pub enum NodeRecordError {
 
 #[derive(Clone, Debug)]
 pub struct NodeRecord {
-    pub inner: NodeRecordInner,
+    pub inner: NodeRecordInner_0v1,
     pub metadata: NodeRecordMetadata,
     pub signed_gossip: PlainData,
     pub signature: CryptData,
@@ -77,8 +72,7 @@ impl NodeRecord {
     ) -> NodeRecord {
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),
-            inner: NodeRecordInner {
-                data_version: NodeRecordInner::data_version(),
+            inner: NodeRecordInner_0v1 {
                 public_key: public_key.clone(),
                 earning_wallet,
                 rate_pack,
@@ -102,8 +96,8 @@ impl NodeRecord {
         self.metadata.node_addr_opt.clone()
     }
 
-    pub fn node_descriptor(&self, cryptde: &dyn CryptDE, chain_id: u8) -> String {
-        NodeDescriptor::from(self).to_string(cryptde, chain_id)
+    pub fn node_descriptor(&self, chain_id: u8, cryptde: &dyn CryptDE) -> NodeDescriptor {
+        NodeDescriptor::from((self, chain_id == chain_id_from_name("mainnet"), cryptde))
     }
 
     pub fn set_node_addr(
@@ -120,6 +114,11 @@ impl NodeRecord {
                 Ok(true)
             }
         }
+    }
+
+    #[cfg(test)]
+    pub fn force_node_addr(&mut self, node_addr: &NodeAddr) {
+        self.metadata.node_addr_opt = Some(node_addr.clone());
     }
 
     pub fn unset_node_addr(&mut self) {
@@ -217,6 +216,15 @@ impl NodeRecord {
         self.inner.version += 1;
     }
 
+    pub fn last_updated(&self) -> u32 {
+        self.metadata.last_update
+    }
+
+    #[cfg(test)]
+    pub fn set_last_updated(&mut self, time_t: u32) {
+        self.metadata.last_update = time_t;
+    }
+
     pub fn set_version(&mut self, value: u32) {
         self.inner.version = value;
     }
@@ -248,15 +256,32 @@ impl NodeRecord {
 
     pub fn update(&mut self, agr: AccessibleGossipRecord) -> Result<(), String> {
         if &agr.inner.public_key != self.public_key() {
-            return Err("Updating a NodeRecord must not change its public key".to_string());
-        }
-        if agr.node_addr_opt != self.node_addr_opt() {
-            return Err("Updating a NodeRecord must not change its node_addr_opt".to_string());
+            return Err(format!(
+                "Updating a NodeRecord must not change its public key: {} -> {}",
+                self.public_key(),
+                agr.inner.public_key
+            ));
         }
         if &agr.inner.rate_pack != self.rate_pack() {
-            return Err("Updating a NodeRecord must not change its rate pack".to_string());
+            return Err(format!(
+                "Updating a NodeRecord must not change its rate pack: {} -> {}",
+                self.rate_pack(),
+                agr.inner.rate_pack
+            ));
         }
-        self.metadata.node_addr_opt = agr.node_addr_opt;
+        match (&self.metadata.node_addr_opt, &agr.node_addr_opt) {
+            (None, None) => (),
+            (None, Some(na)) => self.metadata.node_addr_opt = Some(na.clone()),
+            (Some(_), None) => (),
+            (Some(existing), Some(incoming)) if existing != incoming => {
+                return Err(format!(
+                    "Updating a NodeRecord must not change its node_addr_opt: {} -> {}",
+                    existing, incoming
+                ))
+            }
+            _ => (),
+        }
+        self.metadata.last_update = time_t_timestamp();
         self.signed_gossip = agr.signed_gossip;
         self.signature = agr.signature;
         self.inner = agr.inner;
@@ -288,7 +313,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
     type Error = String;
 
     fn try_from(gnr: &GossipNodeRecord) -> Result<Self, Self::Error> {
-        let inner = NodeRecordInner::try_from(gnr)?;
+        let inner = NodeRecordInner_0v1::try_from(gnr)?;
         let mut node_record = NodeRecord {
             inner,
             metadata: NodeRecordMetadata::new(),
@@ -301,8 +326,10 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+#[allow(non_camel_case_types)]
 pub struct NodeRecordMetadata {
     pub desirable: bool,
+    pub last_update: u32,
     pub node_addr_opt: Option<NodeAddr>,
 }
 
@@ -310,6 +337,7 @@ impl NodeRecordMetadata {
     pub fn new() -> NodeRecordMetadata {
         NodeRecordMetadata {
             desirable: true,
+            last_update: time_t_timestamp(),
             node_addr_opt: None,
         }
     }
@@ -319,11 +347,12 @@ impl NodeRecordMetadata {
 mod tests {
     use super::*;
     use crate::neighborhood::gossip::GossipBuilder;
-    use crate::neighborhood::neighborhood_test_utils::db_from_node;
-    use crate::neighborhood::neighborhood_test_utils::make_node_record;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
-    use crate::test_utils::{assert_contains, cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID};
+    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
+    use crate::test_utils::{
+        assert_contains, main_cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID,
+    };
     use std::net::IpAddr;
     use std::str::FromStr;
 
@@ -377,24 +406,32 @@ mod tests {
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_present() {
+        let cryptde: &dyn CryptDE = main_cryptde();
         let mut subject = make_node_record(1234, true);
         subject.metadata.node_addr_opt = Some(NodeAddr::new(
             &subject.metadata.node_addr_opt.unwrap().ip_addr(),
             &vec![1234, 2345],
         ));
 
-        let result = subject.node_descriptor(cryptde(), DEFAULT_CHAIN_ID);
+        let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
 
-        assert_eq!(result, "AQIDBA:1.2.3.4:1234;2345".to_string());
+        assert_eq!(
+            result,
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234;2345").unwrap()
+        );
     }
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_not_present() {
+        let cryptde: &dyn CryptDE = main_cryptde();
         let subject: NodeRecord = make_node_record(1234, false);
 
-        let result = subject.node_descriptor(cryptde(), DEFAULT_CHAIN_ID);
+        let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
 
-        assert_eq!(result, "AQIDBA::".to_string());
+        assert_eq!(
+            result,
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA::").unwrap()
+        );
     }
 
     #[test]
@@ -560,7 +597,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -569,7 +606,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -578,7 +615,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
@@ -587,7 +624,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         with_neighbor
             .add_half_neighbor_key(mod_key.public_key().clone())
@@ -599,7 +636,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         mod_node_addr
             .set_node_addr(&NodeAddr::new(
@@ -614,7 +651,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -623,7 +660,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mod_accepts_connections = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -632,7 +669,7 @@ mod tests {
             false,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mod_routes_data = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -641,7 +678,7 @@ mod tests {
             true,
             false,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -650,7 +687,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
@@ -660,7 +697,7 @@ mod tests {
             true,
             true,
             0,
-            cryptde(),
+            main_cryptde(),
         );
         mod_signature.signature = CryptData::new(&[]);
         let mod_version = NodeRecord::new(
@@ -670,7 +707,7 @@ mod tests {
             true,
             true,
             1,
-            cryptde(),
+            main_cryptde(),
         );
 
         assert_eq!(exemplar, exemplar);
@@ -711,6 +748,24 @@ mod tests {
         this_node.set_version(10000);
 
         assert_eq!(this_node.version(), 10000);
+    }
+
+    #[test]
+    fn last_updated_is_set_upon_construction() {
+        let begin_at = time_t_timestamp();
+        let subject = make_node_record(1234, true);
+        let end_at = time_t_timestamp();
+
+        assert!((subject.last_updated() == begin_at) || (subject.last_updated() == end_at));
+    }
+
+    #[test]
+    fn last_updated_is_controlled_by_set_last_updated() {
+        let mut subject = make_node_record(1234, true);
+
+        subject.set_last_updated(12345678);
+
+        assert_eq!(subject.last_updated(), 12345678);
     }
 
     #[test]
@@ -807,14 +862,57 @@ mod tests {
         let result = subject.update(agr);
 
         assert_eq!(
-            Err("Updating a NodeRecord must not change its public key".to_string()),
+            Err(
+                "Updating a NodeRecord must not change its public key: AQIDBA -> ZGFuZ2Vyb3Vz"
+                    .to_string()
+            ),
             result
         )
     }
 
     #[test]
-    fn update_complains_when_node_addr_opt_tries_to_change() {
+    fn update_complains_when_node_addr_opt_tries_to_change_from_existing_to_different_existing() {
         let mut subject = make_node_record(1234, true);
+        let existing_node_addr_opt = subject.node_addr_opt();
+        let mut modified = subject.clone();
+        modified.metadata.node_addr_opt = Some(NodeAddr::new(
+            &IpAddr::from_str("2.3.4.5").unwrap(),
+            &vec![2345],
+        ));
+        modified.resign();
+        let agr = AccessibleGossipRecord::from(&modified);
+
+        let result = subject.update(agr);
+
+        assert_eq!(
+            Err("Updating a NodeRecord must not change its node_addr_opt: 1.2.3.4:1234 -> 2.3.4.5:2345".to_string()),
+            result
+        );
+        assert_eq!(subject.node_addr_opt(), existing_node_addr_opt);
+    }
+
+    #[test]
+    fn update_adopts_new_node_addr_when_current_version_has_none() {
+        let mut subject = make_node_record(1234, false);
+        let new_node_addr_opt = Some(NodeAddr::new(
+            &IpAddr::from_str("2.3.4.5").unwrap(),
+            &vec![2345],
+        ));
+        let mut modified = subject.clone();
+        modified.metadata.node_addr_opt = new_node_addr_opt.clone();
+        modified.resign();
+        let agr = AccessibleGossipRecord::from(&modified);
+
+        let result = subject.update(agr);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.node_addr_opt(), new_node_addr_opt);
+    }
+
+    #[test]
+    fn update_keeps_existing_node_addr_when_new_version_has_none() {
+        let mut subject = make_node_record(1234, true);
+        let existing_node_addr_opt = subject.node_addr_opt();
         let mut modified = subject.clone();
         modified.metadata.node_addr_opt = None;
         modified.resign();
@@ -822,10 +920,22 @@ mod tests {
 
         let result = subject.update(agr);
 
-        assert_eq!(
-            Err("Updating a NodeRecord must not change its node_addr_opt".to_string()),
-            result
-        )
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.node_addr_opt(), existing_node_addr_opt);
+    }
+
+    #[test]
+    fn update_keeps_no_node_addr_when_none_is_present_or_provided() {
+        let mut subject = make_node_record(1234, false);
+        let mut modified = subject.clone();
+        modified.metadata.node_addr_opt = None;
+        modified.resign();
+        let agr = AccessibleGossipRecord::from(&modified);
+
+        let result = subject.update(agr);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.node_addr_opt(), None);
     }
 
     #[test]
@@ -839,7 +949,7 @@ mod tests {
         let result = subject.update(agr);
 
         assert_eq!(
-            Err("Updating a NodeRecord must not change its rate pack".to_string()),
+            Err("Updating a NodeRecord must not change its rate pack: 1236+1235b route 1238+1237b exit -> 0+0b route 0+0b exit".to_string()),
             result
         )
     }
@@ -852,9 +962,9 @@ mod tests {
             node_addr_opt: None,
         };
 
-        let result = NodeRecordInner::try_from(corrupt_gnr);
+        let result = NodeRecordInner_0v1::try_from(corrupt_gnr);
 
-        assert_eq!(Err(String::from ("ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct NodeRecordInner\"), offset: 0 }")), result);
+        assert_eq!(Err(String::from ("ErrorImpl { code: Message(\"invalid type: integer `1`, expected struct NodeRecordInner_0v1\"), offset: 0 }")), result);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-#[derive(Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct NodeAddr {
     ip_addr: IpAddr,
     ports: Vec<u16>,
