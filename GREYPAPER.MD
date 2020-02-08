@@ -10,11 +10,12 @@
 | Version Table for Greypaper |	[Navigate](#version) |
 | Introduction | [Navigate](#introduction) |
 | Solution – Rule of Three | [Navigate](#solution) |
-| Clandestine Routing | [In progress](#clandestine) as of Oct 2019 |
+| Clandestine Routing | [In progress](#clandestine) |
+| Docker Style CLI | [In progress](#docker-cli) |
 | Founding Principles | [Navigate](#founding-principles) |
 | Key Project Goals Currently | [Navigate](#key-goals) |
 | Next Steps | [Navigate](#next-steps) |
-| Tokenomics | To be determined  |
+| Tokenomics | [Navigate](#tokenomics)  |
 | Don the MASQ & Get Involved | [Support Us](#support-us) |
 | References | |
 
@@ -39,6 +40,7 @@ Through this, MASQ aspires to not only be transparent in their goals and intenti
 | 0.1 |	3 Oct 2019 | KauriHero | First draft |
 | 0.2 |	4 Oct 2019 | KauriHero and others | Proofing changes, addition of “Key Project Goals” & “Next Steps” pages |
 | 0.3 |	20 Oct 2019 | KauriHero and others | Editing, uploaded to GitHub for version control |
+| 0.4 |	7 Feb 2020 | KauriHero and others | Update of Components worked on, Tokenomics, Airdrop info |
 			
 
 # INTRODUCTION
@@ -63,7 +65,7 @@ The software solution is made up of three design components:
 
  - Untraceable - Completed - Data is sent through a multi-hop network route that changes too quickly to trace
 <a id="clandestine"></a>
- - Clandestine – In progress as of Oct 2019 - Will hide not only the data, not only the route, but also the very fact that the user is using MASQ at all
+ - Clandestine – In progress - Will hide not only the data, not only the route, but also the very fact that the user is using MASQ at all
  
  Read more about this in detail on the [Encryption Wiki Page]
 
@@ -86,7 +88,13 @@ Similarly, members of the core team will remain pseudo-anonymous until such time
 
 ### Clandestine Routing
 
+<a id="docker-cli"></a>
 ### Docker-Style CLI Interface
+We have discontinued development and maintainance on the dated GUI, which was not only inefficient, but didn't reflect the features of Node entirely. From here our development is focused on the skeleton behind any GUI, and is now based on a Command Line interface, which will be adapted to be used on the main platforms.
+
+Our goal is to have a configuration file be set up and referenced by the software Daemon, and then Node can be initialized by the user with a few simple commands on a Command Prompt in Windows, Linux or Mac
+
+After more of our UI-gateway design is developed and implemented, further UI components and GUIs can be designed and built on top for more user-friendly adoption and full-fledged visual features
 
 ### Neighborhood Modes
 
@@ -102,11 +110,41 @@ The MASQ [GitHub] is an Open Source fork of Substratum (the code base was create
 Starting repositories include forks of:
 * [SubNode]
 * [SubTNT]
-* [sub-contract]
 
-## Tokenomics will be determined to faciliate use of MASQNode
+<a id="tokenomics"></a>
+# Tokenomics
 
-**This is still being discussed at length in MASQ committee and will be announced when details are finalized**
+>Our true goal is simply development!
+
+After much research, discussion, advice from various parties our team has decided on our strategy moving forward with Node.
+
+## Smart Contract
+MASQ is using a clone of the original smart contract (GitHub repo [sub-contract]) from Substratum which was audited by Quantstamp in 2018-2019.
+
+Our smart contract in Solidity can be view publicly on our [verified contract address](https://etherscan.io/address/0x02ba9B528425f9de08F961B88A10b03Be8B8B998) on etherscan.io
+
+## Token Supply 
+Token supply estimates are based on original SUB supply of 472 Million, adjusted by airdrop exclusions, additional Developement wallet and committee wallets.
+Final Total Supply estimates are 55-60% of the original minted supply
+
+## Development Wallet
+A development wallet of 40 million tokens is earmarked to provide further project support during development and project growth
+
+## Committee Wallets
+Permanent committee members will receive a one-off 1.25 million tokens each
+(at time of writing we have 7 permanent members, so if this changes we will announce immediately)
+
+## Airdrop
+All non-exchange wallets **holding 250 or more SUB tokens** will be airdropped MASQ tokens on a 1:1 ratio
+
+All known exchange wallets and wallets controlled by the previous project entity are excluded from airdrop. Our team believes we have identified all of these wallets 
+
+Remaining tokens after airdrop and committee wallets will be burned to the zero-ethereum address
+
+Snapshot and airdrop dates are being finalized as of time of writing, but the team has stored monthly historical snapshots of holders from Dec, Jan and Feb.
+
+*Important caveat to above - if any major exchange wallet, or previous 'company-controlled wallet' has major movement, we will attempt to use balances from a block previous to that transaction.*
+
 
 <a id="support-us"></a>
 # DON THE MASQ AND GET INVOLVED
