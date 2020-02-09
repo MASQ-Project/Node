@@ -40,7 +40,8 @@ Through this, MASQ aspires to not only be transparent in their goals and intenti
 | 0.1 |	3 Oct 2019 | KauriHero | First draft |
 | 0.2 |	4 Oct 2019 | KauriHero and others | Proofing changes, addition of “Key Project Goals” & “Next Steps” pages |
 | 0.3 |	20 Oct 2019 | KauriHero and others | Editing, uploaded to GitHub for version control |
-| 0.4 |	7 Feb 2020 | KauriHero and others | Update of Components worked on, Tokenomics, Airdrop info |
+| 0.4 |	7 Feb 2020 | KauriHero | Update of Components worked on, Tokenomics, Airdrop info |
+| 0.5 |	9 Feb 2020 | KauriHero | Update Tokenomics, Airdrop info |
 			
 
 # INTRODUCTION
@@ -135,7 +136,7 @@ Permanent committee members will receive a one-off 1.25 million tokens each
 (at time of writing we have 7 permanent members, so if this changes we will announce immediately)
 
 ## Airdrop
-All non-exchange wallets **holding 250 or more SUB tokens** will be airdropped MASQ tokens on a 1:1 ratio
+All non-exchange wallets **holding 500 or more SUB tokens** will be airdropped MASQ tokens on a 1:1 ratio
 
 All known exchange wallets and wallets controlled by the previous project entity are excluded from airdrop. Our team believes we have identified all of these wallets 
 
