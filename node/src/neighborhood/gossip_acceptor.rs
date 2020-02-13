@@ -153,7 +153,7 @@ impl GossipHandler for DebutHandler {
             return GossipAcceptanceResult::Reply(
                 Self::make_pass_gossip(database, preferred_key),
                 source_key,
-                source_node_addr.clone(),
+                source_node_addr,
             );
         }
         if let Ok(result) = self.try_accept_debut(cryptde, database, &source_agr, gossip_source) {

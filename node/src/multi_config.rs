@@ -327,8 +327,7 @@ impl ConfigFileVcl {
                     Value::String(v) => v.as_str().to_string(),
                     v => v.to_string(),
                 };
-                let result: Box<dyn VclArg> =
-                    Box::new(NameValueVclArg::new(&name, &value.to_string()));
+                let result: Box<dyn VclArg> = Box::new(NameValueVclArg::new(&name, &value));
                 result
             })
             .collect();

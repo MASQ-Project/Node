@@ -1,7 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::daemon::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal, RerunnerReal};
+use crate::daemon::ChannelFactoryReal;
 use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_generate_wallet::NodeConfiguratorGenerateWallet;
+use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
 use crate::node_configurator::node_configurator_recover_wallet::NodeConfiguratorRecoverWallet;
 use crate::node_configurator::{NodeConfigurator, WalletCreationConfig};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
@@ -15,6 +18,7 @@ enum Mode {
     GenerateWallet,
     RecoverWallet,
     DumpConfig,
+    Initialization,
     RunTheNode,
 }
 
@@ -23,7 +27,8 @@ pub fn go(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
         Mode::GenerateWallet => generate_wallet(args, streams),
         Mode::RecoverWallet => recover_wallet(args, streams),
         Mode::DumpConfig => dump_config(args, streams),
-        Mode::RunTheNode => run_the_node(args, streams),
+        Mode::Initialization => initialization(args, streams),
+        Mode::RunTheNode => run_service(args, streams),
     }
 }
 
@@ -34,12 +39,14 @@ fn determine_mode(args: &Vec<String>) -> Mode {
         Mode::RecoverWallet
     } else if args.contains(&"--generate-wallet".to_string()) {
         Mode::GenerateWallet
+    } else if args.contains(&"--initialization".to_string()) {
+        Mode::Initialization
     } else {
         Mode::RunTheNode
     }
 }
 
-fn run_the_node(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
+fn run_service(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     let system = System::new("main");
 
     let mut server_initializer = ServerInitializer::new();
@@ -64,6 +71,19 @@ fn recover_wallet(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
 
 fn dump_config(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
     config_dumper::dump_config(args, streams)
+}
+
+fn initialization(args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
+    let configurator = NodeConfiguratorInitialization {};
+    let config = configurator.configure(args, streams);
+    let mut initializer = DaemonInitializer::new(
+        config,
+        Box::new(ChannelFactoryReal::new()),
+        Box::new(RecipientsFactoryReal::new()),
+        Box::new(RerunnerReal::new()),
+    );
+    initializer.go(streams, args);
+    1
 }
 
 fn configuration_run(
@@ -102,6 +122,13 @@ mod tests {
     }
 
     #[test]
+    fn initialization() {
+        [["--initialization"]]
+            .into_iter()
+            .for_each(|args| check_mode(args, Mode::Initialization));
+    }
+
+    #[test]
     fn both_generate_and_recover() {
         [
             ["--generate-wallet", "--recover-wallet"],
@@ -112,11 +139,39 @@ mod tests {
     }
 
     #[test]
+    fn everything_beats_initialization() {
+        check_mode(
+            &["--initialization", "--generate-wallet"],
+            Mode::GenerateWallet,
+        );
+        check_mode(
+            &["--initialization", "--recover-wallet"],
+            Mode::RecoverWallet,
+        );
+        check_mode(&["--initialization", "--dump-config"], Mode::DumpConfig);
+        check_mode(
+            &["--generate-wallet", "--initialization"],
+            Mode::GenerateWallet,
+        );
+        check_mode(
+            &["--recover-wallet", "--initialization"],
+            Mode::RecoverWallet,
+        );
+        check_mode(&["--dump-config", "--initialization"], Mode::DumpConfig);
+    }
+
+    #[test]
     fn dump_config_rules_all() {
         [
-            ["--booga", "--generate-wallet", "--dump-config"],
-            ["--booga", "--recover-wallet", "--dump-config"],
-            ["--generate-wallet", "--recover_wallet", "--dump-config"],
+            ["--booga", "--goober", "--generate-wallet", "--dump-config"],
+            ["--booga", "--goober", "--recover-wallet", "--dump-config"],
+            ["--booga", "--goober", "--initialization", "--dump-config"],
+            [
+                "--generate-wallet",
+                "--recover_wallet",
+                "--initialization",
+                "--dump-config",
+            ],
         ]
         .into_iter()
         .for_each(|args| check_mode(args, Mode::DumpConfig));
@@ -135,7 +190,7 @@ mod tests {
 
         let actual_mode = determine_mode(&args);
 
-        assert_eq!(actual_mode, expected_mode);
+        assert_eq!(actual_mode, expected_mode, "args: {:?}", args);
     }
 
     fn strs_to_strings(strs: Vec<&str>) -> Vec<String> {

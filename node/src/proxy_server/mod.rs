@@ -668,7 +668,7 @@ impl ProxyServer {
             ExpectedServices::RoundTrip(over, back, return_route_id) => {
                 let return_route_info = AddReturnRouteMessage {
                     return_route_id,
-                    expected_services: back.clone(),
+                    expected_services: back,
                     protocol: payload.protocol,
                     server_name: payload.target_hostname.clone(),
                 };
@@ -690,7 +690,7 @@ impl ProxyServer {
                     hopper,
                     payload,
                     &route_query_response.route,
-                    over.clone(),
+                    over,
                     &logger,
                     source_addr,
                     dispatcher,

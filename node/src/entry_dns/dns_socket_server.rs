@@ -2,8 +2,6 @@
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
-use std::net::IpAddr::V4;
-use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -13,6 +11,7 @@ const DNS_PORT: u16 = 53;
 use crate::entry_dns::processing;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
+use crate::sub_lib::utils::localhost;
 
 pub struct DnsSocketServer {
     socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
@@ -56,11 +55,10 @@ impl SocketServer<()> for DnsSocketServer {
     }
 
     fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
-        let socket_addr = SocketAddr::new(V4(Ipv4Addr::from(0)), DNS_PORT);
-        // The following expect() will cause an appropriate panic if the port can't be opened
+        let socket_addr = SocketAddr::new(localhost(), DNS_PORT);
         self.socket_wrapper
             .bind(socket_addr)
-            .unwrap_or_else(|_| panic!("Cannot bind socket to {:?}", socket_addr));
+            .unwrap_or_else(|e| panic!("Cannot bind socket to {:?}: {:?}", socket_addr, e));
     }
 
     fn initialize_as_unprivileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
@@ -114,7 +112,7 @@ mod tests {
     struct UdpSocketWrapperMock {
         guts: Arc<Mutex<UdpSocketWrapperMockGuts>>,
         recv_from_results: Arc<Mutex<Vec<Result<Async<(usize, SocketAddr)>, Error>>>>,
-        send_to_results: Arc<Mutex<Vec<Result<Async<(usize)>, Error>>>>,
+        send_to_results: Arc<Mutex<Vec<Result<Async<usize>, Error>>>>,
     }
 
     impl UdpSocketWrapperTrait for UdpSocketWrapperMock {
@@ -141,7 +139,7 @@ mod tests {
             result
         }
 
-        fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<(usize)>, Error> {
+        fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<usize>, Error> {
             let mut unwrapped_guts = self.guts.lock().unwrap();
             let guts_ref = unwrapped_guts.borrow_mut();
             let guts: &mut UdpSocketWrapperMockGuts = guts_ref.deref_mut();

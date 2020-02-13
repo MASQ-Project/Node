@@ -1,17 +1,23 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+pub mod messages;
 mod shutdown_supervisor;
 pub mod ui_traffic_converter;
 mod websocket_supervisor;
 
+#[cfg(test)]
+pub mod websocket_supervisor_mock;
+
+use crate::daemon::DaemonBindMessage;
 use crate::sub_lib::accountant::GetFinancialStatisticsMessage;
 use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::ui_gateway::{FromUiMessage, NewFromUiMessage, UiCarrierMessage};
-use crate::sub_lib::ui_gateway::{NewToUiMessage, UiGatewaySubs};
+use crate::sub_lib::ui_gateway::{FromUiMessage, NodeFromUiMessage, UiCarrierMessage};
+use crate::sub_lib::ui_gateway::{NodeToUiMessage, UiGatewaySubs};
 use crate::sub_lib::ui_gateway::{UiGatewayConfig, UiMessage};
+use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisorReal;
 use crate::ui_gateway::ui_traffic_converter::UiTrafficConverter;
@@ -24,6 +30,8 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 
+// TODO: Once we switch all the way over to MASQNode-UIv2 protocol, this entire struct should
+// disappear.
 struct UiGatewayOutSubs {
     ui_message_sub: Recipient<UiCarrierMessage>,
     blockchain_bridge_set_consuming_db_password_sub: Recipient<SetDbPasswordMsg>,
@@ -39,7 +47,7 @@ pub struct UiGateway {
     subs: Option<UiGatewayOutSubs>,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     shutdown_supervisor: Box<dyn ShutdownSupervisor>,
-    incoming_message_recipients: Vec<Recipient<NewFromUiMessage>>,
+    incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
     logger: Logger,
 }
 
@@ -62,8 +70,8 @@ impl UiGateway {
             bind: recipient!(addr, BindMessage),
             ui_message_sub: recipient!(addr, UiCarrierMessage),
             from_ui_message_sub: recipient!(addr, FromUiMessage),
-            new_from_ui_message_sub: recipient!(addr, NewFromUiMessage),
-            new_to_ui_message_sub: recipient!(addr, NewToUiMessage),
+            new_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
+            new_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
         }
     }
 }
@@ -103,17 +111,54 @@ impl Handler<BindMessage> for UiGateway {
         ];
         self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
             self.port,
-            msg.peer_actors.ui_gateway.from_ui_message_sub.clone(),
-            msg.peer_actors.ui_gateway.new_from_ui_message_sub.clone(),
+            msg.peer_actors.ui_gateway.from_ui_message_sub,
+            msg.peer_actors.ui_gateway.new_from_ui_message_sub,
         )));
-        info!(self.logger, "UIGateway bound");
+        debug!(self.logger, "UIGateway bound");
     }
 }
 
-impl Handler<NewToUiMessage> for UiGateway {
+//TODO Remove this when MASQNode-UIv2 takes over completely
+struct StubRecipient {}
+
+impl Actor for StubRecipient {
+    type Context = Context<StubRecipient>;
+}
+
+impl Handler<FromUiMessage> for StubRecipient {
+    type Result = ();
+    fn handle(&mut self, _msg: FromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        panic!("Should never be called")
+    }
+}
+
+impl StubRecipient {
+    fn make() -> Recipient<FromUiMessage> {
+        StubRecipient {}.start().recipient::<FromUiMessage>()
+    }
+}
+//TODO Remove this when MASQNode-UIv2 takes over completely
+
+impl Handler<DaemonBindMessage> for UiGateway {
     type Result = ();
 
-    fn handle(&mut self, msg: NewToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DaemonBindMessage, ctx: &mut Self::Context) -> Self::Result {
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
+        self.subs = None;
+        self.incoming_message_recipients = msg.from_ui_message_recipients;
+        self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
+            self.port,
+            StubRecipient::make(),
+            msg.from_ui_message_recipient,
+        )));
+        debug!(self.logger, "UIGateway bound");
+    }
+}
+
+impl Handler<NodeToUiMessage> for UiGateway {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.websocket_supervisor
             .as_ref()
             .expect("WebsocketSupervisor is unbound")
@@ -121,17 +166,17 @@ impl Handler<NewToUiMessage> for UiGateway {
     }
 }
 
-impl Handler<NewFromUiMessage> for UiGateway {
+impl Handler<NodeFromUiMessage> for UiGateway {
     type Result = ();
 
-    fn handle(&mut self, msg: NewFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.incoming_message_recipients
-            .iter()
-            .for_each(|recipient| {
-                recipient
-                    .try_send(msg.clone())
-                    .expect("A NewUiMessage recipient has died.")
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        let len = self.incoming_message_recipients.len();
+        (0..len).for_each(|idx| {
+            let recipient = &self.incoming_message_recipients[idx];
+            recipient.try_send(msg.clone()).unwrap_or_else(|_| {
+                panic!("UiGateway's NodeFromUiMessage recipient #{} has died.", idx)
             })
+        });
     }
 }
 
@@ -249,13 +294,15 @@ mod tests {
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
     use crate::sub_lib::ui_gateway::MessagePath::OneWay;
-    use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget, NewFromUiMessage, UiMessage};
+    use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, UiMessage};
     use crate::test_utils::find_free_port;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::wait_for;
+    use crate::ui_gateway::ui_traffic_converter::UnmarshalError;
+    use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
     use std::cell::RefCell;
     use std::sync::Arc;
@@ -301,11 +348,11 @@ mod tests {
             self.unmarshal_results.borrow_mut().remove(0)
         }
 
-        fn new_marshal_from_ui(&self, _msg: NewFromUiMessage) -> String {
+        fn new_marshal_from_ui(&self, _msg: NodeFromUiMessage) -> String {
             unimplemented!()
         }
 
-        fn new_marshal_to_ui(&self, _msg: NewToUiMessage) -> String {
+        fn new_marshal_to_ui(&self, _msg: NodeToUiMessage) -> String {
             unimplemented!()
         }
 
@@ -313,7 +360,7 @@ mod tests {
             &self,
             _json: &str,
             _client_id: u64,
-        ) -> Result<NewFromUiMessage, String> {
+        ) -> Result<NodeFromUiMessage, UnmarshalError> {
             unimplemented!()
         }
 
@@ -321,29 +368,7 @@ mod tests {
             &self,
             _json: &str,
             _target: MessageTarget,
-        ) -> Result<NewToUiMessage, String> {
-            unimplemented!()
-        }
-
-        fn reject_error_from_ui(
-            &self,
-            _logger: &Logger,
-            _msg: &NewFromUiMessage,
-            _reply_sub_opt: Option<&Recipient<NewToUiMessage>>,
-        ) -> Result<String, String> {
-            unimplemented!()
-        }
-
-        fn reject_error_to_ui(
-            &self,
-            _logger: &Logger,
-            _msg: &NewToUiMessage,
-            _reply_sub_opt: Option<&Recipient<NewFromUiMessage>>,
-        ) -> Result<String, String> {
-            unimplemented!()
-        }
-
-        fn get_context_id(&self, _logger: &Logger, _body: &MessageBody) -> Option<u64> {
+        ) -> Result<NodeToUiMessage, UnmarshalError> {
             unimplemented!()
         }
     }
@@ -383,50 +408,6 @@ mod tests {
 
         fn unmarshal_result(self, result: Result<UiMessage, String>) -> UiTrafficConverterMock {
             self.unmarshal_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    #[derive(Default)]
-    struct WebSocketSupervisorMock {
-        send_parameters: Arc<Mutex<Vec<(u64, String)>>>,
-        send_msg_parameters: Arc<Mutex<Vec<NewToUiMessage>>>,
-    }
-
-    impl WebSocketSupervisor for WebSocketSupervisorMock {
-        fn send(&self, client_id: u64, message_json: &str) {
-            self.send_parameters
-                .lock()
-                .unwrap()
-                .push((client_id, String::from(message_json)));
-        }
-
-        fn send_msg(&self, msg: NewToUiMessage) {
-            self.send_msg_parameters.lock().unwrap().push(msg);
-        }
-    }
-
-    impl WebSocketSupervisorMock {
-        fn new() -> WebSocketSupervisorMock {
-            WebSocketSupervisorMock {
-                send_parameters: Arc::new(Mutex::new(vec![])),
-                send_msg_parameters: Arc::new(Mutex::new(vec![])),
-            }
-        }
-
-        fn send_parameters(
-            mut self,
-            parameters: &Arc<Mutex<Vec<(u64, String)>>>,
-        ) -> WebSocketSupervisorMock {
-            self.send_parameters = parameters.clone();
-            self
-        }
-
-        fn send_msg_parameters(
-            mut self,
-            parameters: &Arc<Mutex<Vec<NewToUiMessage>>>,
-        ) -> WebSocketSupervisorMock {
-            self.send_msg_parameters = parameters.clone();
             self
         }
     }
@@ -472,7 +453,7 @@ mod tests {
             .neighborhood(neighborhood)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let msg = NewFromUiMessage {
+        let msg = NodeFromUiMessage {
             client_id: 1234,
             body: MessageBody {
                 opcode: "booga".to_string(),
@@ -486,10 +467,13 @@ mod tests {
         System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.get_record::<NewFromUiMessage>(0), &msg);
+        assert_eq!(
+            accountant_recording.get_record::<NodeFromUiMessage>(0),
+            &msg
+        );
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         assert_eq!(
-            neighborhood_recording.get_record::<NewFromUiMessage>(0),
+            neighborhood_recording.get_record::<NodeFromUiMessage>(0),
             &msg
         );
     }
@@ -507,9 +491,9 @@ mod tests {
         let system = System::new("test");
         subject.websocket_supervisor = Some(Box::new(websocket_supervisor));
         subject.incoming_message_recipients =
-            vec![accountant.start().recipient::<NewFromUiMessage>()];
+            vec![accountant.start().recipient::<NodeFromUiMessage>()];
         let subject_addr: Addr<UiGateway> = subject.start();
-        let msg = NewToUiMessage {
+        let msg = NodeToUiMessage {
             target: MessageTarget::ClientId(1234),
             body: MessageBody {
                 opcode: "booga".to_string(),

@@ -272,7 +272,7 @@ impl StreamHandlerPoolReal {
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         target_hostname: String,
     ) -> StreamEstablisherResult {
-        let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc.clone());
+        let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc);
         Box::new(
             future::lazy(move || {
                 stream_establisher.establish_stream(&payload, vec![ip_addr], target_hostname)

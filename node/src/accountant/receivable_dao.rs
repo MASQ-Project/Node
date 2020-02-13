@@ -125,7 +125,8 @@ impl ReceivableDao for ReceivableDaoReal {
         let slope = (payment_curves.permanent_debt_allowed_gwub as f64
             - payment_curves.balance_to_decrease_from_gwub as f64)
             / (payment_curves.balance_decreases_for_sec as f64);
-        let sql = indoc!(r"
+        let sql = indoc!(
+            r"
             select r.wallet_address, r.balance, r.last_received_timestamp
             from receivable r left outer join banned b on r.wallet_address = b.wallet_address
             where
@@ -133,7 +134,8 @@ impl ReceivableDao for ReceivableDaoReal {
                 and r.balance > :balance_to_decrease_from + :slope * (:sugg_and_grace - r.last_received_timestamp)
                 and r.balance > :permanent_debt
                 and b.wallet_address is null
-        ");
+        "
+        );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
         stmt.query_map_named(
             named_params! {

@@ -206,6 +206,24 @@ impl RealUser {
         RealUser::new(Some(uid), Some(gid), Some(home_dir))
     }
 
+    pub fn to_string(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            match self.uid {
+                Some(uid) => format!("{}", uid),
+                None => "".to_string(),
+            },
+            match self.gid {
+                Some(gid) => format!("{}", gid),
+                None => "".to_string(),
+            },
+            match &self.home_dir {
+                Some(home_dir) => home_dir.to_string_lossy().to_string(),
+                None => "".to_string(),
+            },
+        )
+    }
+
     fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
         match (self.environment_wrapper.var ("SUDO_USER"), self.dirs_wrapper.home_dir()) {
             (Some (sudo_user), Some (home_dir)) =>
@@ -350,6 +368,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
             self.config.data_directory.clone(),
             &self.config.real_user,
             self.config.log_level,
+            None,
         );
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
@@ -753,6 +772,24 @@ mod tests {
     }
 
     #[test]
+    fn full_real_user_to_string() {
+        let subject = RealUser::from_str("123:456:booga").unwrap();
+
+        let result = subject.to_string();
+
+        assert_eq!(result, "123:456:booga".to_string());
+    }
+
+    #[test]
+    fn empty_real_user_to_string() {
+        let subject = RealUser::from_str("::").unwrap();
+
+        let result = subject.to_string();
+
+        assert_eq!(result, "::".to_string());
+    }
+
+    #[test]
     fn initialize_as_privileged_with_no_args_binds_http_and_tls_ports() {
         let _lock = INITIALIZATION.lock();
         let (first_handler, first_handler_log) =
@@ -854,7 +891,8 @@ mod tests {
             vec![(
                 data_dir,
                 RealUser::new(Some(123), Some(456), Some("/home/booga".into())),
-                LevelFilter::Warn
+                LevelFilter::Warn,
+                None,
             )]
         )
     }

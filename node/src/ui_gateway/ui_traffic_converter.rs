@@ -1,44 +1,81 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
-use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
 use crate::sub_lib::ui_gateway::{
-    MessageBody, MessageTarget, NewFromUiMessage, NewToUiMessage, UiMessage,
+    MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage, UiMessage,
 };
-use crate::ui_gateway::websocket_supervisor::UNEXPECTED_ERROR_REQUEST_CODE;
-use actix::Recipient;
+use crate::ui_gateway::ui_traffic_converter::TrafficConversionError::{
+    FieldTypeError, JsonSyntaxError, MissingFieldError, NotJsonObjectError,
+};
+use crate::ui_gateway::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
 use serde_json::Value;
+use std::fmt::Display;
 
 #[allow(dead_code)]
 pub const BROADCAST: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum TrafficConversionError {
+    JsonSyntaxError(String),                // couldn't parse as JSON
+    NotJsonObjectError(String),             // root level wasn't a JSON object
+    MissingFieldError(String), // noncritical field missing; can send error message under same opcode
+    FieldTypeError(String, String, String), // noncritical field was mistyped; can send error message under same opcode
+}
+
+impl Display for TrafficConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            JsonSyntaxError(s) => write!(f, "Couldn't parse text as JSON: {}", s),
+            NotJsonObjectError(s) => {
+                write!(f, "Root was not a JSON object:\n------\n{}\n------\n", s)
+            }
+            MissingFieldError(field) => write!(f, "Required field was missing: {}", field),
+            FieldTypeError(field, wanted, got) => write!(
+                f,
+                "Field {} should have been of type {}, but was '{}' instead",
+                field, wanted, got
+            ),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum UnmarshalError {
+    Critical(TrafficConversionError),
+    NonCritical(String, Option<u64>, TrafficConversionError),
+}
+
+impl Display for UnmarshalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            Critical(e) => write!(
+                f,
+                "Critical error unmarshalling unidentified message: {}",
+                e
+            ),
+            NonCritical(opcode, _, e) => {
+                write!(f, "Error unmarshalling '{}' message: {}", opcode, e)
+            }
+        }
+    }
+}
 
 pub trait UiTrafficConverter: Send {
     fn marshal(&self, ui_message: UiMessage) -> Result<String, String>;
     fn unmarshal(&self, json: &str) -> Result<UiMessage, String>;
 
-    fn new_marshal_from_ui(&self, msg: NewFromUiMessage) -> String;
-    fn new_marshal_to_ui(&self, msg: NewToUiMessage) -> String;
-    fn new_unmarshal_from_ui(&self, json: &str, client_id: u64)
-        -> Result<NewFromUiMessage, String>;
+    fn new_marshal_from_ui(&self, msg: NodeFromUiMessage) -> String;
+    fn new_marshal_to_ui(&self, msg: NodeToUiMessage) -> String;
+    fn new_unmarshal_from_ui(
+        &self,
+        json: &str,
+        client_id: u64,
+    ) -> Result<NodeFromUiMessage, UnmarshalError>;
     fn new_unmarshal_to_ui(
         &self,
         json: &str,
         target: MessageTarget,
-    ) -> Result<NewToUiMessage, String>;
-    fn reject_error_from_ui(
-        &self,
-        logger: &Logger,
-        msg: &NewFromUiMessage,
-        reply_sub_opt: Option<&Recipient<NewToUiMessage>>,
-    ) -> Result<String, String>;
-    fn reject_error_to_ui(
-        &self,
-        logger: &Logger,
-        msg: &NewToUiMessage,
-        reply_sub_opt: Option<&Recipient<NewFromUiMessage>>,
-    ) -> Result<String, String>;
-    fn get_context_id(&self, logger: &Logger, body: &MessageBody) -> Option<u64>;
+    ) -> Result<NodeToUiMessage, UnmarshalError>;
 }
 
 #[derive(Default)]
@@ -47,7 +84,7 @@ pub struct UiTrafficConverterReal {}
 impl UiTrafficConverter for UiTrafficConverterReal {
     // TODO: After these methods are obsoleted and removed, get rid of the trait and make the
     // remaining methods into static functions, or possibly TryFrom and TryInto implementations for
-    // NewFromUiMessage and NewToUiMessage.
+    // NodeFromUiMessage and NodeToUiMessage.
     fn marshal(&self, ui_message: UiMessage) -> Result<String, String> {
         serde_json::to_string(&ui_message).map_err(|e| e.to_string())
     }
@@ -56,11 +93,11 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         serde_json::from_str(_json).map_err(|e| e.to_string())
     }
 
-    fn new_marshal_from_ui(&self, msg: NewFromUiMessage) -> String {
+    fn new_marshal_from_ui(&self, msg: NodeFromUiMessage) -> String {
         self.new_marshal(msg.body)
     }
 
-    fn new_marshal_to_ui(&self, msg: NewToUiMessage) -> String {
+    fn new_marshal_to_ui(&self, msg: NodeToUiMessage) -> String {
         self.new_marshal(msg.body)
     }
 
@@ -68,9 +105,9 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         &self,
         json: &str,
         client_id: u64,
-    ) -> Result<NewFromUiMessage, String> {
+    ) -> Result<NodeFromUiMessage, UnmarshalError> {
         match self.new_unmarshal(json) {
-            Ok(body) => Ok(NewFromUiMessage { client_id, body }),
+            Ok(body) => Ok(NodeFromUiMessage { client_id, body }),
             Err(e) => Err(e),
         }
     }
@@ -79,126 +116,10 @@ impl UiTrafficConverter for UiTrafficConverterReal {
         &self,
         json: &str,
         target: MessageTarget,
-    ) -> Result<NewToUiMessage, String> {
+    ) -> Result<NodeToUiMessage, UnmarshalError> {
         match self.new_unmarshal(json) {
-            Ok(body) => Ok(NewToUiMessage { target, body }),
+            Ok(body) => Ok(NodeToUiMessage { target, body }),
             Err(e) => Err(e),
-        }
-    }
-
-    fn reject_error_from_ui(
-        &self,
-        logger: &Logger,
-        msg: &NewFromUiMessage,
-        reply_sub_opt: Option<&Recipient<NewToUiMessage>>,
-    ) -> Result<String, String> {
-        match &msg.body.payload {
-            Ok(json) => Ok(json.clone()),
-            Err((code, message)) => {
-                match msg.body.path {
-                    OneWay => {
-                        let msg = format! ("Unexpected error request from client {} for '{}' ({}: {}) - discarding", msg.client_id, msg.body.opcode, code, message);
-                        error!(logger, "{}", msg);
-                        Err(msg)
-                    }
-                    TwoWay(context_id) => {
-                        let msg_prefix = format!(
-                            "Unexpected error request from client {} for '{}' ({}: {})",
-                            msg.client_id, msg.body.opcode, code, message
-                        );
-                        let full_msg = match reply_sub_opt {
-                            Some(reply_sub) => {
-                                reply_sub
-                                    .try_send(NewToUiMessage {
-                                        target: ClientId(msg.client_id),
-                                        body: MessageBody {
-                                            opcode: msg.body.opcode.clone(),
-                                            path: TwoWay(context_id),
-                                            payload: Err((
-                                                UNEXPECTED_ERROR_REQUEST_CODE,
-                                                msg_prefix.clone(),
-                                            )),
-                                        },
-                                    })
-                                    .expect("UiGateway is poisoned");
-                                format!(
-                                    "{} - complaining to sender with context {}",
-                                    msg_prefix, context_id
-                                )
-                            }
-                            None => format!("{} - discarding", msg_prefix),
-                        };
-                        error!(logger, "{}", full_msg);
-                        Err(full_msg)
-                    }
-                }
-            }
-        }
-    }
-
-    fn reject_error_to_ui(
-        &self,
-        logger: &Logger,
-        msg: &NewToUiMessage,
-        reply_sub_opt: Option<&Recipient<NewFromUiMessage>>,
-    ) -> Result<String, String> {
-        match &msg.body.payload {
-            Ok(json) => Ok(json.clone()),
-            Err((code, message)) => {
-                match msg.body.path {
-                    OneWay => {
-                        let msg = format!(
-                            "Unexpected error request from server for '{}' ({}: {}) - discarding",
-                            msg.body.opcode, code, message
-                        );
-                        error!(logger, "{}", msg);
-                        Err(msg)
-                    }
-                    TwoWay(context_id) => {
-                        let msg_prefix = format!(
-                            "Unexpected error request from server for '{}' ({}: {})",
-                            msg.body.opcode, code, message
-                        );
-                        let full_msg = match reply_sub_opt {
-                            Some(reply_sub) => {
-                                reply_sub
-                                    .try_send(NewFromUiMessage {
-                                        client_id: 0, // client_id is irrelevant; will be replaced on the other end anyway
-                                        body: MessageBody {
-                                            opcode: msg.body.opcode.clone(),
-                                            path: TwoWay(context_id),
-                                            payload: Err((
-                                                UNEXPECTED_ERROR_REQUEST_CODE,
-                                                msg_prefix.clone(),
-                                            )),
-                                        },
-                                    })
-                                    .expect("UiGateway is poisoned");
-                                format!(
-                                    "{} - complaining to sender with context {}",
-                                    msg_prefix, context_id
-                                )
-                            }
-                            None => format!("{} - discarding", msg_prefix),
-                        };
-                        error!(logger, "{}", full_msg);
-                        Err(full_msg)
-                    }
-                }
-            }
-        }
-    }
-
-    fn get_context_id(&self, logger: &Logger, body: &MessageBody) -> Option<u64> {
-        match body.path {
-            TwoWay(context_id) => Some(context_id),
-            OneWay => {
-                error!(
-                    logger,
-                    "TwoWay UI message '{}' was sent as OneWay - discarding", body.opcode
-                );
-                None
-            }
         }
     }
 }
@@ -224,14 +145,20 @@ impl UiTrafficConverterReal {
         format!("{{{}{}{}}}", opcode_section, path_section, payload_section)
     }
 
-    fn new_unmarshal(&self, json: &str) -> Result<MessageBody, String> {
+    fn new_unmarshal(&self, json: &str) -> Result<MessageBody, UnmarshalError> {
         match serde_json::from_str(json) {
             Ok(Value::Object(map)) => {
-                let opcode = Self::get_string(&map, "opcode")?;
-                let path = match Self::get_u64(&map, "contextId") {
-                    Ok(context_id) => TwoWay(context_id),
-                    Err(s) if s == "contextId field is missing" => OneWay,
-                    Err(s) => return Err(s),
+                let opcode = match Self::get_string(&map, "opcode") {
+                    Ok(s) => s,
+                    Err(MissingFieldError(s)) => return Err(Critical(MissingFieldError(s))),
+                    Err(FieldTypeError(a, b, c)) => return Err(Critical(FieldTypeError(a, b, c))),
+                    Err(e) => return Err(Critical(e)),
+                };
+                let (context_id_opt, path) = match Self::get_u64(&map, "contextId") {
+                    Ok(context_id) => (Some(context_id), TwoWay(context_id)),
+                    Err(MissingFieldError(_)) => (None, OneWay),
+                    Err(FieldTypeError(a, b, c)) => return Err(Critical(FieldTypeError(a, b, c))),
+                    Err(e) => return Err(Critical(e)),
                 };
                 match map.get("payload") {
                     Some(Value::Object(payload_map)) => {
@@ -243,61 +170,87 @@ impl UiTrafficConverterReal {
                             payload: Ok(payload),
                         })
                     }
-                    Some(other_value) => Err(format!(
-                        "payload should have been of type Value::Object, not {:?}",
-                        other_value
+                    Some(other_value) => Err(NonCritical(
+                        opcode,
+                        context_id_opt,
+                        FieldTypeError(
+                            "payload".to_string(),
+                            "object".to_string(),
+                            format!("{:?}", other_value),
+                        ),
                     )),
                     None => match map.get("error") {
                         Some(Value::Object(error_map)) => {
-                            let code = Self::get_u64(&error_map, "code")?;
-                            let message = Self::get_string(&error_map, "message")?;
+                            let code = match Self::get_u64(&error_map, "code") {
+                                Ok(code) => code,
+                                Err(e) => return Err(NonCritical(opcode, context_id_opt, e)),
+                            };
+                            let message = match Self::get_string(&error_map, "message") {
+                                Ok(message) => message,
+                                Err(e) => return Err(NonCritical(opcode, context_id_opt, e)),
+                            };
                             Ok(MessageBody {
                                 opcode,
                                 path,
                                 payload: Err((code, message)),
                             })
                         }
-                        Some(other_value) => Err(format!(
-                            "error should have been of type Value::Object, not {:?}",
-                            other_value
+                        Some(other_value) => Err(NonCritical(
+                            opcode,
+                            context_id_opt,
+                            FieldTypeError(
+                                "error".to_string(),
+                                "object".to_string(),
+                                other_value.to_string(),
+                            ),
                         )),
-                        None => Err("Neither payload nor error field is present".to_string()),
+                        None => Err(NonCritical(
+                            opcode,
+                            context_id_opt,
+                            MissingFieldError("payload, error".to_string()),
+                        )),
                     },
                 }
             }
-            Ok(x) => Err(format!(
-                "JSON packet should have been of type Value::Object, not {:?}",
-                x
-            )),
-            Err(e) => Err(format!(
-                "Packet could not be parsed as JSON: '{}' - {:?}",
-                json, e
-            )),
+            Ok(e) => Err(Critical(NotJsonObjectError(e.to_string()))),
+            Err(e) => Err(Critical(JsonSyntaxError(format!("{:?}", e)))),
         }
     }
 
-    fn get_string(map: &serde_json::map::Map<String, Value>, name: &str) -> Result<String, String> {
+    fn get_string(
+        map: &serde_json::map::Map<String, Value>,
+        name: &str,
+    ) -> Result<String, TrafficConversionError> {
         match map.get(name) {
             Some(Value::String(s)) => Ok(s.clone()),
-            Some(x) => Err(format!(
-                "{} should have been of type Value::String, not {:?}",
-                name, x
+            Some(x) => Err(FieldTypeError(
+                name.to_string(),
+                "string".to_string(),
+                x.to_string(),
             )),
-            None => Err(format!("{} field is missing", name)),
+            None => Err(MissingFieldError(name.to_string())),
         }
     }
 
-    fn get_u64(map: &serde_json::map::Map<String, Value>, name: &str) -> Result<u64, String> {
+    fn get_u64(
+        map: &serde_json::map::Map<String, Value>,
+        name: &str,
+    ) -> Result<u64, TrafficConversionError> {
         match map.get(name) {
             Some(Value::Number(n)) => match n.as_u64() {
                 Some(n) => Ok(n),
-                None => Err(format!("Cannot convert from JSON to u64: {:?}", n)),
+                None => Err(FieldTypeError(
+                    name.to_string(),
+                    "u64".to_string(),
+                    n.to_string(),
+                )),
             },
-            Some(x) => Err(format!(
-                "{} should have been of type Value::Number, not {:?}",
-                name, x
+            Some(x) => Err(FieldTypeError(
+                name.to_string(),
+                "u64".to_string(),
+                x.to_string(),
             )),
-            None => Err(format!("{} field is missing", name)),
+            None => Err(MissingFieldError(name.to_string())),
         }
     }
 }
@@ -306,11 +259,10 @@ impl UiTrafficConverterReal {
 mod tests {
     use super::*;
     use crate::sub_lib::ui_gateway::MessagePath::OneWay;
-    use crate::sub_lib::ui_gateway::MessageTarget::{AllClients, ClientId};
     use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget};
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::test_utils::recorder::make_recorder;
-    use actix::{Actor, System};
+    use crate::ui_gateway::ui_traffic_converter::TrafficConversionError::{
+        FieldTypeError, JsonSyntaxError, MissingFieldError, NotJsonObjectError,
+    };
     use serde_json::Number;
 
     #[test]
@@ -336,7 +288,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_from_ui_one_way_for_success() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewFromUiMessage {
+        let ui_msg = NodeFromUiMessage {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -371,7 +323,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_to_ui_one_way_for_success() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewToUiMessage {
+        let ui_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -408,7 +360,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_from_ui_one_way_for_failure() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewFromUiMessage {
+        let ui_msg = NodeFromUiMessage {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -432,7 +384,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_to_ui_one_way_for_failure() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewToUiMessage {
+        let ui_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -458,7 +410,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_from_ui_two_way_for_success() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewFromUiMessage {
+        let ui_msg = NodeFromUiMessage {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -493,7 +445,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_to_ui_two_way_for_success() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewToUiMessage {
+        let ui_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -530,7 +482,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_from_ui_two_way_for_failure() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewFromUiMessage {
+        let ui_msg = NodeFromUiMessage {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -554,7 +506,7 @@ mod tests {
     #[test]
     fn new_marshaling_and_unmarshaling_works_to_ui_two_way_for_failure() {
         let subject = UiTrafficConverterReal::new();
-        let ui_msg = NewToUiMessage {
+        let ui_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
@@ -584,7 +536,10 @@ mod tests {
 
         let result = subject.new_unmarshal_from_ui(json, 1234);
 
-        assert_eq!(result, Err("opcode field is missing".to_string()))
+        assert_eq!(
+            result,
+            Err(Critical(MissingFieldError("opcode".to_string())))
+        )
     }
 
     #[test]
@@ -596,12 +551,16 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("opcode should have been of type Value::String, not Bool(false)".to_string())
+            Err(Critical(FieldTypeError(
+                "opcode".to_string(),
+                "string".to_string(),
+                "false".to_string()
+            )))
         )
     }
 
     #[test]
-    fn new_unmarshaling_handles_missing_payload() {
+    fn new_unmarshaling_handles_missing_payload_and_error() {
         let subject = UiTrafficConverterReal::new();
         let json = r#"{"opcode": "whomp"}"#;
 
@@ -609,20 +568,32 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Neither payload nor error field is present".to_string())
+            Err(NonCritical(
+                "whomp".to_string(),
+                None,
+                MissingFieldError("payload, error".to_string())
+            ))
         )
     }
 
     #[test]
     fn new_unmarshaling_handles_badly_typed_payload() {
         let subject = UiTrafficConverterReal::new();
-        let json = r#"{"opcode": "whomp", "payload": 1}"#;
+        let json = r#"{"opcode": "whomp", "contextId": 4321, "payload": 1}"#;
 
         let result = subject.new_unmarshal_to_ui(json, MessageTarget::ClientId(1234));
 
         assert_eq!(
             result,
-            Err("payload should have been of type Value::Object, not Number(1)".to_string())
+            Err(NonCritical(
+                "whomp".to_string(),
+                Some(4321),
+                FieldTypeError(
+                    "payload".to_string(),
+                    "object".to_string(),
+                    "Number(1)".to_string()
+                )
+            ))
         )
     }
 
@@ -635,7 +606,11 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("error should have been of type Value::Object, not Number(1)".to_string())
+            Err(NonCritical(
+                "whomp".to_string(),
+                None,
+                FieldTypeError("error".to_string(), "object".to_string(), "1".to_string())
+            ))
         )
     }
 
@@ -646,7 +621,10 @@ mod tests {
 
         let result = subject.new_unmarshal_from_ui(json, 1234);
 
-        assert_eq! (result, Err("JSON packet should have been of type Value::Object, not Array([Number(1), Number(2), Number(3), Number(4)])".to_string()))
+        assert_eq!(
+            result,
+            Err(Critical(NotJsonObjectError("[1,2,3,4]".to_string())))
+        );
     }
 
     #[test]
@@ -656,314 +634,12 @@ mod tests {
 
         let result = subject.new_unmarshal_to_ui(json, MessageTarget::ClientId(1234));
 
-        assert_eq! (result, Err("Packet could not be parsed as JSON: '}--{' - Error(\"expected value\", line: 1, column: 1)".to_string()))
-    }
-
-    #[test]
-    fn reject_error_from_ui_handles_one_way_success() {
-        let logger = Logger::new("reject_error_from_ui_handles_one_way_success");
-        let msg = NewFromUiMessage {
-            client_id: 1234,
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: OneWay,
-                payload: Ok("{}".to_string()),
-            },
-        };
-        let subject = UiTrafficConverterReal::new();
-
-        let result = subject.reject_error_from_ui(&logger, &msg, None);
-
-        assert_eq!(result, Ok("{}".to_string()));
-    }
-
-    #[test]
-    fn reject_error_from_ui_handles_one_way_failure() {
-        init_test_logging();
-        let logger = Logger::new("reject_error_from_ui_handles_one_way_failure");
-        let msg = NewFromUiMessage {
-            client_id: 1234,
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: OneWay,
-                payload: Err((2345, "goober".to_string())),
-            },
-        };
-        let subject = UiTrafficConverterReal::new();
-
-        let result = subject.reject_error_from_ui(&logger, &msg, None);
-
-        let expected_msg =
-            "Unexpected error request from client 1234 for 'booga' (2345: goober) - discarding"
-                .to_string();
-        assert_eq!(result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "ERROR: reject_error_from_ui_handles_one_way_failure: {}",
-                expected_msg
-            )
-            .as_str(),
-        );
-    }
-
-    #[test]
-    fn reject_error_from_ui_handles_two_way_success() {
-        let logger = Logger::new("reject_error_from_ui_handles_two_way_success");
-        let msg = NewFromUiMessage {
-            client_id: 1234,
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: TwoWay(4321),
-                payload: Ok("{}".to_string()),
-            },
-        };
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject = UiTrafficConverterReal::new();
-        let system = System::new("test");
-        let ui_gateway_sub = ui_gateway.start().recipient::<NewToUiMessage>();
-
-        let result = subject.reject_error_from_ui(&logger, &msg, Some(&ui_gateway_sub));
-
-        System::current().stop();
-        system.run();
-        assert_eq!(result, Ok("{}".to_string()));
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(ui_gateway_recording.len(), 0);
-    }
-
-    #[test]
-    fn reject_error_from_ui_handles_two_way_failure() {
-        init_test_logging();
-        let logger = Logger::new("reject_error_from_ui_handles_one_way_failure");
-        let msg = NewFromUiMessage {
-            client_id: 1234,
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: TwoWay(4321),
-                payload: Err((2345, "goober".to_string())),
-            },
-        };
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject = UiTrafficConverterReal::new();
-        let system = System::new("test");
-        let ui_gateway_sub = ui_gateway.start().recipient::<NewToUiMessage>();
-
-        let result = subject.reject_error_from_ui(&logger, &msg, Some(&ui_gateway_sub));
-
-        System::current().stop();
-        system.run();
-        let expected_msg_prefix =
-            "Unexpected error request from client 1234 for 'booga' (2345: goober)".to_string();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
-            ui_gateway_recording.get_record::<NewToUiMessage>(0),
-            &NewToUiMessage {
-                target: ClientId(1234),
-                body: MessageBody {
-                    opcode: "booga".to_string(),
-                    path: TwoWay(4321),
-                    payload: Err((UNEXPECTED_ERROR_REQUEST_CODE, expected_msg_prefix.clone()))
-                }
-            }
+            result,
+            Err(Critical(JsonSyntaxError(
+                "Error(\"expected value\", line: 1, column: 1)".to_string()
+            )))
         );
-        let expected_msg = format!(
-            "{} - complaining to sender with context 4321",
-            expected_msg_prefix
-        );
-        assert_eq!(result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "ERROR: reject_error_from_ui_handles_one_way_failure: {}",
-                expected_msg
-            )
-            .as_str(),
-        );
-    }
-
-    #[test]
-    fn reject_error_to_ui_handles_one_way_success() {
-        let logger = Logger::new("reject_error_to_ui_handles_one_way_success");
-        let msg = NewToUiMessage {
-            target: ClientId(4444), // irrelevant
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: OneWay,
-                payload: Ok("{}".to_string()),
-            },
-        };
-        let subject = UiTrafficConverterReal::new();
-
-        let result = subject.reject_error_to_ui(&logger, &msg, None);
-
-        assert_eq!(result, Ok("{}".to_string()));
-    }
-
-    #[test]
-    fn reject_error_to_ui_handles_one_way_failure() {
-        init_test_logging();
-        let logger = Logger::new("reject_error_to_ui_handles_one_way_failure");
-        let msg = NewToUiMessage {
-            target: AllClients, // irrelevant
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: OneWay,
-                payload: Err((2345, "goober".to_string())),
-            },
-        };
-        let subject = UiTrafficConverterReal::new();
-
-        let result = subject.reject_error_to_ui(&logger, &msg, None);
-
-        let expected_msg =
-            "Unexpected error request from server for 'booga' (2345: goober) - discarding"
-                .to_string();
-        assert_eq!(result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "ERROR: reject_error_to_ui_handles_one_way_failure: {}",
-                expected_msg
-            )
-            .as_str(),
-        );
-    }
-
-    #[test]
-    fn reject_error_to_ui_handles_two_way_success() {
-        let logger = Logger::new("reject_error_to_ui_handles_two_way_success");
-        let msg = NewToUiMessage {
-            target: AllClients, // irrelevant
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: TwoWay(4321),
-                payload: Ok("{}".to_string()),
-            },
-        };
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject = UiTrafficConverterReal::new();
-        let system = System::new("test");
-        let ui_gateway_sub = ui_gateway.start().recipient::<NewFromUiMessage>();
-
-        let result = subject.reject_error_to_ui(&logger, &msg, Some(&ui_gateway_sub));
-
-        System::current().stop();
-        system.run();
-        assert_eq!(result, Ok("{}".to_string()));
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(ui_gateway_recording.len(), 0);
-    }
-
-    #[test]
-    fn reject_error_to_ui_handles_two_way_failure_with_sub_specified() {
-        init_test_logging();
-        let logger = Logger::new("reject_error_to_ui_handles_two_way_failure_with_sub_specified");
-        let msg = NewToUiMessage {
-            target: ClientId(4444), // irrelevant
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: TwoWay(4321),
-                payload: Err((2345, "goober".to_string())),
-            },
-        };
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject = UiTrafficConverterReal::new();
-        let system = System::new("test");
-        let ui_gateway_sub = ui_gateway.start().recipient::<NewFromUiMessage>();
-
-        let result = subject.reject_error_to_ui(&logger, &msg, Some(&ui_gateway_sub));
-
-        System::current().stop();
-        system.run();
-        let expected_msg_prefix =
-            "Unexpected error request from server for 'booga' (2345: goober)".to_string();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<NewFromUiMessage>(0),
-            &NewFromUiMessage {
-                client_id: 0, // irrelevant
-                body: MessageBody {
-                    opcode: "booga".to_string(),
-                    path: TwoWay(4321),
-                    payload: Err((UNEXPECTED_ERROR_REQUEST_CODE, expected_msg_prefix.clone()))
-                }
-            }
-        );
-        let expected_msg = format!(
-            "{} - complaining to sender with context 4321",
-            expected_msg_prefix
-        );
-        assert_eq!(result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "ERROR: reject_error_to_ui_handles_two_way_failure_with_sub_specified: {}",
-                expected_msg
-            )
-            .as_str(),
-        );
-    }
-
-    #[test]
-    fn reject_error_to_ui_handles_two_way_failure_with_sub_unspecified() {
-        init_test_logging();
-        let logger = Logger::new("reject_error_to_ui_handles_two_way_failure_with_sub_unspecified");
-        let msg = NewToUiMessage {
-            target: ClientId(4444), // irrelevant
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: TwoWay(4321),
-                payload: Err((2345, "goober".to_string())),
-            },
-        };
-        let subject = UiTrafficConverterReal::new();
-
-        let result = subject.reject_error_to_ui(&logger, &msg, None);
-
-        let expected_msg_prefix =
-            "Unexpected error request from server for 'booga' (2345: goober)".to_string();
-        let expected_msg = format!("{} - discarding", expected_msg_prefix);
-        assert_eq!(result, Err(expected_msg.clone()));
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "ERROR: reject_error_to_ui_handles_two_way_failure_with_sub_unspecified: {}",
-                expected_msg
-            )
-            .as_str(),
-        );
-    }
-
-    #[test]
-    fn get_context_id_handles_two_way() {
-        let logger = Logger::new("get_context_id_handles_two_way");
-        let subject = UiTrafficConverterReal::new();
-
-        let result = subject.get_context_id(
-            &logger,
-            &MessageBody {
-                opcode: "booga".to_string(),
-                path: TwoWay(2222),
-                payload: Ok("".to_string()),
-            },
-        );
-
-        assert_eq!(result, Some(2222));
-    }
-
-    #[test]
-    fn get_context_id_handles_one_way() {
-        init_test_logging();
-        let logger = Logger::new("get_context_id_handles_one_way");
-        let subject = UiTrafficConverterReal::new();
-
-        let result = subject.get_context_id(
-            &logger,
-            &MessageBody {
-                opcode: "booga".to_string(),
-                path: OneWay,
-                payload: Ok("".to_string()),
-            },
-        );
-
-        assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing("ERROR: get_context_id_handles_one_way: TwoWay UI message 'booga' was sent as OneWay - discarding");
     }
 
     #[test]
@@ -975,7 +651,48 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Cannot convert from JSON to u64: Number(-47)".to_string())
+            Err(FieldTypeError(
+                "bad_u64".to_string(),
+                "u64".to_string(),
+                "-47".to_string()
+            ))
         )
+    }
+
+    #[test]
+    fn display_works_for_traffic_conversion_error() {
+        let a = "a".to_string();
+        let b = "b".to_string();
+        let c = "c".to_string();
+        assert_eq!(
+            JsonSyntaxError(a.clone()).to_string(),
+            "Couldn't parse text as JSON: a".to_string()
+        );
+        assert_eq!(
+            NotJsonObjectError(a.clone()).to_string(),
+            "Root was not a JSON object:\n------\na\n------\n".to_string()
+        );
+        assert_eq!(
+            MissingFieldError(a.clone()).to_string(),
+            "Required field was missing: a".to_string()
+        );
+        assert_eq!(
+            FieldTypeError(a, b, c).to_string(),
+            "Field a should have been of type b, but was 'c' instead".to_string()
+        );
+    }
+
+    #[test]
+    fn display_works_for_unmarshal_error() {
+        let error = MissingFieldError("booga".to_string());
+        assert_eq!(
+            Critical(error.clone()).to_string(),
+            "Critical error unmarshalling unidentified message: Required field was missing: booga"
+                .to_string()
+        );
+        assert_eq!(
+            NonCritical("whomp".to_string(), None, error).to_string(),
+            "Error unmarshalling 'whomp' message: Required field was missing: booga".to_string()
+        );
     }
 }

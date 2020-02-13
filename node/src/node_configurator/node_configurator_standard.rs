@@ -5,17 +5,15 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator;
 use crate::node_configurator::{
     app_head, chain_arg, common_validators, config_file_arg, data_directory_arg, db_password_arg,
-    earning_wallet_arg, initialize_database, real_user_arg, NodeConfigurator,
+    earning_wallet_arg, initialize_database, real_user_arg, ui_port_arg, NodeConfigurator,
 };
+use crate::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use clap::{App, Arg};
 use indoc::indoc;
 use lazy_static::lazy_static;
-
-pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
-pub const HIGHEST_USABLE_PORT: u16 = 65535;
 
 pub struct NodeConfiguratorStandardPrivileged {}
 
@@ -63,14 +61,14 @@ impl NodeConfiguratorStandardUnprivileged {
 }
 
 lazy_static! {
-    static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();
-    static ref DEFAULT_CRASH_POINT_VALUE: String = format!("{}", CrashPoint::None);
-    static ref UI_PORT_HELP: String = format!(
+    pub static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();
+    pub static ref DEFAULT_CRASH_POINT_VALUE: String = format!("{}", CrashPoint::None);
+    pub static ref UI_PORT_HELP: String = format!(
         "The port at which user interfaces will connect to the Node. Best to accept the default unless \
         you know what you're doing. Must be between {} and {}.",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
-    static ref CLANDESTINE_PORT_HELP: String = format!(
+    pub static ref CLANDESTINE_PORT_HELP: String = format!(
         "The port this Node will advertise to other Nodes at which clandestine traffic will be \
          received. If you don't specify a clandestine port, the Node will choose an unused \
          one at random on first startup, then use that one for every subsequent run unless \
@@ -79,7 +77,7 @@ lazy_static! {
          Must be between {} and {} [default: last used port]",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
-    static ref GAS_PRICE_HELP: String = format!(
+    pub static ref GAS_PRICE_HELP: String = format!(
        "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}). Valid range is 1-99 Gwei.",
        DEFAULT_GAS_PRICE);
@@ -121,19 +119,19 @@ const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes in 
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
 const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relates to other Nodes.\n\n\
-     zero-hop means that your Node will operate as its own Substratum Network and will not communicate with any \
+     zero-hop means that your Node will operate as its own MASQ Network and will not communicate with any \
      other Nodes. --ip, --neighbors, and --clandestine-port are incompatible with --neighborhood_mode \
      zero-hop.\n\n\
      originate-only means that your Node will not accept connections from any other Node; it \
      will only originate connections to other Nodes. This will reduce your Node's opportunity to route \
      data (it will only ever have two neighbors, so the number of routes it can participate in is limited), \
-     it will reduce redundancy in the Substratum Network, and it will prevent your Node from acting as \
+     it will reduce redundancy in the MASQ Network, and it will prevent your Node from acting as \
      a connection point for other Nodes to get on the Network; but it will enable your Node to operate in \
      an environment where your network hookup is preventing you from accepting connections, and it means \
      that you don't have to forward any incoming ports through your router. --ip and --clandestine_port \
      are incompatible with --neighborhood_mode originate-only.\n\n\
      consume-only means that your Node will not accept connections from or route data for any other Node; \
-     it will only consume services from the Substratum Network. This mode is appropriate for devices that \
+     it will only consume services from the MASQ Network. This mode is appropriate for devices that \
      cannot maintain a constant IP address or stay constantly on the Network. --ip and --clandestine_port \
      are incompatible with --neighborhood_mode consume-only.\n\n\
      standard means that your Node will operate fully unconstrained, both originating and accepting \
@@ -170,7 +168,7 @@ const HELP_TEXT: &str = indoc!(
         3. Create the port forwarding entries in the router."
 );
 
-fn app() -> App<'static, 'static> {
+pub fn app() -> App<'static, 'static> {
     app_head()
         .after_help(HELP_TEXT)
         .arg(
@@ -278,18 +276,10 @@ fn app() -> App<'static, 'static> {
                 .help(NEIGHBORS_HELP),
         )
         .arg(real_user_arg())
-        .arg(
-            Arg::with_name("ui-port")
-                .long("ui-port")
-                .value_name("UI-PORT")
-                .takes_value(true)
-                .default_value(&DEFAULT_UI_PORT_VALUE)
-                .validator(validators::validate_ui_port)
-                .help(&UI_PORT_HELP),
-        )
+        .arg(ui_port_arg(&UI_PORT_HELP))
 }
 
-mod standard {
+pub mod standard {
     use super::*;
     use std::net::IpAddr;
     use std::net::SocketAddr;
@@ -747,14 +737,6 @@ mod validators {
         }
     }
 
-    pub fn validate_ui_port(port: String) -> Result<(), String> {
-        match str::parse::<u16>(&port) {
-            Ok(port_number) if port_number < LOWEST_USABLE_INSECURE_PORT => Err(port),
-            Ok(_) => Ok(()),
-            Err(_) => Err(port),
-        }
-    }
-
     pub fn validate_clandestine_port(clandestine_port: String) -> Result<(), String> {
         match clandestine_port.parse::<u16>() {
             Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => Ok(()),
@@ -875,28 +857,28 @@ mod tests {
 
     #[test]
     fn validate_ui_port_complains_about_non_numeric_ui_port() {
-        let result = validators::validate_ui_port(String::from("booga"));
+        let result = common_validators::validate_ui_port(String::from("booga"));
 
         assert_eq!(Err(String::from("booga")), result);
     }
 
     #[test]
     fn validate_ui_port_complains_about_ui_port_too_low() {
-        let result = validators::validate_ui_port(String::from("1023"));
+        let result = common_validators::validate_ui_port(String::from("1023"));
 
         assert_eq!(Err(String::from("1023")), result);
     }
 
     #[test]
     fn validate_ui_port_complains_about_ui_port_too_high() {
-        let result = validators::validate_ui_port(String::from("65536"));
+        let result = common_validators::validate_ui_port(String::from("65536"));
 
         assert_eq!(Err(String::from("65536")), result);
     }
 
     #[test]
     fn validate_ui_port_works() {
-        let result = validators::validate_ui_port(String::from("5335"));
+        let result = common_validators::validate_ui_port(String::from("5335"));
 
         assert_eq!(Ok(()), result);
     }

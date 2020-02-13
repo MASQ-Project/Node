@@ -45,10 +45,7 @@ impl Handler<BindMessage> for BlockchainBridge {
                 .neighborhood
                 .set_consuming_wallet_sub
                 .clone(),
-            msg.peer_actors
-                .proxy_server
-                .set_consuming_wallet_sub
-                .clone(),
+            msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
         match self.consuming_wallet.as_ref() {
             Some(wallet) => debug!(

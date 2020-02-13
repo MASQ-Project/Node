@@ -171,10 +171,7 @@ impl NeighborhoodDatabase {
         {
             let to_remove = match self.node_by_key_mut(node_key) {
                 Some(node_record) => {
-                    ip_addr = node_record
-                        .node_addr_opt()
-                        .clone()
-                        .map(|addr| addr.ip_addr());
+                    ip_addr = node_record.node_addr_opt().map(|addr| addr.ip_addr());
                     node_record
                 }
                 None => {
@@ -281,7 +278,7 @@ impl NeighborhoodDatabase {
                     routes_data: nr.routes_data(),
                 }),
                 public_key: public_key.clone(),
-                node_addr: nr.node_addr_opt().clone(),
+                node_addr: nr.node_addr_opt(),
                 known_source: public_key == self.root().public_key(),
                 known_target: false,
                 is_present: true,

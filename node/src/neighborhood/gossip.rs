@@ -171,7 +171,7 @@ impl From<&NodeRecord> for DotGossipEndpoint {
     fn from(input: &NodeRecord) -> Self {
         DotGossipEndpoint {
             public_key: input.public_key().clone(),
-            node_addr_opt: input.node_addr_opt().clone(),
+            node_addr_opt: input.node_addr_opt(),
         }
     }
 }

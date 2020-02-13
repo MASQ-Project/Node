@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, SentPayments};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::NewFromUiMessage;
+use crate::sub_lib::ui_gateway::NodeFromUiMessage;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
@@ -35,7 +35,7 @@ pub struct AccountantSubs {
     pub report_new_payments: Recipient<ReceivedPayments>,
     pub report_sent_payments: Recipient<SentPayments>,
     pub get_financial_statistics_sub: Recipient<GetFinancialStatisticsMessage>,
-    pub ui_message_sub: Recipient<NewFromUiMessage>,
+    pub ui_message_sub: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for AccountantSubs {
@@ -88,40 +88,6 @@ pub struct FinancialStatisticsMessage {
     pub pending_debt: i64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-#[allow(non_snake_case)]
-pub struct UiFinancialsRequest {
-    pub payableMinimumAmount: u64,
-    pub payableMaximumAge: u64,
-    pub receivableMinimumAmount: u64,
-    pub receivableMaximumAge: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-#[allow(non_snake_case)]
-pub struct UiFinancialsResponse {
-    pub payables: Vec<UiPayableAccount>,
-    pub totalPayable: u64,
-    pub receivables: Vec<UiReceivableAccount>,
-    pub totalReceivable: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-#[allow(non_snake_case)]
-pub struct UiPayableAccount {
-    pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
-    pub pendingTransaction: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct UiReceivableAccount {
-    pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,7 +114,7 @@ mod tests {
             report_new_payments: recipient!(recorder, ReceivedPayments),
             report_sent_payments: recipient!(recorder, SentPayments),
             get_financial_statistics_sub: recipient!(recorder, GetFinancialStatisticsMessage),
-            ui_message_sub: recipient!(recorder, NewFromUiMessage),
+            ui_message_sub: recipient!(recorder, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "AccountantSubs");

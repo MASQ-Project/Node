@@ -165,7 +165,7 @@ impl Route {
 
         Route::back_segment(
             &back,
-            consuming_wallet.clone(),
+            consuming_wallet,
             over_component,
             &mut hops,
             contract_address,
@@ -780,11 +780,16 @@ mod tests {
             &CryptDENull::from(&key3, DEFAULT_CHAIN_ID),
         ]);
 
-        assert_eq!(result, String::from(r#"
+        assert_eq!(
+            result,
+            String::from(
+                r#"
 Encrypted with AQIDBA: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55", s: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55" } }), component: Hopper }
 Encrypted with AgMEBQ: LiveHop { public_key: AwQFBg, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710", s: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710" } }), component: Hopper }
 Encrypted with AwQFBg: LiveHop { public_key: , payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "e2b4e575f12bfe0a7cf5f58a14d93d739a669b77b3c8c9fc0103fe00559b692d", s: "e2b4e575f12bfe0a7cf5f58a14d93d739a669b77b3c8c9fc0103fe00559b692d" } }), component: Neighborhood }
-"#));
+"#
+            )
+        );
     }
 
     #[test]
@@ -812,14 +817,19 @@ Encrypted with AwQFBg: LiveHop { public_key: , payer: Some(Payer { wallet: Walle
             &CryptDENull::from(&key1, DEFAULT_CHAIN_ID),
         ]);
 
-        assert_eq!(result, String::from(r#"
+        assert_eq!(
+            result,
+            String::from(
+                r#"
 Encrypted with AQIDBA: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55", s: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55" } }), component: Hopper }
 Encrypted with AgMEBQ: LiveHop { public_key: AwQFBg, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710", s: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710" } }), component: Hopper }
 Encrypted with AwQFBg: LiveHop { public_key: AgMEBQ, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "e2b4e575f12bfe0a7cf5f58a14d93d739a669b77b3c8c9fc0103fe00559b692d", s: "e2b4e575f12bfe0a7cf5f58a14d93d739a669b77b3c8c9fc0103fe00559b692d" } }), component: ProxyClient }
 Encrypted with AgMEBQ: LiveHop { public_key: AQIDBA, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710", s: "ef5fcf4c158b98310d5e579770f24bf871adc7deda12b0ce75c7c0e347b17710" } }), component: Hopper }
 Encrypted with AQIDBA: LiveHop { public_key: , payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55", s: "c8748220c9b68b39d6d960b3a851393a1e8970da161660a78e8ce7ad2c7eba55" } }), component: ProxyServer }
 Encrypted with AQIDBA: Return Route ID: 1234
-"#));
+"#
+            )
+        );
     }
 
     #[test]
