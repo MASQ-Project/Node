@@ -153,13 +153,12 @@ impl StreamConnector for StreamConnectorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::utils::localhost;
-    use crate::test_utils::find_free_port;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use futures::future::lazy;
     use futures::future::ok;
+    use masq_lib::utils::{find_free_port, localhost};
     use std::net::{IpAddr, Shutdown};
     use std::str::FromStr;
     use std::sync::mpsc;

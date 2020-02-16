@@ -10,18 +10,18 @@ use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, DEFAULT_CHAIN_NAME};
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use crate::node_configurator::node_configurator_standard::DEFAULT_UI_PORT_VALUE;
 use crate::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::wallet::Wallet;
 use crate::sub_lib::wallet::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use bip39::Language;
 use clap::{crate_description, crate_version, value_t, App, AppSettings, Arg};
 use dirs::{data_local_dir, home_dir};
+use masq_lib::command::StdStreams;
+use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use rpassword;
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
@@ -552,7 +552,7 @@ pub fn flushed_write(target: &mut dyn io::Write, string: &str) {
 }
 
 pub mod common_validators {
-    use crate::persistent_configuration::LOWEST_USABLE_INSECURE_PORT;
+    use masq_lib::constants::LOWEST_USABLE_INSECURE_PORT;
     use regex::Regex;
     use tiny_hderive::bip44::DerivationPath;
 
@@ -768,13 +768,14 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::node_test_utils::MockDirsWrapper;
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
-    use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{
-        ensure_node_home_directory_exists, ArgsBuilder, ByteArrayWriter, DEFAULT_CHAIN_ID,
-        TEST_DEFAULT_CHAIN_NAME,
+        ArgsBuilder, ByteArrayWriter, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use bip39::{Mnemonic, MnemonicType, Seed};
+    use masq_lib::multi_config::MultiConfig;
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;

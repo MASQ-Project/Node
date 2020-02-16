@@ -8,7 +8,7 @@ description = "MASQ Node is the foundation of  MASQ Network, an open-source netw
 edition = "2018"
 
 [workspace]
-members = ["../multinode_integration_tests"]
+members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "= 0.7.9"
@@ -31,6 +31,7 @@ itertools = "0.8.0"
 lazy_static = "1.3.0"
 libsecp256k1 = "0.2.2"
 log = "0.4.8"
+masq_lib = { path = "../masq_lib" }
 pretty-hex = "0.1.0"
 primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"]}
 rand = {version = "0.7.0", features = ["getrandom", "small_rng"]}

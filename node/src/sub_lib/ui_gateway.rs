@@ -1,12 +1,18 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 use crate::sub_lib::accountant::FinancialStatisticsMessage;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 
-pub const DEFAULT_UI_PORT: u16 = 5333;
+#[derive(Message, PartialEq, Debug)]
+pub struct FromUiMessage {
+    pub client_id: u64,
+    pub json: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct UiGatewayConfig {
@@ -50,43 +56,6 @@ pub enum UiMessage {
     NeighborhoodDotGraphRequest,
     NeighborhoodDotGraphResponse(String),
     ShutdownMessage,
-}
-
-#[derive(Message, PartialEq, Debug)]
-pub struct FromUiMessage {
-    pub client_id: u64,
-    pub json: String,
-}
-
-#[derive(PartialEq, Clone, Debug)]
-pub enum MessageTarget {
-    ClientId(u64),
-    AllClients,
-}
-
-#[derive(PartialEq, Clone, Debug)]
-pub enum MessagePath {
-    OneWay,
-    TwoWay(u64), // context_id
-}
-
-#[derive(PartialEq, Clone, Debug)]
-pub struct MessageBody {
-    pub opcode: String,
-    pub path: MessagePath,
-    pub payload: Result<String, (u64, String)>, // <success payload as JSON, (error code, error message)>
-}
-
-#[derive(Message, PartialEq, Clone, Debug)]
-pub struct NodeFromUiMessage {
-    pub client_id: u64,
-    pub body: MessageBody,
-}
-
-#[derive(Message, PartialEq, Clone, Debug)]
-pub struct NodeToUiMessage {
-    pub target: MessageTarget,
-    pub body: MessageBody,
 }
 
 #[cfg(test)]

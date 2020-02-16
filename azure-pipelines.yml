@@ -13,7 +13,7 @@ pr:
   - master
 
 variables:
-  rust_version: "1.39.0"
+  rust_version: "1.40.0"
   node_version: "10.16.3"
   AZP_CACHING_TAR: true # requires minimum agent version of 2.157.0 (rolling out Palindrome Week)
 

@@ -2,6 +2,7 @@
 
 use crate::masq_node::NodeReference;
 use crate::masq_node_cluster::MASQNodeCluster;
+use masq_lib::utils::find_free_port;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
 use node_lib::discriminator::UnmaskedChunk;
@@ -14,7 +15,6 @@ use node_lib::sub_lib::cryptde::PrivateKey;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::node_addr::NodeAddr;
-use node_lib::test_utils::find_free_port;
 use node_lib::tls_discriminator_factory::TlsDiscriminatorFactory;
 use serde_cbor;
 use std::cell::RefCell;

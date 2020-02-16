@@ -1,11 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use self::sub_lib::utils::indicates_dead_stream;
-use node_lib::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::command::{Command, StdStreams};
+use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use node_lib::sub_lib;
 use node_lib::sub_lib::framer::Framer;
-use node_lib::sub_lib::main_tools::Command;
-use node_lib::sub_lib::main_tools::StdStreams;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
@@ -36,7 +35,8 @@ pub fn main() {
     };
     let mut command = MockNode::new();
     let streams_ref: &mut StdStreams<'_> = &mut streams;
-    let exit_code = command.go(streams_ref, &env::args().collect());
+    let args: Vec<String> = env::args().collect();
+    let exit_code = command.go(streams_ref, &args);
     process::exit(exit_code as i32);
 }
 
@@ -53,7 +53,7 @@ struct MockNode {
 }
 
 impl Command for MockNode {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &Vec<String>) -> u8 {
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let node_addr = match Self::interpret_args(args, streams.stderr) {
             Ok(p) => p,
             Err(msg) => {
@@ -231,7 +231,7 @@ impl MockNode {
         return 1;
     }
 
-    fn interpret_args(args: &Vec<String>, stderr: &mut dyn Write) -> Result<NodeAddr, String> {
+    fn interpret_args(args: &[String], stderr: &mut dyn Write) -> Result<NodeAddr, String> {
         if args.len() != 2 {
             Self::usage(stderr);
             return Err(String::new());
@@ -346,8 +346,8 @@ impl MockNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use node_lib::test_utils::find_free_port;
-    use node_lib::test_utils::FakeStreamHolder;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::utils::find_free_port;
     use std::io::Read;
     use std::io::Write;
     use std::net::IpAddr;

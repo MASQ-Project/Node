@@ -7,6 +7,7 @@ use crate::masq_node::PortSelector;
 use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
+use masq_lib::utils::localhost;
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::blockchain::blockchain_interface::chain_id_from_name;
 use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
@@ -16,7 +17,6 @@ use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
 use node_lib::sub_lib::node_addr::NodeAddr;
-use node_lib::sub_lib::utils::localhost;
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
@@ -1151,8 +1151,8 @@ impl Drop for MASQRealNodeGuts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use node_lib::persistent_configuration::{HTTP_PORT, TLS_PORT};
-    use node_lib::sub_lib::utils::localhost;
+    use masq_lib::constants::{HTTP_PORT, TLS_PORT};
+    use masq_lib::utils::localhost;
 
     #[test]
     fn node_startup_config_builder_zero_hop() {

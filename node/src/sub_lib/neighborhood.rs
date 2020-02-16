@@ -11,13 +11,13 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::ui_gateway::NodeFromUiMessage;
 use crate::sub_lib::utils::node_descriptor_delimiter;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use core::fmt;
 use lazy_static::lazy_static;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
@@ -410,10 +410,10 @@ impl fmt::Display for GossipFailure_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_real::CryptDEReal;
-    use crate::sub_lib::utils::localhost;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use actix::Actor;
+    use masq_lib::utils::localhost;
     use std::str::FromStr;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {

@@ -488,7 +488,6 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistent_configuration::HTTP_PORT;
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
@@ -512,6 +511,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::{await_messages, make_wallet};
     use actix::System;
+    use masq_lib::constants::HTTP_PORT;
     use std::cell::RefCell;
     use std::io::Error;
     use std::io::ErrorKind;

@@ -62,11 +62,11 @@ impl ClientRequestPayloadFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistent_configuration::HTTP_PORT;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::{main_cryptde, make_meaningless_stream_key};
+    use masq_lib::constants::HTTP_PORT;
     use std::net::SocketAddr;
     use std::str::FromStr;
 

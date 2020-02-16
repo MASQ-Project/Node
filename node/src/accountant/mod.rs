@@ -22,15 +22,9 @@ use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
-use crate::sub_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, UiCarrierMessage, UiMessage};
+use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
-use crate::ui_gateway::messages::UiMessageError::BadOpcode;
-use crate::ui_gateway::messages::{
-    FromMessageBody, ToMessageBody, UiFinancialsRequest, UiFinancialsResponse, UiMessageError,
-    UiPayableAccount, UiReceivableAccount,
-};
 use actix::Actor;
 use actix::Addr;
 use actix::AsyncContext;
@@ -41,6 +35,11 @@ use actix::Recipient;
 use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use masq_lib::messages::UiMessageError::UnexpectedMessage;
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest, UiMessageError};
+use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
+use masq_lib::ui_gateway::MessageTarget::ClientId;
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::thread;
@@ -288,7 +287,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
             UiFinancialsRequest::fmb(msg.body);
         match result {
             Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
-            Err(e) if e == BadOpcode => (),
+            Err(UnexpectedMessage(_, _)) => (),
             Err(e) => error!(
                 &self.logger,
                 "Bad {} request from client {}: {:?}", opcode, client_id, e
@@ -662,10 +661,7 @@ pub mod tests {
         FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
-    use crate::sub_lib::ui_gateway::{
-        MessageBody, MessageTarget, NodeFromUiMessage, UiCarrierMessage, UiMessage,
-    };
+    use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -674,12 +670,11 @@ pub mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::ui_gateway::messages::{
-        UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
-    };
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
+    use masq_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
+    use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
     use std::convert::TryFrom;
     use std::ops::Sub;

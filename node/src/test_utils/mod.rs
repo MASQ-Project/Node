@@ -5,7 +5,6 @@ pub mod channel_wrapper_mocks;
 pub mod config_dao_mock;
 pub mod data_hunk;
 pub mod data_hunk_framer;
-pub mod environment_guard;
 pub mod little_tcp_server;
 pub mod logging;
 pub mod neighborhood_test_utils;
@@ -18,7 +17,6 @@ pub mod tokio_wrapper_mocks;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
-use crate::persistent_configuration::HTTP_PORT;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -26,7 +24,6 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::hopper::MessageType;
-use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RatePack;
@@ -37,11 +34,11 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::utils::localhost;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
+use masq_lib::constants::HTTP_PORT;
 use regex::Regex;
 use rustc_hex::ToHex;
 use std::cmp::min;
@@ -50,13 +47,13 @@ use std::collections::HashSet;
 use std::convert::From;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::io::{Error, ErrorKind};
 use std::iter::repeat;
+use std::net::SocketAddr;
 use std::net::{Shutdown, TcpStream};
-use std::net::{SocketAddr, TcpListener};
-use std::path::PathBuf;
 use std::str::from_utf8;
 use std::str::FromStr;
 use std::sync::mpsc;
@@ -67,7 +64,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use std::{fs, io};
 
 pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
 pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten"; //For testing only
@@ -149,36 +145,6 @@ impl Read for ByteArrayReader {
         }
         self.position += to_copy;
         Ok(to_copy)
-    }
-}
-
-pub struct FakeStreamHolder {
-    pub stdin: ByteArrayReader,
-    pub stdout: ByteArrayWriter,
-    pub stderr: ByteArrayWriter,
-}
-
-impl Default for FakeStreamHolder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FakeStreamHolder {
-    pub fn new() -> FakeStreamHolder {
-        FakeStreamHolder {
-            stdin: ByteArrayReader::new(&[0; 0]),
-            stdout: ByteArrayWriter::new(),
-            stderr: ByteArrayWriter::new(),
-        }
-    }
-
-    pub fn streams(&mut self) -> StdStreams<'_> {
-        StdStreams {
-            stdin: &mut self.stdin,
-            stdout: &mut self.stdout,
-            stderr: &mut self.stderr,
-        }
     }
 }
 
@@ -419,35 +385,6 @@ pub fn rate_pack(base_rate: u64) -> RatePack {
     }
 }
 
-const FIND_FREE_PORT_LOWEST: u16 = 32768;
-const FIND_FREE_PORT_HIGHEST: u16 = 65535;
-
-lazy_static! {
-    static ref FIND_FREE_PORT_NEXT: Arc<Mutex<u16>> = Arc::new(Mutex::new(FIND_FREE_PORT_LOWEST));
-}
-
-fn next_port(port: u16) -> u16 {
-    match port {
-        p if p < FIND_FREE_PORT_HIGHEST => p + 1,
-        _ => FIND_FREE_PORT_LOWEST,
-    }
-}
-
-pub fn find_free_port() -> u16 {
-    let mut candidate = FIND_FREE_PORT_NEXT.lock().unwrap();
-    loop {
-        match TcpListener::bind(SocketAddr::new(localhost(), *candidate)) {
-            Err(ref e) if e.kind() == ErrorKind::AddrInUse => *candidate = next_port(*candidate),
-            Err(e) => panic!("Couldn't find free port: {:?}", e),
-            Ok(_listener) => {
-                let result = *candidate;
-                *candidate = next_port(*candidate);
-                return result;
-            }
-        }
-    }
-}
-
 pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc<Mutex<Vec<T>>>) {
     let local_arc_mutex = messages_arc_mutex.clone();
     let limit = 1000u64;
@@ -532,26 +469,6 @@ where
 {
     let set: BTreeSet<T> = vec.into_iter().collect();
     set
-}
-
-pub const BASE_TEST_DIR: &str = "generated/test";
-
-pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
-    let home_dir_string = format!("{}/{}/{}/home", BASE_TEST_DIR, module, name);
-    PathBuf::from(home_dir_string.as_str())
-}
-
-pub fn ensure_node_home_directory_does_not_exist(module: &str, name: &str) -> PathBuf {
-    let home_dir = node_home_directory(module, name);
-    let _ = fs::remove_dir_all(&home_dir);
-    home_dir
-}
-
-pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
-    let home_dir = node_home_directory(module, name);
-    let _ = fs::remove_dir_all(&home_dir);
-    let _ = fs::create_dir_all(&home_dir);
-    home_dir
 }
 
 pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {

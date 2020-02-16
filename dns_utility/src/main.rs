@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use dns_utility_lib::dns_utility::DnsUtility;
-use dns_utility_lib::main_tools::Command;
-use dns_utility_lib::main_tools::StdStreams;
+use masq_lib::command::Command;
+use masq_lib::command::StdStreams;
 use std::io;
 
 pub fn main() {

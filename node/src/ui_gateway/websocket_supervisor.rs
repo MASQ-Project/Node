@@ -1,15 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::ui_gateway::MessagePath::TwoWay;
-use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
-use crate::sub_lib::ui_gateway::{
-    FromUiMessage, MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
-};
-use crate::sub_lib::utils::localhost;
-use crate::ui_gateway::messages::ToMessageBody;
-use crate::ui_gateway::messages::{UiUnmarshalError, UNMARSHAL_ERROR};
-use crate::ui_gateway::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
-use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
+use crate::sub_lib::ui_gateway::FromUiMessage;
 use actix::Recipient;
 use bytes::BytesMut;
 use futures::future::FutureResult;
@@ -20,6 +11,13 @@ use futures::Future;
 use futures::Sink;
 use futures::Stream;
 use itertools::Itertools;
+use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL, UNMARSHAL_ERROR};
+use masq_lib::ui_gateway::MessagePath::TwoWay;
+use masq_lib::ui_gateway::MessageTarget::ClientId;
+use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_traffic_converter::UiTrafficConverter;
+use masq_lib::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
+use masq_lib::utils::localhost;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -70,6 +68,7 @@ pub struct WebSocketSupervisorReal {
 }
 
 struct WebSocketSupervisorInner {
+    port: u16,
     next_client_id: u64,
     from_ui_message: Recipient<FromUiMessage>,
     from_ui_message_sub: Recipient<NodeFromUiMessage>,
@@ -103,6 +102,7 @@ impl WebSocketSupervisorReal {
         from_ui_message_sub: Recipient<NodeFromUiMessage>,
     ) -> WebSocketSupervisorReal {
         let inner = Arc::new(Mutex::new(WebSocketSupervisorInner {
+            port,
             next_client_id: 0,
             from_ui_message,
             from_ui_message_sub,
@@ -142,7 +142,7 @@ impl WebSocketSupervisorReal {
             MessageTarget::ClientId(n) => vec![n],
             MessageTarget::AllClients => locked_inner.client_by_id.keys().copied().collect_vec(),
         };
-        let json = UiTrafficConverterReal::new().new_marshal_to_ui(msg);
+        let json = UiTrafficConverter::new_marshal_to_ui(msg);
         Self::send_to_clients(locked_inner, client_ids, json);
     }
 
@@ -173,7 +173,10 @@ impl WebSocketSupervisorReal {
         inner: Arc<Mutex<WebSocketSupervisorInner>>,
         logger: &Logger,
     ) {
-        if upgrade.protocols().contains(&String::from("MASQNode-UIv2")) {
+        if upgrade
+            .protocols()
+            .contains(&String::from(NODE_UI_PROTOCOL))
+        {
             Self::accept_upgrade_request(upgrade, socket_addr, inner, logger);
         } else if upgrade.protocols().contains(&String::from("MASQNode-UI")) {
             Self::accept_old_upgrade_request(upgrade, socket_addr, inner, logger);
@@ -215,7 +218,7 @@ impl WebSocketSupervisorReal {
         info!(logger_clone, "UI connected at {}", socket_addr);
         let upgrade_future =
             upgrade
-                .use_protocol("MASQNode-UIv2")
+                .use_protocol(NODE_UI_PROTOCOL)
                 .accept()
                 .map(move |(client, _)| {
                     Self::handle_connection(client, &inner, &logger_clone, socket_addr, false);
@@ -250,6 +253,9 @@ impl WebSocketSupervisorReal {
         let (outgoing, incoming) = client.split();
         // "Going synchronous" here to avoid calling .send() on an async Sink, which consumes it
         let sync_outgoing: Wait<SplitSink<_>> = outgoing.wait();
+        let client_wrapper = Box::new(ClientWrapperReal {
+            delegate: sync_outgoing,
+        });
         let mut locked_inner = inner.lock().expect("WebSocketSupervisor is poisoned");
         let client_id = locked_inner.next_client_id;
         locked_inner.next_client_id += 1;
@@ -257,19 +263,11 @@ impl WebSocketSupervisorReal {
             .client_id_by_socket_addr
             .insert(socket_addr, client_id);
         if old_protocol {
-            locked_inner.old_client_by_id.insert(
-                client_id,
-                Box::new(ClientWrapperReal {
-                    delegate: sync_outgoing,
-                }),
-            );
+            locked_inner
+                .old_client_by_id
+                .insert(client_id, client_wrapper);
         } else {
-            locked_inner.client_by_id.insert(
-                client_id,
-                Box::new(ClientWrapperReal {
-                    delegate: sync_outgoing,
-                }),
-            );
+            locked_inner.client_by_id.insert(client_id, client_wrapper);
         }
         let incoming_future = incoming
             .then(move |result| Self::handle_websocket_errors(result, &logger_2, socket_addr))
@@ -317,7 +315,7 @@ impl WebSocketSupervisorReal {
                 })
                 .expect("UiGateway is dead");
         } else {
-            match UiTrafficConverterReal::new().new_unmarshal_from_ui(message, client_id) {
+            match UiTrafficConverter::new_unmarshal_from_ui(message, client_id) {
                 Ok(from_ui_message) => {
                     locked_inner
                         .from_ui_message_sub
@@ -391,14 +389,24 @@ impl WebSocketSupervisorReal {
         logger: &Logger,
         socket_addr: SocketAddr,
     ) -> FutureResult<(), ()> {
-        info!(logger, "UI at {} disconnected", socket_addr);
         let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is poisoned");
         let client_id = match locked_inner.client_id_by_socket_addr.remove(&socket_addr) {
             None => {
-                panic!("WebSocketSupervisor got a disconnect from a client that never connected!")
+                error!(
+                    logger,
+                    "WebSocketSupervisor got a disconnect from a client that never connected!"
+                );
+                return err::<(), ()>(());
             }
             Some(client_id) => client_id,
         };
+        info!(
+            logger,
+            "UI at {} (client ID {}) disconnected from port {}",
+            socket_addr,
+            client_id,
+            locked_inner.port
+        );
         Self::close_connection(&mut locked_inner, client_id, socket_addr, &logger);
 
         err::<(), ()>(()) // end the stream
@@ -442,11 +450,12 @@ impl WebSocketSupervisorReal {
         socket_addr: SocketAddr,
     ) -> FutureResult<I, ()> {
         match result {
-            Err(_e) => {
+            Err(e) => {
                 warning!(
                     logger,
-                    "UI at {} violated protocol: terminating",
-                    socket_addr
+                    "UI at {} violated protocol ({:?}): terminating",
+                    socket_addr,
+                    e
                 );
                 err::<I, ()>(())
             }
@@ -460,9 +469,9 @@ impl WebSocketSupervisorReal {
         socket_addr: SocketAddr,
         logger: &Logger,
     ) {
-        let client = match locked_inner.client_by_id.get_mut(&client_id) {
+        let mut client = match locked_inner.client_by_id.remove(&client_id) {
             Some(client) => client,
-            None => match locked_inner.old_client_by_id.get_mut(&client_id) {
+            None => match locked_inner.old_client_by_id.remove(&client_id) {
                 Some(client) => client,
                 None => panic!("WebSocketSupervisor got a disconnect from a client that has disappeared from the stable!"),
             },
@@ -474,9 +483,11 @@ impl WebSocketSupervisorReal {
                 socket_addr,
                 e
             ),
-            Ok(_) => client
-                .flush()
-                .unwrap_or_else(|_| panic!("Couldn't flush transmission to UI at {}", socket_addr)),
+            Ok(_) => {
+                client.flush().unwrap_or_else(|_| {
+                    panic!("Couldn't flush transmission to UI at {}", socket_addr)
+                });
+            }
         }
     }
 }
@@ -484,24 +495,27 @@ impl WebSocketSupervisorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
-    use crate::sub_lib::ui_gateway::MessageTarget::ClientId;
-    use crate::sub_lib::ui_gateway::{
-        FromUiMessage, MessageBody, MessageTarget, NodeFromUiMessage, UiMessage,
-    };
+    use crate::sub_lib::ui_gateway::{FromUiMessage, UiMessage};
+    use crate::test_utils::assert_contains;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::wait_for;
-    use crate::test_utils::{assert_contains, find_free_port};
-    use crate::ui_gateway::messages::FromMessageBody;
-    use crate::ui_gateway::messages::{UiUnmarshalError, UNMARSHAL_ERROR};
-    use crate::ui_gateway::ui_traffic_converter::{UiTrafficConverter, UiTrafficConverterReal};
+    use crate::ui_gateway::ui_traffic_converter::{
+        UiTrafficConverterOld, UiTrafficConverterOldReal,
+    };
     use actix::Actor;
     use actix::Addr;
     use actix::System;
     use futures::future::lazy;
+    use masq_lib::messages::{
+        FromMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL, UNMARSHAL_ERROR,
+    };
+    use masq_lib::ui_gateway::MessagePath::OneWay;
+    use masq_lib::ui_gateway::NodeFromUiMessage;
+    use masq_lib::ui_traffic_converter::UiTrafficConverter;
+    use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::net::Shutdown;
@@ -836,8 +850,8 @@ mod tests {
             system.run();
         });
 
-        let mut one_client = wait_for_client(port, "MASQNode-UIv2");
-        let mut another_client = wait_for_client(port, "MASQNode-UIv2");
+        let mut one_client = wait_for_client(port, NODE_UI_PROTOCOL);
+        let mut another_client = wait_for_client(port, NODE_UI_PROTOCOL);
 
         one_client
             .send_message(&Message::text(r#"{"opcode": "one", "payload": {}}"#))
@@ -909,6 +923,7 @@ mod tests {
         let (from_ui_message, _, _) = make_recorder();
         let (ui_message_sub, _, _) = make_recorder();
         let subject_inner = WebSocketSupervisorInner {
+            port: 4321,
             next_client_id: 0,
             from_ui_message: from_ui_message.start().recipient::<FromUiMessage>(),
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
@@ -960,9 +975,8 @@ mod tests {
             OwnedMessage::Text(s) => s,
             x => panic!("Expected OwnedMessage::Text, got {:?}", x),
         };
-        let actual_struct = UiTrafficConverterReal::new()
-            .new_unmarshal_to_ui(&actual_json, ClientId(0))
-            .unwrap();
+        let actual_struct =
+            UiTrafficConverter::new_unmarshal_to_ui(&actual_json, ClientId(0)).unwrap();
         assert_eq!(actual_struct.target, ClientId(0));
         assert_eq!(
             UiUnmarshalError::fmb(actual_struct.body).unwrap().0,
@@ -979,6 +993,7 @@ mod tests {
         let (from_ui_message, _, _) = make_recorder();
         let (ui_message_sub, _, _) = make_recorder();
         let subject_inner = WebSocketSupervisorInner {
+            port: 1234,
             next_client_id: 0,
             from_ui_message: from_ui_message.start().recipient::<FromUiMessage>(),
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
@@ -1002,7 +1017,7 @@ mod tests {
                 .client_id_by_socket_addr
                 .insert(socket_addr, client_id);
         }
-        let bad_message_json = r#"{"opcode":"shutdownOrder"}"#;
+        let bad_message_json = r#"{"opcode":"shutdown"}"#;
 
         let _ = WebSocketSupervisorReal::handle_text_message(
             &subject.inner,
@@ -1015,7 +1030,7 @@ mod tests {
         let expected_traffic_conversion_message =
             format!("Required field was missing: payload, error");
         let expected_unmarshal_message = format!(
-            "Error unmarshalling 'shutdownOrder' message: {}",
+            "Error unmarshalling 'shutdown' message: {}",
             expected_traffic_conversion_message
         );
         TestLogHandler::new().exists_log_containing(
@@ -1030,9 +1045,8 @@ mod tests {
             OwnedMessage::Text(s) => s,
             x => panic!("Expected OwnedMessage::Text, got {:?}", x),
         };
-        let actual_struct = UiTrafficConverterReal::new()
-            .new_unmarshal_to_ui(&actual_json, ClientId(0))
-            .unwrap();
+        let actual_struct =
+            UiTrafficConverter::new_unmarshal_to_ui(&actual_json, ClientId(0)).unwrap();
         assert_eq!(actual_struct.target, ClientId(0));
         assert_eq!(
             UiUnmarshalError::fmb(actual_struct.body).unwrap().0,
@@ -1049,6 +1063,7 @@ mod tests {
         let (from_ui_message, _, _) = make_recorder();
         let (ui_message_sub, _, _) = make_recorder();
         let subject_inner = WebSocketSupervisorInner {
+            port: 1234,
             next_client_id: 0,
             from_ui_message: from_ui_message.start().recipient::<FromUiMessage>(),
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
@@ -1100,9 +1115,8 @@ mod tests {
             OwnedMessage::Text(s) => s,
             x => panic!("Expected OwnedMessage::Text, got {:?}", x),
         };
-        let actual_struct = UiTrafficConverterReal::new()
-            .new_unmarshal_to_ui(&actual_json, ClientId(0))
-            .unwrap();
+        let actual_struct =
+            UiTrafficConverter::new_unmarshal_to_ui(&actual_json, ClientId(0)).unwrap();
         assert_eq!(
             actual_struct,
             NodeToUiMessage {
@@ -1197,7 +1211,7 @@ mod tests {
                 .flush_result(Ok(()));
             client_id = subject.inject_mock_client(mock_client, true);
 
-            let json_string = UiTrafficConverterReal::new()
+            let json_string = UiTrafficConverterOldReal::new()
                 .marshal(UiMessage::NeighborhoodDotGraphResponse(String::from(
                     "digraph db { }",
                 )))
@@ -1358,7 +1372,7 @@ mod tests {
 
             let one_mock_client_ref = subject.get_mock_client(one_client_id);
             let actual_message = match one_mock_client_ref.send_params.lock().unwrap().get(0) {
-                Some(OwnedMessage::Text(json)) => UiTrafficConverterReal::new().new_unmarshal_to_ui(json.as_str(), MessageTarget::ClientId(one_client_id)).unwrap(),
+                Some(OwnedMessage::Text(json)) => UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::ClientId(one_client_id)).unwrap(),
                 Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
                 None => panic! ("send should have been called, but wasn't"),
             };
@@ -1402,14 +1416,14 @@ mod tests {
             let one_mock_client_ref = subject.get_mock_client(one_client_id);
             let actual_message = match one_mock_client_ref.send_params.lock().unwrap().get(0) {
                 Some(OwnedMessage::Text(json)) =>
-                    UiTrafficConverterReal::new().new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
+                    UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
                 Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
                 None => panic! ("send should have been called, but wasn't"),
             };
             assert_eq!(actual_message, msg);
             let another_mock_client_ref = subject.get_mock_client(another_client_id);
             let actual_message = match another_mock_client_ref.send_params.lock().unwrap().get(0) {
-                Some(OwnedMessage::Text(json)) => UiTrafficConverterReal::new().new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
+                Some(OwnedMessage::Text(json)) => UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
                 Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
                 None => panic! ("send should have been called, but wasn't"),
             };

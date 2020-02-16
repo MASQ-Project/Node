@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::logger::Logger;
+#[allow(unused_imports)]
+use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -10,6 +11,7 @@ use std::path::PathBuf;
 use toml::value::Table;
 use toml::Value;
 
+#[macro_export]
 macro_rules! value_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let matches = $m.arg_matches();
@@ -20,6 +22,7 @@ macro_rules! value_m {
     }};
 }
 
+#[macro_export]
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let matches = $m.arg_matches();
@@ -31,6 +34,7 @@ macro_rules! value_user_specified_m {
     }};
 }
 
+#[macro_export]
 macro_rules! values_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let matches = $m.arg_matches();
@@ -284,7 +288,6 @@ impl VirtualCommandLine for ConfigFileVcl {
 
 impl ConfigFileVcl {
     pub fn new(file_path: &PathBuf, user_specified: bool) -> ConfigFileVcl {
-        let logger = Logger::new("Bootstrapper");
         let mut file: File = match File::open(file_path) {
             Err(e) => {
                 if user_specified {
@@ -293,8 +296,7 @@ impl ConfigFileVcl {
                         file_path, e
                     )
                 } else {
-                    info!(
-                        logger,
+                    println!(
                         "No configuration file was found at {} - skipping",
                         file_path.display()
                     );
@@ -343,26 +345,11 @@ impl ConfigFileVcl {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::test_utils::ensure_node_home_directory_exists;
     use crate::test_utils::environment_guard::EnvironmentGuard;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::test_utils::utils::ensure_node_home_directory_exists;
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;
-
-    pub struct FauxEnvironmentVcl {
-        pub vcl_args: Vec<Box<dyn VclArg>>,
-    }
-
-    impl VirtualCommandLine for FauxEnvironmentVcl {
-        fn vcl_args(&self) -> Vec<&dyn VclArg> {
-            vcl_args_to_vcl_args(&self.vcl_args)
-        }
-
-        fn args(&self) -> Vec<String> {
-            vcl_args_to_args(&self.vcl_args)
-        }
-    }
 
     #[test]
     fn double_provided_optional_single_valued_parameter_with_no_default_produces_second_value() {
@@ -795,7 +782,6 @@ pub(crate) mod tests {
 
     #[test]
     fn config_file_vcl_handles_missing_file_when_not_user_specified() {
-        init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "multi_config",
             "config_file_vcl_handles_missing_file_when_not_user_specified",
@@ -807,9 +793,6 @@ pub(crate) mod tests {
 
         assert_eq!(vec!["".to_string()], subject.args());
         assert!(subject.vcl_args().is_empty());
-        TestLogHandler::new().exists_log_matching(
-            "INFO: Bootstrapper: No configuration file was found at .+ - skipping",
-        );
     }
 
     #[test]

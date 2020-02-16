@@ -1,8 +1,9 @@
-// Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::daemon::launch_verifier::LaunchVerification::{
     CleanFailure, DirtyFailure, InterventionRequired, Launched,
 };
+use masq_lib::messages::NODE_UI_PROTOCOL;
 use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, ProcessStatus, Signal, SystemExt};
@@ -28,7 +29,7 @@ pub struct VerifierToolsReal {}
 impl VerifierTools for VerifierToolsReal {
     fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
         let mut builder = match ClientBuilder::new(format!("ws://127.0.0.1:{}", ui_port).as_str()) {
-            Ok(builder) => builder.add_protocol("MASQNode-UIv2"),
+            Ok(builder) => builder.add_protocol(NODE_UI_PROTOCOL),
             Err(e) => panic!(format!("{:?}", e)),
         };
         builder.connect_insecure().is_ok()
@@ -183,8 +184,7 @@ mod tests {
     use crate::daemon::launch_verifier::LaunchVerification::{
         CleanFailure, InterventionRequired, Launched,
     };
-    use crate::sub_lib::utils::localhost;
-    use crate::test_utils::find_free_port;
+    use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::process::{Child, Command};

@@ -464,10 +464,10 @@ mod tests {
     use super::*;
     use crate::adapter_wrapper::test_utils::AdapterWrapperStub;
     use crate::adapter_wrapper::AdapterWrapper;
-    use crate::fake_stream_holder::FakeStreamHolder;
     use crate::ipconfig_wrapper::test_utils::IpconfigWrapperMock;
     use crate::netsh::tests_utils::NetshMock;
     use crate::utils::get_parameters_from;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io::Error;

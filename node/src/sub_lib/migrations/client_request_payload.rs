@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::migrations::utils::value_to_type;
@@ -56,8 +56,8 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                 let mut originator_public_key_opt: Option<PublicKey> = None;
                 map.keys().for_each(|k| {
                     let v = map.get(k).expect("Disappeared");
-                    match (k, v) {
-                        (Value::Text(field_name), _) => match field_name.as_str() {
+                    if let (Value::Text(field_name), _) = (k, v) {
+                        match field_name.as_str() {
                             "stream_key" => stream_key_opt = value_to_type::<StreamKey>(v),
                             "sequenced_packet" => {
                                 sequenced_packet_opt = value_to_type::<SequencedPacket>(v)
@@ -70,12 +70,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                             "originator_public_key" => {
                                 originator_public_key_opt = value_to_type::<PublicKey>(v)
                             }
-                            _ => {
-                                eprintln!("Skipping: {:?}, {:?}", k, v);
-                            }
-                        },
-                        _ => {
-                            eprintln!("Skipping: {:?}, {:?}", k, v);
+                            _ => (),
                         }
                     }
                 });

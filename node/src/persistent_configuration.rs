@@ -7,17 +7,12 @@ use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use rand::Rng;
 use rusqlite::Transaction;
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-
-pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
-pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
-pub const HIGHEST_USABLE_PORT: u16 = 65535;
-pub const HTTP_PORT: u16 = 80;
-pub const TLS_PORT: u16 = 443;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -448,10 +443,10 @@ mod tests {
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::config_dao_mock::ConfigDaoMock;
-    use crate::test_utils::{
-        ensure_node_home_directory_exists, find_free_port, main_cryptde, DEFAULT_CHAIN_ID,
-    };
+    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::utils::find_free_port;
     use rustc_hex::FromHex;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
     use std::str::FromStr;

@@ -10,6 +10,7 @@ edition = "2018"
 [dependencies]
 regex = "1.2.1"
 libc = "0.2.62"
+masq_lib = { path = "../masq_lib" }
 ipconfig = "0.2.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]

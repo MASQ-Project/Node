@@ -16,13 +16,9 @@ pub mod dns_utility;
 pub mod dynamic_store_dns_modifier;
 #[cfg(target_os = "windows")]
 pub mod ipconfig_wrapper;
-pub mod main_tools;
 #[cfg(target_os = "windows")]
 pub mod netsh;
 pub mod resolv_conf_dns_modifier;
 pub mod utils;
 #[cfg(target_os = "windows")]
 pub mod win_dns_modifier;
-
-#[cfg(test)]
-pub mod fake_stream_holder;

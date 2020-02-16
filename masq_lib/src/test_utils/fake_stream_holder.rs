@@ -1,48 +1,73 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::main_tools::StdStreams;
+use crate::command::StdStreams;
 use std::cmp::min;
 use std::io;
 use std::io::Error;
 use std::io::Read;
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 
 pub struct ByteArrayWriter {
-    pub byte_array: Vec<u8>,
-    pub next_error: Option<Error>,
+    inner_arc: Arc<Mutex<ByteArrayWriterInner>>,
+}
+
+pub struct ByteArrayWriterInner {
+    byte_array: Vec<u8>,
+    next_error: Option<Error>,
+}
+
+impl ByteArrayWriterInner {
+    pub fn get_bytes(&self) -> Vec<u8> {
+        self.byte_array.clone()
+    }
+    pub fn get_string(&self) -> String {
+        String::from_utf8(self.get_bytes()).unwrap()
+    }
+}
+
+impl Default for ByteArrayWriter {
+    fn default() -> Self {
+        ByteArrayWriter {
+            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner {
+                byte_array: vec![],
+                next_error: None,
+            })),
+        }
+    }
 }
 
 impl ByteArrayWriter {
     pub fn new() -> ByteArrayWriter {
-        let vec = Vec::new();
-        ByteArrayWriter {
-            byte_array: vec,
-            next_error: None,
-        }
+        Self::default()
     }
 
-    pub fn get_bytes(&self) -> &[u8] {
-        self.byte_array.as_slice()
+    pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
+        self.inner_arc.clone()
+    }
+
+    pub fn get_bytes(&self) -> Vec<u8> {
+        self.inner_arc.lock().unwrap().byte_array.clone()
     }
     pub fn get_string(&self) -> String {
-        String::from_utf8(self.byte_array.clone()).unwrap()
+        String::from_utf8(self.get_bytes()).unwrap()
     }
 
     pub fn reject_next_write(&mut self, error: Error) {
-        self.next_error = Some(error);
+        self.inner_arc().lock().unwrap().next_error = Some(error);
     }
 }
 
 impl Write for ByteArrayWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let next_error_opt = self.next_error.take();
-        if next_error_opt.is_none() {
+        let mut inner = self.inner_arc.lock().unwrap();
+        if let Some(next_error) = inner.next_error.take() {
+            Err(next_error)
+        } else {
             for byte in buf {
-                self.byte_array.push(*byte)
+                inner.byte_array.push(*byte)
             }
             Ok(buf.len())
-        } else {
-            Err(next_error_opt.unwrap())
         }
     }
 
@@ -68,6 +93,7 @@ impl ByteArrayReader {
 impl Read for ByteArrayReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let to_copy = min(buf.len(), self.byte_array.len() - self.position);
+        #[allow(clippy::needless_range_loop)]
         for idx in 0..to_copy {
             buf[idx] = self.byte_array[self.position + idx]
         }
@@ -82,13 +108,19 @@ pub struct FakeStreamHolder {
     pub stderr: ByteArrayWriter,
 }
 
-impl FakeStreamHolder {
-    pub fn new() -> FakeStreamHolder {
+impl Default for FakeStreamHolder {
+    fn default() -> Self {
         FakeStreamHolder {
             stdin: ByteArrayReader::new(&[0; 0]),
             stdout: ByteArrayWriter::new(),
             stderr: ByteArrayWriter::new(),
         }
+    }
+}
+
+impl FakeStreamHolder {
+    pub fn new() -> FakeStreamHolder {
+        Self::default()
     }
 
     pub fn streams(&mut self) -> StdStreams<'_> {

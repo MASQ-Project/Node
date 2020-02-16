@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::socket_server::SocketServer;
+use masq_lib::command::StdStreams;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -11,7 +11,7 @@ const DNS_PORT: u16 = 53;
 use crate::entry_dns::processing;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-use crate::sub_lib::utils::localhost;
+use masq_lib::utils::localhost;
 
 pub struct DnsSocketServer {
     socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
@@ -54,14 +54,14 @@ impl SocketServer<()> for DnsSocketServer {
         &()
     }
 
-    fn initialize_as_privileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
+    fn initialize_as_privileged(&mut self, _args: &[String], _streams: &mut StdStreams<'_>) {
         let socket_addr = SocketAddr::new(localhost(), DNS_PORT);
         self.socket_wrapper
             .bind(socket_addr)
             .unwrap_or_else(|e| panic!("Cannot bind socket to {:?}: {:?}", socket_addr, e));
     }
 
-    fn initialize_as_unprivileged(&mut self, _args: &Vec<String>, _streams: &mut StdStreams<'_>) {
+    fn initialize_as_unprivileged(&mut self, _args: &[String], _streams: &mut StdStreams<'_>) {
         self.buf = [0; 65536];
     }
 }
@@ -88,7 +88,7 @@ mod tests {
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::FakeStreamHolder;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
     use std::clone::Clone;
@@ -194,7 +194,7 @@ mod tests {
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
         let borrowed_guts = unwrapped_guts.borrow();
         let log = &borrowed_guts.log;
-        assert_eq!(log[0], "bind ('V4(0.0.0.0:53)')")
+        assert_eq!(log[0], "bind ('V4(127.0.0.1:53)')")
     }
 
     #[test]

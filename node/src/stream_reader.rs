@@ -211,7 +211,6 @@ mod tests {
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::persistent_configuration::HTTP_PORT;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
@@ -226,6 +225,7 @@ mod tests {
     use actix::Actor;
     use actix::Addr;
     use actix::System;
+    use masq_lib::constants::HTTP_PORT;
     use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;

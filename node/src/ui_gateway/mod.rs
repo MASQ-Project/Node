@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-pub mod messages;
 mod shutdown_supervisor;
 pub mod ui_traffic_converter;
 mod websocket_supervisor;
@@ -14,14 +13,14 @@ use crate::sub_lib::blockchain_bridge::{SetDbPasswordMsg, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::ui_gateway::{FromUiMessage, NodeFromUiMessage, UiCarrierMessage};
-use crate::sub_lib::ui_gateway::{NodeToUiMessage, UiGatewaySubs};
+use crate::sub_lib::ui_gateway::UiGatewaySubs;
+use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
 use crate::sub_lib::ui_gateway::{UiGatewayConfig, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisor;
 use crate::ui_gateway::shutdown_supervisor::ShutdownSupervisorReal;
-use crate::ui_gateway::ui_traffic_converter::UiTrafficConverter;
-use crate::ui_gateway::ui_traffic_converter::UiTrafficConverterReal;
+use crate::ui_gateway::ui_traffic_converter::UiTrafficConverterOld;
+use crate::ui_gateway::ui_traffic_converter::UiTrafficConverterOldReal;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorReal;
 use actix::Actor;
@@ -29,6 +28,7 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 
 // TODO: Once we switch all the way over to MASQNode-UIv2 protocol, this entire struct should
 // disappear.
@@ -43,7 +43,7 @@ struct UiGatewayOutSubs {
 pub struct UiGateway {
     port: u16,
     node_descriptor: String,
-    converter: Box<dyn UiTrafficConverter>,
+    converter: Box<dyn UiTrafficConverterOld>,
     subs: Option<UiGatewayOutSubs>,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     shutdown_supervisor: Box<dyn ShutdownSupervisor>,
@@ -56,7 +56,7 @@ impl UiGateway {
         UiGateway {
             port: config.ui_port,
             node_descriptor: config.node_descriptor.clone(),
-            converter: Box::new(UiTrafficConverterReal::new()),
+            converter: Box::new(UiTrafficConverterOldReal::new()),
             subs: None,
             websocket_supervisor: None,
             shutdown_supervisor: Box::new(ShutdownSupervisorReal::new()),
@@ -293,17 +293,17 @@ mod tests {
     use super::*;
     use crate::sub_lib::accountant::{FinancialStatisticsMessage, GetFinancialStatisticsMessage};
     use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
-    use crate::sub_lib::ui_gateway::MessagePath::OneWay;
-    use crate::sub_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, UiMessage};
-    use crate::test_utils::find_free_port;
+    use crate::sub_lib::ui_gateway::UiMessage;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::wait_for;
-    use crate::ui_gateway::ui_traffic_converter::UnmarshalError;
     use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
+    use masq_lib::ui_gateway::MessagePath::OneWay;
+    use masq_lib::ui_gateway::{MessageBody, MessageTarget};
+    use masq_lib::utils::find_free_port;
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -327,14 +327,14 @@ mod tests {
         }
     }
 
-    pub struct UiTrafficConverterMock {
+    pub struct UiTrafficConverterOldMock {
         marshal_parameters: Arc<Mutex<Vec<UiMessage>>>,
         marshal_results: RefCell<Vec<Result<String, String>>>,
         unmarshal_parameters: Arc<Mutex<Vec<String>>>,
         unmarshal_results: RefCell<Vec<Result<UiMessage, String>>>,
     }
 
-    impl UiTrafficConverter for UiTrafficConverterMock {
+    impl UiTrafficConverterOld for UiTrafficConverterOldMock {
         fn marshal(&self, ui_message: UiMessage) -> Result<String, String> {
             self.marshal_parameters.lock().unwrap().push(ui_message);
             self.marshal_results.borrow_mut().remove(0)
@@ -347,35 +347,11 @@ mod tests {
                 .push(String::from(json));
             self.unmarshal_results.borrow_mut().remove(0)
         }
-
-        fn new_marshal_from_ui(&self, _msg: NodeFromUiMessage) -> String {
-            unimplemented!()
-        }
-
-        fn new_marshal_to_ui(&self, _msg: NodeToUiMessage) -> String {
-            unimplemented!()
-        }
-
-        fn new_unmarshal_from_ui(
-            &self,
-            _json: &str,
-            _client_id: u64,
-        ) -> Result<NodeFromUiMessage, UnmarshalError> {
-            unimplemented!()
-        }
-
-        fn new_unmarshal_to_ui(
-            &self,
-            _json: &str,
-            _target: MessageTarget,
-        ) -> Result<NodeToUiMessage, UnmarshalError> {
-            unimplemented!()
-        }
     }
 
-    impl UiTrafficConverterMock {
-        fn new() -> UiTrafficConverterMock {
-            UiTrafficConverterMock {
+    impl UiTrafficConverterOldMock {
+        fn new() -> UiTrafficConverterOldMock {
+            UiTrafficConverterOldMock {
                 marshal_parameters: Arc::new(Mutex::new(vec![])),
                 marshal_results: RefCell::new(vec![]),
                 unmarshal_parameters: Arc::new(Mutex::new(vec![])),
@@ -387,13 +363,13 @@ mod tests {
         fn marshal_parameters(
             mut self,
             parameters: &Arc<Mutex<Vec<UiMessage>>>,
-        ) -> UiTrafficConverterMock {
+        ) -> UiTrafficConverterOldMock {
             self.marshal_parameters = parameters.clone();
             self
         }
 
         #[allow(dead_code)]
-        fn marshal_result(self, result: Result<String, String>) -> UiTrafficConverterMock {
+        fn marshal_result(self, result: Result<String, String>) -> UiTrafficConverterOldMock {
             self.marshal_results.borrow_mut().push(result);
             self
         }
@@ -401,12 +377,12 @@ mod tests {
         fn unmarshal_parameters(
             mut self,
             parameters: &Arc<Mutex<Vec<String>>>,
-        ) -> UiTrafficConverterMock {
+        ) -> UiTrafficConverterOldMock {
             self.unmarshal_parameters = parameters.clone();
             self
         }
 
-        fn unmarshal_result(self, result: Result<UiMessage, String>) -> UiTrafficConverterMock {
+        fn unmarshal_result(self, result: Result<UiMessage, String>) -> UiTrafficConverterOldMock {
             self.unmarshal_results.borrow_mut().push(result);
             self
         }
@@ -910,7 +886,7 @@ mod tests {
     #[test]
     fn good_from_ui_message_is_unmarshalled_and_resent() {
         let unmarshal_parameters = Arc::new(Mutex::new(vec![]));
-        let handler = UiTrafficConverterMock::new()
+        let handler = UiTrafficConverterOldMock::new()
             .unmarshal_parameters(&unmarshal_parameters)
             .unmarshal_result(Ok(UiMessage::ShutdownMessage));
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
@@ -954,8 +930,8 @@ mod tests {
     #[test]
     fn bad_from_ui_message_is_logged_and_ignored() {
         init_test_logging();
-        let handler =
-            UiTrafficConverterMock::new().unmarshal_result(Err(String::from("I have a tummyache")));
+        let handler = UiTrafficConverterOldMock::new()
+            .unmarshal_result(Err(String::from("I have a tummyache")));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
 
         thread::spawn(move || {
@@ -998,7 +974,7 @@ mod tests {
         peer_actors.ui_gateway = UiGateway::make_subs_from(&addr);
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        let json = UiTrafficConverterReal::new()
+        let json = UiTrafficConverterOldReal::new()
             .marshal(UiMessage::NeighborhoodDotGraphRequest)
             .unwrap();
         addr.try_send(FromUiMessage { client_id: 0, json }).unwrap();

@@ -2,7 +2,6 @@
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
-use crate::multi_config::MultiConfig;
 use crate::node_configurator::{
     app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
     data_directory_arg, db_password_arg, earning_wallet_arg, flushed_write, language_arg,
@@ -13,11 +12,12 @@ use crate::node_configurator::{
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::main_tools::StdStreams;
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, MnemonicType};
 use clap::{value_t, App, Arg};
 use indoc::indoc;
+use masq_lib::command::StdStreams;
+use masq_lib::multi_config::MultiConfig;
 use std::str::FromStr;
 use unindent::unindent;
 
@@ -325,7 +325,6 @@ mod tests {
     use crate::config_dao::ConfigDaoReal;
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
-    use crate::multi_config::{CommandLineVcl, VirtualCommandLine};
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
@@ -333,6 +332,9 @@ mod tests {
     use crate::sub_lib::wallet::DEFAULT_EARNING_DERIVATION_PATH;
     use crate::test_utils::*;
     use bip39::Seed;
+    use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use regex::Regex;
     use std::cell::RefCell;
     use std::io::Cursor;

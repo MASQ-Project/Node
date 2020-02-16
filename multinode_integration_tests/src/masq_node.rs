@@ -2,7 +2,7 @@
 use crate::command::Command;
 use base64;
 use base64::STANDARD_NO_PAD;
-use node_lib::persistent_configuration::HIGHEST_USABLE_PORT;
+use masq_lib::constants::HIGHEST_USABLE_PORT;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;

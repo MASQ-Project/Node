@@ -1,12 +1,12 @@
-// Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::daemon::launch_verifier::LaunchVerification::{
     CleanFailure, DirtyFailure, InterventionRequired, Launched,
 };
 use crate::daemon::launch_verifier::{LaunchVerifier, LaunchVerifierReal};
 use crate::daemon::{LaunchSuccess, Launcher};
-use crate::test_utils::find_free_port;
 use itertools::Itertools;
+use masq_lib::utils::find_free_port;
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::mpsc::Sender;
@@ -23,6 +23,7 @@ impl Execer for ExecerReal {
             Ok(path) => path,
             Err(e) => return Err(format!("Cannot find executable: {:?}", e)),
         };
+        eprintln!("Executing {:?} with params {:?}", exe_path, params);
         match Command::new(exe_path).args(params).spawn() {
             Ok(child) => Ok(child.id()),
             Err(e) => Err(format!("Cannot execute command: {:?}", e)),
@@ -82,6 +83,7 @@ mod tests {
     use super::*;
     use crate::daemon::launch_verifier::LaunchVerification::Launched;
     use crate::daemon::launch_verifier_mock::LaunchVerifierMock;
+    use masq_lib::ui_gateway::DEFAULT_UI_PORT;
     use std::cell::RefCell;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
@@ -133,7 +135,7 @@ mod tests {
         let params = HashMap::from_iter(
             vec![
                 ("name".to_string(), "value".to_string()),
-                ("ui-port".to_string(), "5333".to_string()),
+                ("ui-port".to_string(), format!("{}", DEFAULT_UI_PORT)),
             ]
             .into_iter(),
         );
@@ -169,7 +171,7 @@ mod tests {
         let params = HashMap::from_iter(
             vec![
                 ("name".to_string(), "value".to_string()),
-                ("ui-port".to_string(), "5333".to_string()),
+                ("ui-port".to_string(), format!("{}", DEFAULT_UI_PORT)),
             ]
             .into_iter(),
         );

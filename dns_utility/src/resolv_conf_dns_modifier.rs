@@ -284,7 +284,7 @@ impl ResolvConfDnsModifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::env;
     use std::fs;
     use std::io::Write;

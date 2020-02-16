@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::utils::localhost;
+use masq_lib::utils::localhost;
 use std::io::Read;
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener};

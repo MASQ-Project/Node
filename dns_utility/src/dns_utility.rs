@@ -2,8 +2,8 @@
 use crate::dns_modifier::DnsModifier;
 use crate::dns_modifier_factory::DnsModifierFactory;
 use crate::dns_modifier_factory::DnsModifierFactoryReal;
-use crate::main_tools::Command;
-use crate::main_tools::StdStreams;
+use masq_lib::command::Command;
+use masq_lib::command::StdStreams;
 use std::io::Write;
 
 enum Action {
@@ -113,7 +113,7 @@ impl DnsUtility {
 mod tests {
     use super::*;
     use crate::dns_modifier::DnsModifier;
-    use crate::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::cell::RefCell;
     use std::io;
 

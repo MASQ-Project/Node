@@ -519,7 +519,6 @@ mod tests {
     use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::{
@@ -529,6 +528,7 @@ mod tests {
         route_to_proxy_server, DEFAULT_CHAIN_ID,
     };
     use actix::System;
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use std::net::SocketAddr;
     use std::str::FromStr;
 

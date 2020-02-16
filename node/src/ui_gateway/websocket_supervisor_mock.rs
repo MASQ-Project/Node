@@ -1,8 +1,8 @@
-// Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 #![cfg(test)]
 
-use crate::sub_lib::ui_gateway::NodeToUiMessage;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
+use masq_lib::ui_gateway::NodeToUiMessage;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]

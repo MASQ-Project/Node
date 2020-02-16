@@ -136,8 +136,6 @@ impl ListenerHandlerFactoryReal {
 mod tests {
     use super::*;
     use crate::node_test_utils::NullDiscriminatorFactory;
-    use crate::sub_lib::utils::localhost;
-    use crate::test_utils::find_free_port;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
@@ -148,6 +146,7 @@ mod tests {
     use actix::Actor;
     use actix::Addr;
     use actix::System;
+    use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
     use std::io::Error;
     use std::io::ErrorKind;

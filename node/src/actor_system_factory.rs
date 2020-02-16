@@ -438,14 +438,16 @@ mod tests {
     use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::ui_gateway::{FromUiMessage, NodeFromUiMessage, UiCarrierMessage};
-    use crate::sub_lib::ui_gateway::{NodeToUiMessage, UiGatewayConfig};
+    use crate::sub_lib::ui_gateway::UiGatewayConfig;
+    use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet, DEFAULT_CHAIN_ID};
     use actix::System;
     use log::LevelFilter;
+    use masq_lib::ui_gateway::NodeFromUiMessage;
+    use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::net::IpAddr;

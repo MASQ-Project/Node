@@ -7,13 +7,13 @@ use crate::node_configurator::{
     app_head, chain_arg, common_validators, config_file_arg, data_directory_arg, db_password_arg,
     earning_wallet_arg, initialize_database, real_user_arg, ui_port_arg, NodeConfigurator,
 };
-use crate::persistent_configuration::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use crate::sub_lib::crash_point::CrashPoint;
-use crate::sub_lib::main_tools::StdStreams;
-use crate::sub_lib::ui_gateway::DEFAULT_UI_PORT;
 use clap::{App, Arg};
 use indoc::indoc;
 use lazy_static::lazy_static;
+use masq_lib::command::StdStreams;
+use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::ui_gateway::DEFAULT_UI_PORT;
 
 pub struct NodeConfiguratorStandardPrivileged {}
 
@@ -291,12 +291,11 @@ pub mod standard {
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::PortConfiguration;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
-    use crate::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use crate::node_configurator::{
         determine_config_file_path, mnemonic_seed_exists, real_user_data_directory_and_chain_id,
         request_existing_db_password,
     };
-    use crate::persistent_configuration::{PersistentConfiguration, HTTP_PORT, TLS_PORT};
+    use crate::persistent_configuration::PersistentConfiguration;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -309,6 +308,8 @@ pub mod standard {
     use crate::test_utils::DEFAULT_CHAIN_ID;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
+    use masq_lib::constants::{HTTP_PORT, TLS_PORT};
+    use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use rustc_hex::{FromHex, ToHex};
     use std::convert::TryInto;
     use std::str::FromStr;
@@ -725,7 +726,7 @@ pub mod standard {
 }
 
 mod validators {
-    use super::*;
+    use masq_lib::constants::LOWEST_USABLE_INSECURE_PORT;
     use regex::Regex;
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -773,10 +774,6 @@ mod tests {
     use crate::bootstrapper::RealUser;
     use crate::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::multi_config::tests::FauxEnvironmentVcl;
-    use crate::multi_config::{
-        CommandLineVcl, ConfigFileVcl, MultiConfig, NameValueVclArg, VclArg, VirtualCommandLine,
-    };
     use crate::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal};
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::crash_point::CrashPoint;
@@ -788,13 +785,16 @@ mod tests {
     };
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::{
-        ensure_node_home_directory_exists, main_cryptde, ArgsBuilder, TEST_DEFAULT_CHAIN_NAME,
-    };
+    use crate::test_utils::ByteArrayWriter;
+    use crate::test_utils::{main_cryptde, ArgsBuilder, TEST_DEFAULT_CHAIN_NAME};
     use crate::test_utils::{make_default_persistent_configuration, DEFAULT_CHAIN_ID};
-    use crate::test_utils::{ByteArrayWriter, FakeStreamHolder};
+    use masq_lib::multi_config::{
+        CommandLineVcl, ConfigFileVcl, MultiConfig, NameValueVclArg, VclArg, VirtualCommandLine,
+    };
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rustc_hex::{FromHex, ToHex};
     use std::fs::File;
     use std::io::Cursor;
@@ -1669,7 +1669,7 @@ mod tests {
             )
         );
         assert_eq!(config.crash_point, CrashPoint::None);
-        assert_eq!(config.ui_gateway_config.ui_port, 5333);
+        assert_eq!(config.ui_gateway_config.ui_port, DEFAULT_UI_PORT);
         assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(config.real_user, RealUser::null().populate());
     }
@@ -2114,7 +2114,7 @@ mod tests {
             &"not valid hex",
         ))];
 
-        let faux_environment = FauxEnvironmentVcl { vcl_args };
+        let faux_environment = CommandLineVcl::from(vcl_args);
 
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -2148,7 +2148,7 @@ mod tests {
             &"cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
         ))];
 
-        let faux_environment = FauxEnvironmentVcl { vcl_args };
+        let faux_environment = CommandLineVcl::from(vcl_args);
 
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());

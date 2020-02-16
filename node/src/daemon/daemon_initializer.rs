@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::blockchain::blockchain_interface::chain_name_from_id;
 use crate::daemon::launcher::LauncherReal;
@@ -7,12 +7,13 @@ use crate::daemon::{
 };
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
 use crate::server_initializer::{LoggerInitializerWrapper, LoggerInitializerWrapperReal};
-use crate::sub_lib::main_tools::{main_with_args, Command, StdStreams};
+use crate::sub_lib::main_tools::main_with_args;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::ui_gateway::UiGateway;
 use actix::{Actor, System, SystemRunner};
 use flexi_logger::LevelFilter;
 use itertools::Itertools;
+use masq_lib::command::{Command, StdStreams};
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 
@@ -76,7 +77,7 @@ pub struct DaemonInitializer {
 }
 
 impl Command for DaemonInitializer {
-    fn go(&mut self, _streams: &mut StdStreams<'_>, _args: &Vec<String>) -> u8 {
+    fn go(&mut self, _streams: &mut StdStreams<'_>, _args: &[String]) -> u8 {
         let system = System::new("daemon");
         let (sender, receiver) = self.channel_factory.make();
 

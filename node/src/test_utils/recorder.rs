@@ -39,15 +39,14 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::ui_gateway::{
-    FromUiMessage, NodeFromUiMessage, NodeToUiMessage, UiCarrierMessage,
-};
+use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
 use crate::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;

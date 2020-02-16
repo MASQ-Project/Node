@@ -2,19 +2,18 @@
 
 pub mod utils;
 
+use masq_lib::messages::{ToMessageBody, UiShutdownRequest, NODE_UI_PROTOCOL};
+use masq_lib::messages::{
+    UiFinancialsRequest, UiRedirect, UiSetup, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
+};
+use masq_lib::test_utils::ui_connection::UiConnection;
+use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
-use node_lib::test_utils::find_free_port;
-use node_lib::ui_gateway::messages::ToMessageBody;
-use node_lib::ui_gateway::messages::{
-    UiFinancialsRequest, UiRedirect, UiSetup, UiShutdownOrder, UiStartOrder, UiStartResponse,
-    NODE_NOT_RUNNING_ERROR,
-};
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
 use utils::MASQNode;
-use utils::UiConnection;
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -39,7 +38,7 @@ fn initialization_sequence_integration() {
     let mut daemon = MASQNode::start_daemon(Some(
         CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str()),
     ));
-    let mut initialization_client = UiConnection::new(daemon_port, "MASQNode-UIv2");
+    let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
     let data_directory = std::env::current_dir()
         .unwrap()
         .join("generated")
@@ -89,8 +88,8 @@ fn initialization_sequence_integration() {
     let actual_payload: UiFinancialsRequest =
         serde_json::from_str(&running_financials_response.payload).unwrap();
     assert_eq!(actual_payload, expected_payload);
-    let mut service_client = UiConnection::new(start_response.redirect_ui_port, "MASQNode-UIv2");
-    service_client.send(UiShutdownOrder {});
+    let mut service_client = UiConnection::new(start_response.redirect_ui_port, NODE_UI_PROTOCOL);
+    service_client.send(UiShutdownRequest {});
     wait_for_process_end(start_response.new_process_id);
     let _ = daemon.kill();
     match daemon.wait_for_exit() {
@@ -105,7 +104,7 @@ fn wait_for_process_end(process_id: u32) {
     loop {
         if SystemTime::now().gt(&deadline) {
             panic!(
-                "Process {} not dead after receiving shutdownOrder",
+                "Process {} not dead after receiving shutdownRequest",
                 process_id
             )
         }

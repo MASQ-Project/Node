@@ -950,7 +950,6 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
-    use crate::persistent_configuration::{HTTP_PORT, TLS_PORT};
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -985,6 +984,7 @@ mod tests {
     use crate::test_utils::{make_meaningless_route, make_paying_wallet};
     use crate::test_utils::{make_meaningless_stream_key, DEFAULT_CHAIN_ID};
     use actix::System;
+    use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::str::FromStr;

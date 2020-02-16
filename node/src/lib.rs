@@ -3,8 +3,15 @@
 
 #[macro_use]
 pub mod sub_lib;
+
+#[cfg_attr(test, macro_use)]
+extern crate clap;
+
 #[macro_use]
-mod multi_config;
+extern crate masq_lib;
+
+#[cfg(test)]
+mod node_test_utils;
 
 pub mod accountant;
 mod actor_system_factory;
@@ -42,9 +49,3 @@ mod stream_writer_unsorted;
 pub mod test_utils;
 pub mod tls_discriminator_factory;
 pub mod ui_gateway;
-
-#[cfg_attr(test, macro_use)]
-extern crate clap;
-
-#[cfg(test)]
-mod node_test_utils;

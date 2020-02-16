@@ -137,13 +137,13 @@ impl Dispatcher {
 mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::persistent_configuration::HTTP_PORT;
     use crate::stream_messages::NonClandestineAttributes;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use actix::Addr;
     use actix::System;
+    use masq_lib::constants::HTTP_PORT;
     use std::net::SocketAddr;
     use std::str::FromStr;
 

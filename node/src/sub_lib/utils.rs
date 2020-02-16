@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
@@ -38,10 +37,6 @@ macro_rules! send_start_message {
             .try_send(StartMessage {})
             .expect(&format!("Actor for {:?} is dead", $subs));
     };
-}
-
-pub fn localhost() -> IpAddr {
-    IpAddr::V4(Ipv4Addr::LOCALHOST)
 }
 
 pub fn indicates_dead_stream(kind: ErrorKind) -> bool {
