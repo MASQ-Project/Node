@@ -1,0 +1,25 @@
+name: ci-matrix
+
+on:
+  pull_request:
+    types: [assigned, opened, synchronize, reopened]
+    branches:
+      - master
+      - release/*
+
+jobs:
+  build:
+    name: Build node on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macOS-latest, ubuntu-latest, windows-latest]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build ${{ matrix.os }}
+      run: |
+        rustup show
+        rustup update stable
+        ./ci/all.sh
+      shell: bash
+      
