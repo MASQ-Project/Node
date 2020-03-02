@@ -2,9 +2,9 @@
 
 pub mod utils;
 
-use masq_lib::messages::{ToMessageBody, UiShutdownRequest, NODE_UI_PROTOCOL};
+use masq_lib::messages::{ToMessageBody, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL};
 use masq_lib::messages::{
-    UiFinancialsRequest, UiRedirect, UiSetup, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
+    UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::utils::find_free_port;
@@ -46,8 +46,8 @@ fn initialization_sequence_integration() {
         .join("initialization_sequence_integration")
         .to_string_lossy()
         .to_string();
-    let _: UiSetup = initialization_client
-        .transact(UiSetup::new(vec![
+    let _: UiSetupRequest = initialization_client
+        .transact(UiSetupRequest::new(vec![
             ("dns-servers", "1.1.1.1"),
             ("neighborhood-mode", "zero-hop"),
             ("log-level", "trace"),

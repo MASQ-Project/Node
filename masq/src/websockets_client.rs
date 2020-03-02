@@ -170,8 +170,9 @@ mod tests {
     use super::*;
     use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
     use crate::websockets_client::ClientError::{ConnectionDropped, NoServer};
-    use masq_lib::messages::{FromMessageBody, UiUnmarshalError};
-    use masq_lib::messages::{UiSetup, UiSetupValue};
+    use masq_lib::messages::FromMessageBody;
+    use masq_lib::messages::UiSetupValue;
+    use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiUnmarshalError};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::TwoWay;
     use masq_lib::ui_traffic_converter::TrafficConversionError::JsonSyntaxError;
@@ -287,7 +288,7 @@ mod tests {
         let connection = NodeConnection::new(port).unwrap();
         let mut subject = connection.start_conversation();
 
-        let result = subject.transact(nfum(UiSetup { values: vec![] }));
+        let result = subject.transact(nfum(UiSetupRequest { values: vec![] }));
 
         match result {
             Err(ConnectionDropped(_)) => (),
@@ -321,7 +322,7 @@ mod tests {
         let connection = NodeConnection::new(port).unwrap();
         let mut subject = connection.start_conversation();
 
-        let result = subject.transact(nfum(UiSetup { values: vec![] }));
+        let result = subject.transact(nfum(UiSetupRequest { values: vec![] }));
 
         stop_handle.stop();
         assert_eq!(
@@ -341,7 +342,9 @@ mod tests {
         let connection = NodeConnection::new(port).unwrap();
         let mut subject = connection.start_conversation();
 
-        let result = subject.transact(nfum(UiSetup { values: vec![] })).unwrap();
+        let result = subject
+            .transact(nfum(UiSetupRequest { values: vec![] }))
+            .unwrap();
 
         stop_handle.stop();
         assert_eq!(result.body.payload, Err((101, "booga".to_string())));
@@ -352,7 +355,8 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_response(nftm2(
             1,
-            UiSetup {
+            UiSetupResponse {
+                running: true,
                 values: vec![UiSetupValue::new("type", "response")],
             },
         ));
@@ -361,19 +365,19 @@ mod tests {
         let mut subject = connection.start_conversation();
 
         let response_body = subject
-            .transact(nfum(UiSetup {
+            .transact(nfum(UiSetupRequest {
                 values: vec![UiSetupValue::new("type", "request")],
             }))
             .unwrap()
             .body;
 
-        let response = UiSetup::fmb(response_body).unwrap();
+        let response = UiSetupResponse::fmb(response_body).unwrap();
         let requests = stop_handle.stop();
         assert_eq!(
             requests,
             vec![Ok(NodeFromUiMessage {
                 client_id: 0,
-                body: UiSetup {
+                body: UiSetupRequest {
                     values: vec![UiSetupValue::new("type", "request")]
                 }
                 .tmb(1)
@@ -382,7 +386,8 @@ mod tests {
         assert_eq!(
             response,
             (
-                UiSetup {
+                UiSetupResponse {
+                    running: true,
                     values: vec![UiSetupValue::new("type", "response")]
                 },
                 1
@@ -397,14 +402,16 @@ mod tests {
         let server = MockWebSocketsServer::new(port)
             .queue_response(NodeToUiMessage {
                 target: ClientId(0),
-                body: UiSetup {
+                body: UiSetupResponse {
+                    running: false,
                     values: vec![UiSetupValue::new("type", "conversation 2 response")],
                 }
                 .tmb(2),
             })
             .queue_response(NodeToUiMessage {
                 target: ClientId(0),
-                body: UiSetup {
+                body: UiSetupResponse {
+                    running: true,
                     values: vec![UiSetupValue::new("type", "conversation 1 response")],
                 }
                 .tmb(1),
@@ -415,13 +422,13 @@ mod tests {
         let mut subject2 = connection.start_conversation();
 
         let response1_body = subject1
-            .transact(nfum(UiSetup {
+            .transact(nfum(UiSetupRequest {
                 values: vec![UiSetupValue::new("type", "conversation 1 request")],
             }))
             .unwrap()
             .body;
         let response2_body = subject2
-            .transact(nfum(UiSetup {
+            .transact(nfum(UiSetupRequest {
                 values: vec![UiSetupValue::new("type", "conversation 2 request")],
             }))
             .unwrap()
@@ -435,14 +442,14 @@ mod tests {
             vec![
                 Ok(NodeFromUiMessage {
                     client_id: 0,
-                    body: UiSetup {
+                    body: UiSetupRequest {
                         values: vec![UiSetupValue::new("type", "conversation 1 request")]
                     }
                     .tmb(1)
                 }),
                 Ok(NodeFromUiMessage {
                     client_id: 0,
-                    body: UiSetup {
+                    body: UiSetupRequest {
                         values: vec![UiSetupValue::new("type", "conversation 2 request")]
                     }
                     .tmb(2)
@@ -451,15 +458,17 @@ mod tests {
         );
         assert_eq!(response1_body.path, TwoWay(1));
         assert_eq!(
-            UiSetup::fmb(response1_body).unwrap().0,
-            UiSetup {
+            UiSetupResponse::fmb(response1_body).unwrap().0,
+            UiSetupResponse {
+                running: false,
                 values: vec![UiSetupValue::new("type", "conversation 1 response")]
             }
         );
         assert_eq!(response2_body.path, TwoWay(2));
         assert_eq!(
-            UiSetup::fmb(response2_body).unwrap().0,
-            UiSetup {
+            UiSetupResponse::fmb(response2_body).unwrap().0,
+            UiSetupResponse {
+                running: true,
                 values: vec![UiSetupValue::new("type", "conversation 2 response")]
             }
         );

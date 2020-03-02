@@ -13,7 +13,8 @@ pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
 pub const NODE_LAUNCH_ERROR: u64 = 0x8000_0000_0000_0001;
 pub const NODE_NOT_RUNNING_ERROR: u64 = 0x8000_0000_0000_0002;
-pub const UNMARSHAL_ERROR: u64 = 0x8000_0000_0000_0003;
+pub const NODE_ALREADY_RUNNING_ERROR: u64 = 0x8000_0000_0000_0003;
+pub const UNMARSHAL_ERROR: u64 = 0x8000_0000_0000_0004;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
@@ -164,13 +165,34 @@ impl UiSetupValue {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiSetup {
+pub struct UiSetupRequest {
     pub values: Vec<UiSetupValue>,
 }
-two_way_message!(UiSetup, "setup");
-impl UiSetup {
-    pub fn new(pairs: Vec<(&str, &str)>) -> UiSetup {
-        UiSetup {
+two_way_message!(UiSetupRequest, "setup");
+impl UiSetupRequest {
+    pub fn new(pairs: Vec<(&str, &str)>) -> UiSetupRequest {
+        UiSetupRequest {
+            values: pairs
+                .into_iter()
+                .map(|(name, value)| UiSetupValue {
+                    name: name.to_string(),
+                    value: value.to_string(),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiSetupResponse {
+    pub running: bool,
+    pub values: Vec<UiSetupValue>,
+}
+two_way_message!(UiSetupResponse, "setup");
+impl UiSetupResponse {
+    pub fn new(running: bool, pairs: Vec<(&str, &str)>) -> UiSetupResponse {
+        UiSetupResponse {
+            running,
             values: pairs
                 .into_iter()
                 .map(|(name, value)| UiSetupValue {

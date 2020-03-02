@@ -71,6 +71,16 @@ impl StopHandle {
 
     pub fn kill(mut self) {
         self.child.kill().unwrap();
+        Self::taskkill();
+    }
+
+    pub fn taskkill() {
+        #[cfg(target_os = "windows")]
+        {
+            let mut command = Command::new("taskkill");
+            command.args(&vec!["/IM", "MASQNode.exe", "/F", "/T"]);
+            let _ = command.output().expect("Couldn't kill MASQNode.exe");
+        }
     }
 }
 

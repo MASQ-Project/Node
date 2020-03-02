@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::command_context::ContextError::RedirectFailure;
+use crate::command_context::ContextError::{ConnectionRefused, RedirectFailure};
 use crate::websockets_client::{ClientError, NodeConnection};
 use masq_lib::messages::{FromMessageBody, UiRedirect};
 use masq_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
@@ -10,6 +10,7 @@ use std::io::{Read, Write};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContextError {
+    ConnectionRefused(String),
     ConnectionDropped(String),
     PayloadError(u64, String),
     RedirectFailure(String),
@@ -77,12 +78,15 @@ impl CommandContext for CommandContextReal {
 }
 
 impl CommandContextReal {
-    pub fn new(port: u16) -> Self {
-        Self {
-            connection: NodeConnection::new(port).expect("Couldn't connect to Daemon or Node"),
-            stdin: Box::new(io::stdin()),
-            stdout: Box::new(io::stdout()),
-            stderr: Box::new(io::stderr()),
+    pub fn new(port: u16) -> Result<Self, ContextError> {
+        match NodeConnection::new(port) {
+            Ok(connection) => Ok(Self {
+                connection,
+                stdin: Box::new(io::stdin()),
+                stdout: Box::new(io::stdout()),
+                stderr: Box::new(io::stderr()),
+            }),
+            Err(e) => Err(ConnectionRefused(format!("{:?}", e))),
         }
     }
 
@@ -112,12 +116,13 @@ impl CommandContextReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_context::ContextError::{ConnectionDropped, PayloadError, RedirectFailure};
+    use crate::command_context::ContextError::{
+        ConnectionDropped, ConnectionRefused, PayloadError, RedirectFailure,
+    };
     use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
     use crate::websockets_client::nfum;
-    use masq_lib::messages::UiSetup;
     use masq_lib::messages::{
-        FromMessageBody, UiFinancialsRequest, UiFinancialsResponse, UiRedirect,
+        FromMessageBody, UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupRequest,
     };
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
@@ -139,7 +144,7 @@ mod tests {
             body: UiShutdownResponse {}.tmb(1234),
         });
         let stop_handle = server.start();
-        let mut subject = CommandContextReal::new(port);
+        let mut subject = CommandContextReal::new(port).unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);
         subject.stderr = Box::new(stderr);
@@ -167,6 +172,19 @@ mod tests {
     }
 
     #[test]
+    fn works_when_server_isnt_present() {
+        let port = find_free_port();
+
+        let result = CommandContextReal::new(port);
+
+        match result {
+            Err(ConnectionRefused(_)) => (),
+            Ok(_) => panic!("Succeeded when it should have failed"),
+            Err(e) => panic!("Expected ConnectionRefused; got {:?}", e),
+        }
+    }
+
+    #[test]
     fn works_when_server_sends_payload_error() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_response(NodeToUiMessage {
@@ -178,9 +196,9 @@ mod tests {
             },
         });
         let stop_handle = server.start();
-        let mut subject = CommandContextReal::new(port);
+        let mut subject = CommandContextReal::new(port).unwrap();
 
-        let response = subject.transact(nfum(UiSetup { values: vec![] }));
+        let response = subject.transact(nfum(UiSetupRequest { values: vec![] }));
 
         assert_eq!(response, Err(PayloadError(101, "booga".to_string())));
         stop_handle.stop();
@@ -191,9 +209,9 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
         let stop_handle = server.start();
-        let mut subject = CommandContextReal::new(port);
+        let mut subject = CommandContextReal::new(port).unwrap();
 
-        let response = subject.transact(nfum(UiSetup { values: vec![] }));
+        let response = subject.transact(nfum(UiSetupRequest { values: vec![] }));
 
         stop_handle.stop();
         match response {
@@ -238,7 +256,7 @@ mod tests {
             }
             .tmb(1234), // will be ignored
         };
-        let mut subject = CommandContextReal::new(daemon_port);
+        let mut subject = CommandContextReal::new(daemon_port).unwrap();
 
         let result = subject.transact(request).unwrap();
 
@@ -291,7 +309,7 @@ mod tests {
             }
             .tmb(1234),
         };
-        let mut subject = CommandContextReal::new(daemon_port);
+        let mut subject = CommandContextReal::new(daemon_port).unwrap();
 
         let result = subject.transact(request);
 
@@ -326,7 +344,7 @@ mod tests {
             }
             .tmb(1234),
         };
-        let mut subject = CommandContextReal::new(daemon_port);
+        let mut subject = CommandContextReal::new(daemon_port).unwrap();
 
         let result = subject.transact(request);
 

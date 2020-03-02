@@ -160,11 +160,11 @@ impl CommandProcessorMock {
 #[derive(Default)]
 pub struct CommandProcessorFactoryMock {
     make_params: Arc<Mutex<Vec<Vec<String>>>>,
-    make_results: RefCell<Vec<Box<dyn CommandProcessor>>>,
+    make_results: RefCell<Vec<Result<Box<dyn CommandProcessor>, CommandError>>>,
 }
 
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
-    fn make(&self, args: &[String]) -> Box<dyn CommandProcessor> {
+    fn make(&self, args: &[String]) -> Result<Box<dyn CommandProcessor>, CommandError> {
         self.make_params.lock().unwrap().push(args.to_vec());
         self.make_results.borrow_mut().remove(0)
     }
@@ -180,7 +180,7 @@ impl CommandProcessorFactoryMock {
         self
     }
 
-    pub fn make_result(self, result: Box<dyn CommandProcessor>) -> Self {
+    pub fn make_result(self, result: Result<Box<dyn CommandProcessor>, CommandError>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
     }

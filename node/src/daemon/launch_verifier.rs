@@ -36,16 +36,16 @@ impl VerifierTools for VerifierToolsReal {
     }
 
     fn process_is_running(&self, process_id: u32) -> bool {
-        match Self::system_with_process(process_id).get_process(Self::convert_pid(process_id)) {
+        let system = Self::system();
+        let process_info_opt = system.get_process(Self::convert_pid(process_id));
+        match process_info_opt {
             None => false,
             Some(process) => Self::is_alive(process.status()),
         }
     }
 
     fn kill_process(&self, process_id: u32) {
-        if let Some(process) =
-            Self::system_with_process(process_id).get_process(Self::convert_pid(process_id))
-        {
+        if let Some(process) = Self::system().get_process(Self::convert_pid(process_id)) {
             process.kill(Signal::Kill);
         }
     }
@@ -60,10 +60,9 @@ impl VerifierToolsReal {
         Self {}
     }
 
-    fn system_with_process(process_id: u32) -> sysinfo::System {
-        let process_id = Self::convert_pid(process_id);
-        let mut system: sysinfo::System = sysinfo::SystemExt::new();
-        system.refresh_process(process_id);
+    fn system() -> sysinfo::System {
+        let mut system: sysinfo::System = sysinfo::System::new_all();
+        system.refresh_processes();
         system
     }
 
@@ -184,95 +183,13 @@ mod tests {
     use crate::daemon::launch_verifier::LaunchVerification::{
         CleanFailure, InterventionRequired, Launched,
     };
+    use crate::daemon::mocks::VerifierToolsMock;
     use masq_lib::utils::{find_free_port, localhost};
-    use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::process::{Child, Command};
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
     use websocket::server::sync::Server;
-
-    struct VerifierToolsMock {
-        can_connect_to_ui_gateway_params: Arc<Mutex<Vec<u16>>>,
-        can_connect_to_ui_gateway_results: RefCell<Vec<bool>>,
-        process_is_running_params: Arc<Mutex<Vec<u32>>>,
-        process_is_running_results: RefCell<Vec<bool>>,
-        kill_process_params: Arc<Mutex<Vec<u32>>>,
-        delay_params: Arc<Mutex<Vec<u64>>>,
-    }
-
-    impl VerifierTools for VerifierToolsMock {
-        fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
-            self.can_connect_to_ui_gateway_params
-                .lock()
-                .unwrap()
-                .push(ui_port);
-            self.can_connect_to_ui_gateway_results
-                .borrow_mut()
-                .remove(0)
-        }
-
-        fn process_is_running(&self, process_id: u32) -> bool {
-            self.process_is_running_params
-                .lock()
-                .unwrap()
-                .push(process_id);
-            self.process_is_running_results.borrow_mut().remove(0)
-        }
-
-        fn kill_process(&self, process_id: u32) {
-            self.kill_process_params.lock().unwrap().push(process_id);
-        }
-
-        fn delay(&self, milliseconds: u64) {
-            self.delay_params.lock().unwrap().push(milliseconds);
-        }
-    }
-
-    impl VerifierToolsMock {
-        fn new() -> Self {
-            VerifierToolsMock {
-                can_connect_to_ui_gateway_params: Arc::new(Mutex::new(vec![])),
-                can_connect_to_ui_gateway_results: RefCell::new(vec![]),
-                process_is_running_params: Arc::new(Mutex::new(vec![])),
-                process_is_running_results: RefCell::new(vec![]),
-                kill_process_params: Arc::new(Mutex::new(vec![])),
-                delay_params: Arc::new(Mutex::new(vec![])),
-            }
-        }
-
-        fn can_connect_to_ui_gateway_params(mut self, params: &Arc<Mutex<Vec<u16>>>) -> Self {
-            self.can_connect_to_ui_gateway_params = params.clone();
-            self
-        }
-
-        fn can_connect_to_ui_gateway_result(self, result: bool) -> Self {
-            self.can_connect_to_ui_gateway_results
-                .borrow_mut()
-                .push(result);
-            self
-        }
-
-        fn process_is_running_params(mut self, params: &Arc<Mutex<Vec<u32>>>) -> Self {
-            self.process_is_running_params = params.clone();
-            self
-        }
-
-        fn process_is_running_result(self, result: bool) -> Self {
-            self.process_is_running_results.borrow_mut().push(result);
-            self
-        }
-
-        fn kill_process_params(mut self, params: &Arc<Mutex<Vec<u32>>>) -> Self {
-            self.kill_process_params = params.clone();
-            self
-        }
-
-        fn delay_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-            self.delay_params = params.clone();
-            self
-        }
-    }
 
     #[test]
     fn detects_successful_launch_after_two_attempts() {

@@ -128,8 +128,8 @@ impl MockWebSocketsServerStopHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::messages::{FromMessageBody, ToMessageBody, UiUnmarshalError};
-    use masq_lib::messages::{UiSetup, UiSetupValue, NODE_UI_PROTOCOL};
+    use masq_lib::messages::{FromMessageBody, ToMessageBody, UiSetupResponse, UiUnmarshalError};
+    use masq_lib::messages::{UiSetupValue, NODE_UI_PROTOCOL};
     use masq_lib::test_utils::ui_connection::UiConnection;
     use masq_lib::ui_gateway::MessageTarget::ClientId;
     use masq_lib::utils::find_free_port;
@@ -139,7 +139,8 @@ mod tests {
         let port = find_free_port();
         let first_expected_response = NodeToUiMessage {
             target: ClientId(0),
-            body: UiSetup {
+            body: UiSetupResponse {
+                running: true,
                 values: vec![UiSetupValue {
                     name: "direction".to_string(),
                     value: "to UI".to_string(),
@@ -160,15 +161,18 @@ mod tests {
             .queue_response(second_expected_response.clone())
             .start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
-        let first_request_payload = UiSetup {
-            values: vec![UiSetupValue {
-                name: "direction".to_string(),
-                value: "from UI".to_string(),
-            }],
-        };
 
-        let first_actual_response: UiSetup = connection
-            .transact_with_context_id(first_request_payload.clone(), 1234)
+        let first_actual_response: UiSetupResponse = connection
+            .transact_with_context_id(
+                UiSetupResponse {
+                    running: true,
+                    values: vec![UiSetupValue {
+                        name: "direction".to_string(),
+                        value: "to UI".to_string(),
+                    }],
+                },
+                1234,
+            )
             .unwrap();
         connection.send_string("}: Bad request :{".to_string());
         let second_actual_response: UiUnmarshalError = connection.receive().unwrap();
@@ -178,12 +182,19 @@ mod tests {
             requests[0],
             Ok(NodeFromUiMessage {
                 client_id: 0,
-                body: first_request_payload.tmb(1234),
+                body: UiSetupResponse {
+                    running: true,
+                    values: vec![UiSetupValue {
+                        name: "direction".to_string(),
+                        value: "to UI".to_string(),
+                    }],
+                }
+                .tmb(1234),
             })
         );
         assert_eq!(
             (first_actual_response, 1234),
-            UiSetup::fmb(first_expected_response.body).unwrap()
+            UiSetupResponse::fmb(first_expected_response.body).unwrap()
         );
         assert_eq!(requests[1], Err("}: Bad request :{".to_string()));
         assert_eq!(

@@ -6,8 +6,8 @@ use crate::commands::CommandError::{
 };
 use clap::{App, AppSettings, Arg, SubCommand};
 use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiMessageError, UiSetup, UiSetupValue, UiShutdownRequest,
-    UiShutdownResponse, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
+    FromMessageBody, ToMessageBody, UiMessageError, UiSetupRequest, UiSetupResponse, UiSetupValue,
+    UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::collections::HashMap;
@@ -17,6 +17,7 @@ use std::time::Duration;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandError {
+    ConnectionRefused,
     ConnectionDropped,
     Transmission(String),
     Reception(String),
@@ -57,8 +58,8 @@ impl Command for SetupCommand {
                 .partial_cmp(&b.name)
                 .expect("String comparison failed")
         });
-        let out_message = UiSetup { values };
-        let result: Result<UiSetup, CommandError> = transaction(out_message, context);
+        let out_message = UiSetupRequest { values };
+        let result: Result<UiSetupResponse, CommandError> = transaction(out_message, context);
         match result {
             Ok(mut response) => {
                 response.values.sort_by(|a, b| {
@@ -66,11 +67,15 @@ impl Command for SetupCommand {
                         .partial_cmp(&b.name)
                         .expect("String comparison failed")
                 });
+                if response.running {
+                    writeln!(context.stdout(), "Note: no changes were made to the setup because the Node is currently running.")
+                        .expect ("writeln! failed");
+                }
                 writeln!(context.stdout(), "NAME                      VALUE")
-                    .expect("write! failed");
+                    .expect("writeln! failed");
                 response.values.into_iter().for_each(|value| {
                     writeln!(context.stdout(), "{:26}{}", value.name, value.value)
-                        .expect("write! failed")
+                        .expect("writeln! failed")
                 });
                 Ok(())
             }
@@ -218,6 +223,7 @@ where
         body: input.tmb(0),
     }) {
         Ok(ntum) => ntum,
+        Err(ContextError::ConnectionRefused(s)) => unimplemented!("{}", s),
         Err(ContextError::ConnectionDropped(_)) => return Err(ConnectionDropped),
         Err(ContextError::PayloadError(code, message)) => return Err(Payload(code, message)),
         Err(ContextError::RedirectFailure(e)) => panic!("Couldn't redirect to Node: {:?}", e),
@@ -254,8 +260,8 @@ mod tests {
     use crate::commands::CommandError::{Other, Payload, Transmission, UnexpectedResponse};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{
-        UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse,
-        NODE_NOT_RUNNING_ERROR,
+        UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiShutdownResponse, UiStartOrder,
+        UiStartResponse, NODE_NOT_RUNNING_ERROR,
     };
     use masq_lib::ui_gateway::MessagePath::TwoWay;
     use masq_lib::ui_gateway::MessageTarget::ClientId;
@@ -368,13 +374,14 @@ mod tests {
     }
 
     #[test]
-    fn setup_command_happy_path() {
+    fn setup_command_happy_path_with_node_not_running() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(NodeToUiMessage {
                 target: ClientId(0),
-                body: UiSetup {
+                body: UiSetupResponse {
+                    running: false,
                     values: vec![
                         UiSetupValue::new("c", "3"),
                         UiSetupValue::new("dddd", "4444"),
@@ -401,7 +408,7 @@ mod tests {
             *transact_params,
             vec![NodeFromUiMessage {
                 client_id: 0,
-                body: UiSetup {
+                body: UiSetupRequest {
                     values: vec![
                         UiSetupValue::new("a", "1"),
                         UiSetupValue::new("bbbb", "2222"),
@@ -412,6 +419,55 @@ mod tests {
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
             "NAME                      VALUE\nc                         3\ndddd                      4444\n");
+        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+    }
+
+    #[test]
+    fn setup_command_happy_path_with_node_running() {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut context = CommandContextMock::new()
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(NodeToUiMessage {
+                target: ClientId(0),
+                body: UiSetupResponse {
+                    running: true,
+                    values: vec![
+                        UiSetupValue::new("c", "3"),
+                        UiSetupValue::new("dddd", "4444"),
+                    ],
+                }
+                .tmb(0),
+            }));
+        let stdout_arc = context.stdout_arc();
+        let stderr_arc = context.stderr_arc();
+        let factory = CommandFactoryReal::new();
+        let subject = factory
+            .make(vec![
+                "setup".to_string(),
+                "a=1".to_string(),
+                "bbbb=2222".to_string(),
+            ])
+            .unwrap();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
+        let transact_params = transact_params_arc.lock().unwrap();
+        assert_eq!(
+            *transact_params,
+            vec![NodeFromUiMessage {
+                client_id: 0,
+                body: UiSetupRequest {
+                    values: vec![
+                        UiSetupValue::new("a", "1"),
+                        UiSetupValue::new("bbbb", "2222"),
+                    ]
+                }
+                .tmb(0)
+            }]
+        );
+        assert_eq! (stdout_arc.lock().unwrap().get_string(),
+            "Note: no changes were made to the setup because the Node is currently running.\nNAME                      VALUE\nc                         3\ndddd                      4444\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -567,7 +623,7 @@ mod tests {
             subject.attempt_interval
         );
         assert!(
-            interval < (subject.attempt_interval as u128 * 2),
+            interval < (subject.attempt_interval as u128 * 5),
             "Waiting too long per attempt: {} >> {}",
             interval,
             subject.attempt_interval
