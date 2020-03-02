@@ -14,6 +14,9 @@ else
   RUST_VERSION="$2"
 fi
 
+RUSTUP="$HOME/.cargo/bin/rustup"
+CARGO="$HOME/.cargo/bin/cargo"
+
 function install_linux_macOS() {
   rm -r "$HOME/.cargo" || echo "Rust cargo not installed on $OSTYPE"
   rm -r "$HOME/.rustup" || echo "Rust rustup not installed on $OSTYPE"
@@ -31,17 +34,25 @@ function install_windows() {
 }
 
 function common() {
-  "$HOME/.cargo/bin/rustup" update
-  "$HOME/.cargo/bin/rustup" install "$RUST_VERSION"
-  "$HOME/.cargo/bin/rustup" default "$RUST_VERSION"
-  "$HOME/.cargo/bin/rustup" component add rustfmt
-  "$HOME/.cargo/bin/rustup" component add clippy
-  "$HOME/.cargo/bin/cargo" install sccache
+  "$RUSTUP" update
+  "$RUSTUP" install "$RUST_VERSION"
+  "$RUSTUP" default "$RUST_VERSION"
+  "$RUSTUP" component add rustfmt
+  "$RUSTUP" component add clippy
+  "$CARGO" install sccache
 
   mkdir -p "$CACHE_TARGET/toolchains"
   cp -pR "$HOME/.cargo" "$CACHE_TARGET"/toolchains/.cargo
   chmod +x "$CACHE_TARGET"/toolchains/.cargo/bin/*
   cp -pR "$HOME/.rustup" "$CACHE_TARGET"/toolchains/.rustup
+}
+
+function build_tiny() {
+  cd $CI_DIR/../port_exposer
+  "$CARGO" fmt
+  "$CARGO" check
+  "$CARGO" clippy
+  "$CARGO" build
 }
 
 case "$OSTYPE" in
@@ -59,3 +70,6 @@ case "$OSTYPE" in
     exit 1
     ;;
 esac
+
+# Build a tiny project to make sure the toolchain is all built and ready to cache
+build_tiny

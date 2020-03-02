@@ -83,8 +83,7 @@ lazy_static! {
        DEFAULT_GAS_PRICE);
 }
 
-const BLOCKCHAIN_SERVICE_HELP: &str =
-    "The Ethereum client you wish to use to provide Blockchain \
+const BLOCKCHAIN_SERVICE_HELP: &str = "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID).";
 const DB_PASSWORD_HELP: &str =

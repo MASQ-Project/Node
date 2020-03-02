@@ -177,7 +177,9 @@ impl NodeConfiguratorGenerateWallet {
     }
 
     fn request_mnemonic_passphrase(streams: &mut StdStreams) -> Option<String> {
-        flushed_write (streams.stdout, "\nPlease provide an extra mnemonic passphrase to ensure your wallet is unique\n\
+        flushed_write(
+            streams.stdout,
+            "\nPlease provide an extra mnemonic passphrase to ensure your wallet is unique\n\
             (NOTE: This passphrase cannot be changed later and still produce the same addresses).\n\
             You will encrypt your wallet in a following step...\n",
         );

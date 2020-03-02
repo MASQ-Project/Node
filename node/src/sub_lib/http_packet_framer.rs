@@ -131,7 +131,7 @@ impl HttpPacketFramer {
 
     fn seek_body_start(&mut self) -> bool {
         while self.framer_state.packet_progress_state == PacketProgressState::SeekingBodyStart {
-            match index_of(&self.framer_state.data_so_far[..], "\r\n".as_bytes()) {
+            match index_of(&self.framer_state.data_so_far[..], b"\r\n") {
                 Some(line_end) => {
                     let remainder = self.framer_state.data_so_far.split_off(line_end + 2);
                     let line = self.framer_state.data_so_far.clone();

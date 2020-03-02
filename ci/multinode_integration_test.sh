@@ -20,8 +20,6 @@ case "$OSTYPE" in
     echo "Multinode Integration Tests don't run under macOS"
     ;;
   linux*)
-    # Remove this line to slow down the build
-    export RUSTC_WRAPPER=sccache
     export RUSTFLAGS="-D warnings -Anon-snake-case"
 
     pushd "$CI_DIR/../multinode_integration_tests"

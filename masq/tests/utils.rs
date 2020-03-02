@@ -78,7 +78,7 @@ fn executable_name(root: &str) -> String {
     #[cfg(not(target_os = "windows"))]
     let result = root.to_string();
     #[cfg(target_os = "windows")]
-    let result = format!("{}.exe", name);
+    let result = format!("{}.exe", root);
     return result;
 }
 

@@ -87,7 +87,6 @@ impl CommandContextReal {
     }
 
     fn process_redirect(&mut self, redirect: UiRedirect) -> Result<NodeToUiMessage, ContextError> {
-        eprintln!("Processing redirect: {:?}", redirect);
         let node_connection = match NodeConnection::new(redirect.port) {
             Ok(nc) => nc,
             Err(e) => return Err(RedirectFailure(format!("{:?}", e))),

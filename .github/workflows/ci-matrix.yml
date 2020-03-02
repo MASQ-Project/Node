@@ -1,0 +1,33 @@
+name: ci-matrix
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - master
+
+jobs:
+  build:
+    name: Build node on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macOS-latest, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build ${{ matrix.os }}
+        run: |
+          rustup show
+          rustup update stable
+          ./ci/all.sh
+        shell: bash
+      - name: Publish ${{ matrix.os }}
+        run: |
+          ./ci/collect_results.sh
+          ./ci/publish_results.sh $STATUS
+        shell: bash
+        env:
+          STATUS: ${{ job.status }}
+          RESULTS_REPO_OWNER: masq-results
+          RESULTS_REPO_NAME: MASQ-results
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
