@@ -15,11 +15,19 @@ jobs:
         os: [macOS-latest, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v2
+      - name: Cache sccache results
+        uses: actions/cache@v1
+        env:
+          cache-name: cache-node-modules
+        with:
+          path: ~/.cargo/cache
+          key: ${{ runner.os }}-0001
       - name: Build ${{ matrix.os }}
         run: |
           rustup show
           rustup update stable
           ./ci/all.sh
+          ./ci/multinode_integration_test.sh
         shell: bash
       - name: Publish ${{ matrix.os }}
         run: |
@@ -27,6 +35,7 @@ jobs:
           ./ci/publish_results.sh $STATUS
         shell: bash
         env:
+
           STATUS: ${{ job.status }}
           RESULTS_REPO_OWNER: masq-results
           RESULTS_REPO_NAME: MASQ-results

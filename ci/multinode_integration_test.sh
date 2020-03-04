@@ -6,11 +6,11 @@ if [[ "$JENKINS_VERSION" != "" ]]; then
   PARENT_DIR="$1"
 else
   PARENT_DIR=""
-  TOOLCHAIN_HOME="$1"
+#  TOOLCHAIN_HOME="$1"
 fi
 
-source "$CI_DIR"/environment.sh "$TOOLCHAIN_HOME"
-export TOOLCHAIN_HOME
+#source "$CI_DIR"/environment.sh "$TOOLCHAIN_HOME"
+#export TOOLCHAIN_HOME
 
 case "$OSTYPE" in
   msys)
