@@ -3,11 +3,10 @@
 pub mod utils;
 
 use futures::future::*;
+use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::messages::{UiFinancialsRequest, UiFinancialsResponse, NODE_UI_PROTOCOL};
 use masq_lib::ui_gateway::MessagePath::TwoWay;
-use masq_lib::ui_gateway::{
-    MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage, DEFAULT_UI_PORT,
-};
+use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::localhost;
 use node_lib::sub_lib::ui_gateway::UiMessage;

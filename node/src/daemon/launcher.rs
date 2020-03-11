@@ -83,7 +83,7 @@ mod tests {
     use super::*;
     use crate::daemon::launch_verifier::LaunchVerification::Launched;
     use crate::daemon::mocks::LaunchVerifierMock;
-    use masq_lib::ui_gateway::DEFAULT_UI_PORT;
+    use masq_lib::constants::DEFAULT_UI_PORT;
     use std::cell::RefCell;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};

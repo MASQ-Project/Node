@@ -8,6 +8,8 @@ pub mod messages;
 
 pub mod command;
 pub mod constants;
+pub mod crash_point;
+pub mod shared_schema;
 pub mod test_utils;
 pub mod ui_gateway;
 pub mod ui_traffic_converter;

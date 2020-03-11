@@ -2,8 +2,6 @@
 
 use actix::Message;
 
-pub const DEFAULT_UI_PORT: u16 = 5333;
-
 #[derive(PartialEq, Clone, Debug)]
 pub enum MessageTarget {
     ClientId(u64),

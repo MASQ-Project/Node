@@ -416,7 +416,6 @@ mod tests {
     use crate::sub_lib::blockchain_bridge::{
         BlockchainBridgeConfig, ReportAccountsPayable, SetDbPasswordMsg, SetGasPriceMsg,
     };
-    use crate::sub_lib::crash_point::CrashPoint;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -446,6 +445,7 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_wallet, DEFAULT_CHAIN_ID};
     use actix::System;
     use log::LevelFilter;
+    use masq_lib::crash_point::CrashPoint;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;

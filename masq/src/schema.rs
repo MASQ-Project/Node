@@ -2,8 +2,7 @@
 use crate::commands::{setup_subcommand, shutdown_subcommand, start_subcommand};
 use clap::{crate_description, crate_version, App, AppSettings, Arg};
 use lazy_static::lazy_static;
-use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::ui_gateway::DEFAULT_UI_PORT;
+use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 
 lazy_static! {
     static ref UI_PORT_HELP: String = format!(

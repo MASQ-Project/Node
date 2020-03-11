@@ -4,13 +4,13 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::CommandError::{
     ConnectionDropped, Other, Payload, Transmission, UnexpectedResponse,
 };
-use clap::{App, AppSettings, Arg, SubCommand};
+use clap::{value_t, App, SubCommand};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiMessageError, UiSetupRequest, UiSetupResponse, UiSetupValue,
     UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
 };
+use masq_lib::shared_schema::shared_app;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::thread;
 use std::time::Duration;
@@ -31,34 +31,20 @@ pub trait Command: Debug {
 }
 
 pub fn setup_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("setup")
-        .setting(AppSettings::TrailingVarArg)
-        .about("Establishes and displays startup parameters for MASQNode, in the form <name>=<value>. Only valid if Node is not already running.")
-        .arg(Arg::with_name("attribute")
-            .index(1)
-            .multiple(true)
-            .validator(SetupCommand::validator)
-        )
+    shared_app(SubCommand::with_name("setup")
+        .about("Establishes (if Node is not already running) and displays startup parameters for MASQNode."))
 }
 
 #[derive(Debug, PartialEq)]
 pub struct SetupCommand {
-    pub values: HashMap<String, String>,
+    pub values: Vec<UiSetupValue>,
 }
 
 impl Command for SetupCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-        let mut values: Vec<UiSetupValue> = self
-            .values
-            .iter()
-            .map(|(name, value)| UiSetupValue::new(name, value))
-            .collect();
-        values.sort_by(|a, b| {
-            a.name
-                .partial_cmp(&b.name)
-                .expect("String comparison failed")
-        });
-        let out_message = UiSetupRequest { values };
+        let out_message = UiSetupRequest {
+            values: self.values.clone(),
+        };
         let result: Result<UiSetupResponse, CommandError> = transaction(out_message, context);
         match result {
             Ok(mut response) => {
@@ -86,25 +72,22 @@ impl Command for SetupCommand {
 
 impl SetupCommand {
     pub fn new(pieces: Vec<String>) -> Self {
-        let matches = setup_subcommand().get_matches_from(pieces);
-        let values = matches.values_of("attribute");
-        let value_map = values
-            .into_iter()
-            .flatten()
-            .map(|attr| {
-                let pair: Vec<&str> = attr.split('=').collect();
-                (pair[0].to_string(), pair[1].to_string())
+        let matches = setup_subcommand().get_matches_from(&pieces);
+        let mut values = pieces
+            .iter()
+            .filter(|piece| (*piece).starts_with("--"))
+            .map(|piece| piece[2..].to_string())
+            .map(|key| {
+                let value = value_t!(matches, &key, String).expect("Value disappeared!");
+                UiSetupValue::new(&key, &value)
             })
-            .collect::<HashMap<String, String>>();
-        Self { values: value_map }
-    }
-
-    pub fn validator(value: String) -> Result<(), String> {
-        if value.starts_with('=') || value.ends_with('=') || !value.contains('=') {
-            Err(format!("Attribute syntax: <name>=<value>, not {}", value))
-        } else {
-            Ok(())
-        }
+            .collect::<Vec<UiSetupValue>>();
+        values.sort_by(|a, b| {
+            a.name
+                .partial_cmp(&b.name)
+                .expect("String comparison failed")
+        });
+        Self { values }
     }
 }
 
@@ -337,43 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn setup_command_validator_rejects_arg_without_equals() {
-        let result = SetupCommand::validator("noequals".to_string());
-
-        assert_eq!(
-            result,
-            Err("Attribute syntax: <name>=<value>, not noequals".to_string())
-        );
-    }
-
-    #[test]
-    fn setup_command_validator_rejects_arg_with_initial_equals() {
-        let result = SetupCommand::validator("=initialequals".to_string());
-
-        assert_eq!(
-            result,
-            Err("Attribute syntax: <name>=<value>, not =initialequals".to_string())
-        );
-    }
-
-    #[test]
-    fn setup_command_validator_rejects_arg_with_terminal_equals() {
-        let result = SetupCommand::validator("terminalequals=".to_string());
-
-        assert_eq!(
-            result,
-            Err("Attribute syntax: <name>=<value>, not terminalequals=".to_string())
-        );
-    }
-
-    #[test]
-    fn setup_command_validator_accepts_valid_attribute() {
-        let result = SetupCommand::validator("central=equals".to_string());
-
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
     fn setup_command_happy_path_with_node_not_running() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
@@ -383,8 +329,8 @@ mod tests {
                 body: UiSetupResponse {
                     running: false,
                     values: vec![
-                        UiSetupValue::new("c", "3"),
-                        UiSetupValue::new("dddd", "4444"),
+                        UiSetupValue::new("chain", "ropsten"),
+                        UiSetupValue::new("neighborhood-mode", "zero-hop"),
                     ],
                 }
                 .tmb(0),
@@ -395,8 +341,10 @@ mod tests {
         let subject = factory
             .make(vec![
                 "setup".to_string(),
-                "a=1".to_string(),
-                "bbbb=2222".to_string(),
+                "--neighborhood-mode".to_string(),
+                "zero-hop".to_string(),
+                "--chain".to_string(),
+                "ropsten".to_string(),
             ])
             .unwrap();
 
@@ -410,15 +358,15 @@ mod tests {
                 client_id: 0,
                 body: UiSetupRequest {
                     values: vec![
-                        UiSetupValue::new("a", "1"),
-                        UiSetupValue::new("bbbb", "2222"),
+                        UiSetupValue::new("chain", "ropsten"),
+                        UiSetupValue::new("neighborhood-mode", "zero-hop"),
                     ]
                 }
                 .tmb(0)
             }]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
-            "NAME                      VALUE\nc                         3\ndddd                      4444\n");
+            "NAME                      VALUE\nchain                     ropsten\nneighborhood-mode         zero-hop\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -432,8 +380,8 @@ mod tests {
                 body: UiSetupResponse {
                     running: true,
                     values: vec![
-                        UiSetupValue::new("c", "3"),
-                        UiSetupValue::new("dddd", "4444"),
+                        UiSetupValue::new("chain", "ropsten"),
+                        UiSetupValue::new("neighborhood-mode", "zero-hop"),
                     ],
                 }
                 .tmb(0),
@@ -444,8 +392,10 @@ mod tests {
         let subject = factory
             .make(vec![
                 "setup".to_string(),
-                "a=1".to_string(),
-                "bbbb=2222".to_string(),
+                "--neighborhood-mode".to_string(),
+                "zero-hop".to_string(),
+                "--chain".to_string(),
+                "ropsten".to_string(),
             ])
             .unwrap();
 
@@ -459,15 +409,15 @@ mod tests {
                 client_id: 0,
                 body: UiSetupRequest {
                     values: vec![
-                        UiSetupValue::new("a", "1"),
-                        UiSetupValue::new("bbbb", "2222"),
+                        UiSetupValue::new("chain", "ropsten"),
+                        UiSetupValue::new("neighborhood-mode", "zero-hop"),
                     ]
                 }
                 .tmb(0)
             }]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
-            "Note: no changes were made to the setup because the Node is currently running.\nNAME                      VALUE\nc                         3\ndddd                      4444\n");
+            "Note: no changes were made to the setup because the Node is currently running.\nNAME                      VALUE\nchain                     ropsten\nneighborhood-mode         zero-hop\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 

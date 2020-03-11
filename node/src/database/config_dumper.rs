@@ -3,12 +3,13 @@
 use crate::bootstrapper::RealUser;
 use crate::config_dao::{ConfigDao, ConfigDaoReal};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::node_configurator::{app_head, chain_arg, data_directory_arg, real_user_arg};
+use crate::node_configurator::app_head;
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use clap::Arg;
 use heck::MixedCase;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine};
+use masq_lib::shared_schema::{chain_arg, data_directory_arg, real_user_arg};
 use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::PathBuf;

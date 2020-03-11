@@ -2,12 +2,11 @@
 
 use crate::blockchain::bip39::Bip39;
 use crate::node_configurator::{
-    app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
-    data_directory_arg, db_password_arg, earning_wallet_arg, exit, flushed_write, language_arg,
-    mnemonic_passphrase_arg, mnemonic_seed_exists, prepare_initialization_mode, real_user_arg,
-    request_password_with_confirmation, request_password_with_retry, update_db_password, Either,
-    NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP,
-    EARNING_WALLET_HELP,
+    app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg, exit,
+    flushed_write, language_arg, mnemonic_passphrase_arg, mnemonic_seed_exists,
+    prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry,
+    update_db_password, Either, NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker,
+    DB_PASSWORD_HELP, EARNING_WALLET_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -16,6 +15,7 @@ use clap::{value_t, values_t, App, Arg};
 use indoc::indoc;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
+use masq_lib::shared_schema::{chain_arg, data_directory_arg, db_password_arg, real_user_arg};
 
 pub struct NodeConfiguratorRecoverWallet {
     app: App<'static, 'static>,

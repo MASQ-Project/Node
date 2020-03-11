@@ -1,14 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::bootstrapper::RealUser;
-use crate::node_configurator::{
-    app_head, chain_arg, data_directory_arg, db_password_arg, real_user_arg, ui_port_arg,
-    NodeConfigurator, CONFIG_FILE_HELP, DB_PASSWORD_HELP,
-};
+use crate::node_configurator::{app_head, NodeConfigurator, DB_PASSWORD_HELP};
 use clap::{App, Arg};
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::shared_schema::{
+    chain_arg, data_directory_arg, db_password_arg, real_user_arg, ui_port_arg, CONFIG_FILE_HELP,
+};
 use std::path::PathBuf;
 
 lazy_static! {
@@ -69,8 +69,8 @@ mod initialization {
     use super::*;
     use crate::node_configurator::real_user_data_directory_and_chain_id;
     use clap::value_t;
+    use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::multi_config::MultiConfig;
-    use masq_lib::ui_gateway::DEFAULT_UI_PORT;
 
     pub fn parse_args(
         multi_config: &MultiConfig,
@@ -95,11 +95,11 @@ mod tests {
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
     use crate::test_utils::ArgsBuilder;
+    use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::ui_gateway::DEFAULT_UI_PORT;
     use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;

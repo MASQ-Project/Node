@@ -5,6 +5,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
+use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -101,9 +102,6 @@ const TRANSACTION_LITERAL: H256 = H256 {
 };
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
-
-pub const DEFAULT_GAS_PRICE: &str = "1";
-pub const DEFAULT_CHAIN_NAME: &str = "mainnet";
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct Transaction {
