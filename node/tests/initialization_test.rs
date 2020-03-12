@@ -93,8 +93,15 @@ fn initialization_sequence_integration() {
     wait_for_process_end(start_response.new_process_id);
     let _ = daemon.kill();
     match daemon.wait_for_exit() {
-        None => eprintln! ("wait_for_exit produced no output: weird"),
-        Some(output) => eprintln! ("wait_for_exit produced exit status {:?} and stdout:\n------\n{}\n------\nstderr:\n------\n{}\n------\n", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)),
+        None => eprintln!("wait_for_exit produced no output: weird"),
+        Some(output) => {
+            eprintln!(
+                "wait_for_exit produced exit status {:?} and stdout:\n------\n{}\n------\nstderr:\n------\n{}\n------\n",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+        }
     }
 }
 

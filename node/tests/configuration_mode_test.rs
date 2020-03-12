@@ -273,7 +273,7 @@ fn create_database_generating_neither_derivation_path_integration() {
         persistent_config.earning_wallet_from_address(),
         Some(wallet_from_phrase_and_path(
             &phrase,
-            DEFAULT_EARNING_DERIVATION_PATH
+            DEFAULT_EARNING_DERIVATION_PATH,
         ))
     );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
@@ -344,7 +344,7 @@ fn create_database_generating_only_consuming_derivation_path_integration() {
         persistent_config.earning_wallet_from_address(),
         Some(wallet_from_phrase_and_path(
             &phrase,
-            DEFAULT_EARNING_DERIVATION_PATH
+            DEFAULT_EARNING_DERIVATION_PATH,
         ))
     );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);

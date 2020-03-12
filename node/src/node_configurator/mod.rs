@@ -667,6 +667,7 @@ fn exit(code: i32, message: &str) {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::node_configurator::node_configurator_standard::app;
     use crate::node_test_utils::MockDirsWrapper;
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -916,6 +917,18 @@ mod tests {
         App::new("test")
             .arg(data_directory_arg())
             .arg(config_file_arg())
+    }
+
+    #[test]
+    fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
+        let args = ArgsBuilder::new();
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
+        let multi_config = MultiConfig::new(&app(), vec![vcl]);
+
+        let (_, directory, chain_id) = real_user_data_directory_and_chain_id(&multi_config);
+
+        assert_eq!(directory, PathBuf::from("booga"));
+        assert_eq!(chain_id, chain_id_from_name(DEFAULT_CHAIN_NAME));
     }
 
     #[test]

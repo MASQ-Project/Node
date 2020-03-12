@@ -28,12 +28,9 @@ impl TestCommand {
             command: format!(
                 "{}{}",
                 command,
-                parameters
-                    .iter()
-                    .fold(String::new(), |so_far, parameter| format!(
-                        "{} {}",
-                        so_far, parameter
-                    ))
+                parameters.iter().fold(String::new(), |so_far, parameter| {
+                    format!("{} {}", so_far, parameter)
+                })
             ),
             child,
         }

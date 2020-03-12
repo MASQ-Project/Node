@@ -214,7 +214,10 @@ impl MASQNode {
         Self::remove_database();
         let mut command = command_to_start();
         let mut args = Self::daemon_args();
-        args.extend(Self::get_extra_args(config));
+        args.extend(match config {
+            Some(c) => c.args,
+            None => vec![],
+        });
         command.args(&args);
         command
     }

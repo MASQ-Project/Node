@@ -169,6 +169,9 @@ impl Daemon {
             .iter()
             .flat_map(|opt| {
                 let name = opt.b.name.to_string();
+                if &name == "ui-port" {
+                    return None;
+                }
                 #[cfg(target_os = "windows")]
                 {
                     if &name == "real-user" {
@@ -405,6 +408,15 @@ mod tests {
             from_ui_message_recipient: stub_sub,
             from_ui_message_recipients: vec![],
         }
+    }
+
+    #[test]
+    fn some_items_are_censored_from_defaults() {
+        let result = Daemon::get_default_params();
+
+        assert_eq!(result.get("ui-port"), None);
+        #[cfg(target_os = "windows")]
+        assert_eq!(result.get("real-user"), None);
     }
 
     #[test]

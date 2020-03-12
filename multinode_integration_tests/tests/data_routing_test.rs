@@ -314,7 +314,7 @@ fn multiple_stream_zero_hop_test() {
     assert_eq!(
         index_of(
             &another_response,
-            &b"FALLING FALLING .COM BY RAFAEL ROZENDAAL"[..]
+            &b"FALLING FALLING .COM BY RAFAEL ROZENDAAL"[..],
         )
         .is_some(),
         true,
