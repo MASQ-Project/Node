@@ -4,7 +4,7 @@ use crate::websockets_client::ClientError::{
     ConnectionDropped, Deserialization, MessageType, NoServer, PacketType,
 };
 use masq_lib::messages::{ToMessageBody, NODE_UI_PROTOCOL};
-use masq_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
+use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{MessagePath, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::{UiTrafficConverter, UnmarshalError};
@@ -109,13 +109,13 @@ impl NodeConversation {
         &mut self,
         mut outgoing_msg: NodeFromUiMessage,
     ) -> Result<NodeToUiMessage, ClientError> {
-        if outgoing_msg.body.path == OneWay {
+        if outgoing_msg.body.path == FireAndForget {
             return Err(MessageType(
                 outgoing_msg.body.opcode,
                 outgoing_msg.body.path,
             ));
         } else {
-            outgoing_msg.body.path = TwoWay(self.context_id());
+            outgoing_msg.body.path = Conversation(self.context_id());
         }
         if let Err(e) = self.send(outgoing_msg) {
             return Err(e); // Don't know how to drive this line
@@ -171,17 +171,17 @@ mod tests {
     use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
     use crate::websockets_client::ClientError::{ConnectionDropped, NoServer};
     use masq_lib::messages::FromMessageBody;
-    use masq_lib::messages::UiSetupValue;
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiUnmarshalError};
+    use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue};
     use masq_lib::ui_gateway::MessageBody;
-    use masq_lib::ui_gateway::MessagePath::TwoWay;
+    use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::TrafficConversionError::JsonSyntaxError;
     use masq_lib::ui_traffic_converter::UnmarshalError::Critical;
     use masq_lib::utils::find_free_port;
 
     #[allow(dead_code)]
     pub fn nftm1<T: ToMessageBody>(tmb: T) -> NodeToUiMessage {
-        assert_eq!(tmb.is_two_way(), false);
+        assert_eq!(tmb.is_conversational(), false);
         NodeToUiMessage {
             target: ClientId(0),
             body: tmb.tmb(0),
@@ -189,7 +189,7 @@ mod tests {
     }
 
     pub fn nftm2<T: ToMessageBody>(context_id: u64, tmb: T) -> NodeToUiMessage {
-        assert_eq!(tmb.is_two_way(), true);
+        assert_eq!(tmb.is_conversational(), true);
         NodeToUiMessage {
             target: ClientId(0),
             body: tmb.tmb(context_id),
@@ -202,7 +202,7 @@ mod tests {
             target: ClientId(0),
             body: MessageBody {
                 opcode: opcode.to_string(),
-                path: OneWay,
+                path: FireAndForget,
                 payload: Err((code, msg.to_string())),
             },
         }
@@ -213,7 +213,7 @@ mod tests {
             target: ClientId(0),
             body: MessageBody {
                 opcode: opcode.to_string(),
-                path: TwoWay(context_id),
+                path: Conversation(context_id),
                 payload: Err((code, msg.to_string())),
             },
         }
@@ -275,7 +275,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(MessageType("unmarshalError".to_string(), OneWay))
+            Err(MessageType("unmarshalError".to_string(), FireAndForget))
         );
         stop_handle.stop();
     }
@@ -357,7 +357,7 @@ mod tests {
             1,
             UiSetupResponse {
                 running: true,
-                values: vec![UiSetupValue::new("type", "response")],
+                values: vec![UiSetupResponseValue::new("type", "response")],
             },
         ));
         let stop_handle = server.start();
@@ -366,7 +366,7 @@ mod tests {
 
         let response_body = subject
             .transact(nfum(UiSetupRequest {
-                values: vec![UiSetupValue::new("type", "request")],
+                values: vec![UiSetupRequestValue::new("type", "request")],
             }))
             .unwrap()
             .body;
@@ -378,7 +378,7 @@ mod tests {
             vec![Ok(NodeFromUiMessage {
                 client_id: 0,
                 body: UiSetupRequest {
-                    values: vec![UiSetupValue::new("type", "request")]
+                    values: vec![UiSetupRequestValue::new("type", "request")]
                 }
                 .tmb(1)
             })]
@@ -388,7 +388,7 @@ mod tests {
             (
                 UiSetupResponse {
                     running: true,
-                    values: vec![UiSetupValue::new("type", "response")]
+                    values: vec![UiSetupResponseValue::new("type", "response")]
                 },
                 1
             )
@@ -404,7 +404,7 @@ mod tests {
                 target: ClientId(0),
                 body: UiSetupResponse {
                     running: false,
-                    values: vec![UiSetupValue::new("type", "conversation 2 response")],
+                    values: vec![UiSetupResponseValue::new("type", "conversation 2 response")],
                 }
                 .tmb(2),
             })
@@ -412,7 +412,7 @@ mod tests {
                 target: ClientId(0),
                 body: UiSetupResponse {
                     running: true,
-                    values: vec![UiSetupValue::new("type", "conversation 1 response")],
+                    values: vec![UiSetupResponseValue::new("type", "conversation 1 response")],
                 }
                 .tmb(1),
             });
@@ -423,13 +423,13 @@ mod tests {
 
         let response1_body = subject1
             .transact(nfum(UiSetupRequest {
-                values: vec![UiSetupValue::new("type", "conversation 1 request")],
+                values: vec![UiSetupRequestValue::new("type", "conversation 1 request")],
             }))
             .unwrap()
             .body;
         let response2_body = subject2
             .transact(nfum(UiSetupRequest {
-                values: vec![UiSetupValue::new("type", "conversation 2 request")],
+                values: vec![UiSetupRequestValue::new("type", "conversation 2 request")],
             }))
             .unwrap()
             .body;
@@ -443,33 +443,33 @@ mod tests {
                 Ok(NodeFromUiMessage {
                     client_id: 0,
                     body: UiSetupRequest {
-                        values: vec![UiSetupValue::new("type", "conversation 1 request")]
+                        values: vec![UiSetupRequestValue::new("type", "conversation 1 request")]
                     }
                     .tmb(1)
                 }),
                 Ok(NodeFromUiMessage {
                     client_id: 0,
                     body: UiSetupRequest {
-                        values: vec![UiSetupValue::new("type", "conversation 2 request")]
+                        values: vec![UiSetupRequestValue::new("type", "conversation 2 request")]
                     }
                     .tmb(2)
                 }),
             ]
         );
-        assert_eq!(response1_body.path, TwoWay(1));
+        assert_eq!(response1_body.path, Conversation(1));
         assert_eq!(
             UiSetupResponse::fmb(response1_body).unwrap().0,
             UiSetupResponse {
                 running: false,
-                values: vec![UiSetupValue::new("type", "conversation 1 response")]
+                values: vec![UiSetupResponseValue::new("type", "conversation 1 response")]
             }
         );
-        assert_eq!(response2_body.path, TwoWay(2));
+        assert_eq!(response2_body.path, Conversation(2));
         assert_eq!(
             UiSetupResponse::fmb(response2_body).unwrap().0,
             UiSetupResponse {
                 running: true,
-                values: vec![UiSetupValue::new("type", "conversation 2 response")]
+                values: vec![UiSetupResponseValue::new("type", "conversation 2 response")]
             }
         );
     }

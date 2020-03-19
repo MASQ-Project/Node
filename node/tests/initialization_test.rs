@@ -59,10 +59,10 @@ fn initialization_sequence_integration() {
         .to_string();
     let _: UiSetupRequest = initialization_client
         .transact(UiSetupRequest::new(vec![
-            ("dns-servers", "1.1.1.1"),
-            ("neighborhood-mode", "zero-hop"),
-            ("log-level", "trace"),
-            ("data-directory", &data_directory),
+            ("dns-servers", Some("1.1.1.1")),
+            ("neighborhood-mode", Some("zero-hop")),
+            ("log-level", Some("trace")),
+            ("data-directory", Some(&data_directory)),
         ]))
         .unwrap();
     let financials_request = UiFinancialsRequest {

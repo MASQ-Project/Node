@@ -5,7 +5,7 @@ pub mod utils;
 use futures::future::*;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::messages::{UiFinancialsRequest, UiFinancialsResponse, NODE_UI_PROTOCOL};
-use masq_lib::ui_gateway::MessagePath::TwoWay;
+use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::localhost;
@@ -134,7 +134,7 @@ fn request_financial_information_integration() {
         client_id: 1234,
         body: MessageBody {
             opcode: "financials".to_string(),
-            path: TwoWay(2222),
+            path: Conversation(2222),
             payload: Ok(serde_json::to_string(&payload).unwrap()),
         },
     });
@@ -155,7 +155,7 @@ fn request_financial_information_integration() {
                     .unwrap();
                     assert_eq!(response_msg.target, MessageTarget::ClientId(1234));
                     assert_eq!(response_msg.body.opcode, "financials".to_string());
-                    assert_eq!(response_msg.body.path, TwoWay(2222));
+                    assert_eq!(response_msg.body.path, Conversation(2222));
                     let payload = serde_json::from_str::<UiFinancialsResponse>(
                         &response_msg.body.payload.as_ref().unwrap(),
                     )

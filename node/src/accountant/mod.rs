@@ -673,7 +673,7 @@ pub mod tests {
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
+    use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
     use std::convert::TryFrom;
@@ -1060,7 +1060,7 @@ pub mod tests {
             client_id: 1234,
             body: MessageBody {
                 opcode: "financials".to_string(),
-                path: TwoWay(2222),
+                path: Conversation(2222),
                 payload: Ok(r#"{"payableMinimumAmount": 50001, "payableMaximumAge": 50002, "receivableMinimumAmount": 50003, "receivableMaximumAge": 50004}"#.to_string()),
             }
         };
@@ -1078,7 +1078,7 @@ pub mod tests {
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(response.target, MessageTarget::ClientId(1234));
         assert_eq!(response.body.opcode, "financials".to_string());
-        assert_eq!(response.body.path, TwoWay(2222));
+        assert_eq!(response.body.path, Conversation(2222));
         let parsed_payload =
             serde_json::from_str::<UiFinancialsResponse>(&response.body.payload.as_ref().unwrap())
                 .unwrap();
@@ -1147,7 +1147,7 @@ pub mod tests {
                 client_id: 1234,
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             })

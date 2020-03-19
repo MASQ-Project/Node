@@ -10,8 +10,8 @@ pub enum MessageTarget {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum MessagePath {
-    OneWay,
-    TwoWay(u64), // context_id
+    FireAndForget,
+    Conversation(u64), // context_id
 }
 
 #[derive(PartialEq, Clone, Debug)]

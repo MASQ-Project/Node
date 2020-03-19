@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
-use crate::sub_lib::utils::index_of;
+use masq_lib::utils::index_of;
 
 const PRESERVE_HEADER_LEN: usize = 4;
 

@@ -6,7 +6,7 @@ use crate::sub_lib::http_packet_framer::HttpFramerState;
 use crate::sub_lib::http_packet_framer::HttpPacketFramer;
 use crate::sub_lib::http_packet_framer::HttpPacketStartFinder;
 use crate::sub_lib::http_packet_framer::PacketProgressState;
-use crate::sub_lib::utils::index_of;
+use masq_lib::utils::index_of;
 
 const METHODS: &[&[u8]] = &[
     b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"CONNECT", b"OPTIONS", b"TRACE", b"PATCH",

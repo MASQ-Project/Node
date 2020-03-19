@@ -64,18 +64,22 @@ impl<'a> MultiConfig<'a> {
             arg_matches: schema
                 .clone()
                 .get_matches_from_safe(merged.args().into_iter())
-                .unwrap_or_else(|e| {
-                    if cfg!(test) {
-                        panic!("{:?}. --panic to catch for testing--", e)
-                    } else {
-                        e.exit()
-                    }
-                }),
+                .unwrap_or_else(Self::abort),
         }
     }
 
     pub fn arg_matches(&'a self) -> &ArgMatches<'a> {
         &self.arg_matches
+    }
+
+    #[cfg(not(test))]
+    fn abort(e: clap::Error) -> ArgMatches<'a> {
+        e.exit();
+    }
+
+    #[cfg(test)]
+    fn abort(e: clap::Error) -> ArgMatches<'a> {
+        panic!("{:?}. --panic to catch for testing--", e)
     }
 }
 

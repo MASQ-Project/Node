@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::ui_gateway::MessagePath::{OneWay, TwoWay};
+use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use crate::ui_traffic_converter::TrafficConversionError::{
     FieldTypeError, JsonSyntaxError, MissingFieldError, NotJsonObjectError,
@@ -99,8 +99,8 @@ impl UiTrafficConverter {
     fn new_marshal(body: MessageBody) -> String {
         let opcode_section = format!("\"opcode\": \"{}\", ", body.opcode);
         let path_section = match body.path {
-            OneWay => "".to_string(),
-            TwoWay(context_id) => format!("\"contextId\": {}, ", context_id),
+            FireAndForget => "".to_string(),
+            Conversation(context_id) => format!("\"contextId\": {}, ", context_id),
         };
         let payload_section = match body.payload {
             Ok(json) => format!("\"payload\": {}", json),
@@ -122,8 +122,8 @@ impl UiTrafficConverter {
                     Err(e) => return Err(Critical(e)),
                 };
                 let (context_id_opt, path) = match Self::get_u64(&map, "contextId") {
-                    Ok(context_id) => (Some(context_id), TwoWay(context_id)),
-                    Err(MissingFieldError(_)) => (None, OneWay),
+                    Ok(context_id) => (Some(context_id), Conversation(context_id)),
+                    Err(MissingFieldError(_)) => (None, FireAndForget),
                     Err(FieldTypeError(a, b, c)) => return Err(Critical(FieldTypeError(a, b, c))),
                     Err(e) => return Err(Critical(e)),
                 };
@@ -236,7 +236,7 @@ mod tests {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
-                path: OneWay,
+                path: FireAndForget,
                 payload: Ok(
                     r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
                         .to_string(),
@@ -249,7 +249,7 @@ mod tests {
         let ui_msg = UiTrafficConverter::new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(ui_msg.client_id, 1234);
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
-        assert_eq!(ui_msg.body.path, OneWay);
+        assert_eq!(ui_msg.body.path, FireAndForget);
         match serde_json::from_str::<Value>(&ui_msg.body.payload.unwrap()) {
             Ok(Value::Object(map)) => {
                 assert_eq!(map.get("null"), Some(&Value::Null));
@@ -270,7 +270,7 @@ mod tests {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
-                path: OneWay,
+                path: FireAndForget,
                 payload: Ok(
                     r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
                         .to_string(),
@@ -284,7 +284,7 @@ mod tests {
             UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();
         assert_eq!(ui_msg.target, MessageTarget::ClientId(1234));
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
-        assert_eq!(ui_msg.body.path, OneWay);
+        assert_eq!(ui_msg.body.path, FireAndForget);
         match serde_json::from_str::<Value>(&ui_msg.body.payload.unwrap()) {
             Ok(Value::Object(map)) => {
                 assert_eq!(map.get("null"), Some(&Value::Null));
@@ -305,7 +305,7 @@ mod tests {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
-                path: OneWay,
+                path: FireAndForget,
                 payload: Err((4567, "Moron".to_string())),
             },
         };
@@ -315,7 +315,7 @@ mod tests {
         let ui_msg = UiTrafficConverter::new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(ui_msg.client_id, 1234);
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
-        assert_eq!(ui_msg.body.path, OneWay);
+        assert_eq!(ui_msg.body.path, FireAndForget);
         assert_eq!(
             ui_msg.body.payload.err().unwrap(),
             (4567, "Moron".to_string())
@@ -328,7 +328,7 @@ mod tests {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
-                path: OneWay,
+                path: FireAndForget,
                 payload: Err((4567, "Moron".to_string())),
             },
         };
@@ -339,7 +339,7 @@ mod tests {
             UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();
         assert_eq!(ui_msg.target, MessageTarget::ClientId(1234));
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
-        assert_eq!(ui_msg.body.path, OneWay);
+        assert_eq!(ui_msg.body.path, FireAndForget);
         assert_eq!(
             ui_msg.body.payload.err().unwrap(),
             (4567, "Moron".to_string())
@@ -352,7 +352,7 @@ mod tests {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
-                path: TwoWay(2222),
+                path: Conversation(2222),
                 payload: Ok(
                     r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
                         .to_string(),
@@ -365,7 +365,7 @@ mod tests {
         let ui_msg = UiTrafficConverter::new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(ui_msg.client_id, 1234);
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
-        assert_eq!(ui_msg.body.path, TwoWay(2222));
+        assert_eq!(ui_msg.body.path, Conversation(2222));
         match serde_json::from_str::<Value>(&ui_msg.body.payload.unwrap()) {
             Ok(Value::Object(map)) => {
                 assert_eq!(map.get("null"), Some(&Value::Null));
@@ -386,7 +386,7 @@ mod tests {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
-                path: TwoWay(2222),
+                path: Conversation(2222),
                 payload: Ok(
                     r#"{"null": null, "bool": true, "number": 1.23, "string": "Booga"}"#
                         .to_string(),
@@ -400,7 +400,7 @@ mod tests {
             UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();
         assert_eq!(ui_msg.target, MessageTarget::ClientId(1234));
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
-        assert_eq!(ui_msg.body.path, TwoWay(2222));
+        assert_eq!(ui_msg.body.path, Conversation(2222));
         match serde_json::from_str::<Value>(&ui_msg.body.payload.unwrap()) {
             Ok(Value::Object(map)) => {
                 assert_eq!(map.get("null"), Some(&Value::Null));
@@ -421,7 +421,7 @@ mod tests {
             client_id: 4321,
             body: MessageBody {
                 opcode: "opcode".to_string(),
-                path: TwoWay(2222),
+                path: Conversation(2222),
                 payload: Err((4567, "Moron".to_string())),
             },
         };
@@ -431,7 +431,7 @@ mod tests {
         let ui_msg = UiTrafficConverter::new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(ui_msg.client_id, 1234);
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
-        assert_eq!(ui_msg.body.path, TwoWay(2222));
+        assert_eq!(ui_msg.body.path, Conversation(2222));
         assert_eq!(
             ui_msg.body.payload.err().unwrap(),
             (4567, "Moron".to_string())
@@ -444,7 +444,7 @@ mod tests {
             target: MessageTarget::ClientId(4321),
             body: MessageBody {
                 opcode: "opcode".to_string(),
-                path: TwoWay(2222),
+                path: Conversation(2222),
                 payload: Err((4567, "Moron".to_string())),
             },
         };
@@ -455,7 +455,7 @@ mod tests {
             UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();
         assert_eq!(ui_msg.target, MessageTarget::ClientId(1234));
         assert_eq!(ui_msg.body.opcode, "opcode".to_string());
-        assert_eq!(ui_msg.body.path, TwoWay(2222));
+        assert_eq!(ui_msg.body.path, Conversation(2222));
         assert_eq!(
             ui_msg.body.payload.err().unwrap(),
             (4567, "Moron".to_string())

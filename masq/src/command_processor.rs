@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
-use crate::commands::{Command, CommandError};
+use crate::commands::commands_common::{Command, CommandError};
 use crate::schema::app;
 use clap::value_t;
 

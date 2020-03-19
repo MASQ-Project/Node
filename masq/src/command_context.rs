@@ -3,7 +3,7 @@
 use crate::command_context::ContextError::{ConnectionRefused, RedirectFailure};
 use crate::websockets_client::{ClientError, NodeConnection};
 use masq_lib::messages::{FromMessageBody, UiRedirect};
-use masq_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
+use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use std::io;
 use std::io::{Read, Write};
@@ -99,9 +99,9 @@ impl CommandContextReal {
         let message_body = MessageBody {
             opcode: redirect.opcode,
             path: if let Some(context_id) = redirect.context_id {
-                TwoWay(context_id)
+                Conversation(context_id)
             } else {
-                OneWay
+                FireAndForget
             },
             payload: Ok(redirect.payload),
         };
@@ -127,7 +127,7 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
     use masq_lib::ui_gateway::MessageBody;
-    use masq_lib::ui_gateway::MessagePath::TwoWay;
+    use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::MessageTarget::ClientId;
     use masq_lib::utils::find_free_port;
 
@@ -191,7 +191,7 @@ mod tests {
             target: ClientId(0),
             body: MessageBody {
                 opcode: "setup".to_string(),
-                path: TwoWay(1234),
+                path: Conversation(1234),
                 payload: Err((101, "booga".to_string())),
             },
         });
@@ -271,7 +271,7 @@ mod tests {
                 receivable_maximum_age: 45,
             }
         );
-        assert_eq!(result.body.path, TwoWay(1234));
+        assert_eq!(result.body.path, Conversation(1234));
         let (response, _) = UiFinancialsResponse::fmb(result.body).unwrap();
         assert_eq!(
             response,

@@ -2,7 +2,7 @@
 
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::utils;
+use masq_lib::utils::index_of;
 use serde::de::Visitor;
 use serde::Deserialize;
 use serde::Deserializer;
@@ -196,7 +196,7 @@ impl SequenceBuffer {
                 self.next_expected_sequence_number += 1;
                 let packet = self.buffer.pop();
 
-                if let Some(index) = utils::index_of(
+                if let Some(index) = index_of(
                     self.seen_sequence_numbers.as_slice(),
                     &[sequence_number_to_pop],
                 ) {

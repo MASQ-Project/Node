@@ -3,8 +3,8 @@
 use crate::command_context::{CommandContext, ContextError};
 use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
-use crate::commands::CommandError::Transmission;
-use crate::commands::{Command, CommandError};
+use crate::commands::commands_common::CommandError::Transmission;
+use crate::commands::commands_common::{Command, CommandError};
 use crate::websockets_client::nfum;
 use masq_lib::messages::ToMessageBody;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};

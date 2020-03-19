@@ -95,8 +95,8 @@ impl Main {
 mod tests {
     use super::*;
     use masq_cli_lib::command_context::ContextError::Other;
-    use masq_cli_lib::commands::CommandError;
-    use masq_cli_lib::commands::CommandError::Transmission;
+    use masq_cli_lib::commands::commands_common::CommandError;
+    use masq_cli_lib::commands::commands_common::CommandError::Transmission;
     use masq_cli_lib::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand,

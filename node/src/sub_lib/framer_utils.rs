@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::sub_lib::utils;
+use masq_lib::utils::index_of;
 
 #[derive(PartialEq, Debug)]
 pub struct ChunkOffsetLength {
@@ -27,7 +27,7 @@ pub fn find_chunk_offset_length(data_so_far: &[u8]) -> Option<ChunkOffsetLength>
 }
 
 fn find_next_chunk_offset_length(data_so_far: &[u8]) -> Result<ChunkOffsetLength, usize> {
-    match utils::index_of(data_so_far, CRLF) {
+    match index_of(data_so_far, CRLF) {
         None => Err(0),
         Some(0) => Err(CRLF.len()),
         Some(crlf_offset) => match evaluate_hex_digit(data_so_far[crlf_offset - 1]) {

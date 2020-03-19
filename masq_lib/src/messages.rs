@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
-use crate::ui_gateway::MessagePath::{OneWay, TwoWay};
+use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::ui_gateway::{MessageBody, MessagePath};
 use serde::de::DeserializeOwned;
 use serde::export::fmt::Error;
@@ -26,10 +26,10 @@ pub enum UiMessageError {
 impl fmt::Display for UiMessageError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         match self {
-            UnexpectedMessage(opcode, OneWay) => {
+            UnexpectedMessage(opcode, FireAndForget) => {
                 write!(f, "Unexpected one-way message with opcode '{}'", opcode)
             }
-            UnexpectedMessage(opcode, TwoWay(context_id)) => write!(
+            UnexpectedMessage(opcode, Conversation(context_id)) => write!(
                 f,
                 "Unexpected two-way message from context {} with opcode '{}'",
                 context_id, opcode
@@ -51,21 +51,21 @@ impl fmt::Display for UiMessageError {
 pub trait ToMessageBody: serde::Serialize {
     fn tmb(self, context_id: u64) -> MessageBody;
     fn opcode(&self) -> &str;
-    fn is_two_way(&self) -> bool;
+    fn is_conversational(&self) -> bool;
 }
 
 pub trait FromMessageBody: DeserializeOwned {
     fn fmb(body: MessageBody) -> Result<(Self, u64), UiMessageError>;
 }
 
-macro_rules! one_way_message {
+macro_rules! fire_and_forget_message {
     ($message_type: ty, $opcode: expr) => {
         impl ToMessageBody for $message_type {
             fn tmb(self, _irrelevant: u64) -> MessageBody {
                 let json = serde_json::to_string(&self).expect("Serialization problem");
                 MessageBody {
                     opcode: $opcode.to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok(json),
                 }
             }
@@ -74,7 +74,7 @@ macro_rules! one_way_message {
                 $opcode
             }
 
-            fn is_two_way(&self) -> bool {
+            fn is_conversational(&self) -> bool {
                 false
             }
         }
@@ -91,7 +91,7 @@ macro_rules! one_way_message {
                     },
                     Err((code, message)) => return Err(PayloadError(code, message)),
                 };
-                if let TwoWay(_) = body.path {
+                if let Conversation(_) = body.path {
                     return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path));
                 }
                 Ok((payload, 0))
@@ -100,14 +100,14 @@ macro_rules! one_way_message {
     };
 }
 
-macro_rules! two_way_message {
+macro_rules! conversation_message {
     ($message_type: ty, $opcode: expr) => {
         impl ToMessageBody for $message_type {
             fn tmb(self, context_id: u64) -> MessageBody {
                 let json = serde_json::to_string(&self).expect("Serialization problem");
                 MessageBody {
                     opcode: $opcode.to_string(),
-                    path: TwoWay(context_id),
+                    path: Conversation(context_id),
                     payload: Ok(json),
                 }
             }
@@ -116,7 +116,7 @@ macro_rules! two_way_message {
                 $opcode
             }
 
-            fn is_two_way(&self) -> bool {
+            fn is_conversational(&self) -> bool {
                 true
             }
         }
@@ -134,8 +134,8 @@ macro_rules! two_way_message {
                     Err((code, message)) => return Err(PayloadError(code, message)),
                 };
                 let context_id = match body.path {
-                    TwoWay(context_id) => context_id,
-                    OneWay => {
+                    Conversation(context_id) => context_id,
+                    FireAndForget => {
                         return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path))
                     }
                 };
@@ -150,33 +150,41 @@ macro_rules! two_way_message {
 ///////////////////////////////////////////////////////////////////////
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiSetupValue {
+pub struct UiSetupRequestValue {
     pub name: String,
-    pub value: String,
+    pub value: Option<String>,
 }
 
-impl UiSetupValue {
-    pub fn new(name: &str, value: &str) -> UiSetupValue {
-        UiSetupValue {
+impl UiSetupRequestValue {
+    pub fn new(name: &str, value: &str) -> Self {
+        UiSetupRequestValue {
             name: name.to_string(),
-            value: value.to_string(),
+            value: Some(value.to_string()),
+        }
+    }
+
+    pub fn clear(name: &str) -> Self {
+        UiSetupRequestValue {
+            name: name.to_string(),
+            value: None,
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiSetupRequest {
-    pub values: Vec<UiSetupValue>,
+    pub values: Vec<UiSetupRequestValue>,
 }
-two_way_message!(UiSetupRequest, "setup");
+
+conversation_message!(UiSetupRequest, "setup");
 impl UiSetupRequest {
-    pub fn new(pairs: Vec<(&str, &str)>) -> UiSetupRequest {
+    pub fn new(pairs: Vec<(&str, Option<&str>)>) -> UiSetupRequest {
         UiSetupRequest {
             values: pairs
                 .into_iter()
-                .map(|(name, value)| UiSetupValue {
+                .map(|(name, value)| UiSetupRequestValue {
                     name: name.to_string(),
-                    value: value.to_string(),
+                    value: value.map(|v| v.to_string()),
                 })
                 .collect(),
         }
@@ -184,18 +192,33 @@ impl UiSetupRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiSetupResponseValue {
+    pub name: String,
+    pub value: String,
+}
+
+impl UiSetupResponseValue {
+    pub fn new(name: &str, value: &str) -> UiSetupResponseValue {
+        UiSetupResponseValue {
+            name: name.to_string(),
+            value: value.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiSetupResponse {
     pub running: bool,
-    pub values: Vec<UiSetupValue>,
+    pub values: Vec<UiSetupResponseValue>,
 }
-two_way_message!(UiSetupResponse, "setup");
+conversation_message!(UiSetupResponse, "setup");
 impl UiSetupResponse {
     pub fn new(running: bool, pairs: Vec<(&str, &str)>) -> UiSetupResponse {
         UiSetupResponse {
             running,
             values: pairs
                 .into_iter()
-                .map(|(name, value)| UiSetupValue {
+                .map(|(name, value)| UiSetupResponseValue {
                     name: name.to_string(),
                     value: value.to_string(),
                 })
@@ -206,7 +229,7 @@ impl UiSetupResponse {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiStartOrder {}
-two_way_message!(UiStartOrder, "start");
+conversation_message!(UiStartOrder, "start");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiStartResponse {
@@ -215,7 +238,7 @@ pub struct UiStartResponse {
     #[serde(rename = "redirectUiPort")]
     pub redirect_ui_port: u16,
 }
-two_way_message!(UiStartResponse, "start");
+conversation_message!(UiStartResponse, "start");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiRedirect {
@@ -225,7 +248,7 @@ pub struct UiRedirect {
     pub context_id: Option<u64>,
     pub payload: String,
 }
-one_way_message!(UiRedirect, "redirect");
+fire_and_forget_message!(UiRedirect, "redirect");
 
 ///////////////////////////////////////////////////////////////////
 // These messages are sent to or by both the Daemon and the Node
@@ -237,7 +260,7 @@ pub struct UiUnmarshalError {
     #[serde(rename = "badData")]
     pub bad_data: String,
 }
-one_way_message!(UiUnmarshalError, "unmarshalError");
+fire_and_forget_message!(UiUnmarshalError, "unmarshalError");
 
 ///////////////////////////////////////////////////////////////////
 // These messages are sent to or by the Node only
@@ -270,7 +293,7 @@ pub struct UiFinancialsRequest {
     #[serde(rename = "receivableMaximumAge")]
     pub receivable_maximum_age: u64,
 }
-two_way_message!(UiFinancialsRequest, "financials");
+conversation_message!(UiFinancialsRequest, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiFinancialsResponse {
@@ -281,30 +304,30 @@ pub struct UiFinancialsResponse {
     #[serde(rename = "totalReceivable")]
     pub total_receivable: u64,
 }
-two_way_message!(UiFinancialsResponse, "financials");
+conversation_message!(UiFinancialsResponse, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiShutdownRequest {}
-two_way_message!(UiShutdownRequest, "shutdown");
+conversation_message!(UiShutdownRequest, "shutdown");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiShutdownResponse {}
-two_way_message!(UiShutdownResponse, "shutdown");
+conversation_message!(UiShutdownResponse, "shutdown");
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
-    use crate::ui_gateway::MessagePath::{OneWay, TwoWay};
+    use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 
     #[test]
     fn ui_message_errors_are_displayable() {
         assert_eq!(
-            UnexpectedMessage("opcode".to_string(), OneWay).to_string(),
+            UnexpectedMessage("opcode".to_string(), FireAndForget).to_string(),
             "Unexpected one-way message with opcode 'opcode'".to_string()
         );
         assert_eq!(
-            UnexpectedMessage("opcode".to_string(), TwoWay(1234)).to_string(),
+            UnexpectedMessage("opcode".to_string(), Conversation(1234)).to_string(),
             "Unexpected two-way message from context 1234 with opcode 'opcode'".to_string()
         );
         assert_eq!(
@@ -328,7 +351,7 @@ mod tests {
         };
 
         assert_eq!(subject.opcode(), "financials");
-        assert_eq!(subject.is_two_way(), true);
+        assert_eq!(subject.is_conversational(), true);
     }
 
     #[test]
@@ -356,7 +379,7 @@ mod tests {
             result,
             MessageBody {
                 opcode: "financials".to_string(),
-                path: TwoWay(1357),
+                path: Conversation(1357),
                 payload: Ok(subject_json)
             }
         );
@@ -375,7 +398,7 @@ mod tests {
         .to_string();
         let message_body = MessageBody {
             opcode: "booga".to_string(),
-            path: TwoWay(1234),
+            path: Conversation(1234),
             payload: Ok(json),
         };
 
@@ -384,7 +407,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(UnexpectedMessage("booga".to_string(), TwoWay(1234)))
+            Err(UnexpectedMessage("booga".to_string(), Conversation(1234)))
         )
     }
 
@@ -401,7 +424,7 @@ mod tests {
         .to_string();
         let message_body = MessageBody {
             opcode: "financials".to_string(),
-            path: OneWay,
+            path: FireAndForget,
             payload: Ok(json),
         };
 
@@ -410,7 +433,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(UnexpectedMessage("financials".to_string(), OneWay))
+            Err(UnexpectedMessage("financials".to_string(), FireAndForget))
         )
     }
 
@@ -418,7 +441,7 @@ mod tests {
     fn can_deserialize_ui_financials_response_with_bad_payload() {
         let message_body = MessageBody {
             opcode: "financials".to_string(),
-            path: TwoWay(1234),
+            path: Conversation(1234),
             payload: Err((100, "error".to_string())),
         };
 
@@ -433,7 +456,7 @@ mod tests {
         let json = "} - unparseable - {".to_string();
         let message_body = MessageBody {
             opcode: "financials".to_string(),
-            path: TwoWay(1234),
+            path: Conversation(1234),
             payload: Ok(json),
         };
 
@@ -470,7 +493,7 @@ mod tests {
         .to_string();
         let message_body = MessageBody {
             opcode: "financials".to_string(),
-            path: TwoWay(4321),
+            path: Conversation(4321),
             payload: Ok(json),
         };
 
@@ -508,7 +531,7 @@ mod tests {
         };
 
         assert_eq!(subject.opcode(), "unmarshalError");
-        assert_eq!(subject.is_two_way(), false);
+        assert_eq!(subject.is_conversational(), false);
     }
 
     #[test]
@@ -525,7 +548,7 @@ mod tests {
             result,
             MessageBody {
                 opcode: "unmarshalError".to_string(),
-                path: OneWay,
+                path: FireAndForget,
                 payload: Ok(subject_json)
             }
         );
@@ -536,22 +559,7 @@ mod tests {
         let json = "{}".to_string();
         let message_body = MessageBody {
             opcode: "booga".to_string(),
-            path: OneWay,
-            payload: Ok(json),
-        };
-
-        let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
-
-        assert_eq!(result, Err(UnexpectedMessage("booga".to_string(), OneWay)))
-    }
-
-    #[test]
-    fn can_deserialize_ui_unmarshal_error_with_bad_path() {
-        let json = r#"{"message": "message", "badData": "{\"name\": 4}"}"#.to_string();
-        let message_body = MessageBody {
-            opcode: "unmarshalError".to_string(),
-            path: TwoWay(0),
+            path: FireAndForget,
             payload: Ok(json),
         };
 
@@ -560,7 +568,28 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(UnexpectedMessage("unmarshalError".to_string(), TwoWay(0)))
+            Err(UnexpectedMessage("booga".to_string(), FireAndForget))
+        )
+    }
+
+    #[test]
+    fn can_deserialize_ui_unmarshal_error_with_bad_path() {
+        let json = r#"{"message": "message", "badData": "{\"name\": 4}"}"#.to_string();
+        let message_body = MessageBody {
+            opcode: "unmarshalError".to_string(),
+            path: Conversation(0),
+            payload: Ok(json),
+        };
+
+        let result: Result<(UiUnmarshalError, u64), UiMessageError> =
+            UiUnmarshalError::fmb(message_body);
+
+        assert_eq!(
+            result,
+            Err(UnexpectedMessage(
+                "unmarshalError".to_string(),
+                Conversation(0)
+            ))
         )
     }
 
@@ -568,7 +597,7 @@ mod tests {
     fn can_deserialize_ui_unmarshal_error_with_bad_payload() {
         let message_body = MessageBody {
             opcode: "unmarshalError".to_string(),
-            path: OneWay,
+            path: FireAndForget,
             payload: Err((100, "error".to_string())),
         };
 
@@ -583,7 +612,7 @@ mod tests {
         let json = "} - unparseable - {".to_string();
         let message_body = MessageBody {
             opcode: "unmarshalError".to_string(),
-            path: OneWay,
+            path: FireAndForget,
             payload: Ok(json),
         };
 
@@ -603,7 +632,7 @@ mod tests {
         let json = r#"{"message": "message", "badData": "{}"}"#.to_string();
         let message_body = MessageBody {
             opcode: "unmarshalError".to_string(),
-            path: OneWay,
+            path: FireAndForget,
             payload: Ok(json),
         };
 

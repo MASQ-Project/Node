@@ -1,7 +1,10 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
-use crate::commands::{Command, SetupCommand, ShutdownCommand, StartCommand};
+use crate::commands::commands_common::Command;
+use crate::commands::setup_command::SetupCommand;
+use crate::commands::shutdown_command::ShutdownCommand;
+use crate::commands::start_command::StartCommand;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandFactoryError {
@@ -52,6 +55,6 @@ mod tests {
     }
 
     // Rust isn't a reflective enough language to allow easy test-driving of the make() method
-    // here. Instead, we're driving the successful paths in commands.rs by making real commands
+    // here. Instead, we're driving the successful paths in commands_common by making real commands
     // and executing them.
 }

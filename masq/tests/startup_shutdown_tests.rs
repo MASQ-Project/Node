@@ -32,8 +32,13 @@ fn handles_startup_and_shutdown_integration() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let masq_handle =
-        MasqProcess::new().start_noninteractive(vec!["setup", "--neighborhood-mode", "zero-hop"]);
+    let masq_handle = MasqProcess::new().start_noninteractive(vec![
+        "setup",
+        "--log-level",
+        "--neighborhood-mode",
+        "zero-hop",
+        "--chain",
+    ]);
 
     let (stdout, stderr, exit_code) = masq_handle.stop();
 

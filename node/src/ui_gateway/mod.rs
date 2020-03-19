@@ -301,7 +301,7 @@ mod tests {
     use crate::test_utils::wait_for;
     use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
-    use masq_lib::ui_gateway::MessagePath::OneWay;
+    use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget};
     use masq_lib::utils::find_free_port;
     use std::cell::RefCell;
@@ -433,7 +433,7 @@ mod tests {
             client_id: 1234,
             body: MessageBody {
                 opcode: "booga".to_string(),
-                path: OneWay,
+                path: FireAndForget,
                 payload: Ok("{}".to_string()),
             },
         };
@@ -473,7 +473,7 @@ mod tests {
             target: MessageTarget::ClientId(1234),
             body: MessageBody {
                 opcode: "booga".to_string(),
-                path: OneWay,
+                path: FireAndForget,
                 payload: Ok("{}".to_string()),
             },
         };

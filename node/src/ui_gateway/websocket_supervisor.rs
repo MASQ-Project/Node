@@ -12,7 +12,7 @@ use futures::Sink;
 use futures::Stream;
 use itertools::Itertools;
 use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL, UNMARSHAL_ERROR};
-use masq_lib::ui_gateway::MessagePath::TwoWay;
+use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
@@ -371,7 +371,7 @@ impl WebSocketSupervisorReal {
                                 target: ClientId(client_id),
                                 body: MessageBody {
                                     opcode,
-                                    path: TwoWay(context_id),
+                                    path: Conversation(context_id),
                                     payload: Err((UNMARSHAL_ERROR, e.to_string())),
                                 },
                             },
@@ -512,7 +512,7 @@ mod tests {
     use masq_lib::messages::{
         FromMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL, UNMARSHAL_ERROR,
     };
-    use masq_lib::ui_gateway::MessagePath::OneWay;
+    use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_traffic_converter::UiTrafficConverter;
     use masq_lib::utils::{find_free_port, localhost};
@@ -886,7 +886,7 @@ mod tests {
                 client_id: 0,
                 body: MessageBody {
                     opcode: "one".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             },
@@ -897,7 +897,7 @@ mod tests {
                 client_id: 1,
                 body: MessageBody {
                     opcode: "another".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             },
@@ -908,7 +908,7 @@ mod tests {
                 client_id: 0,
                 body: MessageBody {
                     opcode: "athird".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             },
@@ -1123,7 +1123,7 @@ mod tests {
                 target: ClientId(0),
                 body: MessageBody {
                     opcode: "setup".to_string(),
-                    path: TwoWay(3333),
+                    path: Conversation(3333),
                     payload: Err((UNMARSHAL_ERROR, expected_traffic_conversion_message))
                 }
             }
@@ -1363,7 +1363,7 @@ mod tests {
                 target: MessageTarget::ClientId(one_client_id),
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };
@@ -1406,7 +1406,7 @@ mod tests {
                 target: MessageTarget::AllClients,
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };
@@ -1478,7 +1478,7 @@ mod tests {
                 target: correspondent,
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };
@@ -1531,7 +1531,7 @@ mod tests {
                 target: correspondent,
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };
@@ -1579,7 +1579,7 @@ mod tests {
                 target: MessageTarget::ClientId(7),
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };

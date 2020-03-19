@@ -129,7 +129,7 @@ impl MockWebSocketsServerStopHandle {
 mod tests {
     use super::*;
     use masq_lib::messages::{FromMessageBody, ToMessageBody, UiSetupResponse, UiUnmarshalError};
-    use masq_lib::messages::{UiSetupValue, NODE_UI_PROTOCOL};
+    use masq_lib::messages::{UiSetupResponseValue, NODE_UI_PROTOCOL};
     use masq_lib::test_utils::ui_connection::UiConnection;
     use masq_lib::ui_gateway::MessageTarget::ClientId;
     use masq_lib::utils::find_free_port;
@@ -141,7 +141,7 @@ mod tests {
             target: ClientId(0),
             body: UiSetupResponse {
                 running: true,
-                values: vec![UiSetupValue {
+                values: vec![UiSetupResponseValue {
                     name: "direction".to_string(),
                     value: "to UI".to_string(),
                 }],
@@ -166,7 +166,7 @@ mod tests {
             .transact_with_context_id(
                 UiSetupResponse {
                     running: true,
-                    values: vec![UiSetupValue {
+                    values: vec![UiSetupResponseValue {
                         name: "direction".to_string(),
                         value: "to UI".to_string(),
                     }],
@@ -184,7 +184,7 @@ mod tests {
                 client_id: 0,
                 body: UiSetupResponse {
                     running: true,
-                    values: vec![UiSetupValue {
+                    values: vec![UiSetupResponseValue {
                         name: "direction".to_string(),
                         value: "to UI".to_string(),
                     }],

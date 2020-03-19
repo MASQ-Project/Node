@@ -1276,7 +1276,7 @@ mod tests {
     use masq_lib::constants::TLS_PORT;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessageBody;
-    use masq_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
+    use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
     use serde_cbor;
     use std::cell::RefCell;
     use std::convert::TryInto;
@@ -4245,7 +4245,7 @@ mod tests {
                 client_id: 1234,
                 body: MessageBody {
                     opcode: "shutdown".to_string(),
-                    path: TwoWay(4321),
+                    path: Conversation(4321),
                     payload: Ok("{}".to_string()),
                 },
             })
@@ -4284,7 +4284,7 @@ mod tests {
                 client_id: 1234,
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             })
