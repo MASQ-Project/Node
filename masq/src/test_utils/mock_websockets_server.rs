@@ -4,7 +4,7 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::localhost;
 use std::net::SocketAddr;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -21,7 +21,7 @@ pub struct MockWebSocketsServer {
 
 pub struct MockWebSocketsServerStopHandle {
     requests_arc: Arc<Mutex<Vec<Result<NodeFromUiMessage, String>>>>,
-    stop_tx: Sender<()>,
+    stop_tx: Sender<bool>,
     join_handle: JoinHandle<()>,
 }
 
@@ -54,7 +54,8 @@ impl MockWebSocketsServer {
         let requests_arc = Arc::new(Mutex::new(vec![]));
         let inner_requests_arc = requests_arc.clone();
         let inner_responses_arc = self.responses_arc.clone();
-        let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+        let stop_pair: (Sender<bool>, Receiver<bool>) = std::sync::mpsc::channel();
+        let (stop_tx, stop_rx) = stop_pair;
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let join_handle = thread::spawn(move || {
             let mut server = server_arc.lock().unwrap();
@@ -96,8 +97,10 @@ impl MockWebSocketsServer {
                     }
                     client.send_message(&OwnedMessage::Text(outgoing)).unwrap()
                 }
-                if stop_rx.try_recv().is_ok() {
-                    client.send_message(&OwnedMessage::Close(None)).unwrap();
+                if let Ok(kill) = stop_rx.try_recv() {
+                    if !kill {
+                        client.send_message(&OwnedMessage::Close(None)).unwrap();
+                    }
                     break;
                 }
                 thread::sleep(Duration::from_millis(100))
@@ -115,7 +118,17 @@ impl MockWebSocketsServer {
 
 impl MockWebSocketsServerStopHandle {
     pub fn stop(self) -> Vec<Result<NodeFromUiMessage, String>> {
-        let _ = self.stop_tx.send(());
+        self.send_terminate_order(false)
+    }
+
+    pub fn kill(self) -> Vec<Result<NodeFromUiMessage, String>> {
+        let result = self.send_terminate_order(true);
+        thread::sleep(Duration::from_millis(150));
+        result
+    }
+
+    fn send_terminate_order(self, kill: bool) -> Vec<Result<NodeFromUiMessage, String>> {
+        let _ = self.stop_tx.send(kill);
         let _ = self.join_handle.join();
         let guard = match self.requests_arc.lock() {
             Ok(guard) => guard,

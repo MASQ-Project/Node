@@ -11,6 +11,7 @@ use masq_lib::ui_traffic_converter::{UiTrafficConverter, UnmarshalError};
 use masq_lib::utils::localhost;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
+use websocket::result::WebSocketResult;
 use websocket::sync::Client;
 use websocket::{ClientBuilder, OwnedMessage};
 
@@ -20,12 +21,15 @@ pub const BROADCAST_CONTEXT_ID: u64 = 0;
 pub enum ClientError {
     NoServer(u16, String),
     ConnectionDropped(String),
+    FallbackFailed(String),
     PacketType(String),
     Deserialization(UnmarshalError),
     MessageType(String, MessagePath),
 }
 
 pub struct NodeConnectionInner {
+    daemon_ui_port: u16,
+    active_ui_port: u16,
     next_context_id: u64,
     client: Client<TcpStream>,
 }
@@ -43,18 +47,32 @@ impl Drop for NodeConnection {
 }
 
 impl NodeConnection {
-    pub fn new(port: u16) -> Result<NodeConnection, ClientError> {
-        let builder =
-            ClientBuilder::new(format!("ws://{}:{}", localhost(), port).as_str()).expect("Bad URL");
-        let client = match builder.add_protocol(NODE_UI_PROTOCOL).connect_insecure() {
-            Err(e) => return Err(NoServer(port, format!("{:?}", e))),
+    pub fn new(daemon_ui_port: u16, active_ui_port: u16) -> Result<NodeConnection, ClientError> {
+        let client = match make_client(active_ui_port) {
+            Err(e) => return Err(NoServer(active_ui_port, format!("{:?}", e))),
             Ok(c) => c,
         };
         let inner_arc = Arc::new(Mutex::new(NodeConnectionInner {
+            daemon_ui_port,
+            active_ui_port,
             client,
             next_context_id: BROADCAST_CONTEXT_ID + 1,
         }));
         Ok(NodeConnection { inner_arc })
+    }
+
+    pub fn daemon_ui_port(&self) -> u16 {
+        self.inner_arc
+            .lock()
+            .expect("NodeConnection is poisoned")
+            .daemon_ui_port
+    }
+
+    pub fn active_ui_port(&self) -> u16 {
+        self.inner_arc
+            .lock()
+            .expect("NodeConnection is poisoned")
+            .active_ui_port
     }
 
     pub fn start_conversation(&self) -> NodeConversation {
@@ -78,6 +96,12 @@ impl NodeConnection {
     {
         unimplemented!();
     }
+}
+
+fn make_client(port: u16) -> WebSocketResult<Client<TcpStream>> {
+    let builder =
+        ClientBuilder::new(format!("ws://{}:{}", localhost(), port).as_str()).expect("Bad URL");
+    builder.add_protocol(NODE_UI_PROTOCOL).connect_insecure()
 }
 
 pub struct NodeConversation {
@@ -107,6 +131,72 @@ impl NodeConversation {
     // Warning: both the client_id and the context_id are completely ignored by this method.
     pub fn transact(
         &mut self,
+        outgoing_msg: NodeFromUiMessage,
+    ) -> Result<NodeToUiMessage, ClientError> {
+        self.transact_n(outgoing_msg)
+    }
+
+    pub fn close(&mut self) {
+        // Nothing yet
+    }
+
+    fn send(&mut self, outgoing_msg: NodeFromUiMessage) -> Result<(), ClientError> {
+        let outgoing_msg_json = UiTrafficConverter::new_marshal_from_ui(outgoing_msg);
+        self.send_string(outgoing_msg_json)
+    }
+
+    fn send_string(&mut self, string: String) -> Result<(), ClientError> {
+        let result = {
+            let client = &mut self.inner_arc.lock().expect("Connection poisoned").client;
+            client.send_message(&OwnedMessage::Text(string))
+        };
+        if let Err(e) = result {
+            match self.fall_back() {
+                Ok(_) => Err(ConnectionDropped(format!("{:?}", e))),
+                Err(e) => Err(e),
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    fn receive(&mut self) -> Result<NodeToUiMessage, ClientError> {
+        let incoming_msg = {
+            let client = &mut self.inner_arc.lock().expect("Connection poisoned").client;
+            client.recv_message()
+        };
+        let incoming_msg_json = match incoming_msg {
+            Ok(OwnedMessage::Text(json)) => json,
+            Ok(x) => return Err(PacketType(format!("{:?}", x))),
+            Err(e) => {
+                return match self.fall_back() {
+                    Ok(_) => Err(ClientError::ConnectionDropped(format!("{:?}", e))),
+                    Err(e) => Err(e),
+                }
+            }
+        };
+        match UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0)) {
+            Ok(m) => Ok(m),
+            Err(e) => Err(Deserialization(e)),
+        }
+    }
+
+    fn fall_back(&self) -> Result<(), ClientError> {
+        let mut inner = self.inner_arc.lock().expect("Connection poisoned");
+        match make_client(inner.daemon_ui_port) {
+            Ok(client) => inner.client = client,
+            Err(e) => {
+                return Err(ClientError::FallbackFailed(format!(
+                    "Both Node and Daemon have terminated: {:?}",
+                    e
+                )))
+            }
+        }
+        Ok(())
+    }
+
+    fn transact_n(
+        &mut self,
         mut outgoing_msg: NodeFromUiMessage,
     ) -> Result<NodeToUiMessage, ClientError> {
         if outgoing_msg.body.path == FireAndForget {
@@ -121,38 +211,6 @@ impl NodeConversation {
             return Err(e); // Don't know how to drive this line
         }
         self.receive()
-    }
-
-    pub fn close(&mut self) {
-        // Nothing yet
-    }
-
-    fn send(&mut self, outgoing_msg: NodeFromUiMessage) -> Result<(), ClientError> {
-        let outgoing_msg_json = UiTrafficConverter::new_marshal_from_ui(outgoing_msg);
-        self.send_string(outgoing_msg_json)
-    }
-
-    fn send_string(&mut self, string: String) -> Result<(), ClientError> {
-        let client = &mut self.inner_arc.lock().expect("Connection poisoned").client;
-        if let Err(e) = client.send_message(&OwnedMessage::Text(string)) {
-            Err(ConnectionDropped(format!("{:?}", e)))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn receive(&mut self) -> Result<NodeToUiMessage, ClientError> {
-        let client = &mut self.inner_arc.lock().expect("Connection poisoned").client;
-        let incoming_msg = client.recv_message();
-        let incoming_msg_json = match incoming_msg {
-            Ok(OwnedMessage::Text(json)) => json,
-            Ok(x) => return Err(PacketType(format!("{:?}", x))),
-            Err(e) => return Err(ConnectionDropped(format!("{:?}", e))),
-        };
-        match UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0)) {
-            Ok(m) => Ok(m),
-            Err(e) => Err(Deserialization(e)),
-        }
     }
 }
 
@@ -169,8 +227,8 @@ pub fn nfum<T: ToMessageBody>(tmb: T) -> NodeFromUiMessage {
 mod tests {
     use super::*;
     use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
-    use crate::websockets_client::ClientError::{ConnectionDropped, NoServer};
-    use masq_lib::messages::FromMessageBody;
+    use crate::websockets_client::ClientError::NoServer;
+    use masq_lib::messages::{FromMessageBody, UiShutdownRequest};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiUnmarshalError};
     use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue};
     use masq_lib::ui_gateway::MessageBody;
@@ -223,7 +281,7 @@ mod tests {
     fn connection_works_when_no_server_exists() {
         let port = find_free_port();
 
-        let error = NodeConnection::new(port).err().unwrap();
+        let error = NodeConnection::new(0, port).err().unwrap();
 
         match error {
             NoServer(p, _) if p == port => (),
@@ -238,7 +296,7 @@ mod tests {
         server.protocol = "Booga".to_string();
         server.start();
 
-        let error = NodeConnection::new(port).err().unwrap();
+        let error = NodeConnection::new(0, port).err().unwrap();
 
         match error {
             NoServer(p, _) if p == port => (),
@@ -253,7 +311,7 @@ mod tests {
         let stop_handle = server.start();
 
         {
-            let _ = NodeConnection::new(port).unwrap();
+            let _ = NodeConnection::new(0, port).unwrap();
         }
 
         let results = stop_handle.stop();
@@ -265,7 +323,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
-        let connection = NodeConnection::new(port).unwrap();
+        let connection = NodeConnection::new(0, port).unwrap();
         let mut subject = connection.start_conversation();
 
         let result = subject.transact(nfum(UiUnmarshalError {
@@ -281,18 +339,83 @@ mod tests {
     }
 
     #[test]
-    fn handles_connection_dropped_by_server_before_receive() {
-        let port = find_free_port();
-        let server = MockWebSocketsServer::new(port).queue_string("disconnect"); // magic value that causes disconnection
-        let _ = server.start();
-        let connection = NodeConnection::new(port).unwrap();
+    fn handles_connection_dropped_by_node_before_receive_when_daemon_is_still_alive() {
+        let node_port = find_free_port();
+        let node_server = MockWebSocketsServer::new(node_port).queue_string("disconnect"); // magic value that causes disconnection
+        let node_handle = node_server.start();
+        let daemon_port = find_free_port();
+        let daemon_server = MockWebSocketsServer::new(daemon_port);
+        let daemon_handle = daemon_server.start();
+        let connection = NodeConnection::new(daemon_port, node_port).unwrap();
         let mut subject = connection.start_conversation();
 
-        let result = subject.transact(nfum(UiSetupRequest { values: vec![] }));
+        let result = subject.transact(nfum(UiShutdownRequest {}));
 
         match result {
             Err(ConnectionDropped(_)) => (),
-            x => panic!("Expected ConnectionDropped; got {:?} instead", x),
+            x => panic!("Expected ConnectionDropped, got {:?}", x),
+        }
+        assert_eq!(daemon_handle.kill().len(), 0);
+        node_handle.kill();
+    }
+
+    #[test]
+    fn handles_connection_dropped_by_node_before_receive_when_daemon_is_dead() {
+        let node_port = find_free_port();
+        let node_server = MockWebSocketsServer::new(node_port).queue_string("disconnect"); // magic value that causes disconnection
+        let node_handle = node_server.start();
+        let daemon_port = find_free_port();
+        let connection = NodeConnection::new(daemon_port, node_port).unwrap();
+        let mut subject = connection.start_conversation();
+
+        let error = subject.transact(nfum(UiShutdownRequest {})).err().unwrap();
+
+        match error {
+            ClientError::FallbackFailed(_) => (),
+            x => panic!("Expected FallbackFailed; got {:?}", x),
+        }
+        node_handle.kill();
+    }
+
+    #[test]
+    fn handles_connection_dropped_by_node_before_transmit_when_daemon_is_still_alive() {
+        let node_port = find_free_port();
+        let node_server = MockWebSocketsServer::new(node_port);
+        let node_stop_handle = node_server.start();
+        let daemon_port = find_free_port();
+        let daemon_server = MockWebSocketsServer::new(daemon_port);
+        let daemon_stop_handle = daemon_server.start();
+        let connection = NodeConnection::new(daemon_port, node_port).unwrap();
+        node_stop_handle.kill();
+        let mut subject = connection.start_conversation();
+
+        let result = subject.transact(nfum(UiShutdownRequest {}));
+
+        match result {
+            Err(ConnectionDropped(_)) => (),
+            x => panic!("Expected ConnectionDropped, got {:?}", x),
+        }
+        assert_eq!(daemon_stop_handle.kill().len(), 0);
+    }
+
+    #[test]
+    fn handles_connection_dropped_by_node_before_transmit_when_daemon_is_dead() {
+        let node_port = find_free_port();
+        let node_server = MockWebSocketsServer::new(node_port);
+        let node_stop_handle = node_server.start();
+        let daemon_port = find_free_port();
+        let connection = NodeConnection::new(daemon_port, node_port).unwrap();
+        node_stop_handle.kill();
+        let mut subject = connection.start_conversation();
+
+        let error = subject.transact(nfum(UiShutdownRequest {})).err().unwrap();
+
+        match error {
+            ClientError::FallbackFailed(msg) => assert_eq!(
+                msg.starts_with("Both Node and Daemon have terminated:"),
+                true
+            ),
+            x => panic!("Expected ConnectionDropped; got {:?}", x),
         }
     }
 
@@ -301,7 +424,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("disconnect"); // magic value that causes disconnection
         let stop_handle = server.start();
-        let connection = NodeConnection::new(port).unwrap();
+        let connection = NodeConnection::new(0, port).unwrap();
         let mut subject = connection.start_conversation();
         stop_handle.stop();
 
@@ -319,7 +442,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("} -- bad syntax -- {");
         let stop_handle = server.start();
-        let connection = NodeConnection::new(port).unwrap();
+        let connection = NodeConnection::new(0, port).unwrap();
         let mut subject = connection.start_conversation();
 
         let result = subject.transact(nfum(UiSetupRequest { values: vec![] }));
@@ -339,7 +462,7 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_response(nftme2("setup", 1, 101, "booga"));
         let stop_handle = server.start();
-        let connection = NodeConnection::new(port).unwrap();
+        let connection = NodeConnection::new(0, port).unwrap();
         let mut subject = connection.start_conversation();
 
         let result = subject
@@ -361,7 +484,7 @@ mod tests {
             },
         ));
         let stop_handle = server.start();
-        let connection = NodeConnection::new(port).unwrap();
+        let connection = NodeConnection::new(0, port).unwrap();
         let mut subject = connection.start_conversation();
 
         let response_body = subject
@@ -417,7 +540,7 @@ mod tests {
                 .tmb(1),
             });
         let stop_handle = server.start();
-        let connection = NodeConnection::new(port).unwrap();
+        let connection = NodeConnection::new(0, port).unwrap();
         let mut subject1 = connection.start_conversation();
         let mut subject2 = connection.start_conversation();
 

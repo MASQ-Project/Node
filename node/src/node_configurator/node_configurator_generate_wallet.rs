@@ -335,7 +335,7 @@ mod tests {
     use crate::test_utils::*;
     use bip39::Seed;
     use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use regex::Regex;
     use std::cell::RefCell;

@@ -10,8 +10,8 @@ use std::fmt::Debug;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandError {
-    ConnectionRefused,
-    ConnectionDropped,
+    ConnectionRefused(String),
+    ConnectionDropped(String),
     Transmission(String),
     Reception(String),
     UnexpectedResponse(UiMessageError),
@@ -34,18 +34,10 @@ where
     }) {
         Ok(ntum) => ntum,
         Err(ContextError::ConnectionRefused(s)) => unimplemented!("{}", s),
-        Err(ContextError::ConnectionDropped(_)) => return Err(ConnectionDropped),
+        Err(ContextError::ConnectionDropped(s)) => return Err(ConnectionDropped(s)),
         Err(ContextError::PayloadError(code, message)) => return Err(Payload(code, message)),
         Err(ContextError::RedirectFailure(e)) => panic!("Couldn't redirect to Node: {:?}", e),
-        Err(ContextError::Other(msg)) => {
-            writeln!(
-                context.stderr(),
-                "Couldn't send command to Node or Daemon: {}",
-                msg
-            )
-            .expect("write! failed");
-            return Err(Transmission(msg));
-        }
+        Err(ContextError::Other(msg)) => return Err(Transmission(msg)),
     };
     let response: O = match O::fmb(ntum.body) {
         Ok((r, _)) => r,
@@ -83,7 +75,7 @@ mod tests {
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context);
 
-        assert_eq!(result, Err(ConnectionDropped));
+        assert_eq!(result, Err(ConnectionDropped("booga".to_string())));
     }
 
     #[test]
@@ -109,10 +101,7 @@ mod tests {
 
         assert_eq!(result, Err(Transmission("booga".to_string())));
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
-        assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
-            "Couldn't send command to Node or Daemon: booga\n".to_string()
-        );
+        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
     #[test]

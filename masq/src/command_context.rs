@@ -18,6 +18,7 @@ pub enum ContextError {
 }
 
 pub trait CommandContext {
+    fn active_port(&self) -> u16;
     fn transact(&mut self, message: NodeFromUiMessage) -> Result<NodeToUiMessage, ContextError>;
     fn stdin(&mut self) -> &mut dyn Read;
     fn stdout(&mut self) -> &mut dyn Write;
@@ -33,12 +34,14 @@ pub struct CommandContextReal {
 }
 
 impl CommandContext for CommandContextReal {
+    fn active_port(&self) -> u16 {
+        self.connection.active_ui_port()
+    }
+
     fn transact(&mut self, message: NodeFromUiMessage) -> Result<NodeToUiMessage, ContextError> {
         let mut conversation = self.connection.start_conversation();
         let ntum = match conversation.transact(message) {
-            Err(ClientError::ConnectionDropped(e)) => {
-                return Err(ContextError::ConnectionDropped(e))
-            }
+            Err(ClientError::FallbackFailed(e)) => return Err(ContextError::ConnectionDropped(e)),
             Err(e) => return Err(ContextError::Other(format!("{:?}", e))),
             Ok(ntum) => match ntum.body.payload {
                 Err((code, msg)) => return Err(ContextError::PayloadError(code, msg)),
@@ -78,8 +81,8 @@ impl CommandContext for CommandContextReal {
 }
 
 impl CommandContextReal {
-    pub fn new(port: u16) -> Result<Self, ContextError> {
-        match NodeConnection::new(port) {
+    pub fn new(daemon_ui_port: u16) -> Result<Self, ContextError> {
+        match NodeConnection::new(daemon_ui_port, daemon_ui_port) {
             Ok(connection) => Ok(Self {
                 connection,
                 stdin: Box::new(io::stdin()),
@@ -91,10 +94,11 @@ impl CommandContextReal {
     }
 
     fn process_redirect(&mut self, redirect: UiRedirect) -> Result<NodeToUiMessage, ContextError> {
-        let node_connection = match NodeConnection::new(redirect.port) {
-            Ok(nc) => nc,
-            Err(e) => return Err(RedirectFailure(format!("{:?}", e))),
-        };
+        let node_connection =
+            match NodeConnection::new(self.connection.daemon_ui_port(), redirect.port) {
+                Ok(nc) => nc,
+                Err(e) => return Err(RedirectFailure(format!("{:?}", e))),
+            };
         self.connection = node_connection;
         let message_body = MessageBody {
             opcode: redirect.opcode,
@@ -130,6 +134,18 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::MessageTarget::ClientId;
     use masq_lib::utils::find_free_port;
+
+    #[test]
+    fn sets_active_port_correctly_initially() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let handle = server.start();
+
+        let subject = CommandContextReal::new(port).unwrap();
+
+        assert_eq!(subject.active_port(), port);
+        handle.kill();
+    }
 
     #[test]
     fn works_when_everythings_fine() {
@@ -272,6 +288,7 @@ mod tests {
             }
         );
         assert_eq!(result.body.path, Conversation(1234));
+        assert_eq!(subject.active_port(), node_port);
         let (response, _) = UiFinancialsResponse::fmb(result.body).unwrap();
         assert_eq!(
             response,

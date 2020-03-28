@@ -671,14 +671,13 @@ mod tests {
     use crate::node_test_utils::MockDirsWrapper;
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::{
-        ArgsBuilder, ByteArrayWriter, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
-    };
+    use crate::test_utils::{ArgsBuilder, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
     use bip39::{Mnemonic, MnemonicType, Seed};
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::db_password_arg;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};

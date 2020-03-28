@@ -79,6 +79,7 @@ impl Write for ByteArrayWriter {
 pub struct ByteArrayReader {
     byte_array: Vec<u8>,
     position: usize,
+    next_error: Option<Error>,
 }
 
 impl ByteArrayReader {
@@ -86,19 +87,29 @@ impl ByteArrayReader {
         ByteArrayReader {
             byte_array: byte_array.to_vec(),
             position: 0,
+            next_error: None,
         }
+    }
+
+    pub fn reject_next_read(&mut self, error: Error) {
+        self.next_error = Some(error);
     }
 }
 
 impl Read for ByteArrayReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let to_copy = min(buf.len(), self.byte_array.len() - self.position);
-        #[allow(clippy::needless_range_loop)]
-        for idx in 0..to_copy {
-            buf[idx] = self.byte_array[self.position + idx]
+        match self.next_error.take() {
+            Some(error) => Err(error),
+            None => {
+                let to_copy = min(buf.len(), self.byte_array.len() - self.position);
+                #[allow(clippy::needless_range_loop)]
+                for idx in 0..to_copy {
+                    buf[idx] = self.byte_array[self.position + idx]
+                }
+                self.position += to_copy;
+                Ok(to_copy)
+            }
         }
-        self.position += to_copy;
-        Ok(to_copy)
     }
 }
 

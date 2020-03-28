@@ -49,8 +49,11 @@ impl Command for SetupCommand {
 }
 
 impl SetupCommand {
-    pub fn new(pieces: Vec<String>) -> Self {
-        let matches = setup_subcommand().get_matches_from(&pieces);
+    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
+        let matches = match setup_subcommand().get_matches_from_safe(&pieces) {
+            Ok(matches) => matches,
+            Err(e) => return Err(format!("{}", e)),
+        };
         let mut values = pieces
             .iter()
             .filter(|piece| (*piece).starts_with("--"))
@@ -69,7 +72,7 @@ impl SetupCommand {
                 .partial_cmp(&b.name)
                 .expect("String comparison failed")
         });
-        Self { values }
+        Ok(Self { values })
     }
 
     fn has_value(pieces: &[String], piece: &str) -> bool {
@@ -92,6 +95,22 @@ mod tests {
     use masq_lib::ui_gateway::MessageTarget::ClientId;
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn setup_command_with_syntax_error() {
+        let msg = SetupCommand::new(vec!["setup".to_string(), "--booga".to_string()])
+            .err()
+            .unwrap();
+
+        assert_eq!(msg.contains("Found argument '"), true, "{}", msg);
+        assert_eq!(msg.contains("--booga"), true, "{}", msg);
+        assert_eq!(
+            msg.contains("which wasn't expected, or isn't valid in this context"),
+            true,
+            "{}",
+            msg
+        );
+    }
 
     #[test]
     fn setup_command_happy_path_with_node_not_running() {
