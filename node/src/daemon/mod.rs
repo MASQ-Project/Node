@@ -133,7 +133,6 @@ impl Handler<NodeFromUiMessage> for Daemon {
 impl Daemon {
     pub fn new(seed_params: &HashMap<String, String>, launcher: Box<dyn Launcher>) -> Daemon {
         let mut params = HashMap::new();
-        params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should default to the system DNS value before subversion.
         #[cfg(not(target_os = "windows"))]
         let transferred_keys = vec![
             "chain",
@@ -493,9 +492,8 @@ mod tests {
             .into_iter()
             .map(|value| (value.name, value.value))
             .collect();
-        let mut expected_pairs: HashSet<(String, String)> =
+        let expected_pairs: HashSet<(String, String)> =
             Daemon::get_default_params().into_iter().collect();
-        expected_pairs.insert(("dns-servers".to_string(), "1.1.1.1".to_string()));
 
         assert_eq!(actual_pairs, expected_pairs);
     }
@@ -508,7 +506,7 @@ mod tests {
         let mut subject = Daemon::new(&HashMap::new(), Box::new(LauncherMock::new()));
         subject.verifier_tools = Box::new(verifier_tools);
         subject.params = vec![
-            ("dns-servers", "1.1.1.1"),
+            ("dns-servers", "8.8.8.8"),
             ("chain", "ropsten"),
             ("config-file", "biggles.txt"),
             ("db-password", "goober"),
@@ -554,7 +552,7 @@ mod tests {
             .map(|value| (value.name, value.value))
             .collect();
         let mut expected_pairs = Daemon::get_default_params();
-        expected_pairs.insert("dns-servers".to_string(), "1.1.1.1".to_string());
+        expected_pairs.insert("dns-servers".to_string(), "8.8.8.8".to_string());
 
         assert_eq!(actual_pairs, expected_pairs);
     }
@@ -609,7 +607,6 @@ mod tests {
             .map(|value| (value.name, value.value))
             .collect();
         let mut expected_pairs = Daemon::get_default_params();
-        expected_pairs.insert("dns-servers".to_string(), "1.1.1.1".to_string());
         expected_pairs.insert("chain".to_string(), "ropsten".to_string());
         expected_pairs.insert("config-file".to_string(), "biggles.txt".to_string());
         expected_pairs.insert("db-password".to_string(), "goober".to_string());
@@ -679,9 +676,8 @@ mod tests {
             .into_iter()
             .map(|value| (value.name, value.value))
             .collect();
-        let mut expected_pairs: HashSet<(String, String)> =
+        let expected_pairs: HashSet<(String, String)> =
             Daemon::get_default_params().into_iter().collect();
-        expected_pairs.insert(("dns-servers".to_string(), "1.1.1.1".to_string()));
 
         assert_eq!(actual_pairs, expected_pairs);
     }
@@ -861,7 +857,7 @@ mod tests {
         assert_eq!(
             *launch_params,
             vec![HashMap::from_iter(
-                vec![("db-password", "goober"), ("dns-servers", "1.1.1.1"),]
+                vec![("db-password", "goober")]
                     .into_iter()
                     .map(|(n, v)| (n.to_string(), v.to_string()))
             )]

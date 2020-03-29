@@ -452,7 +452,8 @@ mod tests {
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
             .make_result(Err(UnrecognizedSubcommand("booga".to_string())));
-        let processor = CommandProcessorMock::new();
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
+        let processor = CommandProcessorMock::new().close_params(&close_params_arc);
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
@@ -469,11 +470,12 @@ mod tests {
         assert_eq!(result, 1);
         let c_make_params = c_make_params_arc.lock().unwrap();
         assert_eq!(*c_make_params, vec![vec!["subcommand".to_string()],]);
-        assert_eq!(stream_holder.stdout.get_string(), "".to_string());
         assert_eq!(
             stream_holder.stderr.get_string(),
             "Unrecognized command: 'booga'\n".to_string()
         );
+        let close_params = close_params_arc.lock().unwrap();
+        assert_eq!(close_params.len(), 1);
     }
 
     #[test]

@@ -72,14 +72,14 @@ impl<'a> MultiConfig<'a> {
         &self.arg_matches
     }
 
-    #[cfg(not(test))]
     fn abort(e: clap::Error) -> ArgMatches<'a> {
-        e.exit();
-    }
-
-    #[cfg(test)]
-    fn abort(e: clap::Error) -> ArgMatches<'a> {
-        panic!("{:?}. --panic to catch for testing--", e)
+        // This doesn't appear to work. I don't know why not.
+        if cfg!(test) {
+            panic!("{:?}. --panic to catch for testing--", e)
+        } else {
+            // panic! ("{:?}", e); // uncomment during testing
+            e.exit();
+        }
     }
 }
 

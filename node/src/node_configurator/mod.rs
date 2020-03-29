@@ -936,8 +936,7 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--clandestine-port", "2345")
             .param("--data-directory", "data-dir")
-            .param("--config-file", "booga.toml")
-            .param("--dns-servers", "1.2.3.4");
+            .param("--config-file", "booga.toml");
 
         let (config_file_path, user_specified) =
             determine_config_file_path(&determine_config_file_path_app(), &args.into());
@@ -953,7 +952,7 @@ mod tests {
     #[test]
     fn determine_config_file_path_finds_path_in_environment() {
         let _guard = EnvironmentGuard::new();
-        let args = ArgsBuilder::new().param("--dns-servers", "1.2.3.4");
+        let args = ArgsBuilder::new();
         std::env::set_var("SUB_DATA_DIRECTORY", "data_dir");
         std::env::set_var("SUB_CONFIG_FILE", "booga.toml");
 
@@ -974,8 +973,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
-            .param("--config-file", "/tmp/booga.toml")
-            .param("--dns-servers", "1.2.3.4");
+            .param("--config-file", "/tmp/booga.toml");
 
         let (config_file_path, user_specified) =
             determine_config_file_path(&determine_config_file_path_app(), &args.into());
@@ -993,8 +991,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
-            .param("--config-file", r"\tmp\booga.toml")
-            .param("--dns-servers", "1.2.3.4");
+            .param("--config-file", r"\tmp\booga.toml");
 
         let (config_file_path, user_specified) =
             determine_config_file_path(&determine_config_file_path_app(), &args.into());
@@ -1012,8 +1009,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
-            .param("--config-file", r"c:\tmp\booga.toml")
-            .param("--dns-servers", "1.2.3.4");
+            .param("--config-file", r"c:\tmp\booga.toml");
 
         let (config_file_path, user_specified) =
             determine_config_file_path(&determine_config_file_path_app(), &args.into());
@@ -1031,8 +1027,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
-            .param("--config-file", r"\\TMP\booga.toml")
-            .param("--dns-servers", "1.2.3.4");
+            .param("--config-file", r"\\TMP\booga.toml");
 
         let (config_file_path, user_specified) =
             determine_config_file_path(&determine_config_file_path_app(), &args.into());
@@ -1051,8 +1046,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
-            .param("--config-file", r"c:tmp\booga.toml")
-            .param("--dns-servers", "1.2.3.4");
+            .param("--config-file", r"c:tmp\booga.toml");
 
         let (config_file_path, user_specified) =
             determine_config_file_path(&determine_config_file_path_app(), &args.into());

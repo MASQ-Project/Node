@@ -136,8 +136,7 @@ impl DaemonInitializer {
 
     fn bind(&mut self, sender: Sender<HashMap<String, String>>) {
         let launcher = LauncherReal::new(sender);
-        let mut params = HashMap::new();
-        params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should be the regular system DNS server
+        let params = HashMap::new();
         let recipients =
             self.recipients_factory
                 .make(&params, Box::new(launcher), self.config.ui_port);

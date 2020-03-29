@@ -111,7 +111,7 @@ pub fn make_consuming_wallet_info(token: &str) -> ConsumingWalletInfo {
 pub struct NodeStartupConfig {
     pub neighborhood_mode: String,
     pub ip_info: LocalIpInfo,
-    pub dns_servers: Vec<IpAddr>,
+    pub dns_servers_opt: Option<Vec<IpAddr>>,
     pub neighbors: Vec<NodeReference>,
     pub clandestine_port_opt: Option<u16>,
     pub dns_target: IpAddr,
@@ -119,12 +119,12 @@ pub struct NodeStartupConfig {
     pub earning_wallet_info: EarningWalletInfo,
     pub consuming_wallet_info: ConsumingWalletInfo,
     pub rate_pack: RatePack,
-    pub firewall: Option<Firewall>,
-    pub memory: Option<String>,
-    pub fake_public_key: Option<PublicKey>,
-    pub blockchain_service_url: Option<String>,
-    pub chain: Option<String>,
-    pub db_password: Option<String>,
+    pub firewall_opt: Option<Firewall>,
+    pub memory_opt: Option<String>,
+    pub fake_public_key_opt: Option<PublicKey>,
+    pub blockchain_service_url_opt: Option<String>,
+    pub chain_opt: Option<String>,
+    pub db_password_opt: Option<String>,
 }
 
 impl NodeStartupConfig {
@@ -132,7 +132,7 @@ impl NodeStartupConfig {
         NodeStartupConfig {
             neighborhood_mode: "standard".to_string(),
             ip_info: LocalIpInfo::ZeroHop,
-            dns_servers: Vec::new(),
+            dns_servers_opt: None,
             neighbors: Vec::new(),
             clandestine_port_opt: None,
             dns_target: IpAddr::V4(Ipv4Addr::BROADCAST),
@@ -140,17 +140,17 @@ impl NodeStartupConfig {
             earning_wallet_info: EarningWalletInfo::None,
             consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: DEFAULT_RATE_PACK,
-            firewall: None,
-            memory: None,
-            fake_public_key: None,
-            blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
-            db_password: Some("password".to_string()),
+            firewall_opt: None,
+            memory_opt: None,
+            fake_public_key_opt: None,
+            blockchain_service_url_opt: None,
+            chain_opt: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
+            db_password_opt: Some("password".to_string()),
         }
     }
 
     pub fn firewall(&self) -> Option<Firewall> {
-        self.firewall.clone()
+        self.firewall_opt.clone()
     }
 
     fn make_args(&self) -> Vec<String> {
@@ -161,8 +161,10 @@ impl NodeStartupConfig {
             args.push("--ip".to_string());
             args.push(format!("{}", ip_addr));
         }
-        args.push("--dns-servers".to_string());
-        args.push(Self::join_strings(&self.dns_servers));
+        if let Some(ref dns_servers) = &self.dns_servers_opt {
+            args.push("--dns-servers".to_string());
+            args.push(Self::join_strings(dns_servers));
+        }
         if !self.neighbors.is_empty() {
             args.push("--neighbors".to_string());
             args.push(Self::join_strings(&self.neighbors));
@@ -183,19 +185,19 @@ impl NodeStartupConfig {
             args.push("--consuming-private-key".to_string());
             args.push(key.to_string());
         }
-        if let Some(ref public_key) = self.fake_public_key {
+        if let Some(ref public_key) = self.fake_public_key_opt {
             args.push("--fake-public-key".to_string());
             args.push(format!("{}", public_key));
         }
-        if let Some(ref blockchain_service_url) = self.blockchain_service_url {
+        if let Some(ref blockchain_service_url) = self.blockchain_service_url_opt {
             args.push("--blockchain-service-url".to_string());
             args.push(format!("{}", blockchain_service_url));
         }
-        if let Some(ref chain) = self.chain {
+        if let Some(ref chain) = self.chain_opt {
             args.push("--chain".to_string());
             args.push(format!("{}", chain));
         }
-        if let Some(ref db_password) = self.db_password {
+        if let Some(ref db_password) = self.db_password_opt {
             args.push("--db-password".to_string());
             args.push(format!("{}", db_password));
         }
@@ -354,7 +356,7 @@ impl NodeStartupConfig {
 pub struct NodeStartupConfigBuilder {
     neighborhood_mode: String,
     ip_info: LocalIpInfo,
-    dns_servers: Vec<IpAddr>,
+    dns_servers_opt: Option<Vec<IpAddr>>,
     neighbors: Vec<NodeReference>,
     clandestine_port_opt: Option<u16>,
     dns_target: IpAddr,
@@ -375,7 +377,7 @@ impl NodeStartupConfigBuilder {
         Self {
             neighborhood_mode: "zero-hop".to_string(),
             ip_info: LocalIpInfo::ZeroHop,
-            dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
+            dns_servers_opt: None,
             neighbors: vec![],
             clandestine_port_opt: None,
             dns_target: localhost(),
@@ -396,7 +398,7 @@ impl NodeStartupConfigBuilder {
         Self {
             neighborhood_mode: "consume-only".to_string(),
             ip_info: LocalIpInfo::DistributedUnknown,
-            dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
+            dns_servers_opt: None,
             neighbors: vec![],
             clandestine_port_opt: None,
             dns_target: localhost(),
@@ -421,7 +423,7 @@ impl NodeStartupConfigBuilder {
         Self {
             neighborhood_mode: "originate-only".to_string(),
             ip_info: LocalIpInfo::DistributedUnknown,
-            dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
+            dns_servers_opt: None,
             neighbors: vec![],
             clandestine_port_opt: None,
             dns_target: localhost(),
@@ -446,7 +448,7 @@ impl NodeStartupConfigBuilder {
         Self {
             neighborhood_mode: "standard".to_string(),
             ip_info: LocalIpInfo::DistributedUnknown,
-            dns_servers: vec![IpAddr::from_str("8.8.8.8").unwrap()],
+            dns_servers_opt: None,
             neighbors: vec![],
             clandestine_port_opt: None,
             dns_target: localhost(),
@@ -467,7 +469,7 @@ impl NodeStartupConfigBuilder {
         Self {
             neighborhood_mode: config.neighborhood_mode.clone(),
             ip_info: config.ip_info.clone(),
-            dns_servers: config.dns_servers.clone(),
+            dns_servers_opt: config.dns_servers_opt.clone(),
             neighbors: config.neighbors.clone(),
             clandestine_port_opt: config.clandestine_port_opt,
             dns_target: config.dns_target.clone(),
@@ -475,12 +477,12 @@ impl NodeStartupConfigBuilder {
             earning_wallet_info: config.earning_wallet_info.clone(),
             consuming_wallet_info: config.consuming_wallet_info.clone(),
             rate_pack: config.rate_pack.clone(),
-            firewall: config.firewall.clone(),
-            memory: config.memory.clone(),
-            fake_public_key: config.fake_public_key.clone(),
-            blockchain_service_url: config.blockchain_service_url.clone(),
-            chain: config.chain.clone(),
-            db_password: config.db_password.clone(),
+            firewall: config.firewall_opt.clone(),
+            memory: config.memory_opt.clone(),
+            fake_public_key: config.fake_public_key_opt.clone(),
+            blockchain_service_url: config.blockchain_service_url_opt.clone(),
+            chain: config.chain_opt.clone(),
+            db_password: config.db_password_opt.clone(),
         }
     }
 
@@ -506,7 +508,7 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn dns_servers(mut self, value: Vec<IpAddr>) -> Self {
-        self.dns_servers = value;
+        self.dns_servers_opt = Some(value);
         self
     }
 
@@ -596,7 +598,7 @@ impl NodeStartupConfigBuilder {
         NodeStartupConfig {
             neighborhood_mode: self.neighborhood_mode,
             ip_info: self.ip_info,
-            dns_servers: self.dns_servers,
+            dns_servers_opt: self.dns_servers_opt,
             neighbors: self.neighbors,
             clandestine_port_opt: self.clandestine_port_opt,
             dns_target: self.dns_target,
@@ -604,12 +606,12 @@ impl NodeStartupConfigBuilder {
             earning_wallet_info: self.earning_wallet_info,
             consuming_wallet_info: self.consuming_wallet_info,
             rate_pack: self.rate_pack,
-            firewall: self.firewall,
-            memory: self.memory,
-            fake_public_key: self.fake_public_key,
-            blockchain_service_url: self.blockchain_service_url,
-            chain: self.chain,
-            db_password: self.db_password,
+            firewall_opt: self.firewall,
+            memory_opt: self.memory,
+            fake_public_key_opt: self.fake_public_key,
+            blockchain_service_url_opt: self.blockchain_service_url,
+            chain_opt: self.chain,
+            db_password_opt: self.db_password,
         }
     }
 }
@@ -767,7 +769,7 @@ impl MASQRealNode {
             vec!["/usr/local/bin/port_exposer", "80:8080", "443:8443"],
         )
         .expect("port_exposer wouldn't run");
-        match &real_startup_config.firewall {
+        match &real_startup_config.firewall_opt {
             None => (),
             Some(firewall) => {
                 Self::create_impenetrable_firewall(&name);
@@ -780,11 +782,11 @@ impl MASQRealNode {
         Self::establish_wallet_info(&name, &real_startup_config);
         let chain_id = real_startup_config
             .clone()
-            .chain
+            .chain_opt
             .map(|chain_name| chain_id_from_name(chain_name.as_str()))
             .unwrap_or(DEFAULT_CHAIN_ID);
         let cryptde_null_opt = real_startup_config
-            .fake_public_key
+            .fake_public_key_opt
             .clone()
             .map(|public_key| CryptDENull::from(&public_key, chain_id));
         let restart_startup_config = real_startup_config.clone();
@@ -809,7 +811,7 @@ impl MASQRealNode {
                     })
                 }
             },
-            chain: real_startup_config.chain,
+            chain: real_startup_config.chain_opt,
             accepts_connections: vec!["standard"]
                 .contains(&real_startup_config.neighborhood_mode.as_str()),
             routes_data: vec!["standard", "originate-only"]
@@ -891,7 +893,7 @@ impl MASQRealNode {
     }
 
     fn create_node_command(node_args: Vec<String>, startup_config: NodeStartupConfig) -> String {
-        let mut node_command_parts: Vec<String> = match startup_config.memory {
+        let mut node_command_parts: Vec<String> = match startup_config.memory_opt {
             Some(kbytes) => vec![format!(
                 "ulimit -v {} -m {} && /node_root/node/MASQNode",
                 kbytes, kbytes
@@ -1159,10 +1161,7 @@ mod tests {
         let result = NodeStartupConfigBuilder::zero_hop().build();
 
         assert_eq!(result.ip_info, LocalIpInfo::ZeroHop);
-        assert_eq!(
-            result.dns_servers,
-            vec!(IpAddr::from_str("8.8.8.8").unwrap())
-        );
+        assert_eq!(result.dns_servers_opt, None);
         assert_eq!(result.neighbors, vec!());
         assert_eq!(result.clandestine_port_opt, None);
         assert_eq!(result.dns_target, localhost());
@@ -1175,7 +1174,7 @@ mod tests {
         let memory = "50mb";
         let result = NodeStartupConfigBuilder::zero_hop().memory(memory).build();
 
-        assert_eq!(Some(memory.to_string()), result.memory);
+        assert_eq!(Some(memory.to_string()), result.memory_opt);
     }
 
     #[test]
@@ -1183,10 +1182,7 @@ mod tests {
         let result = NodeStartupConfigBuilder::standard().build();
 
         assert_eq!(result.ip_info, LocalIpInfo::DistributedUnknown);
-        assert_eq!(
-            result.dns_servers,
-            vec!(IpAddr::from_str("8.8.8.8").unwrap())
-        );
+        assert_eq!(result.dns_servers_opt, None);
         assert_eq!(result.neighbors, vec!());
         assert_eq!(result.clandestine_port_opt, None);
         assert_eq!(result.dns_target, localhost());
@@ -1199,10 +1195,7 @@ mod tests {
         let result = NodeStartupConfigBuilder::originate_only().build();
 
         assert_eq!(result.ip_info, LocalIpInfo::DistributedUnknown);
-        assert_eq!(
-            result.dns_servers,
-            vec!(IpAddr::from_str("8.8.8.8").unwrap())
-        );
+        assert_eq!(result.dns_servers_opt, None);
         assert_eq!(result.neighbors, vec!());
         assert_eq!(result.clandestine_port_opt, None);
         assert_eq!(result.dns_target, localhost());
@@ -1247,7 +1240,7 @@ mod tests {
             .build();
 
         assert_eq!(result.ip_info, LocalIpInfo::DistributedKnown(ip_addr));
-        assert_eq!(result.dns_servers, dns_servers);
+        assert_eq!(result.dns_servers_opt, Some(dns_servers));
         assert_eq!(result.neighbors, neighbors);
         assert_eq!(result.clandestine_port_opt, None);
         assert_eq!(result.dns_target, dns_target);
@@ -1259,7 +1252,7 @@ mod tests {
         let original = NodeStartupConfig {
             neighborhood_mode: "consume-only".to_string(),
             ip_info: LocalIpInfo::DistributedUnknown,
-            dns_servers: vec![IpAddr::from_str("255.255.255.255").unwrap()],
+            dns_servers_opt: Some(vec![IpAddr::from_str("255.255.255.255").unwrap()]),
             neighbors: vec![NodeReference::new(
                 PublicKey::new(&[255]),
                 Some(IpAddr::from_str("255.255.255.255").unwrap()),
@@ -1276,14 +1269,14 @@ mod tests {
                 exit_byte_rate: 30,
                 exit_service_rate: 40,
             },
-            firewall: Some(Firewall {
+            firewall_opt: Some(Firewall {
                 ports_to_open: vec![HTTP_PORT, TLS_PORT],
             }),
-            memory: Some("32m".to_string()),
-            fake_public_key: Some(PublicKey::new(&[1, 2, 3, 4])),
-            blockchain_service_url: None,
-            chain: None,
-            db_password: Some("booga".to_string()),
+            memory_opt: Some("32m".to_string()),
+            fake_public_key_opt: Some(PublicKey::new(&[1, 2, 3, 4])),
+            blockchain_service_url_opt: None,
+            chain_opt: None,
+            db_password_opt: Some("booga".to_string()),
         };
         let neighborhood_mode = "standard".to_string();
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1323,7 +1316,7 @@ mod tests {
 
         assert_eq!(result.neighborhood_mode, neighborhood_mode);
         assert_eq!(result.ip_info, LocalIpInfo::DistributedKnown(ip_addr));
-        assert_eq!(result.dns_servers, dns_servers);
+        assert_eq!(result.dns_servers_opt, Some(dns_servers));
         assert_eq!(result.neighbors, neighbors);
         assert_eq!(result.clandestine_port_opt, Some(1234));
         assert_eq!(result.dns_target, dns_target);
@@ -1336,8 +1329,11 @@ mod tests {
             result.consuming_wallet_info,
             make_consuming_wallet_info("booga")
         );
-        assert_eq!(result.fake_public_key, Some(PublicKey::new(&[1, 2, 3, 4])));
-        assert_eq!(result.db_password, Some("booga".to_string()))
+        assert_eq!(
+            result.fake_public_key_opt,
+            Some(PublicKey::new(&[1, 2, 3, 4]))
+        );
+        assert_eq!(result.db_password_opt, Some("booga".to_string()))
     }
 
     #[test]
@@ -1370,8 +1366,6 @@ mod tests {
                 "consume-only",
                 "--ip",
                 "1.3.5.7",
-                "--dns-servers",
-                "8.8.8.8",
                 "--neighbors",
                 format!("{},{}", one_neighbor, another_neighbor).as_str(),
                 "--log-level",

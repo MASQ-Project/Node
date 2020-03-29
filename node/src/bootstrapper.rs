@@ -719,8 +719,6 @@ mod tests {
     fn make_default_cli_params() -> Vec<String> {
         vec![
             String::from("MASQNode"),
-            String::from("--dns-servers"),
-            String::from("222.222.222.222"),
             String::from("--ip"),
             String::from("111.111.111.111"),
         ]
@@ -879,7 +877,6 @@ mod tests {
         subject.listener_handler_factory = Box::new(listener_handler_factory);
         let args: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--dns-servers", "1.1.1.1")
             .param("--ip", "2.2.2.2")
             .param("--real-user", "123:456:/home/booga")
             .into();
@@ -982,8 +979,6 @@ mod tests {
             .build();
         let args = &vec![
             String::from("MASQNode"),
-            String::from("--dns-servers"),
-            String::from("222.222.222.222"),
             String::from("--neighborhood-mode"),
             String::from("zero-hop"),
             String::from("--clandestine-port"),
@@ -1066,8 +1061,6 @@ mod tests {
         subject.initialize_as_privileged(
             &vec![
                 String::from("MASQNode"),
-                String::from("--dns-servers"),
-                String::from("1.1.1.1"),
                 String::from("--ip"),
                 String::from("111.111.111.111"),
             ],
@@ -1243,8 +1236,6 @@ mod tests {
         subject.initialize_as_privileged(
             &vec![
                 "MASQNode".to_string(),
-                "--dns-servers".to_string(),
-                "1.1.1.1".to_string(),
                 "--data-directory".to_string(),
                 data_dir.display().to_string(),
             ],
@@ -1376,8 +1367,6 @@ mod tests {
             .build();
         let args = vec![
             String::from("MASQNode"),
-            String::from("--dns-servers"),
-            String::from("222.222.222.222"),
             String::from("--neighborhood-mode"),
             String::from("zero-hop"),
             String::from("--data-directory"),
