@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
-use masq_lib::shared_schema::ui_port_arg;
+use masq_lib::shared_schema::{ui_port_arg, ConfiguratorError};
 
 lazy_static! {
     static ref UI_PORT_HELP: String = format!(
@@ -25,13 +25,17 @@ pub struct InitializationConfig {
 pub struct NodeConfiguratorInitialization {}
 
 impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
-    fn configure(&self, args: &Vec<String>, streams: &mut StdStreams) -> InitializationConfig {
+    fn configure(
+        &self,
+        args: &Vec<String>,
+        streams: &mut StdStreams,
+    ) -> Result<InitializationConfig, ConfiguratorError> {
         let app = app();
         let multi_config =
-            MultiConfig::new(&app, vec![Box::new(CommandLineVcl::new(args.clone()))]);
+            MultiConfig::try_new(&app, vec![Box::new(CommandLineVcl::new(args.clone()))])?;
         let mut config = InitializationConfig::default();
         initialization::parse_args(&multi_config, &mut config, streams);
-        config
+        Ok(config)
     }
 }
 
@@ -41,7 +45,8 @@ pub fn app() -> App<'static, 'static> {
             Arg::with_name("initialization")
                 .long("initialization")
                 .required(true)
-                .takes_value(false),
+                .takes_value(false)
+                .help("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"),
         )
         .arg(ui_port_arg(&UI_PORT_HELP))
 }
@@ -75,7 +80,7 @@ mod tests {
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = MultiConfig::new(&app(), vcls);
+        let multi_config = MultiConfig::try_new(&app(), vcls).unwrap();
 
         initialization::parse_args(
             &multi_config,
@@ -94,7 +99,7 @@ mod tests {
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = MultiConfig::new(&app(), vcls);
+        let multi_config = MultiConfig::try_new(&app(), vcls).unwrap();
 
         initialization::parse_args(
             &multi_config,

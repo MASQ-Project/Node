@@ -158,13 +158,12 @@ mod tests {
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiShutdownRequest;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, FakeStreamHolder};
-    use masq_lib::ui_gateway::NodeFromUiMessage;
     use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
 
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {
-        let command = MockCommand::new(UiShutdownRequest {});
+        let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
@@ -242,13 +241,7 @@ mod tests {
             Err(Transmission("Other(\"not really an error\")".to_string()))
         );
         let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![NodeFromUiMessage {
-                client_id: 0,
-                body: UiShutdownRequest {}.tmb(0),
-            }]
-        );
+        assert_eq!(*transact_params, vec![UiShutdownRequest {}.tmb(1)]);
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "MockCommand output".to_string()
@@ -507,7 +500,7 @@ mod tests {
 
     #[test]
     fn go_works_when_command_execution_fails() {
-        let command = MockCommand::new(UiShutdownRequest {}).execute_result(Ok(())); // irrelevant
+        let command = MockCommand::new(UiShutdownRequest {}.tmb(1)).execute_result(Ok(())); // irrelevant
         let command_factory = CommandFactoryMock::new().make_result(Ok(Box::new(command)));
         let process_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()

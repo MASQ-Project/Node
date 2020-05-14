@@ -142,7 +142,7 @@ impl WebSocketSupervisorReal {
             MessageTarget::ClientId(n) => vec![n],
             MessageTarget::AllClients => locked_inner.client_by_id.keys().copied().collect_vec(),
         };
-        let json = UiTrafficConverter::new_marshal_to_ui(msg);
+        let json = UiTrafficConverter::new_marshal(msg.body);
         Self::send_to_clients(locked_inner, client_ids, json);
     }
 

@@ -40,7 +40,6 @@ use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
-use tokio;
 use tokio::prelude::Future;
 
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.

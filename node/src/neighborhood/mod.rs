@@ -459,7 +459,7 @@ impl Neighborhood {
         if self.persistent_config_opt.is_none() {
             let db_initializer = DbInitializerReal::new();
             let conn = db_initializer
-                .initialize(&self.data_directory, self.chain_id)
+                .initialize(&self.data_directory, self.chain_id, true) // TODO: Probably should be false
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }

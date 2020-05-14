@@ -5,10 +5,8 @@ use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
-use crate::websockets_client::nfum;
-use masq_lib::messages::ToMessageBody;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -47,8 +45,8 @@ impl CommandFactoryMock {
 
 pub struct CommandContextMock {
     active_port_results: RefCell<Vec<u16>>,
-    transact_params: Arc<Mutex<Vec<NodeFromUiMessage>>>,
-    transact_results: RefCell<Vec<Result<NodeToUiMessage, ContextError>>>,
+    transact_params: Arc<Mutex<Vec<MessageBody>>>,
+    transact_results: RefCell<Vec<Result<MessageBody, ContextError>>>,
     stdout: Box<dyn Write>,
     stdout_arc: Arc<Mutex<ByteArrayWriterInner>>,
     stderr: Box<dyn Write>,
@@ -60,7 +58,7 @@ impl CommandContext for CommandContextMock {
         self.active_port_results.borrow_mut().remove(0)
     }
 
-    fn transact(&mut self, message: NodeFromUiMessage) -> Result<NodeToUiMessage, ContextError> {
+    fn transact(&mut self, message: MessageBody) -> Result<MessageBody, ContextError> {
         self.transact_params.lock().unwrap().push(message);
         self.transact_results.borrow_mut().remove(0)
     }
@@ -110,12 +108,12 @@ impl CommandContextMock {
         self
     }
 
-    pub fn transact_params(mut self, params: &Arc<Mutex<Vec<NodeFromUiMessage>>>) -> Self {
+    pub fn transact_params(mut self, params: &Arc<Mutex<Vec<MessageBody>>>) -> Self {
         self.transact_params = params.clone();
         self
     }
 
-    pub fn transact_result(self, result: Result<NodeToUiMessage, ContextError>) -> Self {
+    pub fn transact_result(self, result: Result<MessageBody, ContextError>) -> Self {
         self.transact_results.borrow_mut().push(result);
         self
     }
@@ -197,30 +195,30 @@ impl CommandProcessorFactoryMock {
     }
 }
 
-pub struct MockCommand<T: ToMessageBody + Clone> {
-    message: T,
+pub struct MockCommand {
+    message: MessageBody,
     execute_results: RefCell<Vec<Result<(), CommandError>>>,
 }
 
-impl<T: ToMessageBody + Clone> std::fmt::Debug for MockCommand<T> {
+impl std::fmt::Debug for MockCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "MockCommand")
     }
 }
 
-impl<T: ToMessageBody + Clone> Command for MockCommand<T> {
+impl Command for MockCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         write!(context.stdout(), "MockCommand output").unwrap();
         write!(context.stderr(), "MockCommand error").unwrap();
-        match context.transact(nfum(self.message.clone())) {
+        match context.transact(self.message.clone()) {
             Ok(_) => self.execute_results.borrow_mut().remove(0),
             Err(e) => Err(Transmission(format!("{:?}", e))),
         }
     }
 }
 
-impl<T: ToMessageBody + Clone> MockCommand<T> {
-    pub fn new(message: T) -> Self {
+impl MockCommand {
+    pub fn new(message: MessageBody) -> Self {
         Self {
             message,
             execute_results: RefCell::new(vec![]),

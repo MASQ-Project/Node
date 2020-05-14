@@ -1,15 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::route::RouteError;
-use base64;
 use ethsign_crypto::Keccak256;
 use rustc_hex::ToHex;
-use serde;
 use serde::de::Visitor;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
-use serde_cbor;
 use std::fmt;
 use std::iter::FromIterator;
 

@@ -81,6 +81,7 @@ fn non_pending_payables(node: &MASQRealNode, chain_id: u8) -> Vec<PayableAccount
                     &node.name().to_string(),
                 )),
                 chain_id,
+                true,
             )
             .unwrap(),
     );
@@ -97,6 +98,7 @@ fn receivables(node: &MASQRealNode, chain_id: u8) -> Vec<ReceivableAccount> {
                     &node.name().to_string(),
                 )),
                 chain_id,
+                true,
             )
             .unwrap(),
     );

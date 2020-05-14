@@ -56,11 +56,8 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
-    use crate::websockets_client::nfum;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
-    use masq_lib::ui_gateway::MessageTarget::ClientId;
-    use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::find_free_port;
 
     #[derive(Debug)]
@@ -68,7 +65,7 @@ mod tests {
 
     impl Command for TestCommand {
         fn execute<'a>(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            match context.transact(nfum(UiShutdownRequest {})) {
+            match context.transact(UiShutdownRequest {}.tmb(1)) {
                 Ok(_) => Ok(()),
                 Err(e) => Err(CommandError::Other(format!("{:?}", e))),
             }
@@ -103,10 +100,7 @@ mod tests {
             format!("{}", port),
         ];
         let subject = CommandProcessorFactoryReal::new();
-        let server = MockWebSocketsServer::new(port).queue_response(NodeToUiMessage {
-            target: ClientId(0),
-            body: UiShutdownResponse {}.tmb(1),
-        });
+        let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
 
         let mut result = subject.make(&args).unwrap();
@@ -114,12 +108,6 @@ mod tests {
         let command = TestCommand {};
         result.process(Box::new(command)).unwrap();
         let received = stop_handle.stop();
-        assert_eq!(
-            received,
-            vec![Ok(NodeFromUiMessage {
-                client_id: 0,
-                body: UiShutdownRequest {}.tmb(1),
-            })]
-        );
+        assert_eq!(received, vec![Ok(UiShutdownRequest {}.tmb(1))]);
     }
 }

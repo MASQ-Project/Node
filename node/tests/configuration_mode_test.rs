@@ -29,7 +29,7 @@ const CONSUMING_PATH: &str = "m/44'/60'/1'/2/3";
 fn persistent_config(chain_id: u8) -> PersistentConfigurationReal {
     PersistentConfigurationReal::from(
         DbInitializerReal::new()
-            .initialize(&MASQNode::data_dir().to_path_buf(), chain_id)
+            .initialize(&MASQNode::data_dir().to_path_buf(), chain_id, true)
             .unwrap(),
     )
 }

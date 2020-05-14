@@ -807,7 +807,7 @@ mod tests {
             "set_start_block_transactionally_success",
         );
         let mut conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let transaction = conn.transaction().unwrap();
 
@@ -995,7 +995,7 @@ mod tests {
             "set_start_block_transactionally_returns_err_when_transaction_fails",
         );
         let mut conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let transaction = conn.transaction().unwrap();
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1570,7 +1570,7 @@ mod tests {
             "set_start_block_transactionally_panics_for_not_present_error",
         );
         let mut conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let transaction = conn.transaction().unwrap();
 
@@ -1592,7 +1592,7 @@ mod tests {
             "set_start_block_transactionally_panics_for_type_error",
         );
         let mut conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let transaction = conn.transaction().unwrap();
 

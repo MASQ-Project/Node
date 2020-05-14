@@ -336,7 +336,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_all_returns_multiple_results");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -364,7 +364,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("node", "clear_removes_value_but_not_row");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -380,7 +380,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "check_password_handles_missing_password");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -395,7 +395,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "check_password_handles_bad_password");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         subject.change_password(None, "password").unwrap();
@@ -411,7 +411,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "check_password_handles_good_password");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         subject.change_password(None, "password").unwrap();
@@ -429,7 +429,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         subject.add_string_rows(vec![("first_encrypted_field", true)]);
@@ -453,7 +453,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let old_password = "old password";
@@ -473,7 +473,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let old_password = "old password";
@@ -492,7 +492,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let old_password = "old password";
@@ -512,7 +512,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let old_password = "old password";
@@ -571,7 +571,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_string_complains_about_nonexistent_row");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -591,7 +591,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_string_does_not_find_null_value");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -606,7 +606,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_string_passes_along_database_error");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let mut stmt = subject
@@ -631,7 +631,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_string_finds_existing_string");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -646,7 +646,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "set_string_passes_along_database_error");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let mut stmt = subject
@@ -673,7 +673,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -688,7 +688,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "set_string_updates_existing_string");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -706,7 +706,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -726,7 +726,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_bytes_e_does_not_find_null_value");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -741,7 +741,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_bytes_e_balks_at_bad_password");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let data = PlainData::new(&[1, 2, 3, 4]);
@@ -758,7 +758,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_bytes_e_passes_along_database_error");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let mut stmt = subject
@@ -782,7 +782,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("node", "get_bytes_e_finds_existing_data");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let data = PlainData::new(&[1, 2, 3, 4]);
@@ -799,7 +799,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "set_bytes_e_passes_along_database_error");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let data = PlainData::new(&[1, 2, 3, 4]);
@@ -828,7 +828,7 @@ mod tests {
         let data = PlainData::new(&[1, 2, 3, 4]);
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -844,7 +844,7 @@ mod tests {
         let data = PlainData::new(&[1, 2, 3, 4]);
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         subject.change_password(None, "password").unwrap();
@@ -862,7 +862,7 @@ mod tests {
         let modified_data = PlainData::new(&[4, 3, 2, 1]);
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         subject
@@ -883,7 +883,7 @@ mod tests {
             ensure_node_home_directory_exists("node", "get_u64_complains_about_string_value");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -897,7 +897,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("node", "set_u64_and_get_u64_communicate");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         subject.set_u64("clandestine_port", 4096).unwrap();
@@ -915,12 +915,12 @@ mod tests {
 
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         {
             let mut db = DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let transaction = db.transaction().unwrap();
 

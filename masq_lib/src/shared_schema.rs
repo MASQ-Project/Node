@@ -1,6 +1,5 @@
 use crate::constants::{
-    DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT,
-    LOWEST_USABLE_INSECURE_PORT,
+    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -140,7 +139,6 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .min_values(0)
         .max_values(1)
         .possible_values(&["dev", "mainnet", "ropsten"])
-        .default_value(DEFAULT_CHAIN_NAME)
         .help(CHAIN_HELP)
 }
 
@@ -249,9 +247,8 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .long("dns-servers")
             .value_name("DNS-SERVERS")
             .min_values(0)
-            .default_value("1.1.1.1") // TODO: This is wrong. We should get this from the system DNS configuration.
-            .use_delimiter(true)
-            .validator(common_validators::validate_ip_address)
+            .max_values(1)
+            .validator(common_validators::validate_ip_addresses)
             .help(DNS_SERVERS_HELP),
     )
     .arg(earning_wallet_arg(
@@ -292,7 +289,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .min_values(0)
             .max_values(1)
             .possible_values(&["off", "error", "warn", "info", "debug", "trace"])
-            .default_value("warn")
             .case_insensitive(true)
             .help(LOG_LEVEL_HELP),
     )
@@ -303,7 +299,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .min_values(0)
             .max_values(1)
             .possible_values(&["zero-hop", "originate-only", "consume-only", "standard"])
-            .default_value("standard")
             .case_insensitive(true)
             .help(NEIGHBORHOOD_MODE_HELP),
     )
@@ -312,7 +307,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .long("neighbors")
             .value_name("NODE-DESCRIPTORS")
             .min_values(0)
-            .use_delimiter(true)
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
@@ -329,6 +323,23 @@ pub mod common_validators {
         match IpAddr::from_str(&address) {
             Ok(_) => Ok(()),
             Err(_) => Err(address),
+        }
+    }
+
+    pub fn validate_ip_addresses(addresses: String) -> Result<(), String> {
+        let errors = addresses
+            .split(',')
+            .map(|address| validate_ip_address(address.to_string()))
+            .flat_map(|result| match result {
+                Ok(_) => None,
+                Err(e) => Some(format!("{:?}", e)),
+            })
+            .collect::<Vec<String>>()
+            .join(";");
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
         }
     }
 
@@ -416,6 +427,47 @@ pub mod common_validators {
             Ok(_) => Ok(()),
             Err(_) => Err(port),
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ParamError {
+    pub parameter: String,
+    pub reason: String,
+}
+
+impl ParamError {
+    pub fn new(parameter: &str, reason: &str) -> Self {
+        Self {
+            parameter: parameter.to_string(),
+            reason: reason.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ConfiguratorError {
+    pub param_errors: Vec<ParamError>,
+}
+
+impl ConfiguratorError {
+    pub fn new(param_errors: Vec<ParamError>) -> Self {
+        Self { param_errors }
+    }
+
+    pub fn required(parameter: &str, reason: &str) -> Self {
+        ConfiguratorError {
+            param_errors: vec![ParamError::new(parameter, reason)],
+        }
+    }
+
+    pub fn another_required(mut self, parameter: &str, reason: &str) -> Self {
+        self.param_errors.push(ParamError::new(parameter, reason));
+        self
+    }
+
+    pub fn extend(&mut self, extension: Self) {
+        self.param_errors.extend(extension.param_errors);
     }
 }
 

@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
+use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::ui_gateway::{MessageBody, MessagePath};
 use serde::de::DeserializeOwned;
@@ -15,6 +16,7 @@ pub const NODE_LAUNCH_ERROR: u64 = 0x8000_0000_0000_0001;
 pub const NODE_NOT_RUNNING_ERROR: u64 = 0x8000_0000_0000_0002;
 pub const NODE_ALREADY_RUNNING_ERROR: u64 = 0x8000_0000_0000_0003;
 pub const UNMARSHAL_ERROR: u64 = 0x8000_0000_0000_0004;
+pub const SETUP_ERROR: u64 = 0x8000_0000_0000_0005;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
@@ -191,17 +193,44 @@ impl UiSetupRequest {
     }
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
+pub enum UiSetupResponseValueStatus {
+    Default,
+    Configured,
+    Set,
+    Blank,
+    Required,
+}
+
+impl UiSetupResponseValueStatus {
+    pub fn priority(self) -> u8 {
+        match self {
+            UiSetupResponseValueStatus::Blank => 0,
+            UiSetupResponseValueStatus::Required => 0,
+            UiSetupResponseValueStatus::Default => 1,
+            UiSetupResponseValueStatus::Configured => 2,
+            UiSetupResponseValueStatus::Set => 3,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiSetupResponseValue {
     pub name: String,
     pub value: String,
+    pub status: UiSetupResponseValueStatus,
 }
 
 impl UiSetupResponseValue {
-    pub fn new(name: &str, value: &str) -> UiSetupResponseValue {
+    pub fn new(
+        name: &str,
+        value: &str,
+        status: UiSetupResponseValueStatus,
+    ) -> UiSetupResponseValue {
         UiSetupResponseValue {
             name: name.to_string(),
             value: value.to_string(),
+            status,
         }
     }
 }
@@ -210,18 +239,29 @@ impl UiSetupResponseValue {
 pub struct UiSetupResponse {
     pub running: bool,
     pub values: Vec<UiSetupResponseValue>,
+    pub errors: Vec<(String, String)>,
 }
 conversation_message!(UiSetupResponse, "setup");
 impl UiSetupResponse {
-    pub fn new(running: bool, pairs: Vec<(&str, &str)>) -> UiSetupResponse {
+    pub fn new(
+        running: bool,
+        triples: Vec<(&str, &str, UiSetupResponseValueStatus)>,
+        errors: ConfiguratorError,
+    ) -> UiSetupResponse {
         UiSetupResponse {
             running,
-            values: pairs
+            values: triples
                 .into_iter()
-                .map(|(name, value)| UiSetupResponseValue {
+                .map(|(name, value, status)| UiSetupResponseValue {
                     name: name.to_string(),
                     value: value.to_string(),
+                    status,
                 })
+                .collect(),
+            errors: errors
+                .param_errors
+                .into_iter()
+                .map(|param_error| (param_error.parameter, param_error.reason))
                 .collect(),
         }
     }

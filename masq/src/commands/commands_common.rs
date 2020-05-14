@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::{
     ConnectionDropped, Payload, Transmission, UnexpectedResponse,
 };
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 
 #[derive(Debug, PartialEq)]
@@ -28,10 +28,7 @@ where
     I: ToMessageBody,
     O: FromMessageBody,
 {
-    let ntum: NodeToUiMessage = match context.transact(NodeFromUiMessage {
-        client_id: 0,
-        body: input.tmb(0),
-    }) {
+    let message: MessageBody = match context.transact(input.tmb(0)) {
         Ok(ntum) => ntum,
         Err(ContextError::ConnectionRefused(s)) => unimplemented!("{}", s),
         Err(ContextError::ConnectionDropped(s)) => return Err(ConnectionDropped(s)),
@@ -39,7 +36,7 @@ where
         Err(ContextError::RedirectFailure(e)) => panic!("Couldn't redirect to Node: {:?}", e),
         Err(ContextError::Other(msg)) => return Err(Transmission(msg)),
     };
-    let response: O = match O::fmb(ntum.body) {
+    let response: O = match O::fmb(message) {
         Ok((r, _)) => r,
         Err(e) => {
             writeln!(
@@ -63,9 +60,8 @@ mod tests {
     };
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
+    use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::ui_gateway::MessageTarget::ClientId;
-    use masq_lib::ui_gateway::{MessageBody, NodeToUiMessage};
 
     #[test]
     fn two_way_transaction_passes_dropped_connection_error() {
@@ -106,13 +102,10 @@ mod tests {
 
     #[test]
     fn two_way_transaction_handles_deserialization_error() {
-        let mut context = CommandContextMock::new().transact_result(Ok(NodeToUiMessage {
-            target: ClientId(0),
-            body: MessageBody {
-                opcode: "booga".to_string(),
-                path: Conversation(1234),
-                payload: Ok("unparseable".to_string()),
-            },
+        let mut context = CommandContextMock::new().transact_result(Ok(MessageBody {
+            opcode: "booga".to_string(),
+            path: Conversation(1234),
+            payload: Ok("unparseable".to_string()),
         }));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();

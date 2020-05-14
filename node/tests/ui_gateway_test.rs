@@ -6,7 +6,7 @@ use futures::future::*;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::messages::{UiFinancialsRequest, UiFinancialsResponse, NODE_UI_PROTOCOL};
 use masq_lib::ui_gateway::MessagePath::Conversation;
-use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::localhost;
 use node_lib::sub_lib::ui_gateway::UiMessage;
@@ -130,13 +130,10 @@ fn request_financial_information_integration() {
         receivable_minimum_amount: 0,
         receivable_maximum_age: 1_000_000_000_000,
     };
-    let request_msg = UiTrafficConverter::new_marshal_from_ui(NodeFromUiMessage {
-        client_id: 1234,
-        body: MessageBody {
-            opcode: "financials".to_string(),
-            path: Conversation(2222),
-            payload: Ok(serde_json::to_string(&payload).unwrap()),
-        },
+    let request_msg = UiTrafficConverter::new_marshal(MessageBody {
+        opcode: "financials".to_string(),
+        path: Conversation(2222),
+        payload: Ok(serde_json::to_string(&payload).unwrap()),
     });
 
     let descriptor_client =

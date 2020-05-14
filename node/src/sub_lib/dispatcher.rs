@@ -7,7 +7,6 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Message;
 use actix::Recipient;
 use pretty_hex::PrettyHex;
-use serde;
 use serde::de::Visitor;
 use serde::Deserialize;
 use serde::Deserializer;

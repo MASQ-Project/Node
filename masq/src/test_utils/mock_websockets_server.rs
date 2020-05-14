@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use masq_lib::messages::NODE_UI_PROTOCOL;
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::MessageBody;
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::localhost;
 use std::net::SocketAddr;
@@ -20,7 +20,7 @@ pub struct MockWebSocketsServer {
 }
 
 pub struct MockWebSocketsServerStopHandle {
-    requests_arc: Arc<Mutex<Vec<Result<NodeFromUiMessage, String>>>>,
+    requests_arc: Arc<Mutex<Vec<Result<MessageBody, String>>>>,
     stop_tx: Sender<bool>,
     join_handle: JoinHandle<()>,
 }
@@ -34,11 +34,11 @@ impl MockWebSocketsServer {
         }
     }
 
-    pub fn queue_response(self, message: NodeToUiMessage) -> Self {
+    pub fn queue_response(self, message: MessageBody) -> Self {
         self.responses_arc
             .lock()
             .unwrap()
-            .push(UiTrafficConverter::new_marshal_to_ui(message));
+            .push(UiTrafficConverter::new_marshal(message));
         self
     }
 
@@ -83,7 +83,7 @@ impl MockWebSocketsServer {
                     Err(e) => panic!("Error serving WebSocket: {:?}", e),
                     Ok(OwnedMessage::Text(json)) => {
                         Some(match UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
-                            Ok(msg) => Ok(msg),
+                            Ok(msg) => Ok(msg.body),
                             Err(_) => Err(json),
                         })
                     }
@@ -117,17 +117,17 @@ impl MockWebSocketsServer {
 }
 
 impl MockWebSocketsServerStopHandle {
-    pub fn stop(self) -> Vec<Result<NodeFromUiMessage, String>> {
+    pub fn stop(self) -> Vec<Result<MessageBody, String>> {
         self.send_terminate_order(false)
     }
 
-    pub fn kill(self) -> Vec<Result<NodeFromUiMessage, String>> {
+    pub fn kill(self) -> Vec<Result<MessageBody, String>> {
         let result = self.send_terminate_order(true);
         thread::sleep(Duration::from_millis(150));
         result
     }
 
-    fn send_terminate_order(self, kill: bool) -> Vec<Result<NodeFromUiMessage, String>> {
+    fn send_terminate_order(self, kill: bool) -> Vec<Result<MessageBody, String>> {
         let _ = self.stop_tx.send(kill);
         let _ = self.join_handle.join();
         let guard = match self.requests_arc.lock() {
@@ -141,34 +141,33 @@ impl MockWebSocketsServerStopHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use masq_lib::messages::UiSetupResponseValueStatus::Set;
     use masq_lib::messages::{FromMessageBody, ToMessageBody, UiSetupResponse, UiUnmarshalError};
     use masq_lib::messages::{UiSetupResponseValue, NODE_UI_PROTOCOL};
     use masq_lib::test_utils::ui_connection::UiConnection;
-    use masq_lib::ui_gateway::MessageTarget::ClientId;
     use masq_lib::utils::find_free_port;
 
     #[test]
     fn two_in_two_out() {
         let port = find_free_port();
-        let first_expected_response = NodeToUiMessage {
-            target: ClientId(0),
-            body: UiSetupResponse {
-                running: true,
-                values: vec![UiSetupResponseValue {
-                    name: "direction".to_string(),
-                    value: "to UI".to_string(),
-                }],
-            }
-            .tmb(1234),
-        };
-        let second_expected_response = NodeToUiMessage {
-            target: ClientId(0),
-            body: UiUnmarshalError {
-                message: "message".to_string(),
-                bad_data: "{}".to_string(),
-            }
-            .tmb(0),
-        };
+        let first_expected_response = UiSetupResponse {
+            running: true,
+            values: vec![UiSetupResponseValue {
+                name: "direction".to_string(),
+                value: "to UI".to_string(),
+                status: Set,
+            }],
+            errors: vec![
+                ("param1".to_string(), "reason1".to_string()),
+                ("param2".to_string(), "reason2".to_string()),
+            ],
+        }
+        .tmb(1234);
+        let second_expected_response = UiUnmarshalError {
+            message: "message".to_string(),
+            bad_data: "{}".to_string(),
+        }
+        .tmb(0);
         let stop_handle = MockWebSocketsServer::new(port)
             .queue_response(first_expected_response.clone())
             .queue_response(second_expected_response.clone())
@@ -182,7 +181,12 @@ mod tests {
                     values: vec![UiSetupResponseValue {
                         name: "direction".to_string(),
                         value: "to UI".to_string(),
+                        status: Set,
                     }],
+                    errors: vec![
+                        ("param1".to_string(), "reason1".to_string()),
+                        ("param2".to_string(), "reason2".to_string()),
+                    ],
                 },
                 1234,
             )
@@ -191,28 +195,32 @@ mod tests {
         let second_actual_response: UiUnmarshalError = connection.receive().unwrap();
 
         let requests = stop_handle.stop();
+        let actual_body: UiSetupResponse = UiSetupResponse::fmb(requests[0].clone().unwrap())
+            .unwrap()
+            .0;
         assert_eq!(
-            requests[0],
-            Ok(NodeFromUiMessage {
-                client_id: 0,
-                body: UiSetupResponse {
-                    running: true,
-                    values: vec![UiSetupResponseValue {
-                        name: "direction".to_string(),
-                        value: "to UI".to_string(),
-                    }],
-                }
-                .tmb(1234),
-            })
+            actual_body,
+            UiSetupResponse {
+                running: true,
+                values: vec![UiSetupResponseValue {
+                    name: "direction".to_string(),
+                    value: "to UI".to_string(),
+                    status: Set,
+                }],
+                errors: vec![
+                    ("param1".to_string(), "reason1".to_string()),
+                    ("param2".to_string(), "reason2".to_string()),
+                ]
+            }
         );
         assert_eq!(
             (first_actual_response, 1234),
-            UiSetupResponse::fmb(first_expected_response.body).unwrap()
+            UiSetupResponse::fmb(first_expected_response).unwrap()
         );
         assert_eq!(requests[1], Err("}: Bad request :{".to_string()));
         assert_eq!(
             (second_actual_response, 0),
-            UiUnmarshalError::fmb(second_expected_response.body).unwrap()
+            UiUnmarshalError::fmb(second_expected_response).unwrap()
         );
     }
 }

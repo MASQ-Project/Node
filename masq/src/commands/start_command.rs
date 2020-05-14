@@ -48,8 +48,6 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
-    use masq_lib::ui_gateway::MessageTarget::ClientId;
-    use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use std::string::ToString;
     use std::sync::{Arc, Mutex};
 
@@ -58,14 +56,11 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(NodeToUiMessage {
-                target: ClientId(0),
-                body: UiStartResponse {
-                    new_process_id: 1234,
-                    redirect_ui_port: 4321,
-                }
-                .tmb(0),
-            }));
+            .transact_result(Ok(UiStartResponse {
+                new_process_id: 1234,
+                redirect_ui_port: 4321,
+            }
+            .tmb(0)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
@@ -75,13 +70,7 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![NodeFromUiMessage {
-                client_id: 0,
-                body: UiStartOrder {}.tmb(0)
-            }]
-        );
+        assert_eq!(*transact_params, vec![UiStartOrder {}.tmb(0)]);
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "MASQNode successfully started as process 1234, listening for UIs on port 4321\n"

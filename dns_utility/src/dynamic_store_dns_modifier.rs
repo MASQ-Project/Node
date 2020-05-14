@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "macos")]
 use crate::dns_modifier::DnsModifier;
-use libc;
 use regex::Regex;
 use std::collections::HashMap;
 use std::iter::FromIterator;

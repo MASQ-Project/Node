@@ -130,8 +130,6 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR};
-    use masq_lib::ui_gateway::MessageTarget::ClientId;
-    use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::find_free_port;
     use std::cell::RefCell;
     use std::net::TcpListener;
@@ -238,13 +236,7 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![NodeFromUiMessage {
-                client_id: 0,
-                body: UiShutdownRequest {}.tmb(0)
-            }]
-        );
+        assert_eq!(*transact_params, vec![UiShutdownRequest {}.tmb(0)]);
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "MASQNode was instructed to shut down and has broken its connection\n"
@@ -272,13 +264,7 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![NodeFromUiMessage {
-                client_id: 0,
-                body: UiShutdownRequest {}.tmb(0)
-            }]
-        );
+        assert_eq!(*transact_params, vec![UiShutdownRequest {}.tmb(0)]);
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "MASQNode was instructed to shut down and has broken its connection\n"
@@ -290,10 +276,7 @@ mod tests {
     #[test]
     fn shutdown_command_happy_path_delayed() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let msg = NodeToUiMessage {
-            target: ClientId(0),
-            body: UiShutdownResponse {}.tmb(0),
-        };
+        let msg = UiShutdownResponse {}.tmb(0);
         let port = find_free_port();
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -314,13 +297,7 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![NodeFromUiMessage {
-                client_id: 0,
-                body: UiShutdownRequest {}.tmb(0)
-            }]
-        );
+        assert_eq!(*transact_params, vec![UiShutdownRequest {}.tmb(0)]);
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "MASQNode was instructed to shut down and has stopped answering\n"
@@ -333,10 +310,7 @@ mod tests {
     #[test]
     fn shutdown_command_sad_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let msg = NodeToUiMessage {
-            target: ClientId(0),
-            body: UiShutdownResponse {}.tmb(0),
-        };
+        let msg = UiShutdownResponse {}.tmb(0);
         let port = find_free_port();
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -357,13 +331,7 @@ mod tests {
 
         assert_eq!(result, Err(Other("Shutdown failed".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![NodeFromUiMessage {
-                client_id: 0,
-                body: UiShutdownRequest {}.tmb(0)
-            }]
-        );
+        assert_eq!(*transact_params, vec![UiShutdownRequest {}.tmb(0)]);
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
         assert_eq!(
             stderr_arc.lock().unwrap().get_string(),

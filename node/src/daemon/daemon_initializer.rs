@@ -19,30 +19,20 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 
 pub trait RecipientsFactory {
-    fn make(
-        &self,
-        seed_params: &HashMap<String, String>,
-        launcher: Box<dyn Launcher>,
-        ui_port: u16,
-    ) -> Recipients;
+    fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
 }
 
 #[derive(Default)]
 pub struct RecipientsFactoryReal {}
 
 impl RecipientsFactory for RecipientsFactoryReal {
-    fn make(
-        &self,
-        seed_params: &HashMap<String, String>,
-        launcher: Box<dyn Launcher>,
-        ui_port: u16,
-    ) -> Recipients {
+    fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
         let ui_gateway_addr = UiGateway::new(&UiGatewayConfig {
             ui_port,
             node_descriptor: "".to_string(), // irrelevant; field should be removed
         })
         .start();
-        let daemon_addr = Daemon::new(seed_params, launcher).start();
+        let daemon_addr = Daemon::new(launcher).start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient(),
             ui_gateway_to_sub: ui_gateway_addr.clone().recipient(),
@@ -112,6 +102,7 @@ impl RerunnerReal {
 
 impl DaemonInitializer {
     pub fn new(
+        dirs_wrapper: &dyn DirsWrapper,
         config: InitializationConfig,
         channel_factory: Box<dyn ChannelFactory>,
         recipients_factory: Box<dyn RecipientsFactory>,
@@ -122,7 +113,7 @@ impl DaemonInitializer {
                 .data_dir()
                 .expect("No data directory")
                 .join("MASQ"),
-            &RealUser::null().populate(),
+            &RealUser::null().populate(dirs_wrapper),
             LevelFilter::Trace,
             Some("daemon"),
         );
@@ -136,10 +127,9 @@ impl DaemonInitializer {
 
     fn bind(&mut self, sender: Sender<HashMap<String, String>>) {
         let launcher = LauncherReal::new(sender);
-        let params = HashMap::new();
-        let recipients =
-            self.recipients_factory
-                .make(&params, Box::new(launcher), self.config.ui_port);
+        let recipients = self
+            .recipients_factory
+            .make(Box::new(launcher), self.config.ui_port);
         let bind_message = DaemonBindMessage {
             to_ui_message_recipient: recipients.ui_gateway_to_sub,
             from_ui_message_recipient: recipients.ui_gateway_from_sub,
@@ -175,21 +165,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     struct RecipientsFactoryMock {
-        make_params: Arc<Mutex<Vec<(HashMap<String, String>, Box<dyn Launcher>, u16)>>>,
+        make_params: Arc<Mutex<Vec<(Box<dyn Launcher>, u16)>>>,
         make_results: RefCell<Vec<Recipients>>,
     }
 
     impl RecipientsFactory for RecipientsFactoryMock {
-        fn make(
-            &self,
-            seed_params: &HashMap<String, String>,
-            launcher: Box<dyn Launcher>,
-            ui_port: u16,
-        ) -> Recipients {
-            self.make_params
-                .lock()
-                .unwrap()
-                .push((seed_params.clone(), launcher, ui_port));
+        fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
+            self.make_params.lock().unwrap().push((launcher, ui_port));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -200,14 +182,6 @@ mod tests {
                 make_params: Arc::new(Mutex::new(vec![])),
                 make_results: RefCell::new(vec![]),
             }
-        }
-
-        fn make_params(
-            mut self,
-            params: &Arc<Mutex<Vec<(HashMap<String, String>, Box<dyn Launcher>, u16)>>>,
-        ) -> Self {
-            self.make_params = params.clone();
-            self
         }
 
         fn make_result(self, result: Recipients) -> Self {
@@ -277,29 +251,6 @@ mod tests {
     }
 
     #[test]
-    fn bind_incorporates_seed_params() {
-        let config = InitializationConfig { ui_port: 1234 };
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let recipients_factory = RecipientsFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(make_recipients(Recorder::new(), Recorder::new()));
-        let mut subject = DaemonInitializer::new(
-            config,
-            Box::new(ChannelFactoryMock::new()),
-            Box::new(recipients_factory),
-            Box::new(RerunnerMock::new()),
-        );
-
-        subject.bind(std::sync::mpsc::channel().0);
-
-        let expected_seed_params = HashMap::new();
-        let mut make_params = make_params_arc.lock().unwrap();
-        let (seed_params, _, port) = make_params.remove(0);
-        assert_eq!(seed_params, expected_seed_params);
-        assert_eq!(port, 1234);
-    }
-
-    #[test]
     fn bind_binds_everything_together() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (daemon, _, daemon_recording_arc) = make_recorder();
@@ -310,6 +261,7 @@ mod tests {
         let addr_factory = RecipientsFactoryMock::new().make_result(recipients);
         let rerunner = RerunnerMock::new();
         let mut subject = DaemonInitializer::new(
+            &RealDirsWrapper {},
             config,
             Box::new(channel_factory),
             Box::new(addr_factory),
@@ -338,6 +290,7 @@ mod tests {
         let rerun_parameters_arc = Arc::new(Mutex::new(vec![]));
         let rerunner = RerunnerMock::new().rerun_parameters(&rerun_parameters_arc);
         let mut subject = DaemonInitializer::new(
+            &RealDirsWrapper {},
             config,
             Box::new(channel_factory),
             Box::new(addr_factory),

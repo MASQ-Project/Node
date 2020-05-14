@@ -3,9 +3,7 @@ use crate::discriminator::UnmaskedChunk;
 use crate::masquerader::MasqueradeError;
 use crate::masquerader::Masquerader;
 use crate::sub_lib::logger::Logger;
-use base64;
 use serde_derive::{Deserialize, Serialize};
-use serde_json;
 
 pub struct JsonMasquerader {
     logger: Logger,

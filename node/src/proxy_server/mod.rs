@@ -50,7 +50,6 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::Duration;
-use tokio;
 use tokio::prelude::Future;
 
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);

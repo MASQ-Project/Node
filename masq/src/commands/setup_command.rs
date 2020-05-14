@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{value_t, App, SubCommand};
-use masq_lib::messages::{UiSetupRequest, UiSetupRequestValue, UiSetupResponse};
+use masq_lib::messages::{UiSetupRequest, UiSetupRequestValue, UiSetupResponse, SETUP_ERROR};
 use masq_lib::shared_schema::shared_app;
 use masq_lib::utils::index_of_from;
 use std::fmt::Debug;
@@ -31,16 +31,36 @@ impl Command for SetupCommand {
                         .partial_cmp(&b.name)
                         .expect("String comparison failed")
                 });
+                writeln!(
+                    context.stdout(),
+                    "NAME                      VALUE                                                            STATUS"
+                )
+                .expect("writeln! failed");
+                response.values.into_iter().for_each(|value| {
+                    writeln!(
+                        context.stdout(),
+                        "{:26}{:65}{:?}",
+                        value.name,
+                        value.value,
+                        value.status
+                    )
+                    .expect("writeln! failed")
+                });
+                if !response.errors.is_empty() {
+                    writeln!(context.stdout(), "\nERRORS:").expect("writeln! failed");
+                    response.errors.into_iter().for_each(|(parameter, reason)| {
+                        writeln!(context.stdout(), "{:26}{}", parameter, reason)
+                            .expect("writeln! failed")
+                    })
+                }
                 if response.running {
-                    writeln!(context.stdout(), "Note: no changes were made to the setup because the Node is currently running.")
+                    writeln!(context.stdout(), "\nNOTE: no changes were made to the setup because the Node is currently running.")
                         .expect ("writeln! failed");
                 }
-                writeln!(context.stdout(), "NAME                      VALUE")
-                    .expect("writeln! failed");
-                response.values.into_iter().for_each(|value| {
-                    writeln!(context.stdout(), "{:26}{}", value.name, value.value)
-                        .expect("writeln! failed")
-                });
+                Ok(())
+            }
+            Err(CommandError::Payload(err, msg)) if err == SETUP_ERROR => {
+                writeln!(context.stderr(), "{}", msg).expect("writeln! failed");
                 Ok(())
             }
             Err(e) => Err(e),
@@ -91,9 +111,8 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
+    use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
-    use masq_lib::ui_gateway::MessageTarget::ClientId;
-    use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -117,17 +136,15 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(NodeToUiMessage {
-                target: ClientId(0),
-                body: UiSetupResponse {
-                    running: false,
-                    values: vec![
-                        UiSetupResponseValue::new("chain", "ropsten"),
-                        UiSetupResponseValue::new("neighborhood-mode", "zero-hop"),
-                    ],
-                }
-                .tmb(0),
-            }));
+            .transact_result(Ok(UiSetupResponse {
+                running: false,
+                values: vec![
+                    UiSetupResponseValue::new("chain", "ropsten", Configured),
+                    UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
+                ],
+                errors: vec![],
+            }
+            .tmb(0)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
@@ -148,20 +165,19 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![NodeFromUiMessage {
-                client_id: 0,
-                body: UiSetupRequest {
-                    values: vec![
-                        UiSetupRequestValue::new("chain", "ropsten"),
-                        UiSetupRequestValue::clear("log-level"),
-                        UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
-                    ]
-                }
-                .tmb(0)
-            }]
+            vec![UiSetupRequest {
+                values: vec![
+                    UiSetupRequestValue::new("chain", "ropsten"),
+                    UiSetupRequestValue::clear("log-level"),
+                    UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
+                ]
+            }
+            .tmb(0)]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
-            "NAME                      VALUE\nchain                     ropsten\nneighborhood-mode         zero-hop\n");
+"NAME                      VALUE                                                            STATUS\n\
+chain                     ropsten                                                          Configured\n\
+neighborhood-mode         zero-hop                                                         Set\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -170,17 +186,16 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(NodeToUiMessage {
-                target: ClientId(0),
-                body: UiSetupResponse {
-                    running: true,
-                    values: vec![
-                        UiSetupResponseValue::new("chain", "ropsten"),
-                        UiSetupResponseValue::new("neighborhood-mode", "zero-hop"),
-                    ],
-                }
-                .tmb(0),
-            }));
+            .transact_result(Ok(UiSetupResponse {
+                running: true,
+                values: vec![
+                    UiSetupResponseValue::new("chain", "ropsten", Set),
+                    UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
+                    UiSetupResponseValue::new("clandestine-port", "8534", Default),
+                ],
+                errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
+            }
+            .tmb(0)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
@@ -191,6 +206,8 @@ mod tests {
                 "zero-hop".to_string(),
                 "--chain".to_string(),
                 "ropsten".to_string(),
+                "--clandestine-port".to_string(),
+                "8534".to_string(),
                 "--log-level".to_string(),
             ])
             .unwrap();
@@ -201,20 +218,26 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![NodeFromUiMessage {
-                client_id: 0,
-                body: UiSetupRequest {
-                    values: vec![
-                        UiSetupRequestValue::new("chain", "ropsten"),
-                        UiSetupRequestValue::clear("log-level"),
-                        UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
-                    ]
-                }
-                .tmb(0)
-            }]
+            vec![UiSetupRequest {
+                values: vec![
+                    UiSetupRequestValue::new("chain", "ropsten"),
+                    UiSetupRequestValue::new("clandestine-port", "8534"),
+                    UiSetupRequestValue::clear("log-level"),
+                    UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
+                ]
+            }
+            .tmb(0)]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
-            "Note: no changes were made to the setup because the Node is currently running.\nNAME                      VALUE\nchain                     ropsten\nneighborhood-mode         zero-hop\n");
+"NAME                      VALUE                                                            STATUS\n\
+chain                     ropsten                                                          Set\n\
+clandestine-port          8534                                                             Default\n\
+neighborhood-mode         zero-hop                                                         Configured\n\
+\n\
+ERRORS:
+ip                        Nosir, I don't like it.\n\
+\n\
+NOTE: no changes were made to the setup because the Node is currently running.\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 }

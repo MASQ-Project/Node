@@ -68,14 +68,6 @@ impl UiTrafficConverter {
         Self::default()
     }
 
-    pub fn new_marshal_from_ui(msg: NodeFromUiMessage) -> String {
-        Self::new_marshal(msg.body)
-    }
-
-    pub fn new_marshal_to_ui(msg: NodeToUiMessage) -> String {
-        Self::new_marshal(msg.body)
-    }
-
     pub fn new_unmarshal_from_ui(
         json: &str,
         client_id: u64,
@@ -96,7 +88,7 @@ impl UiTrafficConverter {
         }
     }
 
-    fn new_marshal(body: MessageBody) -> String {
+    pub fn new_marshal(body: MessageBody) -> String {
         let opcode_section = format!("\"opcode\": \"{}\", ", body.opcode);
         let path_section = match body.path {
             FireAndForget => "".to_string(),
@@ -112,7 +104,7 @@ impl UiTrafficConverter {
         format!("{{{}{}{}}}", opcode_section, path_section, payload_section)
     }
 
-    fn new_unmarshal(json: &str) -> Result<MessageBody, UnmarshalError> {
+    pub fn new_unmarshal(json: &str) -> Result<MessageBody, UnmarshalError> {
         match serde_json::from_str(json) {
             Ok(Value::Object(map)) => {
                 let opcode = match Self::get_string(&map, "opcode") {
@@ -244,7 +236,7 @@ mod tests {
             },
         };
 
-        let json = UiTrafficConverter::new_marshal_from_ui(ui_msg);
+        let json = UiTrafficConverter::new_marshal(ui_msg.body);
 
         let ui_msg = UiTrafficConverter::new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(ui_msg.client_id, 1234);
@@ -278,7 +270,7 @@ mod tests {
             },
         };
 
-        let json = UiTrafficConverter::new_marshal_to_ui(ui_msg);
+        let json = UiTrafficConverter::new_marshal(ui_msg.body);
 
         let ui_msg =
             UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();
@@ -310,7 +302,7 @@ mod tests {
             },
         };
 
-        let json = UiTrafficConverter::new_marshal_from_ui(ui_msg);
+        let json = UiTrafficConverter::new_marshal(ui_msg.body);
 
         let ui_msg = UiTrafficConverter::new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(ui_msg.client_id, 1234);
@@ -333,7 +325,7 @@ mod tests {
             },
         };
 
-        let json = UiTrafficConverter::new_marshal_to_ui(ui_msg);
+        let json = UiTrafficConverter::new_marshal(ui_msg.body);
 
         let ui_msg =
             UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();
@@ -360,7 +352,7 @@ mod tests {
             },
         };
 
-        let json = UiTrafficConverter::new_marshal_from_ui(ui_msg);
+        let json = UiTrafficConverter::new_marshal(ui_msg.body);
 
         let ui_msg = UiTrafficConverter::new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(ui_msg.client_id, 1234);
@@ -394,7 +386,7 @@ mod tests {
             },
         };
 
-        let json = UiTrafficConverter::new_marshal_to_ui(ui_msg);
+        let json = UiTrafficConverter::new_marshal(ui_msg.body);
 
         let ui_msg =
             UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();
@@ -426,7 +418,7 @@ mod tests {
             },
         };
 
-        let json = UiTrafficConverter::new_marshal_from_ui(ui_msg);
+        let json = UiTrafficConverter::new_marshal(ui_msg.body);
 
         let ui_msg = UiTrafficConverter::new_unmarshal_from_ui(&json, 1234).unwrap();
         assert_eq!(ui_msg.client_id, 1234);
@@ -449,7 +441,7 @@ mod tests {
             },
         };
 
-        let json = UiTrafficConverter::new_marshal_to_ui(ui_msg);
+        let json = UiTrafficConverter::new_marshal(ui_msg.body);
 
         let ui_msg =
             UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::ClientId(1234)).unwrap();

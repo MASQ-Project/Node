@@ -167,6 +167,7 @@ mod tests {
     #![allow(dead_code)]
     #![allow(unused_imports)]
     use super::*;
+    use crate::node_configurator::RealDirsWrapper;
     use crate::node_test_utils::IdWrapperMock;
     use std::sync::{Arc, Mutex};
 
@@ -183,7 +184,7 @@ mod tests {
         let mut subject = PrivilegeDropperReal::new();
         subject.id_wrapper = Box::new(id_wrapper);
 
-        subject.drop_privileges(&RealUser::null().populate());
+        subject.drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -276,7 +277,7 @@ mod tests {
         let mut subject = PrivilegeDropperReal::new();
         subject.id_wrapper = Box::new(id_wrapper);
 
-        subject.drop_privileges(&RealUser::null().populate());
+        subject.drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
 
         let setuid_params = setuid_params_arc.lock().unwrap();
         assert!(setuid_params.is_empty());

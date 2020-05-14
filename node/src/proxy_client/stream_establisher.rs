@@ -19,7 +19,6 @@ use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
-use tokio;
 
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,

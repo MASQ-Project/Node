@@ -117,6 +117,13 @@ impl DirsWrapper for MockDirsWrapper {
     fn home_dir(&self) -> Option<PathBuf> {
         self.home_dir_result.clone()
     }
+
+    fn dup(&self) -> Box<dyn DirsWrapper> {
+        Box::new(Self {
+            data_dir_result: self.data_dir_result.clone(),
+            home_dir_result: self.home_dir_result.clone(),
+        })
+    }
 }
 
 impl MockDirsWrapper {
