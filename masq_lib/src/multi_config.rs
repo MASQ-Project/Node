@@ -823,7 +823,7 @@ pub(crate) mod tests {
         assert_eq!(subject.args(), command_line);
     }
 
-    #[test]
+    #[test] // TODO: Is it this one that segfaults on the Mac in Actions
     #[should_panic(expected = "Expected option beginning with '--', not value")]
     fn command_line_vcl_panics_when_given_value_without_name() {
         let command_line: Vec<String> = vec!["", "value"]

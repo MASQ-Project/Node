@@ -57,7 +57,7 @@ where
     fn remove_expired_entries(&self) {
         let now = Instant::now();
 
-        if now.duration_since(self.last_check.borrow().clone()) < self.ttl {
+        if now.duration_since(*self.last_check.borrow()) < self.ttl {
             return;
         }
         *self.last_check.borrow_mut() = now;

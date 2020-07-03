@@ -90,7 +90,7 @@ impl TryFrom<&Value> for GossipNodeRecord {
         let reserialized = serde_cbor::ser::to_vec(value).expect("Serialization error");
         match serde_cbor::de::from_slice::<Self>(&reserialized) {
             Ok(gnr) => Ok(gnr),
-            Err(_) => unimplemented!(),
+            Err(e) => unimplemented!("{:?}", e),
         }
     }
 }
@@ -235,7 +235,7 @@ impl From<IpAddr> for DotGossipEndpoint {
     fn from(input: IpAddr) -> Self {
         DotGossipEndpoint {
             public_key: PublicKey::new(b""),
-            node_addr_opt: Some(NodeAddr::new(&input, &vec![0])),
+            node_addr_opt: Some(NodeAddr::new(&input, &[0])),
         }
     }
 }
@@ -245,7 +245,7 @@ impl From<SocketAddr> for DotGossipEndpoint {
     fn from(input: SocketAddr) -> Self {
         DotGossipEndpoint {
             public_key: PublicKey::new(b""),
-            node_addr_opt: Some(NodeAddr::new(&input.ip(), &vec![input.port()])),
+            node_addr_opt: Some(NodeAddr::new(&input.ip(), &[input.port()])),
         }
     }
 }
@@ -345,7 +345,7 @@ impl Gossip_0v1 {
             .map(|gnr| {
                 let nri = match NodeRecordInner_0v1::try_from(gnr) {
                     Ok(nri) => nri,
-                    Err(_e) => unimplemented!(),
+                    Err(e) => unimplemented!("{:?}", e),
                 };
                 (nri, gnr.node_addr_opt.clone())
             })

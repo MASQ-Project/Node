@@ -5,6 +5,7 @@ use actix::Message;
 #[derive(PartialEq, Clone, Debug)]
 pub enum MessageTarget {
     ClientId(u64),
+    AllExcept(u64),
     AllClients,
 }
 

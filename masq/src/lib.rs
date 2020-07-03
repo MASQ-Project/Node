@@ -7,5 +7,8 @@ pub mod commands;
 pub mod communications;
 mod schema;
 
+#[macro_use]
+extern crate crossbeam_channel;
+
 //#[cfg(test)] // Don't understand why this has to be commented out
 pub mod test_utils;

@@ -13,11 +13,13 @@ case "$OSTYPE" in
         ;;
     Darwin | darwin*)
         echo "macOS"
-        sudo --preserve-env ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
+#        sudo --preserve-env ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
+        ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
         ;;
     linux-gnu)
         echo "Linux"
-        sudo --preserve-env ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
+#        sudo --preserve-env ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
+         ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
         ;;
     *)
         exit 1

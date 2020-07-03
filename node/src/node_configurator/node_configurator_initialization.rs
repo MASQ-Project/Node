@@ -27,12 +27,12 @@ pub struct NodeConfiguratorInitialization {}
 impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
     fn configure(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams,
     ) -> Result<InitializationConfig, ConfiguratorError> {
         let app = app();
         let multi_config =
-            MultiConfig::try_new(&app, vec![Box::new(CommandLineVcl::new(args.clone()))])?;
+            MultiConfig::try_new(&app, vec![Box::new(CommandLineVcl::new(args.to_vec()))])?;
         let mut config = InitializationConfig::default();
         initialization::parse_args(&multi_config, &mut config, streams);
         Ok(config)

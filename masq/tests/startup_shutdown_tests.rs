@@ -2,6 +2,7 @@
 
 use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
+use masq_lib::utils::find_free_port;
 use std::thread;
 use std::time::Duration;
 
@@ -24,14 +25,17 @@ fn masq_without_daemon_integration() {
 }
 
 #[test]
+#[ignore]
 fn handles_startup_and_shutdown_integration() {
-    let daemon_handle = DaemonProcess::new().start(5333);
+    let port = find_free_port();
+    let daemon_handle = DaemonProcess::new().start(port);
 
     thread::sleep(Duration::from_millis(500));
 
     let masq_handle = MasqProcess::new().start_noninteractive(vec![
         "setup",
         "--log-level",
+        "error",
         "--neighborhood-mode",
         "zero-hop",
         "--chain",

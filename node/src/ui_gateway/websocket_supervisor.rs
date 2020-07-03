@@ -140,6 +140,12 @@ impl WebSocketSupervisorReal {
     fn send_msg(locked_inner: &mut MutexGuard<WebSocketSupervisorInner>, msg: NodeToUiMessage) {
         let client_ids = match msg.target {
             MessageTarget::ClientId(n) => vec![n],
+            MessageTarget::AllExcept(n) => locked_inner
+                .client_by_id
+                .keys()
+                .filter(|k| k != &&n)
+                .copied()
+                .collect_vec(),
             MessageTarget::AllClients => locked_inner.client_by_id.keys().copied().collect_vec(),
         };
         let json = UiTrafficConverter::new_marshal(msg.body);
@@ -435,7 +441,14 @@ impl WebSocketSupervisorReal {
                 .get_mut(&client_id)
                 .unwrap_or_else(|| panic!("Tried to send to a nonexistent client {}", client_id));
             match client.send(OwnedMessage::Text(json.clone())) {
-                Ok(_) => client.flush().expect("Flush error"),
+                Ok(_) => match client.flush() {
+                    Ok(_) => (),
+                    Err(_) => warning!(
+                        Logger::new("WebSocketSupervisor"),
+                        "Client {} dropped its connection before it could be flushed",
+                        client_id
+                    ),
+                },
                 Err(e) => error!(
                     Logger::new("WebSocketSupervisor"),
                     "Error sending to client {}: {:?}", client_id, e
@@ -1131,6 +1144,35 @@ mod tests {
     }
 
     #[test]
+    fn can_handle_flush_failure_after_send() {
+        init_test_logging();
+        let (ui_gateway, _, _) = make_recorder();
+        let (from_ui_message, from_ui_message_sub) = subs(ui_gateway);
+        let client = ClientWrapperMock::new()
+            .send_result(Ok(()))
+            .flush_result(Err(WebSocketError::NoDataAvailable));
+        let mut client_by_id: HashMap<u64, Box<dyn ClientWrapper>> = HashMap::new();
+        client_by_id.insert(1234, Box::new(client));
+        let inner_arc = Arc::new(Mutex::new(WebSocketSupervisorInner {
+            port: 0,
+            next_client_id: 0,
+            from_ui_message,
+            from_ui_message_sub,
+            client_id_by_socket_addr: Default::default(),
+            old_client_by_id: Default::default(),
+            client_by_id,
+        }));
+
+        WebSocketSupervisorReal::send_to_clients(
+            &mut inner_arc.lock().unwrap(),
+            vec![1234],
+            "json".to_string(),
+        );
+
+        TestLogHandler::new().exists_log_containing ("WARN: WebSocketSupervisor: Client 1234 dropped its connection before it could be flushed");
+    }
+
+    #[test]
     fn client_dot_graph_request_is_forwarded_to_ui_gateway() {
         let port = find_free_port();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
@@ -1387,7 +1429,50 @@ mod tests {
     }
 
     #[test]
-    fn send_msg_with_no_client_id_sends_a_message_to_all_clients() {
+    fn send_msg_with_all_except_sends_a_message_to_all_except() {
+        let port = find_free_port();
+        let (ui_gateway, _, _) = make_recorder();
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
+        let system = System::new("send_msg_sends_a_message_to_the_client");
+        let lazy_future = lazy(move || {
+            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let one_mock_client = ClientWrapperMock::new()
+                .send_result(Ok(()))
+                .flush_result(Ok(()));
+            let another_mock_client = ClientWrapperMock::new()
+                .send_result(Ok(()))
+                .flush_result(Ok(()));
+            let one_client_id = subject.inject_mock_client(one_mock_client, false);
+            let another_client_id = subject.inject_mock_client(another_mock_client, false);
+            let msg = NodeToUiMessage {
+                target: MessageTarget::AllExcept(another_client_id),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: FireAndForget,
+                    payload: Ok("{}".to_string()),
+                },
+            };
+
+            subject.send_msg(msg.clone());
+
+            let one_mock_client_ref = subject.get_mock_client(one_client_id);
+            let actual_message = match one_mock_client_ref.send_params.lock().unwrap().get(0) {
+                Some(OwnedMessage::Text(json)) => UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllExcept(another_client_id)).unwrap(),
+                Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
+                None => panic! ("send should have been called, but wasn't"),
+            };
+            assert_eq!(actual_message, msg);
+            let another_mock_client_ref = subject.get_mock_client(another_client_id);
+            assert_eq!(another_mock_client_ref.send_params.lock().unwrap().len(), 0);
+            Ok(())
+        });
+        actix::spawn(lazy_future);
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    fn send_msg_with_all_clients_sends_a_message_to_all_clients() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);

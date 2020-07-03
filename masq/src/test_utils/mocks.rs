@@ -5,11 +5,15 @@ use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
+use crate::communications::broadcast_handler::StreamFactory;
+use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use std::{io, thread};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -173,7 +177,11 @@ pub struct CommandProcessorFactoryMock {
 }
 
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
-    fn make(&self, args: &[String]) -> Result<Box<dyn CommandProcessor>, CommandError> {
+    fn make(
+        &self,
+        _broadcast_stream_factory: Box<dyn StreamFactory>,
+        args: &[String],
+    ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         self.make_params.lock().unwrap().push(args.to_vec());
         self.make_results.borrow_mut().remove(0)
     }
@@ -228,5 +236,99 @@ impl MockCommand {
     pub fn execute_result(self, result: Result<(), CommandError>) -> Self {
         self.execute_results.borrow_mut().push(result);
         self
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TestWrite {
+    write_tx: Sender<String>,
+}
+
+impl Write for TestWrite {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
+        let len = buf.len();
+        let string = String::from_utf8(buf.to_vec()).unwrap();
+        self.write_tx.send(string).unwrap();
+        Ok(len)
+    }
+
+    fn flush(&mut self) -> Result<(), io::Error> {
+        Ok(())
+    }
+}
+
+impl TestWrite {
+    pub fn new(write_tx: Sender<String>) -> Self {
+        Self { write_tx }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TestStreamFactory {
+    stdout_opt: RefCell<Option<TestWrite>>,
+    stderr_opt: RefCell<Option<TestWrite>>,
+}
+
+impl StreamFactory for TestStreamFactory {
+    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
+        let stdout = self.stdout_opt.borrow_mut().take().unwrap();
+        let stderr = self.stderr_opt.borrow_mut().take().unwrap();
+        (Box::new(stdout), Box::new(stderr))
+    }
+}
+
+impl TestStreamFactory {
+    pub fn new() -> (TestStreamFactory, TestStreamFactoryHandle) {
+        let (stdout_tx, stdout_rx) = unbounded();
+        let (stderr_tx, stderr_rx) = unbounded();
+        let stdout = TestWrite::new(stdout_tx);
+        let stderr = TestWrite::new(stderr_tx);
+        let factory = TestStreamFactory {
+            stdout_opt: RefCell::new(Some(stdout)),
+            stderr_opt: RefCell::new(Some(stderr)),
+        };
+        let handle = TestStreamFactoryHandle {
+            stdout_rx,
+            stderr_rx,
+        };
+        (factory, handle)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TestStreamFactoryHandle {
+    stdout_rx: Receiver<String>,
+    stderr_rx: Receiver<String>,
+}
+
+impl TestStreamFactoryHandle {
+    pub fn stdout_so_far(&self) -> String {
+        Self::text_so_far(&self.stdout_rx)
+    }
+
+    pub fn stderr_so_far(&self) -> String {
+        Self::text_so_far(&self.stderr_rx)
+    }
+
+    fn text_so_far(rx: &Receiver<String>) -> String {
+        let mut accum = String::new();
+        let mut retries_left = 5;
+        loop {
+            match rx.try_recv() {
+                Ok(s) => {
+                    accum.push_str(&s);
+                    retries_left = 5;
+                }
+                Err(TryRecvError::Empty) => {
+                    retries_left -= 1;
+                    if retries_left <= 0 {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(_) => break,
+            }
+        }
+        accum
     }
 }

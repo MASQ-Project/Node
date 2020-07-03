@@ -3,10 +3,16 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{value_t, App, SubCommand};
-use masq_lib::messages::{UiSetupRequest, UiSetupRequestValue, UiSetupResponse, SETUP_ERROR};
+use masq_lib::messages::FromMessageBody;
+use masq_lib::messages::{
+    UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
+    SETUP_ERROR,
+};
 use masq_lib::shared_schema::shared_app;
+use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::index_of_from;
 use std::fmt::Debug;
+use std::io::Write;
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")
@@ -25,38 +31,8 @@ impl Command for SetupCommand {
         };
         let result: Result<UiSetupResponse, CommandError> = transaction(out_message, context);
         match result {
-            Ok(mut response) => {
-                response.values.sort_by(|a, b| {
-                    a.name
-                        .partial_cmp(&b.name)
-                        .expect("String comparison failed")
-                });
-                writeln!(
-                    context.stdout(),
-                    "NAME                      VALUE                                                            STATUS"
-                )
-                .expect("writeln! failed");
-                response.values.into_iter().for_each(|value| {
-                    writeln!(
-                        context.stdout(),
-                        "{:26}{:65}{:?}",
-                        value.name,
-                        value.value,
-                        value.status
-                    )
-                    .expect("writeln! failed")
-                });
-                if !response.errors.is_empty() {
-                    writeln!(context.stdout(), "\nERRORS:").expect("writeln! failed");
-                    response.errors.into_iter().for_each(|(parameter, reason)| {
-                        writeln!(context.stdout(), "{:26}{}", parameter, reason)
-                            .expect("writeln! failed")
-                    })
-                }
-                if response.running {
-                    writeln!(context.stdout(), "\nNOTE: no changes were made to the setup because the Node is currently running.")
-                        .expect ("writeln! failed");
-                }
+            Ok(response) => {
+                Self::dump_setup(UiSetupInner::from(response), context.stdout());
                 Ok(())
             }
             Err(CommandError::Payload(err, msg)) if err == SETUP_ERROR => {
@@ -95,6 +71,14 @@ impl SetupCommand {
         Ok(Self { values })
     }
 
+    pub fn handle_broadcast(msg: MessageBody, stdout: &mut dyn Write, _stderr: &mut dyn Write) {
+        let (response, _) = UiSetupBroadcast::fmb(msg).expect("Bad UiSetupBroadcast");
+        writeln!(stdout, "\nDaemon setup has changed:\n").expect("writeln! failed");
+        Self::dump_setup(UiSetupInner::from(response), stdout);
+        write!(stdout, "masq> ").expect("write! failed");
+        stdout.flush().expect("flush failed");
+    }
+
     fn has_value(pieces: &[String], piece: &str) -> bool {
         let dash_dash_piece = format!("--{}", piece);
         match index_of_from(pieces, &dash_dash_piece, 0) {
@@ -103,13 +87,50 @@ impl SetupCommand {
             Some(idx) => !pieces[idx + 1].starts_with("--"),
         }
     }
+
+    fn dump_setup(mut inner: UiSetupInner, stdout: &mut dyn Write) {
+        inner.values.sort_by(|a, b| {
+            a.name
+                .partial_cmp(&b.name)
+                .expect("String comparison failed")
+        });
+        writeln!(
+            stdout,
+            "NAME                      VALUE                                                            STATUS"
+        )
+            .expect("writeln! failed");
+        inner.values.into_iter().for_each(|value| {
+            writeln!(
+                stdout,
+                "{:26}{:65}{:?}",
+                value.name, value.value, value.status
+            )
+            .expect("writeln! failed");
+        });
+        writeln!(stdout).expect("writeln! failed");
+        if !inner.errors.is_empty() {
+            writeln!(stdout, "ERRORS:").expect("writeln! failed");
+            inner.errors.into_iter().for_each(|(parameter, reason)| {
+                writeln!(stdout, "{:26}{}", parameter, reason).expect("writeln! failed")
+            });
+            writeln!(stdout).expect("writeln! failed");
+        }
+        if inner.running {
+            writeln!(
+                stdout,
+                "NOTE: no changes were made to the setup because the Node is currently running.\n"
+            )
+            .expect("writeln! failed");
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::communications::broadcast_handler::StreamFactory;
+    use crate::test_utils::mocks::{CommandContextMock, TestStreamFactory};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
@@ -177,7 +198,8 @@ mod tests {
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
 "NAME                      VALUE                                                            STATUS\n\
 chain                     ropsten                                                          Configured\n\
-neighborhood-mode         zero-hop                                                         Set\n");
+neighborhood-mode         zero-hop                                                         Set\n\
+\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -237,7 +259,40 @@ neighborhood-mode         zero-hop                                              
 ERRORS:
 ip                        Nosir, I don't like it.\n\
 \n\
-NOTE: no changes were made to the setup because the Node is currently running.\n");
+NOTE: no changes were made to the setup because the Node is currently running.\n\
+\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+    }
+
+    #[test]
+    fn handle_broadcast_works() {
+        let message = UiSetupBroadcast {
+            running: false,
+            values: vec![
+                UiSetupResponseValue::new("chain", "ropsten", Set),
+                UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
+                UiSetupResponseValue::new("clandestine-port", "8534", Default),
+            ],
+            errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
+        }
+        .tmb(0);
+        let (stream_factory, handle) = TestStreamFactory::new();
+        let (mut stdout, mut stderr) = stream_factory.make();
+
+        SetupCommand::handle_broadcast(message, &mut stdout, &mut stderr);
+
+        assert_eq! (handle.stdout_so_far(),
+"\n\
+Daemon setup has changed:\n\
+\n\
+NAME                      VALUE                                                            STATUS\n\
+chain                     ropsten                                                          Set\n\
+clandestine-port          8534                                                             Default\n\
+neighborhood-mode         zero-hop                                                         Configured\n\
+\n\
+ERRORS:
+ip                        Nosir, I don't like it.\n\
+\n\
+masq> ");
     }
 }

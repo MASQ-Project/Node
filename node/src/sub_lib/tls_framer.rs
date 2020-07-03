@@ -29,7 +29,7 @@ impl Framer for TlsFramer {
             }
             Some(offset) => {
                 let mut from_offset = self.data_so_far.split_off(offset);
-                let length = TlsFramer::to_usize(from_offset[3], from_offset[4]);
+                let length = TlsFramer::convert_to_usize(from_offset[3], from_offset[4]);
                 if 5 + length <= from_offset.len() {
                     let leftovers = from_offset.split_off(5 + length);
                     let chunk = from_offset;
@@ -93,7 +93,7 @@ impl TlsFramer {
         (byte1 == 0x03) && ((byte2 == 0x01) || (byte2 == 0x03))
     }
 
-    fn to_usize(hi_byte: u8, lo_byte: u8) -> usize {
+    fn convert_to_usize(hi_byte: u8, lo_byte: u8) -> usize {
         ((hi_byte as usize) << 8) | (lo_byte as usize)
     }
 }
@@ -111,7 +111,7 @@ mod tests {
     fn tls_framer_discards_all_but_a_few_bytes_of_unrecognized_data() {
         let mut subject = TlsFramer::new();
 
-        subject.add_data(&vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07][..]);
+        subject.add_data(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07][..]);
         let result = subject.take_frame();
 
         assert_eq!(result, None);
@@ -122,7 +122,7 @@ mod tests {
     fn tls_framer_rejects_unrecognized_content_type() {
         let mut subject = TlsFramer::new();
 
-        subject.add_data(&vec![0x00, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07][..]);
+        subject.add_data(&[0x00, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07][..]);
         let result = subject.take_frame();
 
         assert_eq!(result, None);
@@ -133,7 +133,7 @@ mod tests {
     fn tls_framer_rejects_unrecognized_first_tls_version_byte() {
         let mut subject = TlsFramer::new();
 
-        subject.add_data(&vec![0x14, 0x01, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07][..]);
+        subject.add_data(&[0x14, 0x01, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07][..]);
         let result = subject.take_frame();
 
         assert_eq!(result, None);
@@ -144,7 +144,7 @@ mod tests {
     fn tls_framer_rejects_unrecognized_second_tls_version_byte() {
         let mut subject = TlsFramer::new();
 
-        subject.add_data(&vec![0x15, 0x03, 0x02, 0x00, 0x03, 0x05, 0x06, 0x07][..]);
+        subject.add_data(&[0x15, 0x03, 0x02, 0x00, 0x03, 0x05, 0x06, 0x07][..]);
         let result = subject.take_frame();
 
         assert_eq!(result, None);
@@ -169,8 +169,7 @@ mod tests {
             .for_each(|content_type| {
                 let mut subject = TlsFramer::new();
 
-                subject
-                    .add_data(&vec![*content_type, 0x03, 0x03, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
+                subject.add_data(&[*content_type, 0x03, 0x03, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
                 let result = subject.take_frame();
 
                 assert_eq!(
@@ -191,7 +190,7 @@ mod tests {
             let byte1 = (version >> 8) as u8;
             let byte2 = (version & 0xFF) as u8;
 
-            subject.add_data(&vec![0x17, byte1, byte2, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
+            subject.add_data(&[0x17, byte1, byte2, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
             let result = subject.take_frame();
 
             assert_eq!(
@@ -210,7 +209,7 @@ mod tests {
         let mut subject = TlsFramer::new();
 
         subject.add_data(
-            &vec![
+            &[
                 0x15, 0x03, 0x33, 0x80, // garbage
                 0x15, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07, // packet
                 0x01, 0x02, // garbage
@@ -233,7 +232,7 @@ mod tests {
         let mut subject = TlsFramer::new();
 
         subject.add_data(
-            &vec![
+            &[
                 0x14, 0x03, 0x04, 0x80, // garbage
                 0x14, 0x03, 0x03, 0x00, 0x03, 0x05, 0x06, 0x07, // packet
                 0x03, 0x02, // garbage

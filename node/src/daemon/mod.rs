@@ -14,17 +14,22 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use actix::Recipient;
 use actix::{Actor, Context, Handler, Message};
+use itertools::Itertools;
 use masq_lib::messages::UiMessageError::UnexpectedMessage;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiMessageError, UiRedirect, UiSetupRequest, UiSetupResponse,
-    UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR,
+    FromMessageBody, ToMessageBody, UiMessageError, UiRedirect, UiSetupBroadcast, UiSetupRequest,
+    UiSetupResponse, UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR,
     NODE_NOT_RUNNING_ERROR,
 };
+use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
-use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
-use std::collections::HashMap;
+use masq_lib::ui_gateway::{
+    MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
+};
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::sync::mpsc::{Receiver, Sender};
 
 pub struct Recipients {
@@ -149,12 +154,12 @@ impl Daemon {
     }
 
     fn handle_setup(&mut self, client_id: u64, context_id: u64, payload: UiSetupRequest) {
-        let body = if self.port_if_node_is_running().is_some() {
-            UiSetupResponse {
-                running: true,
-                values: self.params.iter().map(|(_, value)| value.clone()).collect(),
-                errors: vec![],
-            }
+        if self.port_if_node_is_running().is_some() {
+            let body =
+                UiSetupResponse::new(true, self.params.clone(), ConfiguratorError::new(vec![]))
+                    .tmb(context_id);
+            let target = MessageTarget::ClientId(client_id);
+            self.send_ui_message(body, target);
         } else {
             let incoming_setup = payload.values;
             let existing_setup = self.params.clone();
@@ -162,41 +167,17 @@ impl Daemon {
                 .setup_reporter
                 .get_modified_setup(existing_setup, incoming_setup)
             {
-                Ok(setup) => {
-                    self.params = setup;
-                    UiSetupResponse {
-                        running: false,
-                        values: self.params.iter().map(|(_, value)| value.clone()).collect(),
-                        errors: vec![],
-                    }
-                }
+                Ok(setup) => self.change_setup_and_notify(
+                    setup,
+                    ConfiguratorError::new(vec![]),
+                    client_id,
+                    context_id,
+                ),
                 Err((lame_cluster, errors)) => {
-                    // TODO SPIKE
-                    self.params = lame_cluster.clone();
-                    UiSetupResponse {
-                        running: false,
-                        values: lame_cluster
-                            .iter()
-                            .map(|(_, value)| value.clone())
-                            .collect(),
-                        errors: errors
-                            .param_errors
-                            .into_iter()
-                            .map(|error| (error.parameter, error.reason))
-                            .collect(),
-                    }
+                    self.change_setup_and_notify(lame_cluster, errors, client_id, context_id)
                 }
             }
         };
-        let msg = NodeToUiMessage {
-            target: ClientId(client_id),
-            body: body.tmb(context_id),
-        };
-        self.ui_gateway_sub
-            .as_ref()
-            .expect("UiGateway is unbound")
-            .try_send(msg)
-            .expect("UiGateway is dead");
     }
 
     fn handle_start_order(&mut self, client_id: u64, context_id: u64) {
@@ -254,26 +235,22 @@ impl Daemon {
                     client_id,
                     port
                 );
-                self.ui_gateway_sub
-                    .as_ref()
-                    .expect("UiGateway is unbound")
-                    .try_send(NodeToUiMessage {
-                        target: ClientId(client_id),
-                        body: UiRedirect {
-                            port,
-                            opcode: body.opcode,
-                            context_id: match body.path {
-                                FireAndForget => None,
-                                Conversation(context_id) => Some(context_id),
-                            },
-                            payload: match body.payload {
-                                Ok(json) => json,
-                                Err((_code, _message)) => unimplemented!(),
-                            },
-                        }
-                        .tmb(0),
-                    })
-                    .expect("UiGateway is dead")
+                self.send_ui_message(
+                    UiRedirect {
+                        port,
+                        opcode: body.opcode,
+                        context_id: match body.path {
+                            FireAndForget => None,
+                            Conversation(context_id) => Some(context_id),
+                        },
+                        payload: match body.payload {
+                            Ok(json) => json,
+                            Err((_code, _message)) => unimplemented!(),
+                        },
+                    }
+                    .tmb(0),
+                    ClientId(client_id),
+                );
             }
             None => self.send_node_is_not_running_redirect(client_id, body.opcode),
         }
@@ -313,32 +290,102 @@ impl Daemon {
         err_opcode: &str,
         path: MessagePath,
     ) {
-        self.ui_gateway_sub
-            .as_ref()
-            .expect("UiGateway is unbound")
-            .try_send(NodeToUiMessage {
-                target: ClientId(client_id),
-                body: MessageBody {
-                    opcode: msg_opcode.to_string(),
-                    path,
-                    payload: Err((
-                        NODE_NOT_RUNNING_ERROR,
-                        format!("Cannot handle {} request: Node is not running", err_opcode),
-                    )),
-                },
-            })
-            .expect("UiGateway is dead")
+        let body = MessageBody {
+            opcode: msg_opcode.to_string(),
+            path,
+            payload: Err((
+                NODE_NOT_RUNNING_ERROR,
+                format!("Cannot handle {} request: Node is not running", err_opcode),
+            )),
+        };
+        let target = ClientId(client_id);
+        self.send_ui_message(body, target);
     }
 
     fn respond_to_ui(&self, client_id: u64, body: MessageBody) {
+        self.send_ui_message(body, ClientId(client_id));
+    }
+
+    fn change_setup_and_notify(
+        &mut self,
+        new_setup: SetupCluster,
+        errors: ConfiguratorError,
+        client_id: u64,
+        context_id: u64,
+    ) {
+        let body_target_pairs = match Self::compare_setup_clusters(&self.params, &new_setup) {
+            Err(_) => {
+                let originally_empty = self.params.is_empty();
+                self.params = new_setup;
+                let mut pairs = vec![(
+                    UiSetupResponse::new(false, self.params.clone(), errors.clone())
+                        .tmb(context_id),
+                    MessageTarget::ClientId(client_id),
+                )];
+                if !originally_empty {
+                    pairs.push((
+                        UiSetupBroadcast::new(false, self.params.clone(), errors).tmb(0),
+                        MessageTarget::AllExcept(client_id),
+                    ));
+                };
+                pairs
+            }
+            Ok(_) => vec![(
+                UiSetupResponse::new(false, self.params.clone(), errors).tmb(context_id),
+                MessageTarget::ClientId(client_id),
+            )],
+        };
+        body_target_pairs
+            .into_iter()
+            .for_each(|(body, target)| self.send_ui_message(body, target));
+    }
+
+    fn send_ui_message(&self, body: MessageBody, target: MessageTarget) {
         self.ui_gateway_sub
             .as_ref()
             .expect("UiGateway is unbound")
-            .try_send(NodeToUiMessage {
-                target: ClientId(client_id),
-                body,
-            })
+            .try_send(NodeToUiMessage { target, body })
             .expect("UiGateway is dead")
+    }
+
+    fn compare_setup_clusters(left: &SetupCluster, right: &SetupCluster) -> Result<(), String> {
+        let mut left_not_right = HashSet::new();
+        let mut unequal = HashSet::new();
+        let mut right_not_left: HashSet<String> = HashSet::from_iter(right.keys().cloned());
+        left.iter().for_each(|(k, v_left)| match right.get(k) {
+            Some(v_right) => {
+                let _ = right_not_left.remove(k);
+                if v_right.value != v_left.value {
+                    unequal.insert(k);
+                }
+            }
+            None => {
+                left_not_right.insert(k);
+            }
+        });
+        if left_not_right.is_empty() && unequal.is_empty() && right_not_left.is_empty() {
+            Ok(())
+        } else {
+            let msg_parts = vec![
+                if left_not_right.is_empty() {
+                    None
+                } else {
+                    Some(format!("Keys in left but not right: {:?}", left_not_right))
+                },
+                if unequal.is_empty() {
+                    None
+                } else {
+                    Some(format!("Keys with unequal values: {:?}", unequal))
+                },
+                if right_not_left.is_empty() {
+                    None
+                } else {
+                    Some(format!("Keys in right but not left: {:?}", right_not_left))
+                },
+            ];
+            let msg = msg_parts.into_iter().flatten().join("; ");
+            Err(msg)
+        }
     }
 }
 
@@ -352,13 +399,15 @@ mod tests {
     use actix::System;
     use masq_lib::messages::UiSetupResponseValueStatus::Set;
     use masq_lib::messages::{
-        UiFinancialsRequest, UiRedirect, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
-        UiSetupResponseValue, UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder,
-        UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+        UiFinancialsRequest, UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupRequestValue,
+        UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus, UiShutdownRequest,
+        UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR,
+        NODE_NOT_RUNNING_ERROR,
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessageTarget;
+    use masq_lib::ui_gateway::MessageTarget::AllExcept;
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::iter::FromIterator;
@@ -500,14 +549,17 @@ mod tests {
         let (payload, context_id): (UiSetupResponse, u64) =
             UiSetupResponse::fmb(record.body).unwrap();
         assert_eq!(context_id, 4321);
-        assert_eq!(payload.running, true);
         assert_eq!(
-            payload.values,
-            vec![UiSetupResponseValue::new(
-                "neighborhood-mode",
-                "zero-hop",
-                Set
-            )]
+            payload,
+            UiSetupResponse {
+                running: true,
+                values: vec![UiSetupResponseValue::new(
+                    "neighborhood-mode",
+                    "zero-hop",
+                    Set
+                )],
+                errors: vec![],
+            }
         );
     }
 
@@ -552,6 +604,18 @@ mod tests {
         let (payload, context_id): (UiSetupResponse, u64) =
             UiSetupResponse::fmb(record.body).unwrap();
         assert_eq!(context_id, 4321);
+        assert_eq!(payload.running, false);
+        assert_eq!(
+            payload.values,
+            vec![UiSetupResponseValue::new("combined", "setup", Set)]
+        );
+        let record = ui_gateway_recording
+            .get_record::<NodeToUiMessage>(1)
+            .clone();
+        assert_eq!(record.target, AllExcept(1234));
+        let (payload, context_id): (UiSetupBroadcast, u64) =
+            UiSetupBroadcast::fmb(record.body).unwrap();
+        assert_eq!(context_id, 0);
         assert_eq!(payload.running, false);
         assert_eq!(
             payload.values,
@@ -654,27 +718,36 @@ mod tests {
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let check_record = |idx: usize| {
-            let record = ui_gateway_recording
+        let get_record = |idx: usize| {
+            ui_gateway_recording
                 .get_record::<NodeToUiMessage>(idx)
-                .clone();
-            assert_eq!(record.target, ClientId(1234));
-            let (payload, context_id): (UiSetupResponse, u64) =
-                UiSetupResponse::fmb(record.body).unwrap();
-            assert_eq!(context_id, 4321);
-            assert_eq!(payload.running, false);
-            let actual_pairs: HashSet<(String, String)> = payload
-                .values
-                .into_iter()
-                .map(|value| (value.name, value.value))
-                .collect();
-            assert_eq!(
-                actual_pairs.contains(&("chain".to_string(), "ropsten".to_string())),
-                true
-            );
+                .clone()
         };
-        check_record(0);
-        check_record(1);
+        let check_payload =
+            |running: bool, values: Vec<UiSetupResponseValue>, errors: Vec<(String, String)>| {
+                assert_eq!(running, false);
+                let actual_pairs: HashSet<(String, String)> = values
+                    .into_iter()
+                    .map(|value| (value.name, value.value))
+                    .collect();
+                assert_eq!(
+                    actual_pairs.contains(&("chain".to_string(), "ropsten".to_string())),
+                    true
+                );
+                assert_eq!(errors.is_empty(), true);
+            };
+        let record = get_record(0);
+        assert_eq!(record.target, ClientId(1234));
+        let (payload, context_id): (UiSetupResponse, u64) =
+            UiSetupResponse::fmb(record.body).unwrap();
+        assert_eq!(context_id, 4321);
+        check_payload(payload.running, payload.values, payload.errors);
+        let record = get_record(1);
+        assert_eq!(record.target, ClientId(1234));
+        let (payload, context_id): (UiSetupResponse, u64) =
+            UiSetupResponse::fmb(record.body).unwrap();
+        assert_eq!(context_id, 4321);
+        check_payload(payload.running, payload.values, payload.errors);
     }
 
     #[test]
@@ -712,7 +785,153 @@ mod tests {
                 }
                 .tmb(74),
             }
-        )
+        );
+    }
+
+    #[test]
+    fn handle_setup_responds_but_does_not_broadcast_if_setup_changes_from_nothing() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        subject.params.clear(); // nothing
+        let existing_setup = subject.params.clone();
+        let modified_setup = {
+            let mut modified_setup = existing_setup.clone();
+            modified_setup.insert(
+                "additional-item".to_string(),
+                UiSetupResponseValue::new("additional-item", "booga", Set),
+            );
+            modified_setup
+        };
+        subject.setup_reporter = Box::new(
+            SetupReporterMock::new().get_modified_setup_result(Ok(modified_setup.clone())),
+        );
+        let system = System::new("test");
+        subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
+
+        subject.handle_setup(47, 74, UiSetupRequest::new(vec![]));
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let message: &NodeToUiMessage = ui_gateway_recording.get_record(0);
+        assert_eq!(
+            *message,
+            NodeToUiMessage {
+                target: MessageTarget::ClientId(47),
+                body: UiSetupResponse {
+                    running: false,
+                    values: modified_setup
+                        .iter()
+                        .map(|(_, v)| v)
+                        .map(|v| v.clone())
+                        .collect(),
+                    errors: vec![]
+                }
+                .tmb(74),
+            }
+        );
+        assert_eq!(ui_gateway_recording.len(), 1);
+    }
+
+    #[test]
+    fn handle_setup_responds_but_does_not_broadcast_if_setup_is_not_changed() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        subject.params.insert(
+            "booga".to_string(),
+            UiSetupResponseValue::new("booga", "agoob", Configured),
+        ); // not nothing
+           // Same value, different status
+        let incoming_setup = vec![(
+            "booga".to_string(),
+            UiSetupResponseValue::new("booga", "agoob", Set),
+        )]
+        .into_iter()
+        .collect();
+        subject.setup_reporter =
+            Box::new(SetupReporterMock::new().get_modified_setup_result(Ok(incoming_setup)));
+        let system = System::new("test");
+        subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
+
+        subject.handle_setup(47, 74, UiSetupRequest::new(vec![]));
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let message: &NodeToUiMessage = ui_gateway_recording.get_record(0);
+        assert_eq!(
+            *message,
+            NodeToUiMessage {
+                target: MessageTarget::ClientId(47),
+                body: UiSetupResponse {
+                    running: false,
+                    values: subject.params.into_iter().map(|(_, v)| v).collect(),
+                    errors: vec![]
+                }
+                .tmb(74),
+            }
+        );
+        assert_eq!(ui_gateway_recording.len(), 1);
+    }
+
+    #[test]
+    fn handle_setup_responds_and_broadcasts_if_setup_is_changed() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        subject.params.insert(
+            "booga".to_string(),
+            UiSetupResponseValue::new("booga", "agoob", Configured),
+        ); // not nothing
+        let existing_setup = subject.params.clone();
+        let modified_setup = {
+            let mut modified_setup = existing_setup.clone();
+            modified_setup.insert(
+                "additional-item".to_string(),
+                UiSetupResponseValue::new("additional-item", "booga", Set),
+            );
+            modified_setup
+        };
+        subject.setup_reporter = Box::new(
+            SetupReporterMock::new().get_modified_setup_result(Ok(modified_setup.clone())),
+        );
+        let system = System::new("test");
+        subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
+
+        subject.handle_setup(47, 74, UiSetupRequest::new(vec![]));
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let message: &NodeToUiMessage = ui_gateway_recording.get_record(0);
+        assert_eq!(
+            *message,
+            NodeToUiMessage {
+                target: MessageTarget::ClientId(47),
+                body: UiSetupResponse {
+                    running: false,
+                    values: modified_setup
+                        .iter()
+                        .map(|(_, v)| v)
+                        .map(|v| v.clone())
+                        .collect(),
+                    errors: vec![]
+                }
+                .tmb(74),
+            }
+        );
+        let message: &NodeToUiMessage = ui_gateway_recording.get_record(1);
+        assert_eq!(
+            *message,
+            NodeToUiMessage {
+                target: MessageTarget::AllExcept(47),
+                body: UiSetupBroadcast {
+                    running: false,
+                    values: modified_setup.into_iter().map(|(_, v)| v).collect(),
+                    errors: vec![]
+                }
+                .tmb(0),
+            }
+        );
     }
 
     #[test]
@@ -852,17 +1071,31 @@ mod tests {
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        // ------
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
             .clone();
-        let (setup_before, _) = UiSetupResponse::fmb(record.body).unwrap();
-        let setup_before_pairs = setup_before
+        assert_eq!(record.target, ClientId(1234));
+        let (setup_response_before, _) = UiSetupResponse::fmb(record.body).unwrap();
+        let setup_response_before_pairs = setup_response_before
             .values
             .into_iter()
             .map(|pair| (pair.name, pair.value))
             .collect::<HashSet<(String, String)>>();
+        // ------
         let record = ui_gateway_recording
-            .get_record::<NodeToUiMessage>(2)
+            .get_record::<NodeToUiMessage>(1)
+            .clone();
+        assert_eq!(record.target, AllExcept(1234));
+        let (setup_broadcast_before, _) = UiSetupBroadcast::fmb(record.body).unwrap();
+        let setup_broadcast_before_pairs = setup_broadcast_before
+            .values
+            .into_iter()
+            .map(|pair| (pair.name, pair.value))
+            .collect::<HashSet<(String, String)>>();
+        // skip start record (2)
+        let record = ui_gateway_recording
+            .get_record::<NodeToUiMessage>(3)
             .clone();
         let (setup_after, _) = UiSetupResponse::fmb(record.body).unwrap();
         let setup_after_pairs = setup_after
@@ -870,7 +1103,9 @@ mod tests {
             .into_iter()
             .map(|pair| (pair.name, pair.value))
             .collect::<HashSet<(String, String)>>();
-        assert_eq!(setup_after_pairs, setup_before_pairs);
+        // ------
+        assert_eq!(setup_after_pairs, setup_response_before_pairs);
+        assert_eq!(setup_after_pairs, setup_broadcast_before_pairs);
     }
 
     #[test]

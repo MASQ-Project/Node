@@ -12,8 +12,8 @@ use std::{io, thread};
 
 pub fn send_chunk(stream: &mut TcpStream, chunk: &[u8]) {
     stream
-        .write(chunk)
-        .expect(format!("Writing {} bytes", chunk.len()).as_str());
+        .write_all(chunk)
+        .unwrap_or_else(|_| panic!("Writing {} bytes", chunk.len()));
 }
 
 pub fn wait_for_chunk(stream: &mut TcpStream, timeout: &Duration) -> Result<Vec<u8>, io::Error> {
@@ -53,10 +53,10 @@ pub fn wait_for_chunk(stream: &mut TcpStream, timeout: &Duration) -> Result<Vec<
 }
 
 pub fn wait_for_shutdown(stream: &mut TcpStream, timeout: &Duration) -> Result<(), io::Error> {
-    stream.set_read_timeout(Some(timeout.clone())).unwrap();
+    stream.set_read_timeout(Some(*timeout)).unwrap();
     let mut buf = [0u8; 1];
     match stream.peek(&mut buf) {
-        Ok(0) => return Ok(()),
+        Ok(0) => Ok(()),
         Ok(_) => Err(io::Error::from(ErrorKind::Interrupted)),
         Err(ref e) if e.kind() == ErrorKind::WouldBlock => Err(io::Error::from(e.kind())),
         Err(ref e) if e.kind() == ErrorKind::ConnectionReset => Ok(()),

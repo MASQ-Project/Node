@@ -127,6 +127,12 @@ pub struct NodeStartupConfig {
     pub db_password_opt: Option<String>,
 }
 
+impl Default for NodeStartupConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NodeStartupConfig {
     pub fn new() -> NodeStartupConfig {
         NodeStartupConfig {
@@ -159,7 +165,7 @@ impl NodeStartupConfig {
         args.push(self.neighborhood_mode.clone());
         if let LocalIpInfo::DistributedKnown(ip_addr) = self.ip_info {
             args.push("--ip".to_string());
-            args.push(format!("{}", ip_addr));
+            args.push(ip_addr.to_string());
         }
         if let Some(ref dns_servers) = &self.dns_servers_opt {
             args.push("--dns-servers".to_string());
@@ -171,7 +177,7 @@ impl NodeStartupConfig {
         }
         if let Some(clandestine_port) = self.clandestine_port_opt {
             args.push("--clandestine-port".to_string());
-            args.push(format!("{}", clandestine_port));
+            args.push(clandestine_port.to_string());
         }
         args.push("--log-level".to_string());
         args.push("trace".to_string());
@@ -187,19 +193,19 @@ impl NodeStartupConfig {
         }
         if let Some(ref public_key) = self.fake_public_key_opt {
             args.push("--fake-public-key".to_string());
-            args.push(format!("{}", public_key));
+            args.push(public_key.to_string());
         }
         if let Some(ref blockchain_service_url) = self.blockchain_service_url_opt {
             args.push("--blockchain-service-url".to_string());
-            args.push(format!("{}", blockchain_service_url));
+            args.push(blockchain_service_url.to_string());
         }
         if let Some(ref chain) = self.chain_opt {
             args.push("--chain".to_string());
-            args.push(format!("{}", chain));
+            args.push(chain.to_string());
         }
         if let Some(ref db_password) = self.db_password_opt {
             args.push("--db-password".to_string());
-            args.push(format!("{}", db_password));
+            args.push(db_password.to_string());
         }
         args
     }
@@ -307,7 +313,7 @@ impl NodeStartupConfig {
         Some(args)
     }
 
-    fn join_strings<T: Display>(items: &Vec<T>) -> String {
+    fn join_strings<T: Display>(items: &[T]) -> String {
         items
             .iter()
             .map(|item| format!("{}", item))
@@ -468,11 +474,11 @@ impl NodeStartupConfigBuilder {
     pub fn copy(config: &NodeStartupConfig) -> Self {
         Self {
             neighborhood_mode: config.neighborhood_mode.clone(),
-            ip_info: config.ip_info.clone(),
+            ip_info: config.ip_info,
             dns_servers_opt: config.dns_servers_opt.clone(),
             neighbors: config.neighbors.clone(),
             clandestine_port_opt: config.clandestine_port_opt,
-            dns_target: config.dns_target.clone(),
+            dns_target: config.dns_target,
             dns_port: config.dns_port,
             earning_wallet_info: config.earning_wallet_info.clone(),
             consuming_wallet_info: config.consuming_wallet_info.clone(),
@@ -661,7 +667,7 @@ impl MASQNode for MASQRealNode {
 
     fn port_list(&self) -> Vec<u16> {
         match self.node_reference().node_addr_opt {
-            Some(node_addr) => node_addr.ports().clone(),
+            Some(node_addr) => node_addr.ports(),
             None => vec![],
         }
     }
@@ -700,7 +706,7 @@ impl MASQNode for MASQRealNode {
 }
 
 impl MASQRealNode {
-    pub fn prepare(name: &String) {
+    pub fn prepare(name: &str) {
         Self::do_prepare_for_docker_run(name).unwrap();
     }
 
@@ -743,12 +749,12 @@ impl MASQRealNode {
         startup_config: NodeStartupConfig,
         index: usize,
         host_node_parent_dir: Option<String>,
-        docker_run_fn: Box<dyn Fn(&String, IpAddr, &String) -> Result<(), String>>,
+        docker_run_fn: Box<dyn Fn(&str, IpAddr, &str) -> Result<(), String>>,
     ) -> Self {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
         MASQNodeUtils::clean_up_existing_container(&name[..]);
         let real_startup_config = match startup_config.ip_info {
-            LocalIpInfo::ZeroHop => startup_config.clone(),
+            LocalIpInfo::ZeroHop => startup_config,
             LocalIpInfo::DistributedUnknown => NodeStartupConfigBuilder::copy(&startup_config)
                 .ip(ip_addr)
                 .build(),
@@ -775,7 +781,7 @@ impl MASQRealNode {
                 Self::create_impenetrable_firewall(&name);
                 firewall.ports_to_open.iter().for_each(|port| {
                     Self::open_firewall_port(&name, *port)
-                        .expect(&format!("Can't open port {}", *port))
+                        .unwrap_or_else(|_| panic!("Can't open port {}", *port))
                 });
             }
         }
@@ -847,7 +853,7 @@ impl MASQRealNode {
         self.guts.root_dir.clone()
     }
 
-    pub fn node_home_dir(root_dir: &String, name: &String) -> String {
+    pub fn node_home_dir(root_dir: &str, name: &str) -> String {
         format!(
             "{}/multinode_integration_tests/generated/node_homes/{}",
             root_dir, name
@@ -905,11 +911,11 @@ impl MASQRealNode {
     }
 
     fn do_docker_run(
-        root_dir: &String,
+        root_dir: &str,
         ip_addr: IpAddr,
-        container_name_ref: &String,
+        container_name_ref: &str,
     ) -> Result<(), String> {
-        let container_name = container_name_ref.clone();
+        let container_name = container_name_ref.to_string();
         let node_command_dir = format!("{}/node/target/release", root_dir);
         let host_node_home_dir = Self::node_home_dir(root_dir, container_name_ref);
         let test_runner_node_home_dir =
@@ -947,8 +953,8 @@ impl MASQRealNode {
         Ok(())
     }
 
-    fn do_prepare_for_docker_run(container_name_ref: &String) -> Result<(), String> {
-        let container_name = container_name_ref.clone();
+    fn do_prepare_for_docker_run(container_name_ref: &str) -> Result<(), String> {
+        let container_name = container_name_ref.to_string();
         let test_runner_node_home_dir =
             Self::node_home_dir(&MASQNodeUtils::find_project_root(), container_name_ref);
         Self::remove_test_runner_node_home_dir(&test_runner_node_home_dir);
@@ -958,11 +964,11 @@ impl MASQRealNode {
     }
 
     fn do_preprepared_docker_run(
-        root_dir: &String,
+        root_dir: &str,
         ip_addr: IpAddr,
-        container_name_ref: &String,
+        container_name_ref: &str,
     ) -> Result<(), String> {
-        let container_name = container_name_ref.clone();
+        let container_name = container_name_ref.to_string();
         let node_command_dir = format!("{}/node/target/release", root_dir);
         let host_node_home_dir = Self::node_home_dir(root_dir, container_name_ref);
         let ip_addr_string = format!("{}", ip_addr);
@@ -996,7 +1002,7 @@ impl MASQRealNode {
     }
 
     fn set_permissions_test_runner_node_home_dir(
-        container_name: &String,
+        container_name: &str,
         test_runner_node_home_dir: String,
     ) {
         match Command::new(
@@ -1013,13 +1019,10 @@ impl MASQRealNode {
         }
     }
 
-    fn create_test_runner_node_home_dir(
-        container_name: &String,
-        test_runner_node_home_dir: &String,
-    ) {
+    fn create_test_runner_node_home_dir(container_name: &str, test_runner_node_home_dir: &str) {
         match Command::new(
             "mkdir",
-            Command::strings(vec!["-p", test_runner_node_home_dir.as_str()]),
+            Command::strings(vec!["-p", test_runner_node_home_dir]),
         )
         .wait_for_exit()
         {
@@ -1031,10 +1034,10 @@ impl MASQRealNode {
         }
     }
 
-    fn remove_test_runner_node_home_dir(test_runner_node_home_dir: &String) {
+    fn remove_test_runner_node_home_dir(test_runner_node_home_dir: &str) {
         Command::new(
             "rm",
-            Command::strings(vec!["-r", test_runner_node_home_dir.as_str()]),
+            Command::strings(vec!["-r", test_runner_node_home_dir]),
         )
         .wait_for_exit();
     }
@@ -1089,7 +1092,7 @@ impl MASQRealNode {
         .expect("Can't add exception to allow input that is respondent to past output");
     }
 
-    fn extract_node_reference(name: &String) -> Result<NodeReference, String> {
+    fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let regex = Regex::new(r"MASQ Node local descriptor: ([^:]+[:@][\d.]*:[\d,]*)").unwrap();
         let mut retries_left = 10;
         loop {
@@ -1099,10 +1102,12 @@ impl MASQRealNode {
                 name,
                 vec!["cat", &format!("{}/MASQNode_rCURRENT.log", DATA_DIRECTORY)],
             )
-            .expect(&format!(
-                "Failed to read {}/MASQNode_rCURRENT.log",
-                DATA_DIRECTORY
-            ));
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read {}/MASQNode_rCURRENT.log: {}",
+                    DATA_DIRECTORY, e
+                )
+            });
             match regex.captures(output.as_str()) {
                 Some(captures) => {
                     let node_reference =

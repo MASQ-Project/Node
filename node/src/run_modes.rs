@@ -42,7 +42,7 @@ impl RunModes {
         }
     }
 
-    pub fn go(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> i32 {
+    pub fn go(&self, args: &[String], streams: &mut StdStreams<'_>) -> i32 {
         let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
         let privilege_as_expected = self.privilege_dropper.expect_privilege(privilege_required);
         let help_or_version = Self::args_contain_help_or_version(args);
@@ -80,7 +80,7 @@ impl RunModes {
         }
     }
 
-    fn args_contain_help_or_version(args: &Vec<String>) -> bool {
+    fn args_contain_help_or_version(args: &[String]) -> bool {
         args.contains(&"--help".to_string())
             || args.contains(&"-h".to_string())
             || args.contains(&"--version".to_string())
@@ -110,7 +110,7 @@ impl RunModes {
         format!("MASQNode.exe in {:?} mode {}\n", mode, suffix)
     }
 
-    fn determine_mode_and_priv_req(&self, args: &Vec<String>) -> (Mode, bool) {
+    fn determine_mode_and_priv_req(&self, args: &[String]) -> (Mode, bool) {
         if args.contains(&"--dump-config".to_string()) {
             (Mode::DumpConfig, false)
         } else if args.contains(&"--recover-wallet".to_string()) {
@@ -126,7 +126,7 @@ impl RunModes {
 
     fn generate_wallet(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError> {
         let configurator = NodeConfiguratorGenerateWallet::new();
@@ -140,7 +140,7 @@ impl RunModes {
 
     fn recover_wallet(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError> {
         let configurator = NodeConfiguratorRecoverWallet::new();
@@ -156,22 +156,22 @@ impl RunModes {
 trait Runner {
     fn run_service(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError>;
     fn dump_config(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError>;
     fn initialization(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError>;
     fn configuration_run(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
         configurator: &dyn NodeConfigurator<WalletCreationConfig>,
         privilege_dropper: &dyn PrivilegeDropper,
@@ -183,7 +183,7 @@ struct RunnerReal {}
 impl Runner for RunnerReal {
     fn run_service(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError> {
         let system = System::new("main");
@@ -200,7 +200,7 @@ impl Runner for RunnerReal {
 
     fn dump_config(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError> {
         config_dumper::dump_config(args, streams)
@@ -208,7 +208,7 @@ impl Runner for RunnerReal {
 
     fn initialization(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError> {
         let configurator = NodeConfiguratorInitialization {};
@@ -226,7 +226,7 @@ impl Runner for RunnerReal {
 
     fn configuration_run(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
         configurator: &dyn NodeConfigurator<WalletCreationConfig>,
         _privilege_dropper: &dyn PrivilegeDropper,
@@ -266,37 +266,37 @@ mod tests {
     impl Runner for RunnerMock {
         fn run_service(
             &self,
-            args: &Vec<String>,
+            args: &[String],
             _streams: &mut StdStreams<'_>,
         ) -> Result<i32, ConfiguratorError> {
-            self.run_service_params.lock().unwrap().push(args.clone());
+            self.run_service_params.lock().unwrap().push(args.to_vec());
             self.run_service_results.borrow_mut().remove(0)
         }
 
         fn dump_config(
             &self,
-            args: &Vec<String>,
+            args: &[String],
             _streams: &mut StdStreams<'_>,
         ) -> Result<i32, ConfiguratorError> {
-            self.dump_config_params.lock().unwrap().push(args.clone());
+            self.dump_config_params.lock().unwrap().push(args.to_vec());
             self.dump_config_results.borrow_mut().remove(0)
         }
 
         fn initialization(
             &self,
-            args: &Vec<String>,
+            args: &[String],
             _streams: &mut StdStreams<'_>,
         ) -> Result<i32, ConfiguratorError> {
             self.initialization_params
                 .lock()
                 .unwrap()
-                .push(args.clone());
+                .push(args.to_vec());
             self.initialization_results.borrow_mut().remove(0)
         }
 
         fn configuration_run(
             &self,
-            args: &Vec<String>,
+            args: &[String],
             _streams: &mut StdStreams<'_>,
             _configurator: &dyn NodeConfigurator<WalletCreationConfig>,
             _privilege_dropper: &dyn PrivilegeDropper,
@@ -304,7 +304,7 @@ mod tests {
             self.configuration_run_params
                 .lock()
                 .unwrap()
-                .push(args.clone());
+                .push(args.to_vec());
             self.configuration_run_results.borrow_mut().remove(0)
         }
     }
@@ -498,7 +498,7 @@ mod tests {
             Box::new(PrivilegeDropperMock::new().expect_privilege_result(true));
         let mut holder = FakeStreamHolder::new();
 
-        let result = subject.go(&vec!["--dump-config".to_string()], &mut holder.streams());
+        let result = subject.go(&["--dump-config".to_string()], &mut holder.streams());
 
         assert_eq!(result, 1);
         assert_eq!(
@@ -523,10 +523,10 @@ parm2 - msg2\n"
         let mut service_mode_holder = FakeStreamHolder::new();
 
         let initialization_exit_code = subject.go(
-            &vec!["--initialization".to_string()],
+            &["--initialization".to_string()],
             &mut initialization_holder.streams(),
         );
-        let service_mode_exit_code = subject.go(&vec![], &mut service_mode_holder.streams());
+        let service_mode_exit_code = subject.go(&[], &mut service_mode_holder.streams());
 
         assert_eq!(initialization_exit_code, 1);
         assert_eq!(initialization_holder.stdout.get_string(), "");
@@ -570,19 +570,19 @@ parm2 - msg2\n"
         let mut service_mode_v_holder = FakeStreamHolder::new();
 
         let initialization_h_exit_code = subject.go(
-            &vec!["--initialization".to_string(), "--help".to_string()],
+            &["--initialization".to_string(), "--help".to_string()],
             &mut initialization_h_holder.streams(),
         );
         let initialization_v_exit_code = subject.go(
-            &vec!["--initialization".to_string(), "--version".to_string()],
+            &["--initialization".to_string(), "--version".to_string()],
             &mut initialization_v_holder.streams(),
         );
         let service_mode_h_exit_code = subject.go(
-            &vec!["--help".to_string()],
+            &["--help".to_string()],
             &mut service_mode_h_holder.streams(),
         );
         let service_mode_v_exit_code = subject.go(
-            &vec!["--version".to_string()],
+            &["--version".to_string()],
             &mut service_mode_v_holder.streams(),
         );
 
@@ -647,15 +647,15 @@ parm2 - msg2\n"
         let mut dump_config_holder = FakeStreamHolder::new();
 
         let generate_wallet_exit_code = subject.go(
-            &vec!["--generate-wallet".to_string()],
+            &["--generate-wallet".to_string()],
             &mut generate_wallet_holder.streams(),
         );
         let recover_wallet_exit_code = subject.go(
-            &vec!["--recover-wallet".to_string()],
+            &["--recover-wallet".to_string()],
             &mut recover_wallet_holder.streams(),
         );
         let dump_config_exit_code = subject.go(
-            &vec!["--dump-config".to_string()],
+            &["--dump-config".to_string()],
             &mut dump_config_holder.streams(),
         );
 

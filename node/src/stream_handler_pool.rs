@@ -860,7 +860,7 @@ mod tests {
             .lock()
             .expect("is this really the poison error? NO!");
         assert_eq!(poll_write_params.len(), 1);
-        assert_eq!(poll_write_params.deref(), &vec!(vec!(0x12, 0x34)));
+        assert_eq!(*poll_write_params, vec![vec![0x12, 0x34]]);
 
         subject_subs
             .transmit_sub
@@ -1102,7 +1102,7 @@ mod tests {
                         public_key.clone(),
                         Some(NodeAddr::new(
                             &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
-                            &vec![7000],
+                            &[7000],
                         )),
                         rate_pack(100),
                     )),
@@ -1127,8 +1127,8 @@ mod tests {
         let connect_pair_params = connect_pair_params_arc_a.lock().unwrap();
         let connect_pair_params_vec: &Vec<SocketAddr> = connect_pair_params.as_ref();
         assert_eq!(
-            connect_pair_params_vec,
-            &vec!(SocketAddr::from_str("1.2.3.5:7000").unwrap())
+            *connect_pair_params_vec,
+            vec![SocketAddr::from_str("1.2.3.5:7000").unwrap()]
         );
     }
 
@@ -1211,7 +1211,7 @@ mod tests {
                     public_key,
                     Some(NodeAddr::new(
                         &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
-                        &vec![7000],
+                        &[7000],
                     )),
                     rate_pack(100),
                 )),
@@ -1316,7 +1316,7 @@ mod tests {
                     key.clone(),
                     Some(NodeAddr::new(
                         &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
-                        &vec![6789],
+                        &[6789],
                     )),
                     rate_pack(100),
                 )),
@@ -1471,7 +1471,7 @@ mod tests {
                 .try_send(DispatcherNodeQueryResponse {
                     result: Some(NodeQueryResponseMetadata::new(
                         key.clone(),
-                        Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
+                        Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
                         rate_pack(100),
                     )),
                     context: msg,
@@ -1596,7 +1596,7 @@ mod tests {
                 .try_send(DispatcherNodeQueryResponse {
                     result: Some(NodeQueryResponseMetadata::new(
                         key.clone(),
-                        Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
+                        Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
                         rate_pack(100),
                     )),
                     context: msg,
@@ -1615,7 +1615,7 @@ mod tests {
             .try_send(DispatcherNodeQueryResponse {
                 result: Some(NodeQueryResponseMetadata::new(
                     cryptde.public_key().clone(),
-                    Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
+                    Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
                     rate_pack(100),
                 )),
                 context: msg_a,
@@ -1649,7 +1649,7 @@ mod tests {
         subject.handle_dispatcher_node_query_response(DispatcherNodeQueryResponse {
             result: Some(NodeQueryResponseMetadata {
                 public_key: key,
-                node_addr_opt: Some(NodeAddr::new(&peer_addr.ip(), &vec![peer_addr.port()])),
+                node_addr_opt: Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
                 rate_pack: ZERO_RATE_PACK.clone(),
             }),
             context: TransmitDataMsg {
@@ -1678,7 +1678,7 @@ mod tests {
             sender_wrapper_unbounded_send_params_arc.lock().unwrap();
         assert_eq!(
             sender_wrapper_unbounded_send_params.deref(),
-            &vec![SequencedPacket::new(b"hello".to_vec(), 0, true),]
+            &[SequencedPacket::new(b"hello".to_vec(), 0, true),]
         );
     }
 
@@ -1718,7 +1718,7 @@ mod tests {
             .try_send(DispatcherNodeQueryResponse {
                 result: Some(NodeQueryResponseMetadata::new(
                     key.clone(),
-                    Some(NodeAddr::new(&peer_addr.ip(), &vec![])),
+                    Some(NodeAddr::new(&peer_addr.ip(), &[])),
                     rate_pack(100),
                 )),
                 context: msg,

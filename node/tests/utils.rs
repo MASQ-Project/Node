@@ -132,8 +132,10 @@ impl MASQNode {
             assert_eq!(
                 MASQNode::millis_since(started_at) < real_limit_ms,
                 true,
-                "Timeout: waited for more than {}ms",
-                real_limit_ms
+                "Timeout: waited for more than {}ms without finding '{}' in these logs:\n{}\n",
+                real_limit_ms,
+                pattern,
+                self.logfile_contents
             );
             thread::sleep(Duration::from_millis(200));
         }
@@ -185,7 +187,7 @@ impl MASQNode {
     #[cfg(target_os = "windows")]
     pub fn kill(&mut self) {
         let mut command = process::Command::new("taskkill");
-        command.args(&vec!["/IM", "MASQNode.exe", "/F"]);
+        command.args(&["/IM", "MASQNode.exe", "/F"]);
         let _ = command.output().expect("Couldn't kill MASQNode.exe");
         self.child.take();
         // Be nice if we could figure out how to populate self.output here

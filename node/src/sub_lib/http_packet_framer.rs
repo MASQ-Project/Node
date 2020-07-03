@@ -186,11 +186,11 @@ impl HttpPacketFramer {
         }
     }
 
-    fn check_for_content_length(&mut self, line: &Vec<u8>) {
+    fn check_for_content_length(&mut self, line: &[u8]) {
         if !line.starts_with(b"Content-Length:") {
             return;
         }
-        let string = match String::from_utf8(line.clone()) {
+        let string = match String::from_utf8(line.to_owned()) {
             Err(_) => {
                 self.discard_current_request();
                 return;
@@ -218,11 +218,11 @@ impl HttpPacketFramer {
         }
     }
 
-    fn check_for_transfer_encoding(&mut self, line: &Vec<u8>) {
+    fn check_for_transfer_encoding(&mut self, line: &[u8]) {
         if !line.starts_with(b"Transfer-Encoding:") {
             return;
         }
-        let string = match String::from_utf8(line.clone()) {
+        let string = match String::from_utf8(line.to_owned()) {
             Err(_) => {
                 self.discard_current_request();
                 return;
@@ -248,7 +248,7 @@ impl HttpPacketFramer {
         }
     }
 
-    fn check_for_zero_length(&mut self, line: &Vec<u8>) -> bool {
+    fn check_for_zero_length(&mut self, line: &[u8]) -> bool {
         if line.len() != 2 {
             return false;
         }
@@ -292,7 +292,7 @@ impl HttpPacketFramer {
                     .data_so_far
                     .split_off(chunk_offset_length.offset);
                 if (chunk_offset_length.length == 3)
-                    && (self.framer_state.data_so_far[chunk_offset_length.offset] == ('0' as u8))
+                    && (self.framer_state.data_so_far[chunk_offset_length.offset] == (b'0'))
                 {
                     self.framer_state.chunk_progress_state =
                         ChunkProgressState::SeekingEndOfFinalChunk;
@@ -366,12 +366,12 @@ const BYTES_TO_PRESERVE: usize = 9;
 const CRLF: &[u8; 2] = b"\r\n";
 const DOUBLE_CRLF: &[u8; 4] = b"\r\n\r\n";
 
-pub fn summarize_http_packet(request: &Vec<u8>) -> String {
-    let first_space_index = match index_of_from(request, &(' ' as u8), 0) {
+pub fn summarize_http_packet(request: &[u8]) -> String {
+    let first_space_index = match index_of_from(request, &(b' '), 0) {
         None => return String::from("<bad HTTP syntax: no spaces>"),
         Some(index) => index,
     };
-    let second_space_index = match index_of_from(request, &(' ' as u8), first_space_index + 1) {
+    let second_space_index = match index_of_from(request, &(b' '), first_space_index + 1) {
         None => return String::from("<bad HTTP syntax: one space>"),
         Some(index) => index,
     };

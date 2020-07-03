@@ -375,11 +375,11 @@ mod tests {
     fn set_node_addr_works_once_but_not_twice() {
         let mut subject = make_node_record(1234, false);
         assert_eq!(subject.node_addr_opt(), None);
-        let first_node_addr = NodeAddr::new(&IpAddr::from_str("4.3.2.1").unwrap(), &vec![4321]);
+        let first_node_addr = NodeAddr::new(&IpAddr::from_str("4.3.2.1").unwrap(), &[4321]);
         let result = subject.set_node_addr(&first_node_addr);
         assert_eq!(result, Ok(true));
         assert_eq!(subject.node_addr_opt(), Some(first_node_addr.clone()));
-        let second_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5432]);
+        let second_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5432]);
         let result = subject.set_node_addr(&second_node_addr);
         assert_eq!(
             result,
@@ -394,11 +394,11 @@ mod tests {
     fn set_node_addr_works_twice_if_the_new_address_is_the_same_as_the_old() {
         let mut subject = make_node_record(1234, false);
         assert_eq!(subject.node_addr_opt(), None);
-        let first_node_addr = NodeAddr::new(&IpAddr::from_str("4.3.2.1").unwrap(), &vec![4321]);
+        let first_node_addr = NodeAddr::new(&IpAddr::from_str("4.3.2.1").unwrap(), &[4321]);
         let result = subject.set_node_addr(&first_node_addr);
         assert_eq!(result, Ok(true));
         assert_eq!(subject.node_addr_opt(), Some(first_node_addr.clone()));
-        let second_node_addr = NodeAddr::new(&IpAddr::from_str("4.3.2.1").unwrap(), &vec![4321]);
+        let second_node_addr = NodeAddr::new(&IpAddr::from_str("4.3.2.1").unwrap(), &[4321]);
         let result = subject.set_node_addr(&second_node_addr);
         assert_eq!(result, Ok(false));
         assert_eq!(subject.node_addr_opt(), Some(first_node_addr));
@@ -410,7 +410,7 @@ mod tests {
         let mut subject = make_node_record(1234, true);
         subject.metadata.node_addr_opt = Some(NodeAddr::new(
             &subject.metadata.node_addr_opt.unwrap().ip_addr(),
-            &vec![1234, 2345],
+            &[1234, 2345],
         ));
 
         let result = subject.node_descriptor(DEFAULT_CHAIN_ID, cryptde);
@@ -641,7 +641,7 @@ mod tests {
         mod_node_addr
             .set_node_addr(&NodeAddr::new(
                 &IpAddr::from_str("1.2.3.5").unwrap(),
-                &vec![1234],
+                &[1234],
             ))
             .unwrap();
         let mod_earning_wallet = NodeRecord::new(
@@ -877,7 +877,7 @@ mod tests {
         let mut modified = subject.clone();
         modified.metadata.node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("2.3.4.5").unwrap(),
-            &vec![2345],
+            &[2345],
         ));
         modified.resign();
         let agr = AccessibleGossipRecord::from(&modified);
@@ -896,7 +896,7 @@ mod tests {
         let mut subject = make_node_record(1234, false);
         let new_node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("2.3.4.5").unwrap(),
-            &vec![2345],
+            &[2345],
         ));
         let mut modified = subject.clone();
         modified.metadata.node_addr_opt = new_node_addr_opt.clone();

@@ -17,8 +17,8 @@ pub struct NodeAddr {
 }
 
 impl NodeAddr {
-    pub fn new(ip_addr: &IpAddr, ports: &Vec<u16>) -> NodeAddr {
-        let mut ports = ports.clone();
+    pub fn new(ip_addr: &IpAddr, ports: &[u16]) -> NodeAddr {
+        let mut ports = ports.to_owned();
         ports.sort();
         ports.dedup();
 
@@ -39,7 +39,7 @@ impl NodeAddr {
 
 impl<'a> From<&'a SocketAddr> for NodeAddr {
     fn from(socket_addr: &'a SocketAddr) -> Self {
-        NodeAddr::new(&socket_addr.ip(), &vec![socket_addr.port()])
+        NodeAddr::new(&socket_addr.ip(), &[socket_addr.port()])
     }
 }
 
@@ -173,12 +173,12 @@ mod tests {
 
     #[test]
     fn node_addrs_can_be_compared() {
-        let a = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![5, 6]);
-        let b = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![5, 6]);
-        let c = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![6, 5]);
-        let d = NodeAddr::new(&IpAddr::from_str("1.2.3.5").unwrap(), &vec![5, 6]);
-        let e = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![9]);
-        let f = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![5, 6, 5]);
+        let a = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5, 6]);
+        let b = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5, 6]);
+        let c = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[6, 5]);
+        let d = NodeAddr::new(&IpAddr::from_str("1.2.3.5").unwrap(), &[5, 6]);
+        let e = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[9]);
+        let f = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5, 6, 5]);
 
         assert_eq!(a.eq(&a), true);
         assert_eq!(a.eq(&b), true);
@@ -266,7 +266,7 @@ mod tests {
             result,
             Ok(NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec!(1234, 2345, 3456)
+                &[1234, 2345, 3456]
             ))
         );
     }

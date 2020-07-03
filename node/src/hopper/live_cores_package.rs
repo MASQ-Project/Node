@@ -31,7 +31,7 @@ impl LiveCoresPackage {
         }
     }
 
-    pub fn to_next_live(
+    pub fn into_next_live(
         mut self,
         cryptde: &dyn CryptDE, // must be the main CryptDE of the Node to which the top hop is encrypted
     ) -> Result<(LiveHop, LiveCoresPackage), CodexError> {
@@ -153,7 +153,7 @@ mod tests {
         .unwrap();
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
 
-        let (next_hop, next_pkg) = subject.to_next_live(&relay_cryptde).unwrap();
+        let (next_hop, next_pkg) = subject.into_next_live(&relay_cryptde).unwrap();
 
         assert_eq!(
             next_hop,
@@ -188,7 +188,7 @@ mod tests {
     fn to_next_live_complains_about_bad_input() {
         let subject = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
 
-        let result = subject.to_next_live(main_cryptde());
+        let result = subject.into_next_live(main_cryptde());
 
         assert_eq!(
             result,
@@ -200,7 +200,7 @@ mod tests {
     fn live_cores_package_can_be_constructed_from_no_lookup_incipient_cores_package() {
         let cryptde = main_cryptde();
         let key34 = PublicKey::new(&[3, 4]);
-        let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &vec![1234]);
+        let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &[1234]);
         let mut route = Route::single_hop(&key34, cryptde).unwrap();
         let payload = make_meaningless_message_type();
 
@@ -220,7 +220,7 @@ mod tests {
     fn from_no_lookup_incipient_relays_errors() {
         let cryptde = main_cryptde();
         let blank_key = PublicKey::new(&[]);
-        let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &vec![1234]);
+        let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &[1234]);
 
         let result = NoLookupIncipientCoresPackage::new(
             cryptde,

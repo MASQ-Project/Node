@@ -5,6 +5,7 @@ use masq_cli_lib::command_factory::{CommandFactory, CommandFactoryReal};
 use masq_cli_lib::command_processor::{
     CommandProcessor, CommandProcessorFactory, CommandProcessorFactoryReal,
 };
+use masq_cli_lib::communications::broadcast_handler::StreamFactoryReal;
 use masq_lib::command;
 use masq_lib::command::{Command, StdStreams};
 use std::io;
@@ -30,7 +31,11 @@ struct Main {
 
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
-        let mut processor = match self.processor_factory.make(args) {
+        let broadcast_stream_factory = StreamFactoryReal::new();
+        let mut processor = match self
+            .processor_factory
+            .make(Box::new(broadcast_stream_factory), args)
+        {
             Ok(processor) => processor,
             Err(e) => {
                 writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e).expect ("writeln! failed");

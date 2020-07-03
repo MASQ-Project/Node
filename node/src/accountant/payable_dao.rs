@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::accountant::{jackass_unsigned_to_signed, PaymentError};
 use crate::database::dao_utils;
 use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{Error, OptionalExtension, NO_PARAMS};
 use serde_json::{self, json};
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
@@ -38,9 +38,9 @@ impl Payment {
 }
 
 pub trait PayableDao: Debug + Send {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u64);
+    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError>;
 
-    fn payment_sent(&self, sent_payment: &Payment);
+    fn payment_sent(&self, sent_payment: &Payment) -> Result<(), PaymentError>;
 
     fn payment_confirmed(
         &self,
@@ -48,7 +48,7 @@ pub trait PayableDao: Debug + Send {
         amount: u64,
         confirmation_noticed_timestamp: SystemTime,
         transaction_hash: H256,
-    );
+    ) -> Result<(), PaymentError>;
 
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
 
@@ -65,21 +65,23 @@ pub struct PayableDaoReal {
 }
 
 impl PayableDao for PayableDaoReal {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u64) {
-        match self.try_increase_balance(wallet, amount) {
-            Ok(_) => (),
+    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError> {
+        let signed_amount = jackass_unsigned_to_signed(amount)?;
+        match self.try_increase_balance(wallet, signed_amount) {
+            Ok(_) => Ok(()),
             Err(e) => panic!("Database is corrupt: {}", e),
-        };
+        }
     }
 
-    fn payment_sent(&self, payment: &Payment) {
+    fn payment_sent(&self, payment: &Payment) -> Result<(), PaymentError> {
+        let signed_amount = jackass_unsigned_to_signed(payment.amount)?;
         match self.try_decrease_balance(
             &payment.to,
-            payment.amount,
+            signed_amount,
             payment.timestamp,
             payment.transaction,
         ) {
-            Ok(_) => (),
+            Ok(_) => Ok(()),
             Err(e) => panic!("Database is corrupt: {}", e),
         }
     }
@@ -87,10 +89,11 @@ impl PayableDao for PayableDaoReal {
     fn payment_confirmed(
         &self,
         _wallet: &Wallet,
-        _amount: u64,
+        amount: u64,
         _confirmation_noticed_timestamp: SystemTime,
         _transaction_hash: H256,
-    ) {
+    ) -> Result<(), PaymentError> {
+        let _signed_amount = jackass_unsigned_to_signed(amount)?;
         unimplemented!("SC-925: TODO")
     }
 
@@ -157,11 +160,11 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-        let min_amt = match i64::try_from(minimum_amount) {
+        let min_amt = match jackass_unsigned_to_signed(minimum_amount) {
             Ok(n) => n,
             Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
-        let max_age = match i64::try_from(maximum_age) {
+        let max_age = match jackass_unsigned_to_signed(maximum_age) {
             Ok(n) => n,
             Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
@@ -258,19 +261,12 @@ impl PayableDaoReal {
         PayableDaoReal { conn }
     }
 
-    fn try_increase_balance(&self, wallet: &Wallet, amount: u64) -> Result<bool, String> {
+    fn try_increase_balance(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
             .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (:address, :balance, strftime('%s','now'), null) on conflict (wallet_address) do update set balance = balance + :balance where wallet_address = :address")
             .expect("Internal error");
-        let params: &[(&str, &dyn ToSql)] = &[
-            (":address", &wallet),
-            (
-                ":balance",
-                &i64::try_from(amount)
-                    .unwrap_or_else(|_| panic!("Lost payable amount precision: {}", amount)),
-            ),
-        ];
+        let params: &[(&str, &dyn ToSql)] = &[(":address", &wallet), (":balance", &amount)];
         match stmt.execute_named(params) {
             Ok(0) => Ok(false),
             Ok(_) => Ok(true),
@@ -281,7 +277,7 @@ impl PayableDaoReal {
     fn try_decrease_balance(
         &self,
         wallet: &Wallet,
-        amount: u64,
+        amount: i64,
         last_paid_timestamp: SystemTime,
         transaction_hash: H256,
     ) -> Result<bool, String> {
@@ -290,11 +286,7 @@ impl PayableDaoReal {
             .prepare("insert into payable (balance, last_paid_timestamp, pending_payment_transaction, wallet_address) values (0 - :balance, :last_paid, :transaction, :address) on conflict (wallet_address) do update set balance = balance - :balance, last_paid_timestamp = :last_paid, pending_payment_transaction = :transaction where wallet_address = :address")
             .expect("Internal error");
         let params: &[(&str, &dyn ToSql)] = &[
-            (
-                ":balance",
-                &i64::try_from(amount)
-                    .unwrap_or_else(|_| panic!("Lost payable amount precision: {}", amount)),
-            ),
+            (":balance", &amount),
             (":last_paid", &dao_utils::to_time_t(last_paid_timestamp)),
             (":transaction", &format!("{:#x}", &transaction_hash)),
             (":address", &wallet),
@@ -335,7 +327,7 @@ mod tests {
                     .unwrap(),
             );
 
-            subject.more_money_payable(&wallet, 1234);
+            subject.more_money_payable(&wallet, 1234).unwrap();
             subject.account_status(&wallet).unwrap()
         };
 
@@ -370,7 +362,7 @@ mod tests {
                     .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
-            subject.more_money_payable(&wallet, 1234);
+            subject.more_money_payable(&wallet, 1234).unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             let conn =
@@ -385,13 +377,31 @@ mod tests {
         };
 
         let status = {
-            subject.more_money_payable(&wallet, 2345);
+            subject.more_money_payable(&wallet, 2345).unwrap();
             subject.account_status(&wallet).unwrap()
         };
 
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 3579);
         assert_eq!(status.last_paid_timestamp, SystemTime::UNIX_EPOCH);
+    }
+
+    #[test]
+    fn more_money_payable_works_for_overflow() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "more_money_payable_works_for_overflow",
+        );
+        let wallet = make_wallet("booga");
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .unwrap(),
+        );
+
+        let result = subject.more_money_payable(&wallet, std::u64::MAX);
+
+        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)));
     }
 
     #[test]
@@ -411,7 +421,7 @@ mod tests {
         let before_account_status = subject.account_status(&payment.to);
         assert!(before_account_status.is_none());
 
-        subject.payment_sent(&payment);
+        subject.payment_sent(&payment).unwrap();
 
         let after_account_status = subject.account_status(&payment.to).unwrap();
 
@@ -442,8 +452,8 @@ mod tests {
 
         let before_account_status = subject.account_status(&payment.to);
         assert!(before_account_status.is_none());
-        subject.more_money_payable(&wallet, 1);
-        subject.payment_sent(&payment);
+        subject.more_money_payable(&wallet, 1).unwrap();
+        subject.payment_sent(&payment).unwrap();
 
         let after_account_status = subject.account_status(&payment.to).unwrap();
 
@@ -456,6 +466,46 @@ mod tests {
                 pending_payment_transaction: Some(H256::from_uint(&U256::from(1))),
             }
         )
+    }
+
+    #[test]
+    fn payment_sent_works_for_overflow() {
+        let home_dir =
+            ensure_node_home_directory_exists("payable_dao", "payment_sent_works_for_overflow");
+        let wallet = make_wallet("booga");
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .unwrap(),
+        );
+        let payment = Payment::new(wallet, std::u64::MAX, H256::from_uint(&U256::from(1)));
+
+        let result = subject.payment_sent(&payment);
+
+        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
+    }
+
+    #[test]
+    fn payment_confirmed_works_for_overflow() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "payment_confirmed_works_for_overflow",
+        );
+        let wallet = make_wallet("booga");
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .unwrap(),
+        );
+
+        let result = subject.payment_confirmed(
+            &wallet,
+            std::u64::MAX,
+            SystemTime::now(),
+            H256::from_uint(&U256::from(1)),
+        );
+
+        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
     }
 
     #[test]
@@ -555,8 +605,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Lost payable amount precision: 18446744073709551615")]
-    fn payable_amount_precision_loss_panics_on_insert() {
+    fn payable_amount_errors_on_insert_when_out_of_range() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
             "payable_amount_precision_loss_panics_on_insert",
@@ -566,12 +615,14 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        subject.more_money_payable(&make_wallet("foobar"), std::u64::MAX);
+
+        let result = subject.more_money_payable(&make_wallet("foobar"), std::u64::MAX);
+
+        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
     }
 
     #[test]
-    #[should_panic(expected = "Lost payable amount precision: 18446744073709551615")]
-    fn payable_amount_precision_loss_panics_on_update_balance() {
+    fn payable_amount_errors_on_update_balance_when_out_of_range() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
             "payable_amount_precision_loss_panics_on_update_balance",
@@ -581,11 +632,14 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        subject.payment_sent(&Payment::new(
+
+        let result = subject.payment_sent(&Payment::new(
             make_wallet("foobar"),
             std::u64::MAX,
             H256::from_uint(&U256::from(123)),
         ));
+
+        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
     }
 
     #[test]

@@ -593,7 +593,7 @@ impl Neighborhood {
         };
     }
 
-    fn to_node_descriptors(&self, keys: &Vec<PublicKey>) -> Vec<NodeDescriptor> {
+    fn to_node_descriptors(&self, keys: &[PublicKey]) -> Vec<NodeDescriptor> {
         keys.iter()
             .map(|k| {
                 NodeDescriptor::from((
@@ -651,8 +651,8 @@ impl Neighborhood {
 
     fn handle_database_changes(
         &mut self,
-        neighbor_keys_before: &Vec<PublicKey>,
-        neighbor_keys_after: &Vec<PublicKey>,
+        neighbor_keys_before: &[PublicKey],
+        neighbor_keys_after: &[PublicKey],
     ) {
         self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
         self.check_connectedness();
@@ -660,8 +660,8 @@ impl Neighborhood {
 
     fn curate_past_neighbors(
         &self,
-        neighbor_keys_before: &Vec<PublicKey>,
-        neighbor_keys_after: &Vec<PublicKey>,
+        neighbor_keys_before: &[PublicKey],
+        neighbor_keys_after: &[PublicKey],
     ) {
         if neighbor_keys_after != neighbor_keys_before {
             if let Some(db_password) = &self.db_password_opt {
@@ -1163,7 +1163,7 @@ impl Neighborhood {
 
     fn gossip_source_name(
         &self,
-        accessible_gossip: &Vec<AccessibleGossipRecord>,
+        accessible_gossip: &[AccessibleGossipRecord],
         gossip_source: SocketAddr,
     ) -> String {
         match accessible_gossip.iter().find(|agr| {
@@ -1194,7 +1194,7 @@ impl Neighborhood {
 
     fn remove_neighbor(&mut self, neighbor_key: &PublicKey, peer_addr: &SocketAddr) {
         match self.neighborhood_database.remove_neighbor(neighbor_key) {
-            Err(_) => panic!("Node suddenly disappeared"),
+            Err(e) => panic!("Node suddenly disappeared: {:?}", e),
             Ok(true) => {
                 debug!(
                     self.logger,
@@ -1434,7 +1434,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             neighbor_node.public_key(),
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
@@ -1466,7 +1466,7 @@ mod tests {
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let one_neighbor_node = make_node_record(3456, true);
         let another_neighbor_node = make_node_record(4567, true);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
 
         let subject = Neighborhood::new(
             cryptde,
@@ -1534,7 +1534,7 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let one_neighbor_node: NodeRecord = make_node_record(3456, true);
         let another_neighbor_node: NodeRecord = make_node_record(4567, true);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
 
         let subject = Neighborhood::new(
             cryptde,
@@ -1618,13 +1618,10 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(
-                                &IpAddr::from_str("1.2.3.4").unwrap(),
-                                &vec![1234, 2345],
-                            ),
+                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                             cryptde,
                         ))],
@@ -1661,7 +1658,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![node_record_to_neighbor_config(&one_neighbor)],
                         rate_pack(100),
                     ),
@@ -1708,13 +1705,10 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(
-                                &IpAddr::from_str("1.2.3.4").unwrap(),
-                                &vec![1234, 2345],
-                            ),
+                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                             cryptde,
                         ))],
@@ -2467,7 +2461,7 @@ mod tests {
             &cryptde.public_key(),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("5.4.3.2").unwrap(),
-                &vec![1234],
+                &[1234],
             )),
             100,
             true,
@@ -3362,7 +3356,7 @@ mod tests {
             &cryptde.public_key(),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("5.4.3.2").unwrap(),
-                &vec![1234],
+                &[1234],
             )),
             100,
             true,
@@ -3452,7 +3446,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![1234]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[1234]),
                         vec![NodeDescriptor::from((
                             &neighbor_inside,
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
@@ -3635,12 +3629,12 @@ mod tests {
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![NodeDescriptor::from((
                                 &PublicKey::new(&b"booga"[..]),
                                 &NodeAddr::new(
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
-                                    &vec![1234, 2345],
+                                    &[1234, 2345],
                                 ),
                                 DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                                 cryptde,
@@ -3704,7 +3698,7 @@ mod tests {
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![node_record_to_neighbor_config(&one_neighbor)],
                             rate_pack(100),
                         ),
@@ -3762,12 +3756,12 @@ mod tests {
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![NodeDescriptor::from((
                                 &PublicKey::new(&b"booga"[..]),
                                 &NodeAddr::new(
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
-                                    &vec![1234, 2345],
+                                    &[1234, 2345],
                                 ),
                                 DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                                 cryptde,

@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use base64;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::HIGHEST_USABLE_PORT;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
@@ -35,7 +34,7 @@ impl FromStr for NodeReference {
     type Err = String;
 
     fn from_str(string_rep: &str) -> Result<Self, <Self as FromStr>::Err> {
-        let pieces: Vec<&str> = string_rep.split(":").collect();
+        let pieces: Vec<&str> = string_rep.split(':').collect();
         if pieces.len() != 3 {
             return Err(format!("A NodeReference must have the form <public_key>:<IP address>:<port list>, not '{}'", string_rep));
         }
@@ -102,7 +101,7 @@ impl NodeReference {
     fn extract_public_key(slice: &str) -> Result<PublicKey, String> {
         match base64::decode(slice) {
             Ok (data) => Ok (PublicKey::new (&data[..])),
-            Err (_) => return Err (format!("The public key of a NodeReference must be represented as a valid Base64 string, not '{}'", slice))
+            Err (_) => Err (format!("The public key of a NodeReference must be represented as a valid Base64 string, not '{}'", slice))
         }
     }
 
@@ -112,12 +111,10 @@ impl NodeReference {
         } else {
             match IpAddr::from_str(slice) {
                 Ok(ip_addr) => Ok(Some(ip_addr)),
-                Err(_) => {
-                    return Err(format!(
-                        "The IP address of a NodeReference must be valid, not '{}'",
-                        slice
-                    ));
-                }
+                Err(_) => Err(format!(
+                    "The IP address of a NodeReference must be valid, not '{}'",
+                    slice
+                )),
             }
         }
     }
@@ -127,7 +124,7 @@ impl NodeReference {
             vec![]
         } else {
             String::from(slice)
-                .split(",")
+                .split(',')
                 .map(|x| match x.parse::<i64>() {
                     Ok(n) => n,
                     Err(_) => -1,
@@ -140,17 +137,14 @@ impl NodeReference {
                 slice
             ));
         }
-        match port_list_numbers
+        if let Some(x) = port_list_numbers
             .iter()
             .find(|x| x > &&(HIGHEST_USABLE_PORT as i64))
         {
-            Some(x) => {
-                return Err(format!(
-                    "Each port number must be {} or less, not '{}'",
-                    HIGHEST_USABLE_PORT, x
-                ));
-            }
-            None => (),
+            return Err(format!(
+                "Each port number must be {} or less, not '{}'",
+                HIGHEST_USABLE_PORT, x
+            ));
         }
         Ok(port_list_numbers.into_iter().map(|x| x as u16).collect())
     }
@@ -354,7 +348,7 @@ mod tests {
             result.node_addr_opt,
             Some(NodeAddr::new(
                 &IpAddr::from_str("12.34.56.78").unwrap(),
-                &vec!(1234, 2345)
+                &[1234, 2345]
             ))
         );
     }
@@ -371,7 +365,7 @@ mod tests {
             result.node_addr_opt,
             Some(NodeAddr::new(
                 &IpAddr::from_str("12.34.56.78").unwrap(),
-                &vec!()
+                &[]
             ))
         );
     }

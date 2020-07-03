@@ -298,9 +298,7 @@ impl Route {
     ) -> Result<Route, CodexError> {
         let mut hops_enc: Vec<CryptData> = Vec::new();
         let mut hop_key = top_hop_key;
-        for hop_index in 0..hops.len() {
-            let data_hop = &hops[hop_index];
-            // crashpoint - should not be possible, can this be restructured to remove Option?
+        for data_hop in &hops {
             hops_enc.push(match data_hop.encode(hop_key, cryptde) {
                 Ok(crypt_data) => crypt_data,
                 Err(e) => return Err(e),

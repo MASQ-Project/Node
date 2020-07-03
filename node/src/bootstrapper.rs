@@ -41,7 +41,8 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::collections::HashMap;
 use std::env::var;
-use std::fmt::{Debug, Error, Formatter};
+use std::fmt;
+use std::fmt::{Debug, Display, Error, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -214,24 +215,6 @@ impl RealUser {
         RealUser::new(Some(uid), Some(gid), Some(home_dir))
     }
 
-    pub fn to_string(&self) -> String {
-        format!(
-            "{}:{}:{}",
-            match self.uid {
-                Some(uid) => format!("{}", uid),
-                None => "".to_string(),
-            },
-            match self.gid {
-                Some(gid) => format!("{}", gid),
-                None => "".to_string(),
-            },
-            match &self.home_dir {
-                Some(home_dir) => home_dir.to_string_lossy().to_string(),
-                None => "".to_string(),
-            },
-        )
-    }
-
     fn sudo_home_from_sudo_user_and_home(&self, dirs_wrapper: &dyn DirsWrapper) -> Option<PathBuf> {
         match (self.environment_wrapper.var ("SUDO_USER"), dirs_wrapper.home_dir()) {
             (Some (sudo_user), Some (home_dir)) =>
@@ -259,6 +242,27 @@ impl RealUser {
             .find(|t_opt| t_opt.is_some())
             .expect("Nothing was present")
             .expect("Internal error")
+    }
+}
+
+impl Display for RealUser {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}",
+            match self.uid {
+                Some(uid) => format!("{}", uid),
+                None => "".to_string(),
+            },
+            match self.gid {
+                Some(gid) => format!("{}", gid),
+                None => "".to_string(),
+            },
+            match &self.home_dir {
+                Some(home_dir) => home_dir.to_string_lossy().to_string(),
+                None => "".to_string(),
+            },
+        )
     }
 }
 
@@ -377,7 +381,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
         self.config =
             match NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams) {
                 Ok(config) => config,
-                Err(_) => unimplemented!("Test-drive me!"),
+                Err(e) => unimplemented!("Test-drive me: {:?}", e),
             };
 
         self.logger_initializer.init(
@@ -539,7 +543,7 @@ impl Bootstrapper {
             self.listener_handlers.push(listener_handler);
             self.config.neighborhood_config = NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&node_addr.ip_addr(), &vec![clandestine_port]),
+                    NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
                     neighbor_configs.clone(),
                     rate_pack.clone(),
                 ),
@@ -894,7 +898,7 @@ mod tests {
 
         subject
             .initialize_as_privileged(
-                &vec![
+                &[
                     "MASQNode".to_string(),
                     "--neighborhood-mode".to_string(),
                     "zero-hop".to_string(),
@@ -972,7 +976,7 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &vec![
+                &[
                     "MASQNode".to_string(),
                     String::from("--ip"),
                     String::from("1.2.3.4"),
@@ -1005,7 +1009,7 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &vec![
+                &[
                     "MASQNode".to_string(),
                     String::from("--data-directory"),
                     data_dir.to_str().unwrap().to_string(),
@@ -1038,7 +1042,7 @@ mod tests {
             .add_listener_handler(second_handler)
             .add_listener_handler(third_handler)
             .build();
-        let args = &vec![
+        let args = &[
             String::from("MASQNode"),
             String::from("--neighborhood-mode"),
             String::from("zero-hop"),
@@ -1050,10 +1054,10 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
 
         subject
-            .initialize_as_privileged(&args, &mut holder.streams())
+            .initialize_as_privileged(args, &mut holder.streams())
             .unwrap();
         subject
-            .initialize_as_unprivileged(&args, &mut holder.streams())
+            .initialize_as_unprivileged(args, &mut holder.streams())
             .unwrap();
 
         let config = subject.config;
@@ -1069,7 +1073,7 @@ mod tests {
             "bootstrapper",
             "init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged",
         );
-        let args = &vec![
+        let args = &[
             String::from("MASQNode"),
             String::from("--dns-servers"),
             String::from("1.2.3.4,2.3.4.5"),
@@ -1097,19 +1101,19 @@ mod tests {
             .build();
 
         subject
-            .initialize_as_privileged(&args, &mut holder.streams())
+            .initialize_as_privileged(args, &mut holder.streams())
             .unwrap();
         subject
-            .initialize_as_unprivileged(&args, &mut holder.streams())
+            .initialize_as_unprivileged(args, &mut holder.streams())
             .unwrap();
 
         let dns_servers_guard = dns_servers_arc.lock().unwrap();
         assert_eq!(
             dns_servers_guard.as_ref().unwrap(),
-            &vec!(
+            &vec![
                 SocketAddr::from_str("1.2.3.4:53").unwrap(),
                 SocketAddr::from_str("2.3.4.5:53").unwrap()
-            )
+            ]
         )
     }
 
@@ -1129,7 +1133,7 @@ mod tests {
 
         subject
             .initialize_as_privileged(
-                &vec![
+                &[
                     String::from("MASQNode"),
                     String::from("--ip"),
                     String::from("111.111.111.111"),
@@ -1169,7 +1173,7 @@ mod tests {
         init_test_logging();
         let node_addr = NodeAddr::new(
             &IpAddr::from_str("2.3.4.5").expect("Couldn't create IP address"),
-            &vec![3456u16, 4567u16],
+            &[3456u16, 4567u16],
         );
         let mut holder = FakeStreamHolder::new();
         let cryptde_ref = {
@@ -1306,7 +1310,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         subject
             .initialize_as_privileged(
-                &vec![
+                &[
                     "MASQNode".to_string(),
                     "--data-directory".to_string(),
                     data_dir.display().to_string(),
@@ -1317,7 +1321,7 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &vec![
+                &[
                     "MASQNode".to_string(),
                     "--clandestine-port".to_string(),
                     "1234".to_string(),
@@ -1489,10 +1493,10 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![4321]),
+                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[4321]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                     cryptde,
                 ))],
@@ -1558,10 +1562,10 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![]),
+                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                     cryptde,
                 ))],
@@ -1612,7 +1616,7 @@ mod tests {
             mode: NeighborhoodMode::OriginateOnly(
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                     cryptde,
                 ))],
@@ -1649,7 +1653,7 @@ mod tests {
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
-                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                 DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                 cryptde,
             ))]),

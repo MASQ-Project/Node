@@ -506,7 +506,7 @@ mod tests {
                 mainnet: false,
                 node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
-                    &vec!(1234, 2345, 3456),
+                    &[1234, 2345, 3456],
                 ))
             },
         )
@@ -537,7 +537,7 @@ mod tests {
                 mainnet: true,
                 node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
-                    &vec!(1234, 2345, 3456),
+                    &[1234, 2345, 3456],
                 ))
             },
         )
@@ -547,10 +547,7 @@ mod tests {
     fn node_descriptor_from_key_node_addr_and_mainnet_flag_works() {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
-        let node_addr = NodeAddr::new(
-            &IpAddr::from_str("123.45.67.89").unwrap(),
-            &vec![2345, 3456],
-        );
+        let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
         let result = NodeDescriptor::from((&public_key, &node_addr, true, cryptde));
 
@@ -606,10 +603,7 @@ mod tests {
     fn node_descriptor_to_string_works_for_mainnet() {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
-        let node_addr = NodeAddr::new(
-            &IpAddr::from_str("123.45.67.89").unwrap(),
-            &vec![2345, 3456],
-        );
+        let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, true, cryptde));
 
         let result = subject.to_string(main_cryptde());
@@ -621,10 +615,7 @@ mod tests {
     fn node_descriptor_to_string_works_for_not_mainnet() {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
-        let node_addr = NodeAddr::new(
-            &IpAddr::from_str("123.45.67.89").unwrap(),
-            &vec![2345, 3456],
-        );
+        let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, false, cryptde));
 
         let result = subject.to_string(main_cryptde());
@@ -653,18 +644,18 @@ mod tests {
         let another_neighbor =
             NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap();
         let subject = NeighborhoodMode::Standard(
-            NodeAddr::new(&localhost(), &vec![1234, 2345]),
+            NodeAddr::new(&localhost(), &[1234, 2345]),
             vec![one_neighbor.clone(), another_neighbor.clone()],
             rate_pack(100),
         );
 
         assert_eq!(
             subject.node_addr_opt(),
-            Some(NodeAddr::new(&localhost(), &vec![1234, 2345]))
+            Some(NodeAddr::new(&localhost(), &[1234, 2345]))
         );
         assert_eq!(
             subject.neighbor_configs(),
-            &vec![one_neighbor, another_neighbor]
+            &[one_neighbor, another_neighbor]
         );
         assert_eq!(subject.rate_pack(), &rate_pack(100));
         assert!(subject.accepts_connections());
@@ -688,7 +679,7 @@ mod tests {
         assert_eq!(subject.node_addr_opt(), None);
         assert_eq!(
             subject.neighbor_configs(),
-            &vec![one_neighbor, another_neighbor]
+            &[one_neighbor, another_neighbor]
         );
         assert_eq!(subject.rate_pack(), &rate_pack(100));
         assert!(!subject.accepts_connections());
@@ -710,7 +701,7 @@ mod tests {
         assert_eq!(subject.node_addr_opt(), None);
         assert_eq!(
             subject.neighbor_configs(),
-            &vec![one_neighbor, another_neighbor]
+            &[one_neighbor, another_neighbor]
         );
         assert_eq!(subject.rate_pack(), &ZERO_RATE_PACK);
         assert!(!subject.accepts_connections());

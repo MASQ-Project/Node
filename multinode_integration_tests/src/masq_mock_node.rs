@@ -25,7 +25,6 @@ use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
 use node_lib::test_utils::{make_paying_wallet, make_wallet};
-use serde_cbor;
 use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::io;
@@ -101,7 +100,7 @@ impl MASQNode for MASQMockNode {
     }
 
     fn port_list(&self) -> Vec<u16> {
-        self.guts.node_addr.ports().clone()
+        self.guts.node_addr.ports()
     }
 
     fn node_addr(&self) -> NodeAddr {
@@ -184,7 +183,7 @@ impl MASQMockNode {
             earning_wallet,
             consuming_wallet,
             rate_pack: DEFAULT_RATE_PACK.clone(),
-            cryptde_enum: cryptde_enum,
+            cryptde_enum,
             framer,
             chain: None,
         });
@@ -425,7 +424,7 @@ impl MASQMockNode {
         stream.shutdown(Shutdown::Both).unwrap();
     }
 
-    fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &String) {
+    fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &str) {
         let root = match host_node_parent_dir {
             Some(dir) => dir,
             None => MASQNodeUtils::find_project_root(),
@@ -434,15 +433,14 @@ impl MASQMockNode {
         let mock_node_args = Self::make_node_args(&node_addr);
         let docker_command = "docker";
         let ip_addr_string = format!("{}", node_addr.ip_addr());
-        let name_string = name.clone();
         let v_param = format!("{}:/node_root/node", command_dir);
         let mut docker_args = Command::strings(vec![
             "run",
             "--detach",
             "--ip",
-            ip_addr_string.as_str(),
+            &ip_addr_string,
             "--name",
-            name_string.as_str(),
+            name,
             "--net",
             "integration_net",
             "-v",
@@ -455,7 +453,7 @@ impl MASQMockNode {
         command.stdout_or_stderr().unwrap();
     }
 
-    fn wait_for_startup(wait_addr: SocketAddr, name: &String) -> TcpStream {
+    fn wait_for_startup(wait_addr: SocketAddr, name: &str) -> TcpStream {
         let mut retries = 10;
         let mut stream: Option<TcpStream> = None;
         loop {
@@ -467,7 +465,6 @@ impl MASQMockNode {
                 }
                 Err(e) => {
                     println!("{} not yet started on {}: {}", name, wait_addr, e);
-                    ()
                 }
             }
             retries -= 1;

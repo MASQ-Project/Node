@@ -445,7 +445,7 @@ impl ParamError {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ConfiguratorError {
     pub param_errors: Vec<ParamError>,
 }

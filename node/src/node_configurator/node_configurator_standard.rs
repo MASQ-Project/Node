@@ -17,7 +17,7 @@ pub struct NodeConfiguratorStandardPrivileged {
 impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged {
     fn configure(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let app = app();
@@ -57,7 +57,7 @@ pub struct NodeConfiguratorStandardUnprivileged {
 impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileged {
     fn configure(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let app = app();
@@ -161,7 +161,7 @@ pub mod standard {
     pub fn make_service_mode_multi_config<'a>(
         dirs_wrapper: &dyn DirsWrapper,
         app: &'a App,
-        args: &Vec<String>,
+        args: &[String],
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
         let (config_file_path, user_specified) =
             determine_config_file_path(dirs_wrapper, app, args)?;
@@ -172,7 +172,7 @@ pub mod standard {
         MultiConfig::try_new(
             &app,
             vec![
-                Box::new(CommandLineVcl::new(args.clone())),
+                Box::new(CommandLineVcl::new(args.to_vec())),
                 Box::new(EnvironmentVcl::new(&app)),
                 config_file_vcl,
             ],
@@ -250,7 +250,7 @@ pub mod standard {
                         let alias_public_key = PublicKey::new(&key);
                         (main_public_key, alias_public_key)
                     }
-                    Err(_) => panic!("Invalid fake public key: {}", public_key_str),
+                    Err(e) => panic!("Invalid fake public key: {} ({:?})", public_key_str, e),
                 };
                 let main_cryptde_null = CryptDENull::from(
                     &main_public_key,
@@ -324,9 +324,10 @@ pub mod standard {
                     && persistent_config.consuming_wallet_public_key().is_none() =>
             {
                 let keypair: Bip32ECKeyPair = match consuming_wallet.clone().try_into() {
-                    Err(_) => {
-                        panic!("Internal error: consuming wallet must be derived from keypair")
-                    }
+                    Err(e) => panic!(
+                        "Internal error: consuming wallet must be derived from keypair: {:?}",
+                        e
+                    ),
                     Ok(keypair) => keypair,
                 };
                 let public_key = PlainData::new(keypair.secret().public().bytes());
@@ -559,7 +560,7 @@ pub mod standard {
             }
         };
         Ok(NeighborhoodMode::Standard(
-            NodeAddr::new(&ip, &vec![]),
+            NodeAddr::new(&ip, &[]),
             neighbor_configs,
             DEFAULT_RATE_PACK,
         ))
@@ -645,13 +646,15 @@ pub mod standard {
                             }
                             Ok(Some(Wallet::from(keypair)))
                         }
-                        Err(_) => {
-                            panic!("Internal error: bad clap validation for consuming-private-key")
-                        }
+                        Err(e) => panic!(
+                            "Internal error: bad clap validation for consuming-private-key: {:?}",
+                            e
+                        ),
                     },
-                    Err(_) => {
-                        panic!("Internal error: bad clap validation for consuming-private-key")
-                    }
+                    Err(e) => panic!(
+                        "Internal error: bad clap validation for consuming-private-key: {:?}",
+                        e
+                    ),
                 }
             }
             None => Ok(None),
@@ -971,7 +974,7 @@ mod tests {
             result,
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![]),
+                    NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                     vec![
                         NodeDescriptor::from_str(
                             &dummy_cryptde,
@@ -1322,7 +1325,7 @@ mod tests {
 
         let configuration = subject
             .configure(
-                &vec![
+                &[
                     "".to_string(),
                     "--data-directory".to_string(),
                     home_dir.to_str().unwrap().to_string(),
@@ -1560,7 +1563,7 @@ mod tests {
             config.neighborhood_config,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &vec![]),
+                    NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
                     vec![
                         NodeDescriptor::from_str(main_cryptde(), "QmlsbA:1.2.3.4:1234;2345")
                             .unwrap(),
@@ -1644,7 +1647,7 @@ mod tests {
 
         assert_eq!(
             config.neighborhood_config.mode.neighbor_configs(),
-            &vec![
+            &[
                 NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234").unwrap(),
                 NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
             ]
@@ -2273,9 +2276,10 @@ mod tests {
     fn privileged_generate_configuration_senses_when_user_specifies_config_file() {
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = ArgsBuilder::new().param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
+        let args_vec: Vec<String> = args.into();
 
         subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .unwrap();
     }
 
@@ -2290,9 +2294,10 @@ mod tests {
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
         let args = ArgsBuilder::new().param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
+        let args_vec: Vec<String> = args.into();
 
         subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .unwrap();
     }
 
@@ -2302,9 +2307,10 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
             .param("--chain", "dev");
+        let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .unwrap();
 
         assert_eq!(
@@ -2319,9 +2325,10 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
             .param("--chain", "ropsten");
+        let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .unwrap();
 
         assert_eq!(
@@ -2334,9 +2341,10 @@ mod tests {
     fn privileged_configuration_defaults_network_chain_selection_to_mainnet() {
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
+        let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .unwrap();
 
         assert_eq!(
@@ -2351,9 +2359,10 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME);
+        let args_vec: Vec<String> = args.into();
 
         let bootstrapper_config = subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .unwrap();
         assert_eq!(
             bootstrapper_config.blockchain_bridge_config.chain_id,
@@ -2373,9 +2382,10 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
             .param("--gas-price", "57");
+        let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .unwrap();
 
         assert_eq!(config.blockchain_bridge_config.gas_price, 57);
@@ -2391,9 +2401,10 @@ mod tests {
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
         let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
+        let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .unwrap();
 
         assert_eq!(config.blockchain_bridge_config.gas_price, 1);
@@ -2403,9 +2414,10 @@ mod tests {
     fn privileged_configuration_rejects_invalid_gas_price() {
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = ArgsBuilder::new().param("--gas-price", "unleaded");
+        let args_vec: Vec<String> = args.into();
 
         let result = subject
-            .configure(&args.into(), &mut FakeStreamHolder::new().streams())
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
             .err()
             .unwrap();
 

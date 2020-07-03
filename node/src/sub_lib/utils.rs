@@ -57,15 +57,15 @@ pub fn make_printable_string(bytes: &[u8]) -> String {
             nonprintable if b"\n\r\t".contains(nonprintable) => {
                 format!("{}", *nonprintable as char)
             }
-            nonprintable if *nonprintable < ' ' as u8 => format!("{:02X}", nonprintable),
+            nonprintable if *nonprintable < b' ' => format!("{:02X}", nonprintable),
             _ => format!("{}", *b as char),
         })
         .collect();
     strs.join("")
 }
 
-pub fn to_string(data: &Vec<u8>) -> String {
-    match String::from_utf8(data.clone()) {
+pub fn to_string(data: &[u8]) -> String {
+    match String::from_utf8(data.to_owned()) {
         Ok(string) => make_printable_string(string.as_bytes()),
         Err(_) => format!("{:?}", data),
     }

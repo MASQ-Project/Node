@@ -363,7 +363,7 @@ where
     }
 }
 
-pub fn assert_contains<T>(haystack: &Vec<T>, needle: &T)
+pub fn assert_contains<T>(haystack: &[T], needle: &T)
 where
     T: Debug + PartialEq,
 {
@@ -474,7 +474,6 @@ mod tests {
     use crate::sub_lib::neighborhood::ExpectedService;
     use std::borrow::BorrowMut;
     use std::iter;
-    use std::ops::Deref;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
@@ -602,9 +601,8 @@ mod tests {
                 handle
             };
             handle.join().unwrap();
-            let mutex_guard = check_log.as_ref().lock().unwrap();
-            let log: &Vec<&str> = mutex_guard.deref();
-            assert_eq!(log, &vec!("signaler", "waiter"));
+            let log = check_log.as_ref().lock().unwrap();
+            assert_eq!(*log, vec!["signaler", "waiter"]);
         }
     }
 

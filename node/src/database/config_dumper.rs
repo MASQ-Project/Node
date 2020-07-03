@@ -21,7 +21,7 @@ use std::path::PathBuf;
 const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
 
-pub fn dump_config(args: &Vec<String>, streams: &mut StdStreams) -> Result<i32, ConfiguratorError> {
+pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, ConfiguratorError> {
     let (real_user, data_directory, chain_id) = distill_args(&RealDirsWrapper {}, args)?;
     PrivilegeDropperReal::new().drop_privileges(&real_user);
     let config_dao = make_config_dao(&data_directory, chain_id);
@@ -72,7 +72,7 @@ fn make_config_dao(data_directory: &PathBuf, chain_id: u8) -> ConfigDaoReal {
 
 fn distill_args(
     dirs_wrapper: &dyn DirsWrapper,
-    args: &Vec<String>,
+    args: &[String],
 ) -> Result<(RealUser, PathBuf, u8), ConfiguratorError> {
     let app = app_head()
         .arg(
@@ -86,7 +86,7 @@ fn distill_args(
         .arg(data_directory_arg())
         .arg(real_user_arg());
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-        Box::new(CommandLineVcl::new(args.clone())),
+        Box::new(CommandLineVcl::new(args.to_vec())),
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = MultiConfig::try_new(&app, vcls)?;
@@ -119,17 +119,14 @@ mod tests {
         .join("Substratum")
         .join(TEST_DEFAULT_CHAIN_NAME);
         let mut holder = FakeStreamHolder::new();
+        let args_vec: Vec<String> = ArgsBuilder::new()
+            .param("--data-directory", data_dir.to_str().unwrap())
+            .param("--real-user", "123::")
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .opt("--dump-config")
+            .into();
 
-        let result = dump_config(
-            &ArgsBuilder::new()
-                .param("--data-directory", data_dir.to_str().unwrap())
-                .param("--real-user", "123::")
-                .param("--chain", TEST_DEFAULT_CHAIN_NAME)
-                .opt("--dump-config")
-                .into(),
-            &mut holder.streams(),
-        )
-        .unwrap();
+        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
 
         assert_eq!(result, 0);
         let output = holder.stdout.get_string();
@@ -172,17 +169,14 @@ mod tests {
                 .set_earning_wallet_address("0x0123456789012345678901234567890123456789");
             persistent_config.set_clandestine_port(3456);
         }
+        let args_vec: Vec<String> = ArgsBuilder::new()
+            .param("--data-directory", data_dir.to_str().unwrap())
+            .param("--real-user", "123::")
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME)
+            .opt("--dump-config")
+            .into();
 
-        let result = dump_config(
-            &ArgsBuilder::new()
-                .param("--data-directory", data_dir.to_str().unwrap())
-                .param("--real-user", "123::")
-                .param("--chain", TEST_DEFAULT_CHAIN_NAME)
-                .opt("--dump-config")
-                .into(),
-            &mut holder.streams(),
-        )
-        .unwrap();
+        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
 
         assert_eq!(result, 0);
         let output = holder.stdout.get_string();

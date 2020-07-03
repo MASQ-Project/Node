@@ -8,7 +8,9 @@ use serde::de::DeserializeOwned;
 use serde::export::fmt::Error;
 use serde::export::Formatter;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
+use std::fmt::Debug;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
@@ -56,7 +58,7 @@ pub trait ToMessageBody: serde::Serialize {
     fn is_conversational(&self) -> bool;
 }
 
-pub trait FromMessageBody: DeserializeOwned {
+pub trait FromMessageBody: DeserializeOwned + Debug {
     fn fmb(body: MessageBody) -> Result<(Self, u64), UiMessageError>;
 }
 
@@ -245,24 +247,69 @@ conversation_message!(UiSetupResponse, "setup");
 impl UiSetupResponse {
     pub fn new(
         running: bool,
-        triples: Vec<(&str, &str, UiSetupResponseValueStatus)>,
+        values: HashMap<String, UiSetupResponseValue>,
         errors: ConfiguratorError,
     ) -> UiSetupResponse {
         UiSetupResponse {
             running,
-            values: triples
-                .into_iter()
-                .map(|(name, value, status)| UiSetupResponseValue {
-                    name: name.to_string(),
-                    value: value.to_string(),
-                    status,
-                })
-                .collect(),
+            values: values.into_iter().map(|(_, v)| v).collect(),
             errors: errors
                 .param_errors
                 .into_iter()
-                .map(|param_error| (param_error.parameter, param_error.reason))
+                .map(|pe| (pe.parameter, pe.reason))
                 .collect(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiSetupBroadcast {
+    pub running: bool,
+    pub values: Vec<UiSetupResponseValue>,
+    pub errors: Vec<(String, String)>,
+}
+fire_and_forget_message!(UiSetupBroadcast, "setup");
+impl UiSetupBroadcast {
+    pub fn new(
+        running: bool,
+        values: HashMap<String, UiSetupResponseValue>,
+        errors: ConfiguratorError,
+    ) -> UiSetupBroadcast {
+        UiSetupBroadcast {
+            running,
+            values: values.into_iter().map(|(_, v)| v).collect(),
+            errors: errors
+                .param_errors
+                .into_iter()
+                .map(|pe| (pe.parameter, pe.reason))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct UiSetupInner {
+    pub running: bool,
+    pub values: Vec<UiSetupResponseValue>,
+    pub errors: Vec<(String, String)>,
+}
+
+impl From<UiSetupResponse> for UiSetupInner {
+    fn from(input: UiSetupResponse) -> Self {
+        Self {
+            running: input.running,
+            values: input.values,
+            errors: input.errors,
+        }
+    }
+}
+
+impl From<UiSetupBroadcast> for UiSetupInner {
+    fn from(input: UiSetupBroadcast) -> Self {
+        Self {
+            running: input.running,
+            values: input.values,
+            errors: input.errors,
         }
     }
 }
@@ -294,7 +341,7 @@ fire_and_forget_message!(UiRedirect, "redirect");
 // These messages are sent to or by both the Daemon and the Node
 ///////////////////////////////////////////////////////////////////
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiUnmarshalError {
     pub message: String,
     #[serde(rename = "badData")]

@@ -10,6 +10,7 @@ use std::convert::{TryFrom, TryInto};
 use std::net::IpAddr;
 
 #[derive(PartialEq, Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum GossipType {
     DebutGossip(SingleNode),
     PassGossip(SingleNode),
@@ -52,6 +53,7 @@ pub fn parse_gossip(gossip: &Gossip_0v1, sender: IpAddr) -> GossipType {
 
 pub trait MultinodeGossip {
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
     fn key_set(&self) -> HashSet<PublicKey>;
     fn nodes_of_degree(&self, degree: usize) -> Vec<PublicKey>;
     fn gnr(&self, key: &PublicKey) -> Option<GossipNodeRecord>;
@@ -70,12 +72,16 @@ impl MultinodeGossip for SingleNode {
         1
     }
 
+    fn is_empty(&self) -> bool {
+        false
+    }
+
     fn key_set(&self) -> HashSet<PublicKey> {
         vec_to_set(vec![self.node.inner.public_key.clone()])
     }
 
     fn nodes_of_degree(&self, degree: usize) -> Vec<PublicKey> {
-        nodes_of_degree(&vec![self.node.clone()], degree)
+        nodes_of_degree(&[self.node.clone()], degree)
     }
 
     fn gnr(&self, key: &PublicKey) -> Option<GossipNodeRecord> {
@@ -151,6 +157,10 @@ impl MultinodeGossip for Introduction {
         2
     }
 
+    fn is_empty(&self) -> bool {
+        false
+    }
+
     fn key_set(&self) -> HashSet<PublicKey> {
         vec_to_set(vec![
             self.introducer.inner.public_key.clone(),
@@ -159,10 +169,7 @@ impl MultinodeGossip for Introduction {
     }
 
     fn nodes_of_degree(&self, degree: usize) -> Vec<PublicKey> {
-        nodes_of_degree(
-            &vec![self.introducer.clone(), self.introducee.clone()],
-            degree,
-        )
+        nodes_of_degree(&[self.introducer.clone(), self.introducee.clone()], degree)
     }
 
     fn gnr(&self, key: &PublicKey) -> Option<GossipNodeRecord> {
@@ -183,9 +190,8 @@ impl MultinodeGossip for Introduction {
     }
 
     fn agr_mut(&mut self, key: &PublicKey) -> Option<&mut AccessibleGossipRecord> {
-        if key == &self.introducer.inner.public_key {
-            Some(&mut self.introducee)
-        } else if key == &self.introducee.inner.public_key {
+        if (key == &self.introducer.inner.public_key) || (key == &self.introducee.inner.public_key)
+        {
             Some(&mut self.introducee)
         } else {
             None
@@ -244,6 +250,10 @@ pub struct Standard {
 impl MultinodeGossip for Standard {
     fn len(&self) -> usize {
         self.nodes.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
     }
 
     fn key_set(&self) -> HashSet<PublicKey> {
@@ -311,6 +321,12 @@ pub enum GirderNodeDegree {
     Four,
 }
 
+impl Default for StandardBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StandardBuilder {
     pub fn new() -> StandardBuilder {
         StandardBuilder {
@@ -368,7 +384,7 @@ impl StandardBuilder {
     }
 }
 
-fn nodes_of_degree(nodes: &Vec<AccessibleGossipRecord>, degree: usize) -> Vec<PublicKey> {
+fn nodes_of_degree(nodes: &[AccessibleGossipRecord], degree: usize) -> Vec<PublicKey> {
     nodes
         .iter()
         .filter(|node| node.inner.neighbors.len() == degree)

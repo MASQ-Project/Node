@@ -3,7 +3,7 @@ use crate::run_modes::RunModes;
 use masq_lib::command::StdStreams;
 use std::io;
 
-pub fn main_with_args(args: &Vec<String>) -> i32 {
+pub fn main_with_args(args: &[String]) -> i32 {
     let mut streams: StdStreams<'_> = StdStreams {
         stdin: &mut io::stdin(),
         stdout: &mut io::stdout(),

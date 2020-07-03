@@ -388,7 +388,7 @@ impl ActorFactory for ActorFactoryReal {
                             config.blockchain_bridge_config.chain_id,
                         ))
                     }
-                    Err(_) => panic!("Invalid blockchain node URL"),
+                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
                 },
                 None => Box::new(BlockchainInterfaceClandestine::new(
                     config.blockchain_bridge_config.chain_id,
@@ -1000,7 +1000,7 @@ mod tests {
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &vec![]),
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &[]),
                     vec![],
                     rate_pack(100),
                 ),
@@ -1174,7 +1174,7 @@ mod tests {
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &vec![]),
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &[]),
                     vec![],
                     rate_pack(100),
                 ),

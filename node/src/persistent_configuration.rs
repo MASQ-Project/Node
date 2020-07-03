@@ -117,8 +117,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         let port = unchecked_port as u16;
         match TcpListener::bind (SocketAddrV4::new (Ipv4Addr::from (0), port)) {
             Ok (_) => port,
-            Err (_) => panic!("Can't continue; clandestine port {} is in use. Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
+            Err (e) => panic!("Can't continue; clandestine port {} is in use. ({:?}) Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
                 port,
+                e,
                 LOWEST_USABLE_INSECURE_PORT,
                 HIGHEST_USABLE_PORT,
             )
@@ -303,7 +304,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_earning_wallet_address(&self, address: &str) {
         match Wallet::from_str(address) {
             Ok(_) => (),
-            Err(_) => panic!("Invalid earning wallet address '{}'", address),
+            Err(e) => panic!("Invalid earning wallet address '{}': {:?}", address, e),
         }
         if let Ok(existing_address) = self.dao.get_string("earning_wallet_address") {
             if address.to_lowercase() != existing_address.to_lowercase() {
@@ -364,7 +365,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             }
             None => match self.dao.clear("past_neighbors") {
                 Ok(_) => Ok(()),
-                Err(_) => unimplemented!(),
+                Err(e) => unimplemented!("{:?}", e),
             },
         }
     }

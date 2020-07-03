@@ -32,7 +32,7 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let seg4 = (n % 10) as u8;
     let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
     let ip_addr = IpAddr::V4(Ipv4Addr::new(seg1, seg2, seg3, seg4));
-    let node_addr = NodeAddr::new(&ip_addr, &vec![n % 10000]);
+    let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
 
     NodeRecord::new_for_tests(
         &key,

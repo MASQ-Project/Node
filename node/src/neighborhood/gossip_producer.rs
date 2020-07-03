@@ -83,6 +83,12 @@ impl GossipProducer for GossipProducerReal {
     }
 }
 
+impl Default for GossipProducerReal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GossipProducerReal {
     pub fn new() -> GossipProducerReal {
         GossipProducerReal {

@@ -24,9 +24,9 @@ pushd "$CI_DIR/../../port_exposer"
 ci/all.sh "$TOOLCHAIN_HOME"
 popd
 
-pushd "$CI_DIR/../../mock_rest_server"
-./build.sh
-popd
+#pushd "$CI_DIR/../../mock_rest_server"
+#./build.sh
+#popd
 
 pushd "$CI_DIR/../docker/blockchain"
 ./build.sh

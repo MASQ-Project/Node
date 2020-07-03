@@ -37,7 +37,7 @@ use tiny_hderive::bip44::DerivationPath;
 pub trait NodeConfigurator<T> {
     fn configure(
         &self,
-        args: &Vec<String>,
+        args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<T, ConfiguratorError>;
 }
@@ -126,7 +126,7 @@ pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
 pub fn determine_config_file_path(
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
-    args: &Vec<String>,
+    args: &[String],
 ) -> Result<(PathBuf, bool), ConfiguratorError> {
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
@@ -135,7 +135,7 @@ pub fn determine_config_file_path(
         .arg(config_file_arg());
     let orientation_args: Vec<Box<dyn VclArg>> = merge(
         Box::new(EnvironmentVcl::new(app)),
-        Box::new(CommandLineVcl::new(args.clone())),
+        Box::new(CommandLineVcl::new(args.to_vec())),
     )
     .vcl_args()
     .into_iter()
@@ -252,7 +252,7 @@ pub fn data_directory_from_context(
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
             PathBuf::from(right_local_data_dir)
                 .join("MASQ")
-                .join(chain_name.clone())
+                .join(chain_name)
         }
     }
 }
@@ -260,12 +260,12 @@ pub fn data_directory_from_context(
 pub fn prepare_initialization_mode<'a>(
     dirs_wrapper: &dyn DirsWrapper,
     app: &'a App,
-    args: &Vec<String>,
+    args: &[String],
 ) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
     let multi_config = MultiConfig::try_new(
         &app,
         vec![
-            Box::new(CommandLineVcl::new(args.clone())),
+            Box::new(CommandLineVcl::new(args.to_vec())),
             Box::new(EnvironmentVcl::new(&app)),
         ],
     )?;
@@ -609,7 +609,7 @@ pub trait WalletCreationConfigMaker {
                         20 => Either::Left(value),
                         _ => panic!("--earning-wallet not properly validated by clap"),
                     },
-                    Err(_) => panic!("--earning-wallet not properly validated by clap"),
+                    Err(e) => panic!("--earning-wallet not properly validated by clap: {:?}", e),
                 },
             },
             None => self.make_earning_wallet_info(streams),
@@ -935,8 +935,9 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--chain", TEST_DEFAULT_CHAIN_NAME);
+        let args_vec: Vec<String> = args.into();
 
-        let result = prepare_initialization_mode(&RealDirsWrapper {}, &app, &args.into())
+        let result = prepare_initialization_mode(&RealDirsWrapper {}, &app, args_vec.as_slice())
             .err()
             .unwrap();
 
@@ -983,11 +984,12 @@ mod tests {
             .param("--clandestine-port", "2345")
             .param("--data-directory", "data-dir")
             .param("--config-file", "booga.toml");
+        let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
-            &args.into(),
+            args_vec.as_slice(),
         )
         .unwrap();
 
@@ -1003,13 +1005,14 @@ mod tests {
     fn determine_config_file_path_finds_path_in_environment() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new();
+        let args_vec: Vec<String> = args.into();
         std::env::set_var("SUB_DATA_DIRECTORY", "data_dir");
         std::env::set_var("SUB_CONFIG_FILE", "booga.toml");
 
         let (config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
-            &args.into(),
+            args_vec.as_slice(),
         )
         .unwrap();
 
@@ -1028,11 +1031,12 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
             .param("--config-file", "/tmp/booga.toml");
+        let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
-            &args.into(),
+            args_vec.as_slice(),
         )
         .unwrap();
 
@@ -1050,11 +1054,12 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
             .param("--config-file", r"\tmp\booga.toml");
+        let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
-            &args.into(),
+            args_vec.as_slice(),
         )
         .unwrap();
 
@@ -1072,11 +1077,12 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
             .param("--config-file", r"c:\tmp\booga.toml");
+        let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
-            &args.into(),
+            args_vec.as_slice(),
         )
         .unwrap();
 
@@ -1094,11 +1100,12 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
             .param("--config-file", r"\\TMP\booga.toml");
+        let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
-            &args.into(),
+            args_vec.as_slice(),
         )
         .unwrap();
 
@@ -1117,11 +1124,12 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
             .param("--config-file", r"c:tmp\booga.toml");
+        let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
-            &args.into(),
+            args_vec.as_slice(),
         )
         .unwrap();
 

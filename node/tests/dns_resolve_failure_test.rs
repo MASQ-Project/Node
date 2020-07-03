@@ -50,9 +50,8 @@ fn dns_resolve_failure_tls_response_integration() {
         0x00, 0x12, // server_name_list_length: 18
         0x00, // server_name_type
         0x00, 0x0F, // server_name_length: 15
-        'e' as u8, 'x' as u8, 'a' as u8, 'm' as u8, 'p' as u8, 'l' as u8, 'e' as u8, '.' as u8,
-        'i' as u8, 'n' as u8, 'v' as u8, 'a' as u8, 'l' as u8, 'i' as u8,
-        'd' as u8, // server_name
+        b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'i', b'n', b'v', b'a', b'l', b'i',
+        b'd', // server_name
     ];
     stream.write(&client_hello[..]).unwrap();
 

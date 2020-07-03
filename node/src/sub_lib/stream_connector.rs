@@ -31,7 +31,7 @@ pub trait StreamConnector: Send {
     fn connect_one(
         &self,
         ip_addrs: Vec<IpAddr>,
-        target_hostname: &String,
+        target_hostname: &str,
         target_port: u16,
         logger: &Logger,
     ) -> Result<ConnectionInfo, io::Error>;
@@ -93,7 +93,7 @@ impl StreamConnector for StreamConnectorReal {
     fn connect_one(
         &self,
         ip_addrs: Vec<IpAddr>,
-        target_hostname: &String,
+        target_hostname: &str,
         target_port: u16,
         logger: &Logger,
     ) -> Result<ConnectionInfo, io::Error> {

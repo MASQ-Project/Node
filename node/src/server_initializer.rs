@@ -690,7 +690,7 @@ pub mod tests {
             stderr,
         };
 
-        subject.go(streams, &vec![]);
+        subject.go(streams, &[]);
         let res = subject.wait();
 
         assert!(res.is_err());
@@ -770,7 +770,7 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
         };
 
-        subject.go(streams, &vec![]);
+        subject.go(streams, &[]);
 
         let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
         assert_eq!(*drop_privileges_params, vec![real_user]);

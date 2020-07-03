@@ -82,6 +82,7 @@ impl Future for StreamReaderReal {
 }
 
 impl StreamReaderReal {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         stream: Box<dyn ReadHalfWrapper>,
         reception_port: Option<u16>,
@@ -529,7 +530,7 @@ mod tests {
         ];
         let http_connect_request = Vec::from("CONNECT example.com:443 HTTP/1.1\r\n\r\n".as_bytes());
         // Magic TLS Sauce stolen from Configuration
-        let tls_request = Vec::from(&vec![0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
+        let tls_request = Vec::from(&[0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
         let reader = ReadHalfWrapperMock {
             poll_read_results: vec![
                 (

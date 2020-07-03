@@ -33,7 +33,7 @@ pub struct StreamEstablisher {
 impl Clone for StreamEstablisher {
     fn clone(&self) -> Self {
         StreamEstablisher {
-            cryptde: self.cryptde.clone(),
+            cryptde: self.cryptde,
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -113,7 +113,7 @@ pub struct StreamEstablisherFactoryReal {
 impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
     fn make(&self) -> StreamEstablisher {
         StreamEstablisher {
-            cryptde: self.cryptde.clone(),
+            cryptde: self.cryptde,
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),

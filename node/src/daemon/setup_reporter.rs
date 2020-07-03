@@ -904,7 +904,7 @@ mod tests {
             mainnet: true,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
-                &vec![1234],
+                &[1234],
             )),
         };
         let neighbor2 = NodeDescriptor {
@@ -912,7 +912,7 @@ mod tests {
             mainnet: true,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("5.6.7.8").unwrap(),
-                &vec![5678],
+                &[5678],
             )),
         };
         config

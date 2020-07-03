@@ -3,6 +3,8 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 #[allow(dead_code)]
 pub struct DaemonProcess {}
@@ -15,13 +17,17 @@ impl DaemonProcess {
 
     pub fn start(self, port: u16) -> StopHandle {
         let executable = executable_path(executable_name("MASQNode"));
-        eprintln!("About to start Daemon at '{:?}'", executable);
-        let mut command = Command::new(executable);
-        let command = command.args(vec![
+        let args = vec![
             "--ui-port".to_string(),
             format!("{}", port),
             "--initialization".to_string(),
-        ]);
+        ];
+        eprintln!(
+            "About to start Daemon at '{:?}' with args {:?}",
+            executable, args
+        );
+        let mut command = Command::new(executable);
+        let command = command.args(args);
         let child = child_from_command(command);
         StopHandle {
             name: "Daemon".to_string(),
@@ -51,11 +57,11 @@ impl MasqProcess {
     pub fn start_interactive(self) -> ControlHandle {
         let mut command = Command::new(executable_path(executable_name("masq")));
         let child = child_from_command(&mut command);
-        ControlHandle {
-            stdin: child.stdin.unwrap(),
-            stdout: child.stdout.unwrap(),
-            stderr: child.stderr.unwrap(),
-        }
+        ControlHandle::new(
+            child.stdin.unwrap(),
+            child.stdout.unwrap(),
+            child.stderr.unwrap(),
+        )
     }
 }
 
@@ -91,7 +97,7 @@ impl StopHandle {
         #[cfg(target_os = "windows")]
         {
             let mut command = Command::new("taskkill");
-            command.args(&vec!["/IM", "MASQNode.exe", "/F", "/T"]);
+            command.args(&["/IM", "MASQNode.exe", "/F", "/T"]);
             let _ = command.output().expect("Couldn't kill MASQNode.exe");
         }
     }
@@ -100,37 +106,59 @@ impl StopHandle {
 #[allow(dead_code)]
 pub struct ControlHandle {
     stdin: ChildStdin,
-    stdout: ChildStdout,
-    stderr: ChildStderr,
+    stdout: Arc<Mutex<String>>,
+    stderr: Arc<Mutex<String>>,
 }
 
 #[allow(dead_code)]
 impl ControlHandle {
+    fn new(stdin: ChildStdin, stdout: ChildStdout, stderr: ChildStderr) -> Self {
+        let stdout_arc = Self::start_listener(Box::new(stdout));
+        let stderr_arc = Self::start_listener(Box::new(stderr));
+        ControlHandle {
+            stdin,
+            stdout: stdout_arc,
+            stderr: stderr_arc,
+        }
+    }
+
     pub fn type_command(&mut self, command: &str) {
         writeln!(self.stdin, "{}", command).unwrap();
     }
 
-    pub fn get_response(&mut self) -> (String, String) {
-        let stdout = Self::read_chunk(&mut self.stdout);
-        let stderr = Self::read_chunk(&mut self.stderr);
-        (stdout, stderr)
+    pub fn get_stdout(&mut self) -> String {
+        Self::read_chunk(&self.stdout)
     }
 
-    fn read_chunk(source: &mut dyn Read) -> String {
-        let mut all_bytes: Vec<u8> = vec![];
-        let mut buf = [0u8; 1024];
-        loop {
-            match source.read(&mut buf) {
-                Err(e) => panic!("Read failed: {:?}", e),
-                Ok(len) => {
-                    all_bytes.extend(&buf[0..len]);
-                    if len < buf.len() {
-                        break;
-                    }
+    pub fn get_stderr(&mut self) -> String {
+        Self::read_chunk(&self.stderr)
+    }
+
+    fn read_chunk(string_arc: &Arc<Mutex<String>>) -> String {
+        let mut string = string_arc.lock().unwrap();
+        let chunk = (*string).clone();
+        string.clear();
+        chunk
+    }
+
+    fn start_listener(mut stream: Box<dyn Read + Send>) -> Arc<Mutex<String>> {
+        let internal_arc = Arc::new(Mutex::new(String::new()));
+        let external_arc = internal_arc.clone();
+        thread::spawn(move || loop {
+            let mut buf = String::new();
+            match stream.read_to_string(&mut buf) {
+                Err(e) => {
+                    let mut internal = internal_arc.lock().unwrap();
+                    internal.push_str(format!("[Error: {:?}]", e).as_str());
+                    break;
                 }
-            };
-        }
-        return String::from_utf8(all_bytes).unwrap();
+                Ok(_) => {
+                    let mut internal = internal_arc.lock().unwrap();
+                    internal.push_str(buf.as_str());
+                }
+            }
+        });
+        external_arc
     }
 }
 

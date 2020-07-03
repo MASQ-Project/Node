@@ -169,7 +169,7 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         ibcd_but_data: &InboundClientData,
     ) {
-        let (_, next_lcp) = match live_package.to_next_live(self.main_cryptde) {
+        let (_, next_lcp) = match live_package.into_next_live(self.main_cryptde) {
             Ok(x) => x,
             Err(e) => {
                 error!(self.logger, "bad zero-hop route: {:?}", e);
@@ -474,7 +474,7 @@ impl RoutingService {
         last_data: bool,
     ) -> Result<TransmitDataMsg, CryptdecError> {
         let (next_hop, next_live_package) =
-            match live_package.to_next_live(self.main_cryptde.borrow()) {
+            match live_package.into_next_live(self.main_cryptde.borrow()) {
                 Err(e) => {
                     let msg = format!(
                         "Couldn't get next hop and outgoing LCP from incoming LCP: {:?}",
@@ -1079,7 +1079,7 @@ mod tests {
 
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let expected_lcp = lcp_a.to_next_live(main_cryptde).unwrap().1;
+        let expected_lcp = lcp_a.into_next_live(main_cryptde).unwrap().1;
         let expected_lcp_ser = PlainData::new(&serde_cbor::ser::to_vec(&expected_lcp).unwrap());
         let expected_lcp_enc = main_cryptde.encode(&next_key, &expected_lcp_ser).unwrap();
         assert_eq!(
@@ -1168,7 +1168,7 @@ mod tests {
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<InboundClientData>(0);
-        let expected_lcp = lcp_a.to_next_live(main_cryptde).unwrap().1;
+        let expected_lcp = lcp_a.into_next_live(main_cryptde).unwrap().1;
         let expected_lcp_enc =
             encodex(main_cryptde, &main_cryptde.public_key(), &expected_lcp).unwrap();
         assert_eq!(

@@ -628,11 +628,11 @@ impl ProxyServer {
                 reception_port: Some(443),
                 ..ibcd
             },
-            None => ibcd.clone(),
+            None => ibcd,
         };
         match self.client_request_payload_factory.make(
             &new_ibcd,
-            stream_key.clone(),
+            *stream_key,
             self.alias_cryptde,
             &self.logger,
         ) {
@@ -650,6 +650,7 @@ impl ProxyServer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn try_transmit_to_hopper(
         cryptde: Box<dyn CryptDE>,
         hopper: &Recipient<IncipientCoresPackage>,
@@ -765,6 +766,7 @@ impl ProxyServer {
         };
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn transmit_to_hopper(
         cryptde: Box<dyn CryptDE>,
         hopper: &Recipient<IncipientCoresPackage>,
@@ -2778,8 +2780,7 @@ mod tests {
             0x00, 0x0D, // server_name_list_length
             0x00, // server_name_type
             0x00, 0x0A, // server_name_length
-            's' as u8, 'e' as u8, 'r' as u8, 'v' as u8, 'e' as u8, 'r' as u8, '.' as u8, 'c' as u8,
-            'o' as u8, 'm' as u8, // server_name
+            b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c', b'o', b'm', // server_name
         ];
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
@@ -3026,8 +3027,7 @@ mod tests {
             0x00, 0x0D, // server_name_list_length
             0x00, // server_name_type
             0x00, 0x0A, // server_name_length
-            's' as u8, 'e' as u8, 'r' as u8, 'v' as u8, 'e' as u8, 'r' as u8, '.' as u8, 'c' as u8,
-            'o' as u8, 'm' as u8, // server_name
+            b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c', b'o', b'm', // server_name
         ]
         .to_vec();
         let dispatcher = Recorder::new();
