@@ -44,8 +44,8 @@ pub fn wait_for_chunk(stream: &mut TcpStream, timeout: &Duration) -> Result<Vec<
                 return Ok(output);
             }
             Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                eprintln!("Couldn't read chunk; waiting for 500ms to retry");
-                thread::sleep(Duration::from_millis(500))
+                eprintln!("Couldn't read chunk; waiting for 100ms to retry");
+                thread::sleep(Duration::from_millis(100))
             }
             Err(e) => return Err(e),
         }
