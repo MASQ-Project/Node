@@ -25,7 +25,7 @@ jobs:
       - name: Build ${{ matrix.os }}
         run: |
           rustup show
-          rustup update stable
+#          rustup update stable
           rustup component add rustfmt
           rustup component add clippy
           ./ci/all.sh
