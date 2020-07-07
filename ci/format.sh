@@ -23,7 +23,6 @@ format "$CI_DIR"/../node
 format "$CI_DIR"/../dns_utility
 format "$CI_DIR"/../masq
 format "$CI_DIR"/../multinode_integration_tests
-format "$CI_DIR"/../mock_rest_server
 format "$CI_DIR"/../port_exposer
 
 exit $final_exit_code
