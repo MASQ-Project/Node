@@ -69,6 +69,15 @@ const WORD_COUNT_HELP: &str =
 
 const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
+    If you want to start the MASQ Daemon to manage the MASQ Node and the MASQ UIs, try:
+
+        MASQNode --help --initialization
+
+    If you want to dump the contents of the configuration table in the database so that
+    you can see what's in it, try:
+
+        MASQNode --help --dump-config
+
     If you already have a set of wallets you want MASQ Node to use, try:
 
         MASQNode --help --recover-wallet
