@@ -329,10 +329,10 @@ impl EnvironmentVcl {
             .collect();
         let mut vcl_args: Vec<Box<dyn VclArg>> = vec![];
         for (upper_name, value) in std::env::vars() {
-            if (upper_name.len() < 4) || (&upper_name[0..4] != "SUB_") {
+            if (upper_name.len() < 5) || (&upper_name[0..5] != "MASQ_") {
                 continue;
             }
-            let lower_name = str::replace(&upper_name[4..].to_lowercase(), "_", "-");
+            let lower_name = str::replace(&upper_name[5..].to_lowercase(), "_", "-");
             if opt_names.contains(&lower_name) {
                 let name = format!("--{}", lower_name);
                 vcl_args.push(Box::new(NameValueVclArg::new(&name, &value)));
@@ -842,7 +842,7 @@ pub(crate) mod tests {
                 .long("numeric-arg")
                 .takes_value(true),
         );
-        std::env::set_var("SUB_NUMERIC_ARG", "47");
+        std::env::set_var("MASQ_NUMERIC_ARG", "47");
 
         let subject = EnvironmentVcl::new(&schema);
 

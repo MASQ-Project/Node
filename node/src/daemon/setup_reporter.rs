@@ -1104,21 +1104,21 @@ mod tests {
             "get_modified_setup_database_nonexistent_nothing_set_everything_in_environment",
         );
         vec![
-            ("SUB_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
-            ("SUB_CHAIN", "ropsten"),
-            ("SUB_CLANDESTINE_PORT", "1234"),
-            ("SUB_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
-            ("SUB_DATA_DIRECTORY", home_dir.to_str().unwrap()),
-            ("SUB_DB_PASSWORD", "password"),
-            ("SUB_DNS_SERVERS", "8.8.8.8"),
-            ("SUB_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
-            ("SUB_GAS_PRICE", "50"),
-            ("SUB_IP", "4.3.2.1"),
-            ("SUB_LOG_LEVEL", "error"),
-            ("SUB_NEIGHBORHOOD_MODE", "originate-only"),
-            ("SUB_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
+            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_CLANDESTINE_PORT", "1234"),
+            ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
+            ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
+            ("MASQ_DB_PASSWORD", "password"),
+            ("MASQ_DNS_SERVERS", "8.8.8.8"),
+            ("MASQ_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
+            ("MASQ_GAS_PRICE", "50"),
+            ("MASQ_IP", "4.3.2.1"),
+            ("MASQ_LOG_LEVEL", "error"),
+            ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
+            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
-            ("SUB_REAL_USER", "9999:9999:booga"),
+            ("MASQ_REAL_USER", "9999:9999:booga"),
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
         let params = vec![];
@@ -1288,21 +1288,21 @@ mod tests {
             "get_modified_setup_database_nonexistent_all_but_requireds_cleared",
         );
         vec![
-            ("SUB_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
-            ("SUB_CHAIN", "ropsten"),
-            ("SUB_CLANDESTINE_PORT", "1234"),
-            ("SUB_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
-            ("SUB_DATA_DIRECTORY", home_dir.to_str().unwrap()),
-            ("SUB_DB_PASSWORD", "password"),
-            ("SUB_DNS_SERVERS", "8.8.8.8"),
-            ("SUB_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
-            ("SUB_GAS_PRICE", "50"),
-            ("SUB_IP", "4.3.2.1"),
-            ("SUB_LOG_LEVEL", "error"),
-            ("SUB_NEIGHBORHOOD_MODE", "originate-only"),
-            ("SUB_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
+            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_CLANDESTINE_PORT", "1234"),
+            ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
+            ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
+            ("MASQ_DB_PASSWORD", "password"),
+            ("MASQ_DNS_SERVERS", "8.8.8.8"),
+            ("MASQ_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
+            ("MASQ_GAS_PRICE", "50"),
+            ("MASQ_IP", "4.3.2.1"),
+            ("MASQ_LOG_LEVEL", "error"),
+            ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
+            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
-            ("SUB_REAL_USER", "9999:9999:booga"),
+            ("MASQ_REAL_USER", "9999:9999:booga"),
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
         let params = vec![
@@ -1535,9 +1535,9 @@ mod tests {
     fn calculate_fundamentals_with_only_environment() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("SUB_CHAIN", "ropsten"),
-            ("SUB_DATA_DIRECTORY", "env_dir"),
-            ("SUB_REAL_USER", "9999:9999:booga"),
+            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_DATA_DIRECTORY", "env_dir"),
+            ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));
@@ -1567,9 +1567,9 @@ mod tests {
     fn calculate_fundamentals_with_environment_and_obsolete_setup() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("SUB_CHAIN", "ropsten"),
-            ("SUB_DATA_DIRECTORY", "env_dir"),
-            ("SUB_REAL_USER", "9999:9999:booga"),
+            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_DATA_DIRECTORY", "env_dir"),
+            ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));
@@ -1601,9 +1601,9 @@ mod tests {
     fn calculate_fundamentals_with_environment_and_overriding_setup() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("SUB_CHAIN", "ropsten"),
-            ("SUB_DATA_DIRECTORY", "env_dir"),
-            ("SUB_REAL_USER", "9999:9999:booga"),
+            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_DATA_DIRECTORY", "env_dir"),
+            ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));

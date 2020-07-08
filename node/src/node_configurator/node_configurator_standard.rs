@@ -2130,7 +2130,7 @@ mod tests {
 
         let args = ArgsBuilder::new().param("--data-directory", home_directory.to_str().unwrap());
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
-            &"--consuming-private-key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
+            &"--consuming-private-key", // this is equal to MASQ_CONSUMING_PRIVATE_KEY
             &"not valid hex",
         ))];
 
@@ -2161,7 +2161,7 @@ mod tests {
             .param("--data-directory", home_directory.to_str().unwrap())
             .opt("--db-password");
         let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
-            &"--consuming-private-key", // this is equal to SUB_CONSUMING_PRIVATE_KEY
+            &"--consuming-private-key", // this is equal to MASQ_CONSUMING_PRIVATE_KEY
             &"cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
         ))];
 

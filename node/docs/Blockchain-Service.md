@@ -28,9 +28,9 @@ Choose one of the following options for the Ropsten testnet:
 
 * Or define an environment variable
     * Windows
-    > `set SUB_BLOCKCHAIN_SERVICE_URL = https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
+    > `set MASQ_BLOCKCHAIN_SERVICE_URL = https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
     * Linux or macOS
-    > `export SUB_BLOCKCHAIN_SERVICE_URL = https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
+    > `export MASQ_BLOCKCHAIN_SERVICE_URL = https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
 
 Change `<YOUR-PROJECT-ID>` with the PROJECT ID from your Infura.io Project Dashboard. Change the URL to 
 mainnet when ready to spend and earn real SUB. NOTE: the network will initially only be testing on Ropsten. 
