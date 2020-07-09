@@ -1006,8 +1006,8 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new();
         let args_vec: Vec<String> = args.into();
-        std::env::set_var("SUB_DATA_DIRECTORY", "data_dir");
-        std::env::set_var("SUB_CONFIG_FILE", "booga.toml");
+        std::env::set_var("MASQ_DATA_DIRECTORY", "data_dir");
+        std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
         let (config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
