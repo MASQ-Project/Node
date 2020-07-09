@@ -328,6 +328,13 @@ pub struct UiStartResponse {
 conversation_message!(UiStartResponse, "start");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiNodeCrashedBroadcast {
+    #[serde(rename = "processId")]
+    pub process_id: u32,
+}
+fire_and_forget_message!(UiNodeCrashedBroadcast, "crashed");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiRedirect {
     pub port: u16,
     pub opcode: String,

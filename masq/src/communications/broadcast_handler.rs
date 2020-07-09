@@ -6,6 +6,7 @@ use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
+use crate::notifications::crashed_notification::CrashedNotification;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
@@ -71,6 +72,7 @@ impl BroadcastHandlerReal {
         let message_body = message_body_result.expect("Message from beyond the grave");
         match message_body.opcode.as_str() {
             "setup" => SetupCommand::handle_broadcast(message_body, stdout, stderr),
+            "crashed" => CrashedNotification::handle_broadcast(message_body, stdout, stderr),
             opcode => {
                 write!(
                     stderr,
@@ -112,7 +114,7 @@ impl StreamFactoryReal {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::TestStreamFactory;
-    use masq_lib::messages::ToMessageBody;
+    use masq_lib::messages::{ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::UiSetupBroadcast;
     use masq_lib::ui_gateway::MessagePath;
 
@@ -135,6 +137,39 @@ mod tests {
             stdout.contains("the Node is currently running"),
             true,
             "stdout: '{}' doesn't contain 'the Node is currently running'",
+            stdout
+        );
+        assert_eq!(
+            stdout.contains("masq> "),
+            true,
+            "stdout: '{}' doesn't contain 'masq> '",
+            stdout
+        );
+        assert_eq!(
+            handle.stderr_so_far(),
+            "".to_string(),
+            "stderr: '{}'",
+            stdout
+        );
+    }
+
+    #[test]
+    fn broadcast_of_crashed_triggers_correct_handler() {
+        let (factory, handle) = TestStreamFactory::new();
+        // This thread will leak, and will only stop when the tests stop running.
+        let subject = BroadcastHandlerReal::new().start(Box::new(factory));
+        let message = UiNodeCrashedBroadcast {
+            process_id: 1234,
+        }
+        .tmb(0);
+
+        subject.send(message);
+
+        let stdout = handle.stdout_so_far();
+        assert_eq!(
+            stdout.contains("The Node running as process 1234 crashed;\nthe Daemon is once more accepting setup changes."),
+            true,
+            "stdout: '{}' doesn't contain 'The Node running as process 1234 crashed'",
             stdout
         );
         assert_eq!(
