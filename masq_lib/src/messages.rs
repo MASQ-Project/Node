@@ -328,9 +328,16 @@ pub struct UiStartResponse {
 conversation_message!(UiStartResponse, "start");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum CrashReason {
+    Unknown (String),
+    ChildWaitFailure (String),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiNodeCrashedBroadcast {
     #[serde(rename = "processId")]
     pub process_id: u32,
+    pub crash_reason: CrashReason,
 }
 fire_and_forget_message!(UiNodeCrashedBroadcast, "crashed");
 

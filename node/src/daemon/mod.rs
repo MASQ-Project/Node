@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
+pub mod crash_notification;
 pub mod daemon_initializer;
 pub mod launch_verifier;
 mod launcher;
@@ -17,11 +18,7 @@ use actix::{Actor, Context, Handler, Message};
 use itertools::Itertools;
 use masq_lib::messages::UiMessageError::UnexpectedMessage;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiMessageError, UiRedirect, UiSetupBroadcast, UiSetupRequest,
-    UiSetupResponse, UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR,
-    NODE_NOT_RUNNING_ERROR,
-};
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError, UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupResponse, UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR, UiNodeCrashedBroadcast};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
@@ -31,11 +28,13 @@ use masq_lib::ui_gateway::{
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::sync::mpsc::{Receiver, Sender};
+use crate::daemon::crash_notification::CrashNotification;
 
 pub struct Recipients {
     ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
     ui_gateway_to_sub: Recipient<NodeToUiMessage>,
     from_ui_subs: Vec<Recipient<NodeFromUiMessage>>,
+    crash_notification_sub: Recipient<CrashNotification>,
     bind_message_subs: Vec<Recipient<DaemonBindMessage>>,
 }
 
@@ -65,7 +64,7 @@ pub struct LaunchSuccess {
 }
 
 pub trait Launcher {
-    fn launch(&self, params: HashMap<String, String>) -> Result<Option<LaunchSuccess>, String>;
+    fn launch(&self, params: HashMap<String, String>, crashed_recipient: Recipient<CrashNotification>) -> Result<Option<LaunchSuccess>, String>;
 }
 
 #[derive(Message, PartialEq, Clone)]
@@ -73,12 +72,14 @@ pub struct DaemonBindMessage {
     pub to_ui_message_recipient: Recipient<NodeToUiMessage>, // for everybody to send UI-bound messages to
     pub from_ui_message_recipient: Recipient<NodeFromUiMessage>, // for the WebsocketSupervisor to send inbound UI messages to the UiGateway
     pub from_ui_message_recipients: Vec<Recipient<NodeFromUiMessage>>, // for the UiGateway to relay inbound UI messages to everybody
+    pub crash_notification_recipient: Recipient<CrashNotification>, // the Daemon itself, for crash notifications
 }
 
 pub struct Daemon {
     launcher: Box<dyn Launcher>,
     params: SetupCluster,
     ui_gateway_sub: Option<Recipient<NodeToUiMessage>>,
+    crash_notification_sub: Option<Recipient<CrashNotification>>,
     node_process_id: Option<u32>,
     node_ui_port: Option<u16>,
     verifier_tools: Box<dyn VerifierTools>,
@@ -97,6 +98,7 @@ impl Handler<DaemonBindMessage> for Daemon {
         debug!(&self.logger, "Handling DaemonBindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.ui_gateway_sub = Some(msg.to_ui_message_recipient);
+        self.crash_notification_sub = Some (msg.crash_notification_recipient);
         debug!(&self.logger, "DaemonBindMessage handled");
     }
 }
@@ -139,12 +141,23 @@ impl Handler<NodeFromUiMessage> for Daemon {
     }
 }
 
+impl Handler<CrashNotification> for Daemon {
+    type Result = ();
+
+    fn handle(&mut self, msg: CrashNotification, _ctx: &mut Self::Context) -> Self::Result {
+        debug!(&self.logger, "Handling CrashNotification");
+        self.handle_crash_notification (msg);
+        debug!(&self.logger, "CrashNotification handled");
+    }
+}
+
 impl Daemon {
     pub fn new(launcher: Box<dyn Launcher>) -> Daemon {
         Daemon {
             launcher,
             params: HashMap::new(),
             ui_gateway_sub: None,
+            crash_notification_sub: None,
             node_process_id: None,
             node_ui_port: None,
             verifier_tools: Box::new(VerifierToolsReal::new()),
@@ -199,6 +212,7 @@ impl Daemon {
                     .filter(|(_, v)| v.status == Set || v.status == Configured)
                     .map(|(k, v)| (k.to_string(), v.value.to_string()))
                     .collect(),
+                self.crash_notification_sub.clone().expect("Daemon unbound"),
             ) {
                 Ok(Some(success)) => {
                     self.node_process_id = Some(success.new_process_id);
@@ -253,6 +267,17 @@ impl Daemon {
                 );
             }
             None => self.send_node_is_not_running_redirect(client_id, body.opcode),
+        }
+    }
+
+    fn handle_crash_notification(&mut self, msg: CrashNotification) {
+        if let Some (_) = self.port_if_node_is_running() {
+            self.node_process_id = None;
+            self.node_ui_port = None;
+            self.send_ui_message(
+                UiNodeCrashedBroadcast { process_id: msg.process_id, crash_reason: msg.analyze() }.tmb(0),
+                MessageTarget::AllClients
+            );
         }
     }
 
@@ -398,12 +423,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
     use masq_lib::messages::UiSetupResponseValueStatus::Set;
-    use masq_lib::messages::{
-        UiFinancialsRequest, UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupRequestValue,
-        UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus, UiShutdownRequest,
-        UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR,
-        NODE_NOT_RUNNING_ERROR,
-    };
+    use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR, UiNodeCrashedBroadcast, CrashReason};
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessageTarget;
@@ -412,15 +432,16 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
+    use crate::daemon::crash_notification::CrashNotification;
 
     struct LauncherMock {
-        launch_params: Arc<Mutex<Vec<HashMap<String, String>>>>,
+        launch_params: Arc<Mutex<Vec<(HashMap<String, String>, Recipient<CrashNotification>)>>>,
         launch_results: RefCell<Vec<Result<Option<LaunchSuccess>, String>>>,
     }
 
     impl Launcher for LauncherMock {
-        fn launch(&self, params: HashMap<String, String>) -> Result<Option<LaunchSuccess>, String> {
-            self.launch_params.lock().unwrap().push(params);
+        fn launch(&self, params: HashMap<String, String>, crashed_recipient: Recipient<CrashNotification>) -> Result<Option<LaunchSuccess>, String> {
+            self.launch_params.lock().unwrap().push((params, crashed_recipient));
             self.launch_results.borrow_mut().remove(0)
         }
     }
@@ -433,7 +454,7 @@ mod tests {
             }
         }
 
-        fn launch_params(mut self, params: &Arc<Mutex<Vec<HashMap<String, String>>>>) -> Self {
+        fn launch_params(mut self, params: &Arc<Mutex<Vec<(HashMap<String, String>, Recipient<CrashNotification>)>>>) -> Self {
             self.launch_params = params.clone();
             self
         }
@@ -492,11 +513,14 @@ mod tests {
     fn make_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
         let (stub, _, _) = make_recorder();
         let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
+        let (daemon, _, _) = make_recorder();
+        let crash_notification_recipient= daemon.start().recipient();
         let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
         DaemonBindMessage {
             to_ui_message_recipient: ui_gateway_sub,
             from_ui_message_recipient: stub_sub,
             from_ui_message_recipients: vec![],
+            crash_notification_recipient,
         }
     }
 
@@ -968,8 +992,8 @@ mod tests {
         system.run();
         let launch_params = launch_params_arc.lock().unwrap();
         assert_eq!(
-            *launch_params,
-            vec![HashMap::from_iter(
+            (*launch_params).iter().map(|x| &x.0).collect::<Vec<&HashMap<String, String>>>(),
+            vec![&HashMap::from_iter(
                 vec![("db-password", "goober")]
                     .into_iter()
                     .map(|(n, v)| (n.to_string(), v.to_string()))
@@ -1188,20 +1212,49 @@ mod tests {
 
     #[test]
     fn sets_process_id_and_node_ui_port_upon_node_launch_success() {
-        let (ui_gateway, _, _) = make_recorder();
-        let launcher = LauncherMock::new().launch_result(Ok(Some(LaunchSuccess {
-            new_process_id: 54321,
-            redirect_ui_port: 7777,
-        })));
+        let (ui_gateway, _, gateway_recording_arc) = make_recorder();
+        let gateway_recipient = ui_gateway.start().recipient();
+        let launch_params_arc = Arc::new(Mutex::new(vec![]));
+        let launcher = LauncherMock::new()
+            .launch_params(&launch_params_arc)
+            .launch_result(Ok(Some(LaunchSuccess {
+                new_process_id: 54321,
+                redirect_ui_port: 7777,
+            })));
         let verifier_tools = VerifierToolsMock::new();
         let mut subject = Daemon::new(Box::new(launcher));
-        subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
+        subject.ui_gateway_sub = Some(gateway_recipient.clone());
         subject.verifier_tools = Box::new(verifier_tools);
 
         subject.handle_start_order(1234, 2345);
 
         assert_eq!(subject.node_process_id, Some(54321));
         assert_eq!(subject.node_ui_port, Some(7777));
+        let launch_params = launch_params_arc.lock().unwrap();
+        assert_eq! (launch_params.iter().map(|x| &x.0).collect::<Vec<&HashMap<String, String>>>(),
+            vec![&(vec![].into_iter().collect::<HashMap<String, String>>())]);
+        let crashed_msg_to_daemon = CrashNotification {
+            process_id: 54321,
+            exit_code: None,
+            stderr: None
+        };
+        let crashed_msg_to_ui = NodeToUiMessage {
+            target: MessageTarget::AllClients,
+            body: UiNodeCrashedBroadcast { process_id: 4321, crash_reason: CrashReason::Unknown("reason".to_string()) }.tmb (0)
+        };
+        let system = System::new("test");
+        launch_params[0].1.try_send(crashed_msg_to_daemon.clone()).unwrap();
+        System::current().stop();
+        system.run();
+        let gateway_recording = gateway_recording_arc.lock().unwrap();
+        let start_msg = NodeToUiMessage {
+            target: MessageTarget::ClientId(1234),
+            body: UiStartResponse { new_process_id: 54321, redirect_ui_port: 7777 }.tmb (2345),
+        };
+        let actual_msg = gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(actual_msg, &start_msg);
+        let actual_msg = gateway_recording.get_record::<NodeToUiMessage>(1);
+        assert_eq!(actual_msg, &crashed_msg_to_ui);
     }
 
     #[test]
@@ -1330,5 +1383,82 @@ mod tests {
                 "Cannot handle financials request: Node is not running".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn accepts_crash_notification_when_not_in_setup_mode_and_sends_ui_notification () {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let verifier_tools = VerifierToolsMock::new()
+            .process_is_running_result (true);
+        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        subject.node_ui_port = Some(1234);
+        subject.node_process_id = Some(12345);
+        subject.verifier_tools = Box::new(verifier_tools);
+        let subject_addr = subject.start();
+        subject_addr
+            .try_send(make_bind_message(ui_gateway))
+            .unwrap();
+        let message = CrashNotification {
+            process_id: 54321,
+            exit_code: Some (123),
+            stderr: Some ("Standard error".to_string()),
+        };
+
+        subject_addr
+            .try_send(message)
+            .unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 7777,
+                body: UiShutdownRequest {}.tmb (777)
+            }).unwrap();
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let record = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq! (record.target, MessageTarget::AllClients);
+        assert_eq! (&record.body, &UiNodeCrashedBroadcast {
+            process_id: 54321,
+            crash_reason: CrashReason::Unknown ("Standard error".to_string()),
+        }.tmb(0));
+        let record = ui_gateway_recording
+            .get_record::<NodeToUiMessage>(1)
+            .clone();
+        assert_eq!(record.target, ClientId(7777));
+        assert_eq!(&record.body, &MessageBody {
+            opcode: "redirect".to_string(),
+            path: MessagePath::FireAndForget,
+            payload: Err((
+                NODE_NOT_RUNNING_ERROR,
+                format!("Cannot handle {} request: Node is not running", UiShutdownRequest{}.opcode()),
+            )),
+        });
+    }
+
+    #[test]
+    fn accepts_crash_notification_in_setup_mode_and_swallows() {
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let ui_gateway_sub = ui_gateway.start().recipient();
+        let verifier_tools = VerifierToolsMock::new()
+            .process_is_running_result (false);
+        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        subject.ui_gateway_sub = Some (ui_gateway_sub);
+        subject.verifier_tools = Box::new (verifier_tools);
+        subject.node_ui_port = Some (1234);
+        subject.node_process_id = Some (12345);
+
+        subject.handle_crash_notification (CrashNotification {
+            process_id: 54321,
+            exit_code: Some (123),
+            stderr: Some ("Standard Error".to_string()),
+        });
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq! (ui_gateway_recording.len(), 0);
     }
 }
