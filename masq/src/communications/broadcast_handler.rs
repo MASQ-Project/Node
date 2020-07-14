@@ -3,6 +3,7 @@
 use crate::commands::setup_command::SetupCommand;
 use crate::notifications::crashed_notification::CrashedNotification;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
+use masq_lib::messages::{UiNodeCrashedBroadcast, UiSetupBroadcast};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
@@ -70,9 +71,13 @@ impl BroadcastHandlerReal {
         stderr: &mut dyn Write,
     ) {
         let message_body = message_body_result.expect("Message from beyond the grave");
-        match message_body.opcode.as_str() {
-            "setup" => SetupCommand::handle_broadcast(message_body, stdout, stderr),
-            "crashed" => CrashedNotification::handle_broadcast(message_body, stdout, stderr),
+        match &message_body.opcode {
+            o if o == UiSetupBroadcast::type_opcode() => {
+                SetupCommand::handle_broadcast(message_body, stdout, stderr)
+            }
+            o if o == UiNodeCrashedBroadcast::type_opcode() => {
+                CrashedNotification::handle_broadcast(message_body, stdout, stderr)
+            }
             opcode => {
                 write!(
                     stderr,
