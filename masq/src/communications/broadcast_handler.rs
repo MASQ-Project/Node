@@ -1,12 +1,12 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::commands::setup_command::SetupCommand;
+use crate::notifications::crashed_notification::CrashedNotification;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
-use crate::notifications::crashed_notification::CrashedNotification;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
@@ -114,8 +114,8 @@ impl StreamFactoryReal {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::TestStreamFactory;
-    use masq_lib::messages::{ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::UiSetupBroadcast;
+    use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::ui_gateway::MessagePath;
 
     #[test]
@@ -160,6 +160,7 @@ mod tests {
         let subject = BroadcastHandlerReal::new().start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
+            crash_reason: CrashReason::Unknown("Unknown crash reason".to_string()),
         }
         .tmb(0);
 
@@ -167,16 +168,8 @@ mod tests {
 
         let stdout = handle.stdout_so_far();
         assert_eq!(
-            stdout.contains("The Node running as process 1234 crashed;\nthe Daemon is once more accepting setup changes."),
-            true,
-            "stdout: '{}' doesn't contain 'The Node running as process 1234 crashed'",
-            stdout
-        );
-        assert_eq!(
-            stdout.contains("masq> "),
-            true,
-            "stdout: '{}' doesn't contain 'masq> '",
-            stdout
+            stdout,
+            "\nThe Node running as process 1234 crashed\n(Unknown crash reason);\nthe Daemon is once more accepting setup changes.\n\nmasq> ".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),

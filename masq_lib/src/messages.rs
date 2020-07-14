@@ -329,8 +329,8 @@ conversation_message!(UiStartResponse, "start");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum CrashReason {
-    Unknown (String),
-    ChildWaitFailure (String),
+    Unknown(String),
+    ChildWaitFailure(String),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
