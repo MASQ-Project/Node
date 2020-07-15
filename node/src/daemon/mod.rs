@@ -279,7 +279,7 @@ impl Daemon {
     }
 
     fn handle_crash_notification(&mut self, msg: CrashNotification) {
-        if self.port_if_node_is_running().is_some() {
+        if self.node_ui_port.is_some() || self.node_process_id.is_some() {
             self.node_process_id = None;
             self.node_ui_port = None;
             self.send_ui_message(
@@ -1243,7 +1243,9 @@ mod tests {
     #[test]
     fn sets_process_id_and_node_ui_port_upon_node_launch_success() {
         let (ui_gateway, _, gateway_recording_arc) = make_recorder();
+        let (daemon, _, daemon_recording_arc) = make_recorder();
         let gateway_recipient = ui_gateway.start().recipient();
+        let crash_notification_recipient = daemon.start().recipient();
         let launch_params_arc = Arc::new(Mutex::new(vec![]));
         let launcher = LauncherMock::new()
             .launch_params(&launch_params_arc)
@@ -1254,6 +1256,7 @@ mod tests {
         let verifier_tools = VerifierToolsMock::new();
         let mut subject = Daemon::new(Box::new(launcher));
         subject.ui_gateway_sub = Some(gateway_recipient.clone());
+        subject.crash_notification_sub = Some(crash_notification_recipient);
         subject.verifier_tools = Box::new(verifier_tools);
 
         subject.handle_start_order(1234, 2345);
@@ -1273,14 +1276,6 @@ mod tests {
             exit_code: None,
             stderr: None,
         };
-        let crashed_msg_to_ui = NodeToUiMessage {
-            target: MessageTarget::AllClients,
-            body: UiNodeCrashedBroadcast {
-                process_id: 4321,
-                crash_reason: CrashReason::Unknown("reason".to_string()),
-            }
-            .tmb(0),
-        };
         let system = System::new("test");
         launch_params[0]
             .1
@@ -1299,8 +1294,9 @@ mod tests {
         };
         let actual_msg = gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(actual_msg, &start_msg);
-        let actual_msg = gateway_recording.get_record::<NodeToUiMessage>(1);
-        assert_eq!(actual_msg, &crashed_msg_to_ui);
+        let daemon_recording = daemon_recording_arc.lock().unwrap();
+        let actual_msg = daemon_recording.get_record::<CrashNotification>(0);
+        assert_eq!(actual_msg, &crashed_msg_to_daemon);
     }
 
     #[test]
@@ -1435,7 +1431,7 @@ mod tests {
     fn accepts_crash_notification_when_not_in_setup_mode_and_sends_ui_notification() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let verifier_tools = VerifierToolsMock::new().process_is_running_result(true);
+        let verifier_tools = VerifierToolsMock::new();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.node_ui_port = Some(1234);
         subject.node_process_id = Some(12345);
@@ -1467,7 +1463,7 @@ mod tests {
             &record.body,
             &UiNodeCrashedBroadcast {
                 process_id: 54321,
-                crash_reason: CrashReason::Unknown("Standard error".to_string()),
+                crash_reason: CrashReason::Unrecognized("Standard error".to_string()),
             }
             .tmb(0)
         );
@@ -1496,12 +1492,12 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
         let ui_gateway_sub = ui_gateway.start().recipient();
-        let verifier_tools = VerifierToolsMock::new().process_is_running_result(false);
+        let verifier_tools = VerifierToolsMock::new();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.ui_gateway_sub = Some(ui_gateway_sub);
         subject.verifier_tools = Box::new(verifier_tools);
-        subject.node_ui_port = Some(1234);
-        subject.node_process_id = Some(12345);
+        subject.node_ui_port = None;
+        subject.node_process_id = None;
 
         subject.handle_crash_notification(CrashNotification {
             process_id: 54321,

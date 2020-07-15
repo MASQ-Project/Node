@@ -97,43 +97,33 @@ impl Execer for ExecerReal {
             Ok(path) => path,
             Err(e) => return Err(format!("Cannot find executable: {:?}", e)),
         };
-        eprintln!("Executing {:?} with params {:?}", exe_path, params);
         match self.spawn_wrapper.spawn(exe_path, params) {
             Ok(mut child) => {
                 let process_id = child.id();
-                eprintln!("Spawn successful; child process ID is {}", process_id);
-                thread::spawn(move || {
-                    eprintln!("About to wait in background for termination");
-                    match child.wait_with_output() {
-                        Ok(output) => {
-                            eprintln!(
-                                "Successfully captured termination with exit code {:?}",
-                                output.status.code()
-                            );
-                            let stderr = match output.stderr.len() {
-                                0 => None,
-                                _ => Some(String::from_utf8_lossy(&output.stderr).to_string()),
-                            };
-                            crashed_recipient
-                                .try_send(CrashNotification {
-                                    process_id,
-                                    exit_code: output.status.code(),
-                                    stderr,
-                                })
-                                .expect("Daemon is dead");
-                        }
-                        Err(e) => {
-                            crashed_recipient
-                                .try_send(CrashNotification {
-                                    process_id,
-                                    exit_code: None,
-                                    stderr: Some(format!("Child wait failure: {}", e)),
-                                })
-                                .expect("Daemon is dead");
-                        }
+                thread::spawn(move || match child.wait_with_output() {
+                    Ok(output) => {
+                        let stderr = match output.stderr.len() {
+                            0 => None,
+                            _ => Some(String::from_utf8_lossy(&output.stderr).to_string()),
+                        };
+                        crashed_recipient
+                            .try_send(CrashNotification {
+                                process_id,
+                                exit_code: output.status.code(),
+                                stderr,
+                            })
+                            .expect("Daemon is dead");
+                    }
+                    Err(e) => {
+                        crashed_recipient
+                            .try_send(CrashNotification {
+                                process_id,
+                                exit_code: None,
+                                stderr: Some(format!("Child wait failure: {}", e)),
+                            })
+                            .expect("Daemon is dead");
                     }
                 });
-                eprintln!("Returning from exec: process ID {}", process_id);
                 Ok(process_id)
             }
             Err(e) => Err(format!("Cannot execute command: {:?}", e)),

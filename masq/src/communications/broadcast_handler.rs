@@ -165,7 +165,7 @@ mod tests {
         let subject = BroadcastHandlerReal::new().start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
-            crash_reason: CrashReason::Unknown("Unknown crash reason".to_string()),
+            crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
         }
         .tmb(0);
 
@@ -174,7 +174,7 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\nThe Node running as process 1234 crashed\n(Unknown crash reason);\nthe Daemon is once more accepting setup changes.\n\nmasq> ".to_string()
+            "\nThe Node running as process 1234 crashed:\n------\nUnknown crash reason\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),

@@ -7,7 +7,8 @@ use masq_lib::messages::CrashReason;
 lazy_static! {
     static ref RECOGNIZERS: Vec<Box<dyn Recognizer>> = vec![
         Box::new(ChildWaitFailureRecognizer {}),
-        Box::new(UnknownRecognizer {}),
+        Box::new(NoInformationRecognizer {}),
+        Box::new(UnrecognizedRecognizer {}),
     ];
 }
 
@@ -54,13 +55,33 @@ impl Recognizer for ChildWaitFailureRecognizer {
     }
 }
 
-struct UnknownRecognizer {}
+struct NoInformationRecognizer {}
 
-impl Recognizer for UnknownRecognizer {
+impl Recognizer for NoInformationRecognizer {
+    fn try_convert(&self, exit_code: Option<i32>, stderr: &Option<String>) -> Option<CrashReason> {
+        if exit_code.is_none()
+            && (stderr.is_none()
+                || stderr
+                    .as_ref()
+                    .expect("should never happen")
+                    .to_string()
+                    .trim()
+                    .is_empty())
+        {
+            Some(CrashReason::NoInformation)
+        } else {
+            None
+        }
+    }
+}
+
+struct UnrecognizedRecognizer {}
+
+impl Recognizer for UnrecognizedRecognizer {
     fn try_convert(&self, _exit_code: Option<i32>, stderr: &Option<String>) -> Option<CrashReason> {
         match stderr {
-            Some(stderr) => Some(CrashReason::Unknown(stderr.clone())),
-            None => Some(CrashReason::Unknown(String::new())),
+            Some(stderr) => Some(CrashReason::Unrecognized(stderr.clone())),
+            None => Some(CrashReason::Unrecognized(String::new())),
         }
     }
 }
@@ -86,6 +107,28 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_no_information() {
+        vec![None, Some("".to_string()), Some(" \n\t ".to_string())]
+            .into_iter()
+            .for_each(|stderr| {
+                let subject = CrashNotification {
+                    process_id: 0,
+                    exit_code: None,
+                    stderr: stderr.clone(),
+                };
+
+                let result = subject.analyze();
+
+                assert_eq!(
+                    result,
+                    CrashReason::NoInformation,
+                    "Did not recognize {:?} as NoInformation",
+                    stderr
+                )
+            })
+    }
+
+    #[test]
     fn eventually_gives_up() {
         let subject = CrashNotification {
             process_id: 0,
@@ -95,6 +138,9 @@ mod tests {
 
         let result = subject.analyze();
 
-        assert_eq!(result, CrashReason::Unknown("unrecognizable".to_string()))
+        assert_eq!(
+            result,
+            CrashReason::Unrecognized("unrecognizable".to_string())
+        )
     }
 }

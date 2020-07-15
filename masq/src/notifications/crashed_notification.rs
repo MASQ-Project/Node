@@ -12,9 +12,9 @@ impl CrashedNotification {
         let (response, _) = UiNodeCrashedBroadcast::fmb(msg).expect("Bad UiNodeCrashedBroadcast");
         writeln!(
             stdout,
-            "\nThe Node running as process {} crashed\n({});\nthe Daemon is once more accepting setup changes.\n",
+            "\nThe Node running as process {} crashed{}\nThe Daemon is once more accepting setup changes.\n",
             response.process_id,
-            Self::interpret_reason(response.crash_reason)
+            Self::dress_message (response.crash_reason)
         )
             .expect("writeln! failed");
         write!(stdout, "masq> ").expect("write! failed");
@@ -26,7 +26,18 @@ impl CrashedNotification {
             CrashReason::ChildWaitFailure(msg) => {
                 format!("the Daemon couldn't wait on the child process: {}", msg)
             }
-            CrashReason::Unknown(msg) => msg,
+            CrashReason::NoInformation => panic!("Should  never get here"),
+            CrashReason::Unrecognized(msg) => msg,
+        }
+    }
+
+    fn dress_message(crash_reason: CrashReason) -> String {
+        match crash_reason {
+            CrashReason::NoInformation => ".".to_string(),
+            reason => format!(
+                ":\n------\n{}\n------",
+                Self::interpret_reason(reason).trim_end().to_string()
+            ),
         }
     }
 }
@@ -66,7 +77,7 @@ mod tests {
 
         CrashedNotification::handle_broadcast(msg, &mut stdout, &mut stderr);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 crashed\n(the Daemon couldn't wait on the child process: Couldn't wait);\nthe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 crashed:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
@@ -76,13 +87,29 @@ mod tests {
         let mut stderr = ByteArrayWriter::new();
         let msg = UiNodeCrashedBroadcast {
             process_id: 12345,
-            crash_reason: CrashReason::Unknown("Just...failed!".to_string()),
+            crash_reason: CrashReason::Unrecognized("Just...failed!\n\n".to_string()),
         }
         .tmb(0);
 
         CrashedNotification::handle_broadcast(msg, &mut stdout, &mut stderr);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 crashed\n(Just...failed!);\nthe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 crashed:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq!(stderr.get_string(), "".to_string());
+    }
+
+    #[test]
+    pub fn handles_no_information_failure() {
+        let mut stdout = ByteArrayWriter::new();
+        let mut stderr = ByteArrayWriter::new();
+        let msg = UiNodeCrashedBroadcast {
+            process_id: 12345,
+            crash_reason: CrashReason::NoInformation,
+        }
+        .tmb(0);
+
+        CrashedNotification::handle_broadcast(msg, &mut stdout, &mut stderr);
+
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 crashed.\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 }
