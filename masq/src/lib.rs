@@ -5,6 +5,7 @@ pub mod command_factory;
 pub mod command_processor;
 pub mod commands;
 pub mod communications;
+mod notifications;
 mod schema;
 
 #[macro_use]

@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::commands::setup_command::SetupCommand;
+use crate::notifications::crashed_notification::CrashedNotification;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
+use masq_lib::messages::{UiNodeCrashedBroadcast, UiSetupBroadcast};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
@@ -69,8 +71,13 @@ impl BroadcastHandlerReal {
         stderr: &mut dyn Write,
     ) {
         let message_body = message_body_result.expect("Message from beyond the grave");
-        match message_body.opcode.as_str() {
-            "setup" => SetupCommand::handle_broadcast(message_body, stdout, stderr),
+        match &message_body.opcode {
+            o if o == UiSetupBroadcast::type_opcode() => {
+                SetupCommand::handle_broadcast(message_body, stdout, stderr)
+            }
+            o if o == UiNodeCrashedBroadcast::type_opcode() => {
+                CrashedNotification::handle_broadcast(message_body, stdout, stderr)
+            }
             opcode => {
                 write!(
                     stderr,
@@ -112,8 +119,8 @@ impl StreamFactoryReal {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::TestStreamFactory;
-    use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupBroadcast;
+    use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::ui_gateway::MessagePath;
 
     #[test]
@@ -142,6 +149,32 @@ mod tests {
             true,
             "stdout: '{}' doesn't contain 'masq> '",
             stdout
+        );
+        assert_eq!(
+            handle.stderr_so_far(),
+            "".to_string(),
+            "stderr: '{}'",
+            stdout
+        );
+    }
+
+    #[test]
+    fn broadcast_of_crashed_triggers_correct_handler() {
+        let (factory, handle) = TestStreamFactory::new();
+        // This thread will leak, and will only stop when the tests stop running.
+        let subject = BroadcastHandlerReal::new().start(Box::new(factory));
+        let message = UiNodeCrashedBroadcast {
+            process_id: 1234,
+            crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
+        }
+        .tmb(0);
+
+        subject.send(message);
+
+        let stdout = handle.stdout_so_far();
+        assert_eq!(
+            stdout,
+            "\nThe Node running as process 1234 crashed:\n------\nUnknown crash reason\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),

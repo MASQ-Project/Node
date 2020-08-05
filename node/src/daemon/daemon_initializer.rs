@@ -37,6 +37,7 @@ impl RecipientsFactory for RecipientsFactoryReal {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient(),
             ui_gateway_to_sub: ui_gateway_addr.clone().recipient(),
             from_ui_subs: vec![daemon_addr.clone().recipient()],
+            crash_notification_sub: daemon_addr.clone().recipient(),
             bind_message_subs: vec![daemon_addr.recipient(), ui_gateway_addr.recipient()],
         }
     }
@@ -134,6 +135,7 @@ impl DaemonInitializer {
             to_ui_message_recipient: recipients.ui_gateway_to_sub,
             from_ui_message_recipient: recipients.ui_gateway_from_sub,
             from_ui_message_recipients: recipients.from_ui_subs,
+            crash_notification_recipient: recipients.crash_notification_sub,
         };
         recipients.bind_message_subs.into_iter().for_each(|sub| {
             sub.try_send(bind_message.clone())
@@ -328,6 +330,7 @@ mod tests {
                 daemon_addr.clone().recipient(),
                 ui_gateway_addr.clone().recipient(),
             ],
+            crash_notification_sub: daemon_addr.clone().recipient(),
             bind_message_subs: vec![daemon_addr.recipient(), ui_gateway_addr.recipient()],
         }
     }

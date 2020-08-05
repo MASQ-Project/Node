@@ -74,12 +74,12 @@ macro_rules! fire_and_forget_message {
                 }
             }
 
-            fn opcode(&self) -> &str {
-                $opcode
+            fn opcode(&self) -> &'static str {
+                Self::type_opcode()
             }
 
             fn is_conversational(&self) -> bool {
-                false
+                Self::type_is_conversational()
             }
         }
 
@@ -101,6 +101,16 @@ macro_rules! fire_and_forget_message {
                 Ok((payload, 0))
             }
         }
+
+        impl $message_type {
+            pub fn type_opcode() -> &'static str {
+                $opcode
+            }
+
+            pub fn type_is_conversational() -> bool {
+                false
+            }
+        }
     };
 }
 
@@ -116,12 +126,12 @@ macro_rules! conversation_message {
                 }
             }
 
-            fn opcode(&self) -> &str {
-                $opcode
+            fn opcode(&self) -> &'static str {
+                Self::type_opcode()
             }
 
             fn is_conversational(&self) -> bool {
-                true
+                Self::type_is_conversational()
             }
         }
 
@@ -144,6 +154,16 @@ macro_rules! conversation_message {
                     }
                 };
                 Ok((payload, context_id))
+            }
+        }
+
+        impl $message_type {
+            pub fn type_opcode() -> &'static str {
+                $opcode
+            }
+
+            pub fn type_is_conversational() -> bool {
+                true
             }
         }
     };
@@ -326,6 +346,21 @@ pub struct UiStartResponse {
     pub redirect_ui_port: u16,
 }
 conversation_message!(UiStartResponse, "start");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum CrashReason {
+    ChildWaitFailure(String),
+    NoInformation,
+    Unrecognized(String),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct UiNodeCrashedBroadcast {
+    #[serde(rename = "processId")]
+    pub process_id: u32,
+    pub crash_reason: CrashReason,
+}
+fire_and_forget_message!(UiNodeCrashedBroadcast, "crashed");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiRedirect {
