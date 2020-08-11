@@ -62,6 +62,7 @@ use itertools::Itertools;
 use masq_lib::messages::UiMessageError::UnexpectedMessage;
 use masq_lib::messages::{UiMessageError, UiShutdownRequest};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::utils::exit_process;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
@@ -301,10 +302,13 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
             UiShutdownRequest::fmb(msg.body);
         match result {
             Ok((payload, _)) => self.handle_shutdown_order(client_id, payload),
-            Err(UnexpectedMessage(_, _)) => (),
+            Err(UnexpectedMessage(opcode, _)) => debug!(
+                &self.logger,
+                "Ignoring '{}' request from client {}", opcode, client_id
+            ),
             Err(e) => error!(
                 &self.logger,
-                "Bad {} request from client {}: {:?}", opcode, client_id, e
+                "Failure to parse '{}' message from client {}: {:?}", opcode, client_id, e
             ),
         }
     }
@@ -1216,7 +1220,18 @@ impl Neighborhood {
             self.logger,
             "Received shutdown order from client {}: shutting down hard", client_id
         );
-        std::process::exit(0);
+        #[cfg(test)]
+        let running_test = true;
+        #[cfg(not(test))]
+        let running_test = false;
+        exit_process(
+            0,
+            &format!(
+                "Received shutdown order from client {}: shutting down hard",
+                client_id
+            ),
+            running_test,
+        );
     }
 }
 
@@ -4213,9 +4228,9 @@ mod tests {
         ));
     }
 
+    #[should_panic(expected = "0: Received shutdown order from client 1234: shutting down hard")]
     #[test]
     fn shutdown_instruction_generates_log() {
-        // TODO: Eventually this message should do more than just generate a log.
         init_test_logging();
         let system = System::new("test");
         let subject = Neighborhood::new(
@@ -4289,7 +4304,7 @@ mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: Neighborhood: Bad booga request from client 1234: BadOpcode",
+            "DEBUG: Neighborhood: Ignoring 'booga' request from client 1234",
         );
     }
 

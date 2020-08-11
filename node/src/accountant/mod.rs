@@ -121,17 +121,8 @@ impl Handler<BindMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.report_accounts_payable_sub =
-            Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
-        self.retrieve_transactions_sub =
-            Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
-        self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
-        self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
-        self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
-        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.new_to_ui_message_sub);
+        self.handle_bind_message(msg);
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-
-        info!(self.logger, "Accountant bound");
     }
 }
 
@@ -139,9 +130,7 @@ impl Handler<StartMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.scan_for_payables();
-        self.scan_for_received_payments();
-        self.scan_for_delinquencies();
+        self.handle_start_message();
 
         ctx.run_interval(self.config.payable_scan_interval, |accountant, _ctx| {
             accountant.scan_for_payables();
@@ -160,15 +149,8 @@ impl Handler<StartMessage> for Accountant {
 impl Handler<ReceivedPayments> for Accountant {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        received_payments: ReceivedPayments,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.receivable_dao.as_mut().more_money_received(
-            self.persistent_configuration.as_ref(),
-            received_payments.payments,
-        );
+    fn handle(&mut self, msg: ReceivedPayments, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_received_payments(msg);
     }
 }
 
@@ -188,16 +170,7 @@ impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
         msg: ReportRoutingServiceProvidedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        debug!(
-            self.logger,
-            "Charging routing of {} bytes to wallet {}", msg.payload_size, msg.paying_wallet
-        );
-        self.record_service_provided(
-            msg.service_rate,
-            msg.byte_rate,
-            msg.payload_size,
-            &msg.paying_wallet,
-        );
+        self.handle_report_routing_service_provided_message(msg);
     }
 }
 
@@ -209,20 +182,7 @@ impl Handler<ReportExitServiceProvidedMessage> for Accountant {
         msg: ReportExitServiceProvidedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        debug!(
-            self.logger,
-            "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
-            msg.payload_size,
-            msg.paying_wallet,
-            msg.service_rate,
-            msg.byte_rate
-        );
-        self.record_service_provided(
-            msg.service_rate,
-            msg.byte_rate,
-            msg.payload_size,
-            &msg.paying_wallet,
-        );
+        self.handle_report_exit_service_provided_message(msg);
     }
 }
 
@@ -234,18 +194,7 @@ impl Handler<ReportRoutingServiceConsumedMessage> for Accountant {
         msg: ReportRoutingServiceConsumedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        debug!(
-            self.logger,
-            "Accruing debt to wallet {} for consuming routing service {} bytes",
-            msg.earning_wallet,
-            msg.payload_size
-        );
-        self.record_service_consumed(
-            msg.service_rate,
-            msg.byte_rate,
-            msg.payload_size,
-            &msg.earning_wallet,
-        );
+        self.handle_report_routing_service_consumed_message(msg);
     }
 }
 
@@ -257,36 +206,7 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
         msg: ReportExitServiceConsumedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        debug!(
-            self.logger,
-            "Accruing debt to wallet {} for consuming exit service {} bytes",
-            msg.earning_wallet,
-            msg.payload_size
-        );
-        self.record_service_consumed(
-            msg.service_rate,
-            msg.byte_rate,
-            msg.payload_size,
-            &msg.earning_wallet,
-        );
-    }
-}
-
-impl Handler<NodeFromUiMessage> for Accountant {
-    type Result = ();
-
-    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let client_id = msg.client_id;
-        let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
-            UiFinancialsRequest::fmb(msg.body);
-        match result {
-            Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
-            Err(UnexpectedMessage(opcode, path)) => error!(
-                &self.logger,
-                "Bad {:?} request from client {} with opcode '{}'", path, client_id, opcode
-            ),
-            Err(e) => unimplemented!("Received obsolete error: {:?}", e),
-        }
+        self.handle_report_exit_service_consumed_message(msg);
     }
 }
 
@@ -298,29 +218,15 @@ impl Handler<GetFinancialStatisticsMessage> for Accountant {
         msg: GetFinancialStatisticsMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let pending_credit = self
-            .receivable_dao
-            .receivables()
-            .into_iter()
-            .map(|account| account.balance)
-            .sum();
-        let pending_debt = self
-            .payable_dao
-            .non_pending_payables()
-            .into_iter()
-            .map(|account| account.balance)
-            .sum();
-        self.ui_carrier_message_sub
-            .as_ref()
-            .expect("UiGateway is unbound")
-            .try_send(UiCarrierMessage {
-                client_id: msg.client_id,
-                data: UiMessage::FinancialStatisticsResponse(FinancialStatisticsMessage {
-                    pending_credit,
-                    pending_debt,
-                }),
-            })
-            .expect("UiGateway is dead");
+        self.handle_get_financial_statistics_message(msg);
+    }
+}
+
+impl Handler<NodeFromUiMessage> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_node_from_ui_message(msg);
     }
 }
 
@@ -608,6 +514,32 @@ impl Accountant {
         }
     }
 
+    fn handle_bind_message(&mut self, msg: BindMessage) {
+        self.report_accounts_payable_sub =
+            Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
+        self.retrieve_transactions_sub =
+            Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
+        self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
+        self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
+        self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
+        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.new_to_ui_message_sub);
+
+        info!(self.logger, "Accountant bound");
+    }
+
+    fn handle_start_message(&mut self) {
+        self.scan_for_payables();
+        self.scan_for_received_payments();
+        self.scan_for_delinquencies();
+    }
+
+    fn handle_received_payments(&mut self, received_payments: ReceivedPayments) {
+        self.receivable_dao.as_mut().more_money_received(
+            self.persistent_configuration.as_ref(),
+            received_payments.payments,
+        );
+    }
+
     fn handle_sent_payments(&mut self, sent_payments: SentPayments) {
         sent_payments
             .payments
@@ -629,6 +561,118 @@ impl Accountant {
                     e
                 ),
             })
+    }
+
+    fn handle_report_routing_service_provided_message(
+        &mut self,
+        msg: ReportRoutingServiceProvidedMessage,
+    ) {
+        debug!(
+            self.logger,
+            "Charging routing of {} bytes to wallet {}", msg.payload_size, msg.paying_wallet
+        );
+        self.record_service_provided(
+            msg.service_rate,
+            msg.byte_rate,
+            msg.payload_size,
+            &msg.paying_wallet,
+        );
+    }
+
+    fn handle_report_exit_service_provided_message(
+        &mut self,
+        msg: ReportExitServiceProvidedMessage,
+    ) {
+        debug!(
+            self.logger,
+            "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
+            msg.payload_size,
+            msg.paying_wallet,
+            msg.service_rate,
+            msg.byte_rate
+        );
+        self.record_service_provided(
+            msg.service_rate,
+            msg.byte_rate,
+            msg.payload_size,
+            &msg.paying_wallet,
+        );
+    }
+
+    fn handle_report_routing_service_consumed_message(
+        &mut self,
+        msg: ReportRoutingServiceConsumedMessage,
+    ) {
+        debug!(
+            self.logger,
+            "Accruing debt to wallet {} for consuming routing service {} bytes",
+            msg.earning_wallet,
+            msg.payload_size
+        );
+        self.record_service_consumed(
+            msg.service_rate,
+            msg.byte_rate,
+            msg.payload_size,
+            &msg.earning_wallet,
+        );
+    }
+
+    fn handle_report_exit_service_consumed_message(
+        &mut self,
+        msg: ReportExitServiceConsumedMessage,
+    ) {
+        debug!(
+            self.logger,
+            "Accruing debt to wallet {} for consuming exit service {} bytes",
+            msg.earning_wallet,
+            msg.payload_size
+        );
+        self.record_service_consumed(
+            msg.service_rate,
+            msg.byte_rate,
+            msg.payload_size,
+            &msg.earning_wallet,
+        );
+    }
+
+    fn handle_get_financial_statistics_message(&mut self, msg: GetFinancialStatisticsMessage) {
+        let pending_credit = self
+            .receivable_dao
+            .receivables()
+            .into_iter()
+            .map(|account| account.balance)
+            .sum();
+        let pending_debt = self
+            .payable_dao
+            .non_pending_payables()
+            .into_iter()
+            .map(|account| account.balance)
+            .sum();
+        self.ui_carrier_message_sub
+            .as_ref()
+            .expect("UiGateway is unbound")
+            .try_send(UiCarrierMessage {
+                client_id: msg.client_id,
+                data: UiMessage::FinancialStatisticsResponse(FinancialStatisticsMessage {
+                    pending_credit,
+                    pending_debt,
+                }),
+            })
+            .expect("UiGateway is dead");
+    }
+
+    fn handle_node_from_ui_message(&mut self, msg: NodeFromUiMessage) {
+        let client_id = msg.client_id;
+        let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
+            UiFinancialsRequest::fmb(msg.body);
+        match result {
+            Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
+            Err(UnexpectedMessage(opcode, path)) => debug!(
+                &self.logger,
+                "Ignoring {:?} request from client {} with opcode '{}'", path, client_id, opcode
+            ),
+            Err(e) => panic!("Received obsolete error: {:?}", e),
+        }
     }
 
     fn handle_financials(&mut self, client_id: u64, context_id: u64, request: UiFinancialsRequest) {
@@ -1196,7 +1240,7 @@ pub mod tests {
     }
 
     #[test]
-    fn unexpected_ui_message_is_logged_and_ignored() {
+    fn unexpected_ui_message_is_ignored() {
         init_test_logging();
         let system = System::new("test");
         let subject = Accountant::new(
@@ -1221,7 +1265,7 @@ pub mod tests {
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
                 body: MessageBody {
-                    opcode: "booga".to_string(),
+                    opcode: "farple-prang".to_string(),
                     path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
@@ -1233,7 +1277,7 @@ pub mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: Accountant: Bad FireAndForget request from client 1234 with opcode 'booga'",
+            "DEBUG: Accountant: Ignoring FireAndForget request from client 1234 with opcode 'farple-prang'",
         );
     }
 
@@ -2024,7 +2068,9 @@ pub mod tests {
         let banned_dao = BannedDaoMock::default();
         let (mut blockchain_bridge, blockchain_bridge_awaiter, blockchain_bridge_recordings_arc) =
             make_recorder();
-        blockchain_bridge = blockchain_bridge.report_accounts_payable_response(Ok(vec![]));
+        blockchain_bridge = blockchain_bridge
+            .retrieve_transactions_response(Ok(vec![]))
+            .report_accounts_payable_response(Ok(vec![]));
 
         thread::spawn(move || {
             let system = System::new(

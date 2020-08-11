@@ -8,7 +8,7 @@ use crate::node_configurator::node_configurator_initialization::NodeConfigurator
 use crate::node_configurator::node_configurator_recover_wallet::NodeConfiguratorRecoverWallet;
 use crate::node_configurator::{NodeConfigurator, RealDirsWrapper, WalletCreationConfig};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
-use crate::server_initializer::ServerInitializer;
+use crate::server_initializer::{LoggerInitializerWrapperReal, ServerInitializer};
 use actix::System;
 use futures::future::Future;
 use masq_lib::command::{Command, StdStreams};
@@ -215,6 +215,7 @@ impl Runner for RunnerReal {
         let config = configurator.configure(args, streams)?;
         let mut initializer = DaemonInitializer::new(
             &RealDirsWrapper {},
+            Box::new(LoggerInitializerWrapperReal {}),
             config,
             Box::new(ChannelFactoryReal::new()),
             Box::new(RecipientsFactoryReal::new()),
@@ -484,7 +485,7 @@ mod tests {
         );
         assert_eq!(
             dump_config_no,
-            "MASQNode in DumpConfig mode does not require Adminstrator privilege.\n"
+            "MASQNode.exe in DumpConfig mode does not require Administrator privilege.\n"
         );
     }
 
@@ -589,27 +590,15 @@ parm2 - msg2\n"
         assert_eq!(initialization_h_exit_code, 0);
         assert_eq!(initialization_v_exit_code, 0);
         assert_eq!(initialization_h_holder.stdout.get_string(), "");
-        assert_eq!(
-            initialization_h_holder.stderr.get_string(),
-            RunModes::privilege_mismatch_message(&Mode::Initialization, true)
-        );
+        assert_eq!(initialization_h_holder.stderr.get_string(), "");
         assert_eq!(initialization_v_holder.stdout.get_string(), "");
-        assert_eq!(
-            initialization_v_holder.stderr.get_string(),
-            RunModes::privilege_mismatch_message(&Mode::Initialization, true)
-        );
+        assert_eq!(initialization_v_holder.stderr.get_string(), "");
         assert_eq!(service_mode_h_exit_code, 0);
         assert_eq!(service_mode_v_exit_code, 0);
         assert_eq!(service_mode_h_holder.stdout.get_string(), "");
-        assert_eq!(
-            service_mode_h_holder.stderr.get_string(),
-            RunModes::privilege_mismatch_message(&Mode::Service, true)
-        );
+        assert_eq!(service_mode_h_holder.stderr.get_string(), "");
         assert_eq!(service_mode_v_holder.stdout.get_string(), "");
-        assert_eq!(
-            service_mode_v_holder.stderr.get_string(),
-            RunModes::privilege_mismatch_message(&Mode::Service, true)
-        );
+        assert_eq!(service_mode_v_holder.stderr.get_string(), "");
         let params = priv_params_arc.lock().unwrap();
         assert_eq!(*params, vec![true, true, true, true]);
         let params = run_params_arc.lock().unwrap();

@@ -16,13 +16,15 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use actix::Recipient;
 use actix::{Actor, Context, Handler, Message};
+use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use masq_lib::messages::UiMessageError::UnexpectedMessage;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiMessageError, UiNodeCrashedBroadcast, UiRedirect,
-    UiSetupBroadcast, UiSetupRequest, UiSetupResponse, UiStartOrder, UiStartResponse,
-    NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+    UiSetupBroadcast, UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder,
+    UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
@@ -32,7 +34,6 @@ use masq_lib::ui_gateway::{
 };
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
-use std::sync::mpsc::{Receiver, Sender};
 
 pub struct Recipients {
     ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
@@ -40,6 +41,17 @@ pub struct Recipients {
     from_ui_subs: Vec<Recipient<NodeFromUiMessage>>,
     crash_notification_sub: Recipient<CrashNotification>,
     bind_message_subs: Vec<Recipient<DaemonBindMessage>>,
+}
+
+lazy_static! {
+    static ref CENSORABLES: HashMap<String, usize> = {
+        vec![
+            ("db-password".to_string(), 16),
+            ("consuming-private-key".to_string(), 64),
+        ]
+        .into_iter()
+        .collect()
+    };
 }
 
 #[allow(clippy::type_complexity)]
@@ -177,7 +189,7 @@ impl Daemon {
     fn handle_setup(&mut self, client_id: u64, context_id: u64, payload: UiSetupRequest) {
         if self.port_if_node_is_running().is_some() {
             let body =
-                UiSetupResponse::new(true, self.params.clone(), ConfiguratorError::new(vec![]))
+                UiSetupResponse::new(true, self.censored_params(), ConfiguratorError::new(vec![]))
                     .tmb(context_id);
             let target = MessageTarget::ClientId(client_id);
             self.send_ui_message(body, target);
@@ -355,26 +367,40 @@ impl Daemon {
                 let originally_empty = self.params.is_empty();
                 self.params = new_setup;
                 let mut pairs = vec![(
-                    UiSetupResponse::new(false, self.params.clone(), errors.clone())
+                    UiSetupResponse::new(false, self.censored_params(), errors.clone())
                         .tmb(context_id),
                     MessageTarget::ClientId(client_id),
                 )];
                 if !originally_empty {
                     pairs.push((
-                        UiSetupBroadcast::new(false, self.params.clone(), errors).tmb(0),
+                        UiSetupBroadcast::new(false, self.censored_params(), errors).tmb(0),
                         MessageTarget::AllExcept(client_id),
                     ));
                 };
                 pairs
             }
             Ok(_) => vec![(
-                UiSetupResponse::new(false, self.params.clone(), errors).tmb(context_id),
+                UiSetupResponse::new(false, self.censored_params(), errors).tmb(context_id),
                 MessageTarget::ClientId(client_id),
             )],
         };
         body_target_pairs
             .into_iter()
             .for_each(|(body, target)| self.send_ui_message(body, target));
+    }
+
+    fn censored_params(&self) -> SetupCluster {
+        self.params
+            .clone()
+            .into_iter()
+            .map(|(name, uisrv)| match CENSORABLES.get(&name) {
+                Some(length) => (
+                    name,
+                    UiSetupResponseValue::new(&uisrv.name, &"*".repeat(*length), uisrv.status),
+                ),
+                None => (name, uisrv),
+            })
+            .collect()
     }
 
     fn send_ui_message(&self, body: MessageBody, target: MessageTarget) {
@@ -435,7 +461,7 @@ mod tests {
     use crate::daemon::LaunchSuccess;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
-    use masq_lib::messages::UiSetupResponseValueStatus::Set;
+    use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Required, Set};
     use masq_lib::messages::{
         CrashReason, UiFinancialsRequest, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
         UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue,
@@ -443,6 +469,7 @@ mod tests {
         NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
     };
     use masq_lib::shared_schema::ConfiguratorError;
+    use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessageTarget;
     use masq_lib::ui_gateway::MessageTarget::AllExcept;
@@ -520,7 +547,7 @@ mod tests {
             }
         }
 
-        fn get_modified_setup_params(
+        fn _get_modified_setup_params(
             mut self,
             params: &Arc<Mutex<Vec<(SetupCluster, Vec<UiSetupRequestValue>)>>>,
         ) -> Self {
@@ -564,6 +591,33 @@ mod tests {
     }
 
     #[test]
+    fn censorship_works() {
+        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        subject.params = make_setup_cluster(vec![
+            ("one-non-censorable", "one value", Set),
+            ("db-password", "super-secret value", Configured),
+            ("consuming-private-key", "another super-secret value", Blank),
+            ("another-non-censorable", "another value", Required),
+        ]);
+
+        let result = subject.censored_params();
+
+        assert_eq!(
+            result,
+            make_setup_cluster(vec![
+                ("one-non-censorable", "one value", Set),
+                ("db-password", "****************", Configured),
+                (
+                    "consuming-private-key",
+                    "****************************************************************",
+                    Blank
+                ),
+                ("another-non-censorable", "another value", Required),
+            ])
+        );
+    }
+
+    #[test]
     fn accepts_setup_when_node_is_running_and_returns_existing_setup() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(true);
@@ -572,7 +626,11 @@ mod tests {
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.verifier_tools = Box::new(verifier_tools);
         subject.setup_reporter = Box::new(setup_reporter);
-        subject.params = make_setup_cluster(vec![("neighborhood-mode", "zero-hop", Set)]);
+        subject.params = make_setup_cluster(vec![
+            ("neighborhood-mode", "zero-hop", Set),
+            ("consuming-private-key", "secret value", Set),
+            ("db-password", "secret value", Set),
+        ]);
         subject.node_process_id = Some(12345);
         subject.node_ui_port = Some(54321);
         let subject_addr = subject.start();
@@ -604,11 +662,15 @@ mod tests {
             payload,
             UiSetupResponse {
                 running: true,
-                values: vec![UiSetupResponseValue::new(
-                    "neighborhood-mode",
-                    "zero-hop",
-                    Set
-                )],
+                values: vec![
+                    UiSetupResponseValue::new(
+                        "consuming-private-key",
+                        "****************************************************************",
+                        Set
+                    ),
+                    UiSetupResponseValue::new("db-password", "****************", Set),
+                    UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
+                ],
                 errors: vec![],
             }
         );
@@ -618,16 +680,21 @@ mod tests {
     fn accepts_setup_when_node_is_not_running_and_returns_combined_setup() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(false);
-        let get_modified_setup_params_arc = Arc::new(Mutex::new(vec![]));
-        let combined_setup = make_setup_cluster(vec![("combined", "setup", Set)]);
-        let setup_reporter = SetupReporterMock::new()
-            .get_modified_setup_params(&get_modified_setup_params_arc)
-            .get_modified_setup_result(Ok(combined_setup));
+        let combined_setup = make_setup_cluster(vec![
+            ("neighborhood-mode", "zero-hop", Set),
+            ("db-password", "secret value", Set),
+            ("log-level", "trace", Set),
+            ("consuming-private-key", "secret value", Set),
+        ]);
+        let setup_reporter = SetupReporterMock::new().get_modified_setup_result(Ok(combined_setup));
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.verifier_tools = Box::new(verifier_tools);
         subject.setup_reporter = Box::new(setup_reporter);
-        subject.params = make_setup_cluster(vec![("neighborhood-mode", "zero-hop", Set)]);
+        subject.params = make_setup_cluster(vec![
+            ("neighborhood-mode", "zero-hop", Set),
+            ("db-password", "secret value", Set),
+        ]);
         subject.node_process_id = None;
         subject.node_ui_port = None;
         let subject_addr = subject.start();
@@ -639,7 +706,10 @@ mod tests {
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
                 body: UiSetupRequest {
-                    values: vec![UiSetupRequestValue::new("log-level", "trace")],
+                    values: vec![
+                        UiSetupRequestValue::new("log-level", "trace"),
+                        UiSetupRequestValue::new("consuming-private-key", "secret value"),
+                    ],
                 }
                 .tmb(4321),
             })
@@ -647,6 +717,16 @@ mod tests {
 
         System::current().stop();
         system.run();
+        let expected_combined_setup = vec![
+            UiSetupResponseValue::new(
+                "consuming-private-key",
+                "****************************************************************",
+                Set,
+            ),
+            UiSetupResponseValue::new("db-password", "****************", Set),
+            UiSetupResponseValue::new("log-level", "trace", Set),
+            UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
+        ];
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -656,10 +736,7 @@ mod tests {
             UiSetupResponse::fmb(record.body).unwrap();
         assert_eq!(context_id, 4321);
         assert_eq!(payload.running, false);
-        assert_eq!(
-            payload.values,
-            vec![UiSetupResponseValue::new("combined", "setup", Set)]
-        );
+        assert_eq!(&payload.values, &expected_combined_setup,);
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(1)
             .clone();
@@ -668,10 +745,7 @@ mod tests {
             UiSetupBroadcast::fmb(record.body).unwrap();
         assert_eq!(context_id, 0);
         assert_eq!(payload.running, false);
-        assert_eq!(
-            payload.values,
-            vec![UiSetupResponseValue::new("combined", "setup", Set)]
-        );
+        assert_eq!(&payload.values, &expected_combined_setup);
     }
 
     #[test]
@@ -736,7 +810,8 @@ mod tests {
 
     #[test]
     fn setup_judges_node_not_running_when_port_and_pid_are_set_but_os_says_different() {
-        let home_dir = ensure_node_home_directory_exists(
+        let _clap_guard = ClapGuard::new();
+        let data_dir = ensure_node_home_directory_exists(
             "daemon",
             "setup_judges_node_not_running_when_port_and_pid_are_set_but_os_says_different",
         );
@@ -755,7 +830,7 @@ mod tests {
             client_id: 1234,
             body: UiSetupRequest {
                 values: vec![
-                    UiSetupRequestValue::new("data-directory", format!("{:?}", home_dir).as_str()),
+                    UiSetupRequestValue::new("data-directory", data_dir.to_str().unwrap()),
                     UiSetupRequestValue::new("chain", "ropsten"),
                     UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                 ],
@@ -889,13 +964,13 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.params.insert(
-            "booga".to_string(),
-            UiSetupResponseValue::new("booga", "agoob", Configured),
+            "db-password".to_string(),
+            UiSetupResponseValue::new("db-password", "secret value", Configured),
         ); // not nothing
            // Same value, different status
         let incoming_setup = vec![(
-            "booga".to_string(),
-            UiSetupResponseValue::new("booga", "agoob", Set),
+            "db-password".to_string(),
+            UiSetupResponseValue::new("db-password", "secret value", Set),
         )]
         .into_iter()
         .collect();
@@ -916,7 +991,13 @@ mod tests {
                 target: MessageTarget::ClientId(47),
                 body: UiSetupResponse {
                     running: false,
-                    values: subject.params.into_iter().map(|(_, v)| v).collect(),
+                    values: vec![UiSetupResponseValue::new(
+                        "db-password",
+                        "****************",
+                        Configured
+                    ),]
+                    .into_iter()
+                    .collect(),
                     errors: vec![]
                 }
                 .tmb(74),
@@ -962,8 +1043,8 @@ mod tests {
                     running: false,
                     values: modified_setup
                         .iter()
-                        .map(|(_, v)| v)
-                        .map(|v| v.clone())
+                        .map(|(_, v)| v.clone())
+                        .sorted_by(|a, b| Ord::cmp(&a.name, &b.name))
                         .collect(),
                     errors: vec![]
                 }
@@ -977,7 +1058,11 @@ mod tests {
                 target: MessageTarget::AllExcept(47),
                 body: UiSetupBroadcast {
                     running: false,
-                    values: modified_setup.into_iter().map(|(_, v)| v).collect(),
+                    values: modified_setup
+                        .into_iter()
+                        .map(|(_, v)| v)
+                        .sorted_by(|a, b| Ord::cmp(&a.name, &b.name))
+                        .collect(),
                     errors: vec![]
                 }
                 .tmb(0),
@@ -1078,6 +1163,7 @@ mod tests {
 
     #[test]
     fn maintains_setup_through_start_order() {
+        let _clap_guard = ClapGuard::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new().launch_result(Ok(Some(LaunchSuccess {
             new_process_id: 2345,

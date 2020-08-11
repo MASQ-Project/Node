@@ -12,7 +12,7 @@ impl CrashedNotification {
         let (response, _) = UiNodeCrashedBroadcast::fmb(msg).expect("Bad UiNodeCrashedBroadcast");
         writeln!(
             stdout,
-            "\nThe Node running as process {} crashed{}\nThe Daemon is once more accepting setup changes.\n",
+            "\nThe Node running as process {} terminated{}\nThe Daemon is once more accepting setup changes.\n",
             response.process_id,
             Self::dress_message (response.crash_reason)
         )
@@ -77,7 +77,7 @@ mod tests {
 
         CrashedNotification::handle_broadcast(msg, &mut stdout, &mut stderr);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 crashed:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
@@ -93,7 +93,7 @@ mod tests {
 
         CrashedNotification::handle_broadcast(msg, &mut stdout, &mut stderr);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 crashed:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
@@ -109,7 +109,7 @@ mod tests {
 
         CrashedNotification::handle_broadcast(msg, &mut stdout, &mut stderr);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 crashed.\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 }

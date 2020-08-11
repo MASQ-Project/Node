@@ -109,11 +109,14 @@ impl Handler<BindMessage> for UiGateway {
             msg.peer_actors.accountant.ui_message_sub.clone(),
             msg.peer_actors.neighborhood.from_ui_message_sub.clone(),
         ];
-        self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
+        self.websocket_supervisor = match WebSocketSupervisorReal::new(
             self.port,
             msg.peer_actors.ui_gateway.from_ui_message_sub,
             msg.peer_actors.ui_gateway.new_from_ui_message_sub,
-        )));
+        ) {
+            Ok(wss) => Some(Box::new(wss)),
+            Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
+        };
         debug!(self.logger, "UIGateway bound");
     }
 }
@@ -146,11 +149,14 @@ impl Handler<DaemonBindMessage> for UiGateway {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.subs = None;
         self.incoming_message_recipients = msg.from_ui_message_recipients;
-        self.websocket_supervisor = Some(Box::new(WebSocketSupervisorReal::new(
+        self.websocket_supervisor = match WebSocketSupervisorReal::new(
             self.port,
             StubRecipient::make(),
             msg.from_ui_message_recipient,
-        )));
+        ) {
+            Ok(wss) => Some(Box::new(wss)),
+            Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
+        };
         debug!(self.logger, "UIGateway bound");
     }
 }

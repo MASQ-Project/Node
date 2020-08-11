@@ -36,7 +36,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
         streams: &mut StdStreams<'_>,
     ) -> Result<WalletCreationConfig, ConfiguratorError> {
         let (multi_config, persistent_config_box) =
-            prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args)?;
+            prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args, streams)?;
         let persistent_config = persistent_config_box.as_ref();
 
         let config = self.parse_args(&multi_config, streams, persistent_config);
@@ -348,11 +348,13 @@ mod tests {
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::sub_lib::wallet::DEFAULT_EARNING_DERIVATION_PATH;
     use crate::test_utils::*;
     use bip39::Seed;
-    use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
+    use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
+    use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use regex::Regex;
@@ -449,6 +451,7 @@ mod tests {
 
     #[test]
     fn exercise_configure() {
+        let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_generate_wallet",
             "exercise_configure",
@@ -522,7 +525,7 @@ mod tests {
         subject.mnemonic_factory = Box::new(mnemonic_factory);
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = MultiConfig::try_new(&subject.app, vcls).unwrap();
+        let multi_config = make_new_test_multi_config(&subject.app, vcls).unwrap();
 
         let config = subject.parse_args(
             &multi_config,
@@ -567,7 +570,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
         let args = ArgsBuilder::new().opt("--generate-wallet");
-        let multi_config = MultiConfig::try_new(
+        let multi_config = make_new_test_multi_config(
             &subject.app,
             vec![Box::new(CommandLineVcl::new(args.into()))],
         )
@@ -594,7 +597,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
         let args = ArgsBuilder::new().opt("--generate-wallet");
-        let multi_config = MultiConfig::try_new(
+        let multi_config = make_new_test_multi_config(
             &subject.app,
             vec![Box::new(CommandLineVcl::new(args.into()))],
         )
@@ -617,7 +620,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::try_new(&subject.app, vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
         subject.make_mnemonic_passphrase(&multi_config, &mut streams);
 
@@ -653,7 +656,7 @@ mod tests {
             .param("--db-password", "rick-rolled");
         let subject = NodeConfiguratorGenerateWallet::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::try_new(&subject.app, vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
         subject.parse_args(
             &multi_config,

@@ -14,6 +14,7 @@ use crate::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
 use crate::sub_lib::wallet::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use bip39::Language;
@@ -25,11 +26,14 @@ use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig,
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
+use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+use masq_lib::utils::{exit_process, localhost};
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
 use std::fmt::Debug;
 use std::io;
 use std::io::Read;
+use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
@@ -148,7 +152,11 @@ pub fn determine_config_file_path(
     .map(|vcl_arg| vcl_arg.dup())
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
-    let multi_config = MultiConfig::try_new(&orientation_schema, vec![Box::new(orientation_vcl)])?;
+    let multi_config = make_new_multi_config(
+        &orientation_schema,
+        vec![Box::new(orientation_vcl)],
+        &mut FakeStreamHolder::new().streams(),
+    )?;
     let config_file_path =
         value_m!(multi_config, "config-file", PathBuf).expect("config-file should be defaulted");
     let user_specified = multi_config.arg_matches().occurrences_of("config-file") > 0;
@@ -261,13 +269,15 @@ pub fn prepare_initialization_mode<'a>(
     dirs_wrapper: &dyn DirsWrapper,
     app: &'a App,
     args: &[String],
+    streams: &mut StdStreams,
 ) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
-    let multi_config = MultiConfig::try_new(
+    let multi_config = make_new_multi_config(
         &app,
         vec![
             Box::new(CommandLineVcl::new(args.to_vec())),
             Box::new(EnvironmentVcl::new(&app)),
         ],
+        streams,
     )?;
 
     let (real_user, data_directory_opt, chain_name) =
@@ -280,7 +290,15 @@ pub fn prepare_initialization_mode<'a>(
     );
     let persistent_config_box = initialize_database(&directory, chain_id_from_name(&chain_name));
     if mnemonic_seed_exists(persistent_config_box.as_ref()) {
-        exit(1, "Cannot re-initialize Node: already initialized")
+        #[cfg(test)]
+        let running_test = true;
+        #[cfg(not(test))]
+        let running_test = false;
+        exit_process(
+            1,
+            "Cannot re-initialize Node: already initialized",
+            running_test,
+        )
     }
     Ok((multi_config, persistent_config_box))
 }
@@ -474,6 +492,10 @@ pub fn data_directory_default(dirs_wrapper: &dyn DirsWrapper, chain_name: &'stat
 pub fn flushed_write(target: &mut dyn io::Write, string: &str) {
     write!(target, "{}", string).expect("Failed console write.");
     target.flush().expect("Failed flush.");
+}
+
+pub fn port_is_busy(port: u16) -> bool {
+    TcpListener::bind(SocketAddr::new(localhost(), port)).is_err()
 }
 
 pub mod common_validators {
@@ -681,22 +703,12 @@ pub trait WalletCreationConfigMaker {
 }
 
 #[cfg(test)]
-fn exit(code: i32, message: &str) {
-    panic!("{} {}", code, message);
-}
-
-#[cfg(not(test))]
-fn exit(code: i32, message: &str) {
-    eprintln!("{}", message);
-    ::std::process::exit(code);
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::node_configurator::node_configurator_standard::app;
     use crate::node_test_utils::MockDirsWrapper;
+    use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{ArgsBuilder, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
@@ -705,9 +717,11 @@ mod tests {
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::db_password_arg;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
+    use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::utils::{find_free_port, localhost};
     use std::io::Cursor;
+    use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
 
@@ -913,6 +927,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "1: Cannot re-initialize Node: already initialized")]
     fn prepare_initialization_mode_fails_if_mnemonic_seed_already_exists() {
         let data_dir = ensure_node_home_directory_exists(
             "node_configurator",
@@ -937,17 +952,12 @@ mod tests {
             .param("--chain", TEST_DEFAULT_CHAIN_NAME);
         let args_vec: Vec<String> = args.into();
 
-        let result = prepare_initialization_mode(&RealDirsWrapper {}, &app, args_vec.as_slice())
-            .err()
-            .unwrap();
-
-        assert_eq!(
-            result,
-            ConfiguratorError::required(
-                "recover-wallet, generate-wallet",
-                "Cannot re-initialize Node: already initialized"
-            )
-        )
+        let _ = prepare_initialization_mode(
+            &RealDirsWrapper {},
+            &app,
+            args_vec.as_slice(),
+            &mut FakeStreamHolder::new().streams(),
+        );
     }
 
     fn determine_config_file_path_app() -> App<'static, 'static> {
@@ -960,7 +970,7 @@ mod tests {
     fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
         let args = ArgsBuilder::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::try_new(&app(), vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
 
         let (real_user, data_directory_opt, chain_name) =
             real_user_data_directory_opt_and_chain_name(&RealDirsWrapper {}, &multi_config);
@@ -1416,7 +1426,7 @@ mod tests {
     fn make_wallet_creation_config_defaults() {
         let subject = TameWalletCreationConfigMaker::new();
         let vcl = Box::new(CommandLineVcl::new(vec!["test".to_string()]));
-        let multi_config = MultiConfig::try_new(&subject.app, vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"a terrible db password\na terrible db password\n"[..]),
@@ -1465,7 +1475,7 @@ mod tests {
             .param("--db-password", "db password")
             .param("--real-user", "123::");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::try_new(&subject.app, vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
             stdin: &mut Cursor::new(&[]),
@@ -1512,7 +1522,7 @@ mod tests {
             .param("--db-password", "db password")
             .param("--real-user", "123::");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::try_new(&subject.app, vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
         let stdout_writer = &mut ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
             stdin: &mut Cursor::new(&[]),
@@ -1551,7 +1561,7 @@ mod tests {
             stderr: &mut ByteArrayWriter::new(),
         };
         let vcl = Box::new(CommandLineVcl::new(vec!["test".to_string()]));
-        let multi_config = MultiConfig::try_new(&subject.app, vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
         subject.make_wallet_creation_config(&multi_config, streams);
     }
@@ -1686,5 +1696,24 @@ mod tests {
 
         let set_password_params = set_password_params_arc.lock().unwrap();
         assert_eq!(*set_password_params, vec!["booga".to_string()]);
+    }
+
+    #[test]
+    pub fn port_is_busy_detects_free_port() {
+        let port = find_free_port();
+
+        let result = port_is_busy(port);
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    pub fn port_is_busy_detects_busy_port() {
+        let port = find_free_port();
+        let _listener = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
+
+        let result = port_is_busy(port);
+
+        assert_eq!(result, true);
     }
 }

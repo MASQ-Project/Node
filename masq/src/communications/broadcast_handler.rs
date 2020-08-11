@@ -174,7 +174,7 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\nThe Node running as process 1234 crashed:\n------\nUnknown crash reason\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string()
+            "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),

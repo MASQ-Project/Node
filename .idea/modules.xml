@@ -5,7 +5,6 @@
       <module fileurl="file://$PROJECT_DIR$/dns_utility/dns_utility.iml" filepath="$PROJECT_DIR$/dns_utility/dns_utility.iml" />
       <module fileurl="file://$PROJECT_DIR$/masq/masq.iml" filepath="$PROJECT_DIR$/masq/masq.iml" />
       <module fileurl="file://$PROJECT_DIR$/masq_lib/masq_lib.iml" filepath="$PROJECT_DIR$/masq_lib/masq_lib.iml" />
-      <module fileurl="file://$PROJECT_DIR$/mock_rest_server/mock_rest_server.iml" filepath="$PROJECT_DIR$/mock_rest_server/mock_rest_server.iml" />
       <module fileurl="file://$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" filepath="$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/node/node.iml" filepath="$PROJECT_DIR$/node/node.iml" />
       <module fileurl="file://$PROJECT_DIR$/port_exposer/port_exposer.iml" filepath="$PROJECT_DIR$/port_exposer/port_exposer.iml" />

@@ -1,5 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use clap::App;
+use masq_lib::command::StdStreams;
+use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
+use masq_lib::shared_schema::ConfiguratorError;
+#[cfg(test)]
+use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 use std::io::ErrorKind;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -89,6 +95,26 @@ pub static NODE_DESCRIPTOR_DELIMITERS: [char; 4] = ['_', '@', ':', ':'];
 
 pub fn node_descriptor_delimiter(chain_id: u8) -> char {
     NODE_DESCRIPTOR_DELIMITERS[chain_id as usize]
+}
+
+pub fn make_new_multi_config<'a>(
+    schema: &App<'a, 'a>,
+    vcls: Vec<Box<dyn VirtualCommandLine>>,
+    streams: &mut StdStreams,
+) -> Result<MultiConfig<'a>, ConfiguratorError> {
+    #[cfg(not(test))]
+    let running_test = false;
+    #[cfg(test)]
+    let running_test = true;
+    MultiConfig::try_new(schema, vcls, streams, running_test)
+}
+
+#[cfg(test)]
+pub fn make_new_test_multi_config<'a>(
+    schema: &App<'a, 'a>,
+    vcls: Vec<Box<dyn VirtualCommandLine>>,
+) -> Result<MultiConfig<'a>, ConfiguratorError> {
+    make_new_multi_config(schema, vcls, &mut FakeStreamHolder::new().streams())
 }
 
 #[cfg(test)]

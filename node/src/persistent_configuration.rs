@@ -604,7 +604,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = " is in use. Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
+        expected = "Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
     )]
     fn clandestine_port_panics_if_configured_port_is_in_use() {
         let port = find_free_port();

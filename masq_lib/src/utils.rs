@@ -82,6 +82,15 @@ where
     }
 }
 
+pub fn exit_process(code: i32, message: &str, running_test: bool) {
+    if running_test {
+        panic!("{}: {}", code, message);
+    } else {
+        eprintln!("{}", message);
+        ::std::process::exit(code);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

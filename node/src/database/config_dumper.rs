@@ -9,10 +9,11 @@ use crate::node_configurator::{
     app_head, data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
+use crate::sub_lib::utils::make_new_multi_config;
 use clap::Arg;
 use heck::MixedCase;
 use masq_lib::command::StdStreams;
-use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine};
+use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
 use masq_lib::shared_schema::{chain_arg, data_directory_arg, real_user_arg, ConfiguratorError};
 use serde_json::json;
 use serde_json::{Map, Value};
@@ -22,7 +23,7 @@ const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
 
 pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, ConfiguratorError> {
-    let (real_user, data_directory, chain_id) = distill_args(&RealDirsWrapper {}, args)?;
+    let (real_user, data_directory, chain_id) = distill_args(&RealDirsWrapper {}, args, streams)?;
     PrivilegeDropperReal::new().drop_privileges(&real_user);
     let config_dao = make_config_dao(&data_directory, chain_id);
     let configuration = config_dao
@@ -73,6 +74,7 @@ fn make_config_dao(data_directory: &PathBuf, chain_id: u8) -> ConfigDaoReal {
 fn distill_args(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
+    streams: &mut StdStreams,
 ) -> Result<(RealUser, PathBuf, u8), ConfiguratorError> {
     let app = app_head()
         .arg(
@@ -89,7 +91,7 @@ fn distill_args(
         Box::new(CommandLineVcl::new(args.to_vec())),
         Box::new(EnvironmentVcl::new(&app)),
     ];
-    let multi_config = MultiConfig::try_new(&app, vcls)?;
+    let multi_config = make_new_multi_config(&app, vcls, streams)?;
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =
@@ -107,6 +109,7 @@ mod tests {
     use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::sub_lib::cryptde::PlainData;
     use crate::test_utils::{ArgsBuilder, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
@@ -152,6 +155,7 @@ mod tests {
 
     #[test]
     fn dump_config_dumps_existing_database() {
+        let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database",

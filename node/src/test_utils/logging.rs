@@ -253,7 +253,13 @@ pub fn init_test_logging() -> bool {
         true
     } else {
         tlh.initialize_logs();
-        set_logger(&TEST_LOGGER).is_ok()
+        match set_logger(&TEST_LOGGER) {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("Couldn't set logger: {:?}", e);
+                false
+            }
+        }
     }
 }
 

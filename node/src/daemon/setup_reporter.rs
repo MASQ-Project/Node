@@ -12,6 +12,7 @@ use crate::node_configurator::{
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
 use clap::value_t;
 use itertools::Itertools;
@@ -366,7 +367,15 @@ impl SetupReporterReal {
             };
             vcls.push(Box::new(config_file_vcl));
         }
-        MultiConfig::try_new(&app, vcls)
+        let mut null_stdin = ByteArrayReader::new(&[]);
+        let mut null_stdout = ByteArrayWriter::new();
+        let mut null_stderr = ByteArrayWriter::new();
+        let mut streams = StdStreams {
+            stdin: &mut null_stdin,
+            stdout: &mut null_stdout,
+            stderr: &mut null_stderr,
+        };
+        make_new_multi_config(&app, vcls, &mut streams)
     }
 
     #[allow(clippy::type_complexity)]
@@ -846,10 +855,11 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::assert_string_contains;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::messages::UiSetupResponseValueStatus;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
-    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -1099,6 +1109,7 @@ mod tests {
     #[test]
     fn get_modified_setup_database_nonexistent_nothing_set_everything_in_environment() {
         let _guard = EnvironmentGuard::new();
+        let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "get_modified_setup_database_nonexistent_nothing_set_everything_in_environment",
@@ -1890,12 +1901,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.param_errors[0].parameter, "config-file");
-        assert_eq!(
-            result.param_errors[0]
-                .reason
-                .contains("could not be opened"),
-            true
-        );
+        assert_string_contains(&result.param_errors[0].reason, "Are you sure it exists?");
     }
 
     #[test]
@@ -1970,12 +1976,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.param_errors[0].parameter, "config-file");
-        assert_eq!(
-            result.param_errors[0]
-                .reason
-                .contains("could not be opened"),
-            true
-        );
+        assert_string_contains(&result.param_errors[0].reason, "Are you sure it exists?");
     }
 
     #[test]

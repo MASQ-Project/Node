@@ -3,6 +3,7 @@
 use crate::daemon::launch_verifier::LaunchVerification::{
     CleanFailure, DirtyFailure, InterventionRequired, Launched,
 };
+use crate::sub_lib::logger::Logger;
 use masq_lib::messages::NODE_UI_PROTOCOL;
 use std::thread;
 use std::time::Duration;
@@ -23,8 +24,9 @@ pub trait VerifierTools {
     fn delay(&self, milliseconds: u64);
 }
 
-#[derive(Default)]
-pub struct VerifierToolsReal {}
+pub struct VerifierToolsReal {
+    logger: Logger,
+}
 
 impl VerifierTools for VerifierToolsReal {
     fn can_connect_to_ui_gateway(&self, ui_port: u16) -> bool {
@@ -40,13 +42,21 @@ impl VerifierTools for VerifierToolsReal {
         let process_info_opt = system.get_process(Self::convert_pid(process_id));
         match process_info_opt {
             None => false,
-            Some(process) => Self::is_alive(process.status()),
+            Some(process) => {
+                let status = process.status();
+                Self::is_alive(status)
+            }
         }
     }
 
     fn kill_process(&self, process_id: u32) {
         if let Some(process) = Self::system().get_process(Self::convert_pid(process_id)) {
-            process.kill(Signal::Kill);
+            if !process.kill(Signal::Term) && !process.kill(Signal::Kill) {
+                error!(
+                    self.logger,
+                    "Process {} could be neither terminated nor killed", process_id
+                );
+            }
         }
     }
 
@@ -55,9 +65,17 @@ impl VerifierTools for VerifierToolsReal {
     }
 }
 
+impl Default for VerifierToolsReal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VerifierToolsReal {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            logger: Logger::new("VerifierTools"),
+        }
     }
 
     fn system() -> sysinfo::System {
@@ -356,7 +374,7 @@ mod tests {
             .unwrap();
         #[cfg(target_os = "windows")]
         let child = Command::new("cmd")
-            .args(vec!["/c", "pause"])
+            .args(vec!["/c", "ping", "127.0.0.1"])
             .spawn()
             .unwrap();
         child
@@ -366,6 +384,7 @@ mod tests {
     fn kill_process_and_process_is_running_work() {
         let subject = VerifierToolsReal::new();
         let child = make_long_running_child();
+        thread::sleep(Duration::from_millis(500));
 
         let before = subject.process_is_running(child.id());
 
@@ -373,8 +392,7 @@ mod tests {
 
         let after = subject.process_is_running(child.id());
 
-        assert_eq!(before, true);
-        assert_eq!(after, false);
+        assert_eq!((before, after), (true, false));
     }
 
     #[test]
@@ -386,8 +404,16 @@ mod tests {
 
         let end = Instant::now();
         let interval = end.duration_since(begin).as_millis();
-        assert!(interval >= 25);
-        assert!(interval < 50);
+        assert!(
+            interval >= 25,
+            "Interval should have been 25 or greater, but was {}",
+            interval
+        );
+        assert!(
+            interval < 500,
+            "Interval should have been less than 500, but was {}",
+            interval
+        );
     }
 
     #[test]

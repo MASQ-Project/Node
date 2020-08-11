@@ -13,6 +13,8 @@ extern "C" {
 }
 
 use crate::bootstrapper::RealUser;
+#[cfg(not(target_os = "windows"))]
+use nix::NixPath;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -102,6 +104,10 @@ impl PrivilegeDropper for PrivilegeDropperReal {
 
     #[cfg(not(target_os = "windows"))]
     fn chown(&self, file: &PathBuf, real_user: &RealUser) {
+        // Don't bother trying if the file is blank
+        if file.is_empty() {
+            return;
+        }
         // Don't bother trying to chown if we're not root
         if (self.id_wrapper.getgid() == 0) && (self.id_wrapper.getuid() == 0) {
             let mut command = std::process::Command::new("chown");

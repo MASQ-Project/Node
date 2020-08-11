@@ -7,12 +7,12 @@ use crate::daemon::launch_verifier::LaunchVerification::{
 use crate::daemon::launch_verifier::{LaunchVerifier, LaunchVerifierReal};
 use crate::daemon::{LaunchSuccess, Launcher};
 use actix::Recipient;
+use crossbeam_channel::Sender;
 use itertools::Itertools;
 use masq_lib::utils::find_free_port;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::mpsc::Sender;
 use std::thread;
 
 trait ChildWrapper: Send {
@@ -354,11 +354,21 @@ mod tests {
         daemon_awaiter.await_message_count(1);
         let daemon_recording = daemon_recording_arc.lock().unwrap();
         let msg = daemon_recording.get_record::<CrashNotification>(0);
+        #[cfg(not(target_os = "windows"))]
         assert_eq!(
             msg,
             &CrashNotification {
                 process_id: 1234,
                 exit_code: None,
+                stderr: Some("Standard error".to_string()),
+            }
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            msg,
+            &CrashNotification {
+                process_id: 1234,
+                exit_code: Some(1),
                 stderr: Some("Standard error".to_string()),
             }
         );
@@ -417,7 +427,7 @@ mod tests {
         let verifier = LaunchVerifierMock::new()
             .verify_launch_params(&verify_launch_params_arc)
             .verify_launch_result(Launched);
-        let mut subject = LauncherReal::new(std::sync::mpsc::channel().0);
+        let mut subject = LauncherReal::new(unbounded().0);
         subject.execer = Box::new(execer);
         subject.verifier = Box::new(verifier);
         let params = HashMap::from_iter(
@@ -474,7 +484,7 @@ mod tests {
             .exec_params(&exec_params_arc)
             .exec_result(Err("Booga!".to_string()));
         let verifier = LaunchVerifierMock::new();
-        let mut subject = LauncherReal::new(std::sync::mpsc::channel().0);
+        let mut subject = LauncherReal::new(unbounded().0);
         subject.execer = Box::new(execer);
         subject.verifier = Box::new(verifier);
         let params = HashMap::from_iter(
@@ -499,7 +509,7 @@ mod tests {
         let crashed_recipient = ui_gateway.start().recipient();
         let execer = ExecerMock::new().exec_result(Ok(1234));
         let verifier = LaunchVerifierMock::new().verify_launch_result(CleanFailure);
-        let mut subject = LauncherReal::new(std::sync::mpsc::channel().0);
+        let mut subject = LauncherReal::new(unbounded().0);
         subject.execer = Box::new(execer);
         subject.verifier = Box::new(verifier);
 
@@ -520,7 +530,7 @@ mod tests {
         let crashed_recipient = ui_gateway.start().recipient();
         let execer = ExecerMock::new().exec_result(Ok(1234));
         let verifier = LaunchVerifierMock::new().verify_launch_result(DirtyFailure);
-        let mut subject = LauncherReal::new(std::sync::mpsc::channel().0);
+        let mut subject = LauncherReal::new(unbounded().0);
         subject.execer = Box::new(execer);
         subject.verifier = Box::new(verifier);
 
@@ -543,7 +553,7 @@ mod tests {
         let crashed_recipient = ui_gateway.start().recipient();
         let execer = ExecerMock::new().exec_result(Ok(1234));
         let verifier = LaunchVerifierMock::new().verify_launch_result(InterventionRequired);
-        let mut subject = LauncherReal::new(std::sync::mpsc::channel().0);
+        let mut subject = LauncherReal::new(unbounded().0);
         subject.execer = Box::new(execer);
         subject.verifier = Box::new(verifier);
 
