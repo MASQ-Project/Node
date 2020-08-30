@@ -124,7 +124,7 @@ fn make_modified_node_records(
 
 fn make_modified_db(
     real_node: &MASQRealNode,
-    modified_nodes: &Vec<NodeRecord>,
+    modified_nodes: &[NodeRecord],
 ) -> NeighborhoodDatabase {
     let mut modified_db = local_db_from_node(&NodeRecord::from(real_node));
     modified_db.root_mut().set_version(2);
@@ -142,7 +142,7 @@ fn make_modified_db(
 
 fn make_and_send_final_setup_gossip(
     gossip_source_mock_node: &MASQMockNode,
-    modified_nodes: &Vec<NodeRecord>,
+    modified_nodes: &[NodeRecord],
     real_node: &MASQRealNode,
 ) {
     let gossip_source_key = gossip_source_mock_node.main_public_key().clone();
@@ -169,7 +169,7 @@ fn make_and_send_final_setup_gossip(
 }
 
 fn absorb_final_setup_responses(
-    adjacent_mock_node_keys: &Vec<PublicKey>,
+    adjacent_mock_node_keys: &[PublicKey],
     mock_node_map: &HashMap<PublicKey, MASQMockNode>,
 ) {
     adjacent_mock_node_keys.iter().for_each(|mock_node_key| {
@@ -219,7 +219,7 @@ fn modify_node(
     gossip_node.inner.neighbors = model_node
         .half_neighbor_keys()
         .into_iter()
-        .map(|key| key.clone())
+        .cloned()
         .collect::<BTreeSet<PublicKey>>();
     gossip_node.resign();
 }
@@ -245,7 +245,7 @@ impl From<&MASQRealNode> for NodeRecord {
 
 fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
     let agr = AccessibleGossipRecord::from(masq_node);
-    let result = NodeRecord {
+    NodeRecord {
         inner: agr.inner.clone(),
         metadata: NodeRecordMetadata {
             desirable: true,
@@ -253,7 +253,6 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
             node_addr_opt: agr.node_addr_opt.clone(),
         },
         signed_gossip: agr.signed_gossip.clone(),
-        signature: agr.signature.clone(),
-    };
-    result
+        signature: agr.signature,
+    }
 }

@@ -16,7 +16,6 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::tls_discriminator_factory::TlsDiscriminatorFactory;
-use serde_cbor;
 use std::cell::RefCell;
 use std::io;
 use std::io::Read;
@@ -54,7 +53,7 @@ impl DiscriminatorCluster {
             .iter_mut()
             .flat_map(|x| x.take_chunk())
             .collect();
-        if chunks.len() == 0 {
+        if chunks.is_empty() {
             None
         } else {
             Some(chunks.remove(0))
@@ -77,7 +76,7 @@ impl MASQCoresServer {
         let port = find_free_port();
         let local_addr = SocketAddr::new(ip_address, port);
         let listener = TcpListener::bind(local_addr)
-            .expect(format!("Couldn't start server on {}", local_addr).as_str());
+            .unwrap_or_else(|_| panic!("Couldn't start server on {}", local_addr));
         let main_cryptde = CryptDENull::new(chain_id);
         let mut key = main_cryptde.public_key().as_slice().to_vec();
         key.reverse();
@@ -139,25 +138,25 @@ impl MASQCoresServer {
             public_key: self.main_cryptde.public_key().clone(),
             node_addr_opt: Some(NodeAddr::new(
                 &self.socket_addr.ip(),
-                &vec![self.socket_addr.port()],
+                &[self.socket_addr.port()],
             )),
         }
     }
 
-    pub fn main_cryptde<'a>(&'a self) -> &'a dyn CryptDE {
+    pub fn main_cryptde(&self) -> &dyn CryptDE {
         &self.main_cryptde
     }
 
-    pub fn alias_cryptde<'a>(&'a self) -> &'a dyn CryptDE {
+    pub fn alias_cryptde(&self) -> &dyn CryptDE {
         &self.alias_cryptde
     }
 
     pub fn public_key(&self) -> PublicKey {
-        self.node_reference().public_key.clone()
+        self.node_reference().public_key
     }
 
     pub fn node_addr_opt(&self) -> Option<NodeAddr> {
-        self.node_reference().node_addr_opt.clone()
+        self.node_reference().node_addr_opt
     }
 
     pub fn private_key(&self) -> &PrivateKey {
@@ -171,7 +170,7 @@ impl MASQCoresServer {
             .decode(&CryptData::new(&chunk.chunk[..]))
             .unwrap();
         serde_cbor::de::from_slice::<LiveCoresPackage>(decoded_chunk.as_slice())
-            .expect(format!("Error deserializing LCP from {:?}", chunk.chunk).as_str())
+            .unwrap_or_else(|_| panic!("Error deserializing LCP from {:?}", chunk.chunk))
     }
 
     fn default_factories() -> Vec<Box<dyn DiscriminatorFactory>> {

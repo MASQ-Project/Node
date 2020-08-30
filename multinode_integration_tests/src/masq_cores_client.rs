@@ -7,7 +7,6 @@ use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::PlainData;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
-use serde_cbor;
 use std::net::SocketAddr;
 
 pub struct MASQCoresClient<'a> {
@@ -32,14 +31,16 @@ impl<'a> MASQCoresClient<'a> {
         let (live_cores_package, _) =
             LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde).unwrap();
         let serialized_lcp = serde_cbor::ser::to_vec(&live_cores_package)
-            .expect(format!("Serializing LCP: {:?}", live_cores_package).as_str());
+            .unwrap_or_else(|_| panic!("Serializing LCP: {:?}", live_cores_package));
         let encoded_serialized_package = self
             .cryptde
             .encode(&recipient_key, &PlainData::new(&serialized_lcp[..]))
             .unwrap();
         let masqueraded = masquerader
             .mask(encoded_serialized_package.as_slice())
-            .expect(format!("Masquerading {}-byte serialized LCP", serialized_lcp.len()).as_str());
+            .unwrap_or_else(|_| {
+                panic!("Masquerading {}-byte serialized LCP", serialized_lcp.len())
+            });
         self.delegate.send_chunk(&masqueraded);
     }
 
@@ -48,9 +49,9 @@ impl<'a> MASQCoresClient<'a> {
         masquerader: &JsonMasquerader,
     ) -> Vec<u8> {
         let serialized_lcp = serde_cbor::ser::to_vec(&live_cores_package)
-            .expect(format!("Serializing LCP: {:?}", live_cores_package).as_str());
+            .unwrap_or_else(|_| panic!("Serializing LCP: {:?}", live_cores_package));
         masquerader
             .mask(&serialized_lcp[..])
-            .expect(format!("Masquerading {}-byte serialized LCP", serialized_lcp.len()).as_str())
+            .unwrap_or_else(|_| panic!("Masquerading {}-byte serialized LCP", serialized_lcp.len()))
     }
 }

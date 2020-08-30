@@ -1,11 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::server_initializer::real_format_function;
-use crate::test_utils::{to_millis, ByteArrayWriter};
+use crate::test_utils::to_millis;
 use chrono::DateTime;
 use log::set_logger;
 use log::Log;
 use log::Metadata;
 use log::Record;
+use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
 use regex::Regex;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -252,7 +253,13 @@ pub fn init_test_logging() -> bool {
         true
     } else {
         tlh.initialize_logs();
-        set_logger(&TEST_LOGGER).is_ok()
+        match set_logger(&TEST_LOGGER) {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("Couldn't set logger: {:?}", e);
+                false
+            }
+        }
     }
 }
 

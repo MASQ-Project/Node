@@ -36,7 +36,7 @@ pub mod neighborhood;
 pub mod node_configurator;
 mod null_masquerader;
 pub mod persistent_configuration;
-mod privilege_drop;
+pub mod privilege_drop;
 mod proxy_client;
 pub mod proxy_server;
 pub mod run_modes;

@@ -2,18 +2,29 @@
 
 pub mod utils;
 
-use masq_lib::messages::{ToMessageBody, UiShutdownRequest, NODE_UI_PROTOCOL};
+use masq_lib::messages::{ToMessageBody, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL};
 use masq_lib::messages::{
-    UiFinancialsRequest, UiRedirect, UiSetup, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
+    UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
+#[cfg(not(target_os = "windows"))]
+use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
 use utils::MASQNode;
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn expect_privilege_works_outside_windows_integration() {
+    let subject = PrivilegeDropperReal::new();
+
+    assert_eq!(subject.expect_privilege(true), true);
+    assert_eq!(subject.expect_privilege(false), false);
+}
 
 #[test]
 fn clap_help_does_not_initialize_database_integration() {
@@ -46,12 +57,12 @@ fn initialization_sequence_integration() {
         .join("initialization_sequence_integration")
         .to_string_lossy()
         .to_string();
-    let _: UiSetup = initialization_client
-        .transact(UiSetup::new(vec![
-            ("dns-servers", "1.1.1.1"),
-            ("neighborhood-mode", "zero-hop"),
-            ("log-level", "trace"),
-            ("data-directory", &data_directory),
+    let _: UiSetupRequest = initialization_client
+        .transact(UiSetupRequest::new(vec![
+            ("dns-servers", Some("1.1.1.1")),
+            ("neighborhood-mode", Some("zero-hop")),
+            ("log-level", Some("trace")),
+            ("data-directory", Some(&data_directory)),
         ]))
         .unwrap();
     let financials_request = UiFinancialsRequest {
@@ -93,8 +104,15 @@ fn initialization_sequence_integration() {
     wait_for_process_end(start_response.new_process_id);
     let _ = daemon.kill();
     match daemon.wait_for_exit() {
-        None => eprintln! ("wait_for_exit produced no output: weird"),
-        Some(output) => eprintln! ("wait_for_exit produced exit status {:?} and stdout:\n------\n{}\n------\nstderr:\n------\n{}\n------\n", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)),
+        None => eprintln!("wait_for_exit produced no output: weird"),
+        Some(output) => {
+            eprintln!(
+                "wait_for_exit produced exit status {:?} and stdout:\n------\n{}\n------\nstderr:\n------\n{}\n------\n",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+        }
     }
 }
 

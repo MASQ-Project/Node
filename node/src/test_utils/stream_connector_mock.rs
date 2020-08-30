@@ -32,7 +32,7 @@ impl StreamConnector for StreamConnectorMock {
     fn connect_one(
         &self,
         _ip_addrs: Vec<IpAddr>,
-        _target_hostname: &String,
+        _target_hostname: &str,
         _target_port: u16,
         _logger: &Logger,
     ) -> Result<ConnectionInfo, io::Error> {

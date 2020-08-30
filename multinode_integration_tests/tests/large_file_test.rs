@@ -1,52 +1,38 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::big_data_server::BigDataServer;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{
-    make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
-};
-use multinode_integration_tests_lib::rest_utils::RestServer;
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
-use std::thread;
+use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
+use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
+use std::net::SocketAddr;
 use std::time::Duration;
 
-const MAXIMUM_KBYTES: &'static str = "148480";
-const REQUEST_BYTES: u64 = 157_286_400;
+const NODE_MEMORY_REQUIRED: usize = 148_480 * 1024;
 
 #[test]
-#[ignore]
 fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it_stronger() {
+    if PrivilegeDropperReal::new().expect_privilege(false) {
+        eprintln!("Skipping big-data test because we can't start a server without root privilege");
+        return;
+    }
     let mut cluster = MASQNodeCluster::start().expect("starting cluster");
+    let maximum_kbytes_str = format!("{}", NODE_MEMORY_REQUIRED / 1024);
     let originating_node = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .memory(MAXIMUM_KBYTES)
-            .consuming_wallet_info(make_consuming_wallet_info(MAXIMUM_KBYTES))
-            .chain(chain_name_from_id(cluster.chain_id))
+        NodeStartupConfigBuilder::zero_hop()
+            .memory(&maximum_kbytes_str)
             .build(),
     );
+    let socket_addr = SocketAddr::new(MASQNodeCluster::host_ip_addr(), 80);
+    let _server = BigDataServer::start(socket_addr, NODE_MEMORY_REQUIRED);
 
-    let nodes = (0..6)
-        .map(|_| {
-            cluster.start_real_node(
-                NodeStartupConfigBuilder::standard()
-                    .neighbor(originating_node.node_reference())
-                    .memory(MAXIMUM_KBYTES)
-                    .chain(chain_name_from_id(cluster.chain_id))
-                    .build(),
-            )
-        })
-        .collect::<Vec<MASQRealNode>>();
-
-    let rest_server = RestServer { name: "ptolemy" };
-    rest_server.start();
-
-    thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
-
-    let address = format!(
-        "http://{}/bytes/{}",
-        rest_server.ip().unwrap(),
-        REQUEST_BYTES
+    let mut client = originating_node.make_client(8080);
+    client.set_timeout(Duration::from_secs(600)); // Lots of data; may take awhile
+    let request = format!(
+        "GET / HTTP/1.1\r\nHost: {}\r\n\r\n",
+        MASQNodeCluster::host_ip_addr()
     );
-    let response = reqwest::get(&address).unwrap();
-    assert_eq!(response.content_length(), Some(REQUEST_BYTES));
+    client.send_chunk(request.as_bytes());
+    let len = client.wait_for_chunk().len();
+
+    assert_eq!(len, 0); // data thrown away
 }

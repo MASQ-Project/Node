@@ -2,6 +2,7 @@
 // Because we have conditional compilation going on in this file:
 #![allow(unreachable_code)]
 #![allow(dead_code)]
+#![allow(unused_imports)]
 
 #[cfg(not(target_os = "windows"))]
 extern "C" {
@@ -12,7 +13,10 @@ extern "C" {
 }
 
 use crate::bootstrapper::RealUser;
+#[cfg(not(target_os = "windows"))]
+use nix::NixPath;
 use std::path::PathBuf;
+use std::process::Command;
 
 pub trait IdWrapper: Send {
     fn getuid(&self) -> i32;
@@ -58,6 +62,7 @@ impl IdWrapper for IdWrapperReal {
 pub trait PrivilegeDropper: Send {
     fn drop_privileges(&self, real_user: &RealUser);
     fn chown(&self, file: &PathBuf, real_user: &RealUser);
+    fn expect_privilege(&self, privilege_expected: bool) -> bool;
 }
 
 pub struct PrivilegeDropperReal {
@@ -99,6 +104,10 @@ impl PrivilegeDropper for PrivilegeDropperReal {
 
     #[cfg(not(target_os = "windows"))]
     fn chown(&self, file: &PathBuf, real_user: &RealUser) {
+        // Don't bother trying if the file is blank
+        if file.is_empty() {
+            return;
+        }
         // Don't bother trying to chown if we're not root
         if (self.id_wrapper.getgid() == 0) && (self.id_wrapper.getuid() == 0) {
             let mut command = std::process::Command::new("chown");
@@ -127,6 +136,21 @@ impl PrivilegeDropper for PrivilegeDropperReal {
     fn chown(&self, _file: &PathBuf, _real_user: &RealUser) {
         // Windows doesn't need chown: it runs as administrator the whole way
     }
+
+    #[cfg(target_os = "windows")]
+    fn expect_privilege(&self, privilege_expected: bool) -> bool {
+        let mut command = Command::new("net");
+        let command = command.args(vec!["session"]);
+        let output = command
+            .output()
+            .expect("net session command didn't produce output");
+        privilege_expected == output.status.success()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn expect_privilege(&self, privilege_expected: bool) -> bool {
+        (self.id_wrapper.getuid() == 0) == privilege_expected
+    }
 }
 
 impl PrivilegeDropperReal {
@@ -143,13 +167,17 @@ impl Default for PrivilegeDropperReal {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 #[cfg(test)]
 mod tests {
+    #![allow(unreachable_code)]
+    #![allow(dead_code)]
+    #![allow(unused_imports)]
     use super::*;
+    use crate::node_configurator::RealDirsWrapper;
     use crate::node_test_utils::IdWrapperMock;
     use std::sync::{Arc, Mutex};
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     #[should_panic(expected = "Error code 47 resetting group id")]
     fn gid_error_code_causes_panic() {
@@ -162,7 +190,7 @@ mod tests {
         let mut subject = PrivilegeDropperReal::new();
         subject.id_wrapper = Box::new(id_wrapper);
 
-        subject.drop_privileges(&RealUser::null().populate());
+        subject.drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -242,6 +270,7 @@ mod tests {
         assert_eq!(*setgid_params, vec![202]);
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn works_okay_as_not_root() {
         let setuid_params_arc = Arc::new(Mutex::new(vec![]));
@@ -254,11 +283,20 @@ mod tests {
         let mut subject = PrivilegeDropperReal::new();
         subject.id_wrapper = Box::new(id_wrapper);
 
-        subject.drop_privileges(&RealUser::null().populate());
+        subject.drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
 
         let setuid_params = setuid_params_arc.lock().unwrap();
         assert!(setuid_params.is_empty());
         let setgid_params = setgid_params_arc.lock().unwrap();
         assert!(setgid_params.is_empty());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn expect_privilege_works_outside_windows() {
+        let subject = PrivilegeDropperReal::new();
+
+        assert_eq!(subject.expect_privilege(true), false);
+        assert_eq!(subject.expect_privilege(false), true);
     }
 }

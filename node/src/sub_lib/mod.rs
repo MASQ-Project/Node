@@ -14,7 +14,6 @@ pub mod bidi_hashmap;
 pub mod binary_traverser;
 pub mod blockchain_bridge;
 pub mod channel_wrappers;
-pub mod crash_point;
 pub mod cryptde;
 pub mod cryptde_null;
 pub mod cryptde_real;

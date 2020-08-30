@@ -139,7 +139,7 @@ impl MASQNodeCluster {
         let mut node_name_refs = vec![];
         node_name_refs.extend(self.real_nodes.keys());
         node_name_refs.extend(self.mock_nodes.keys());
-        node_name_refs.into_iter().map(|x| x.clone()).collect()
+        node_name_refs.into_iter().cloned().collect()
     }
 
     pub fn get_real_node_by_name(&self, name: &str) -> Option<MASQRealNode> {
@@ -153,7 +153,6 @@ impl MASQNodeCluster {
         match self
             .real_nodes
             .values()
-            .into_iter()
             .find(|node| node.main_public_key() == key)
         {
             Some(node_ref) => Some(node_ref.clone()),
@@ -217,7 +216,7 @@ impl MASQNodeCluster {
         }
         let output = command.stdout_as_string();
         let results: Vec<String> = output
-            .split("\n")
+            .split('\n')
             .filter(|result| !result.is_empty())
             .map(|container_id| {
                 let mut command = Command::new(

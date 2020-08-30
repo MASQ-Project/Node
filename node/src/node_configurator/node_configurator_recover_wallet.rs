@@ -2,12 +2,11 @@
 
 use crate::blockchain::bip39::Bip39;
 use crate::node_configurator::{
-    app_head, chain_arg, common_validators, consuming_wallet_arg, create_wallet,
-    data_directory_arg, db_password_arg, earning_wallet_arg, exit, flushed_write, language_arg,
-    mnemonic_passphrase_arg, mnemonic_seed_exists, prepare_initialization_mode, real_user_arg,
-    request_password_with_confirmation, request_password_with_retry, update_db_password, Either,
-    NodeConfigurator, WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP,
-    EARNING_WALLET_HELP,
+    app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg,
+    flushed_write, language_arg, mnemonic_passphrase_arg, mnemonic_seed_exists,
+    prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry,
+    update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper,
+    WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP,
 };
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
@@ -16,14 +15,24 @@ use clap::{value_t, values_t, App, Arg};
 use indoc::indoc;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
+use masq_lib::shared_schema::{
+    chain_arg, data_directory_arg, db_password_arg, real_user_arg, ConfiguratorError,
+};
+use masq_lib::utils::exit_process;
 
 pub struct NodeConfiguratorRecoverWallet {
+    dirs_wrapper: Box<dyn DirsWrapper>,
     app: App<'static, 'static>,
 }
 
 impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorRecoverWallet {
-    fn configure(&self, args: &Vec<String>, streams: &mut StdStreams<'_>) -> WalletCreationConfig {
-        let (multi_config, persistent_config_box) = prepare_initialization_mode(&self.app, args);
+    fn configure(
+        &self,
+        args: &[String],
+        streams: &mut StdStreams<'_>,
+    ) -> Result<WalletCreationConfig, ConfiguratorError> {
+        let (multi_config, persistent_config_box) =
+            prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args, streams)?;
         let persistent_config = persistent_config_box.as_ref();
 
         let config = self.parse_args(&multi_config, streams, persistent_config);
@@ -31,7 +40,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorRecoverWallet {
         create_wallet(&config, persistent_config);
         update_db_password(&config, persistent_config);
 
-        config
+        Ok(config)
     }
 }
 
@@ -46,6 +55,19 @@ const MNEMONIC_HELP: &str =
 
 const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
+    If you want to start the MASQ Daemon to manage the MASQ Node and the MASQ UIs, try:
+
+        MASQNode --help --initialization
+
+    If you want to dump the contents of the configuration table in the database so that
+    you can see what's in it, try:
+
+        MASQNode --help --dump-config
+
+    If you already have a set of wallets you want Node to use, try:
+
+        MASQNode --help --recover-wallet
+
     If you want to generate wallets to earn money into and spend money from, try:
 
         MASQNode --help --generate-wallet
@@ -96,6 +118,7 @@ impl Default for NodeConfiguratorRecoverWallet {
 impl NodeConfiguratorRecoverWallet {
     pub fn new() -> NodeConfiguratorRecoverWallet {
         NodeConfiguratorRecoverWallet {
+            dirs_wrapper: Box::new(RealDirsWrapper {}),
             app: app_head()
                 .after_help(HELP_TEXT)
                 .arg(
@@ -139,9 +162,14 @@ impl NodeConfiguratorRecoverWallet {
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
         if mnemonic_seed_exists(persistent_config) {
-            exit(
+            #[cfg(test)]
+            let running_test = true;
+            #[cfg(not(test))]
+            let running_test = false;
+            exit_process(
                 1,
                 "Can't recover wallets: mnemonic seed has already been created",
+                running_test,
             )
         }
         self.make_wallet_creation_config(multi_config, streams)
@@ -193,7 +221,13 @@ impl NodeConfiguratorRecoverWallet {
         let phrase = phrase_words.join(" ");
         match Validators::validate_mnemonic_words(phrase.clone(), language) {
             Ok(_) => (),
-            Err(e) => exit(1, &e),
+            Err(e) => {
+                #[cfg(test)]
+                let running_test = true;
+                #[cfg(not(test))]
+                let running_test = false;
+                exit_process(1, &e, running_test)
+            }
         }
         Mnemonic::from_phrase(phrase, language).expect("Error creating Mnemonic")
     }
@@ -242,13 +276,15 @@ mod tests {
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::{
         Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
     use crate::test_utils::*;
     use bip39::Seed;
-    use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
+    use masq_lib::test_utils::environment_guard::ClapGuard;
+    use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::io::Cursor;
 
@@ -382,6 +418,7 @@ mod tests {
 
     #[test]
     fn exercise_configure() {
+        let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_recover_wallet",
             "exercise_configure",
@@ -390,7 +427,7 @@ mod tests {
         let phrase = "llanto elipse chaleco factor setenta dental moneda rasgo gala rostro taco nudillo orador temor puesto";
         let consuming_path = "m/44'/60'/0'/77/78";
         let earning_path = "m/44'/60'/0'/78/77";
-        let args = ArgsBuilder::new()
+        let args_vec: Vec<String> = ArgsBuilder::new()
             .opt("--recover-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
@@ -404,7 +441,9 @@ mod tests {
             .into();
         let subject = NodeConfiguratorRecoverWallet::new();
 
-        let config = subject.configure(&args, &mut FakeStreamHolder::new().streams());
+        let config = subject
+            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .unwrap();
 
         let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
         assert_eq!(persistent_config.check_password(password), Some(true));
@@ -441,7 +480,7 @@ mod tests {
         let subject = NodeConfiguratorRecoverWallet::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = MultiConfig::new(&subject.app, vcls);
+        let multi_config = make_new_test_multi_config(&subject.app, vcls).unwrap();
 
         let config = subject.parse_args(
             &multi_config,
@@ -486,7 +525,7 @@ mod tests {
             .param("--mnemonic-passphrase", "mnemonic passphrase");
         let subject = NodeConfiguratorRecoverWallet::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
+        let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
         subject.parse_args(
             &multi_config,
@@ -569,7 +608,7 @@ mod tests {
         );
 
         let conn = db_initializer::DbInitializerReal::new()
-            .initialize(&data_directory, DEFAULT_CHAIN_ID)
+            .initialize(&data_directory, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let persistent_config =
             PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
@@ -583,7 +622,7 @@ mod tests {
             .param("--db-password", "rick-rolled");
         let subject = NodeConfiguratorRecoverWallet::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = MultiConfig::new(&subject.app, vec![vcl]);
+        let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
         subject.parse_args(
             &multi_config,

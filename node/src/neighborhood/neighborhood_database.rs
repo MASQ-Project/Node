@@ -441,10 +441,7 @@ mod tests {
         let mut node_with_no_ports = make_node_record(2345, true);
         node_with_no_ports.unset_node_addr();
         let changed = node_with_no_ports
-            .set_node_addr(&NodeAddr::new(
-                &IpAddr::from_str("2.3.4.5").unwrap(),
-                &vec![],
-            ))
+            .set_node_addr(&NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &[]))
             .unwrap();
         node_with_no_ports.resign();
 

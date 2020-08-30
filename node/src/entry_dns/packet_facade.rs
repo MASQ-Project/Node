@@ -632,7 +632,7 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 4);
-            adder.add_bytes(&vec![0x00, 0x01]); // one query
+            adder.add_bytes(&[0x00, 0x01]); // one query
             adder.skip_bytes(6);
             adder.get_offset()
         };
@@ -649,9 +649,9 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 4);
-            adder.add_bytes(&vec![0x00, 0x01]); // one query
+            adder.add_bytes(&[0x00, 0x01]); // one query
             adder.skip_bytes(6);
-            adder.add_bytes(&vec![0x01]); // length of first name part
+            adder.add_bytes(&[0x01]); // length of first name part
             adder.get_offset()
         };
 
@@ -667,10 +667,10 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 4);
-            adder.add_bytes(&vec![0x00, 0x01]); // one query
+            adder.add_bytes(&[0x00, 0x01]); // one query
             adder.skip_bytes(6);
-            adder.add_bytes(&vec![0x00]); // no name
-            adder.add_bytes(&vec![0x12]); // first byte of type
+            adder.add_bytes(&[0x00]); // no name
+            adder.add_bytes(&[0x12]); // first byte of type
             adder.get_offset()
         };
 
@@ -686,11 +686,11 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 4);
-            adder.add_bytes(&vec![0x00, 0x01]); // one query
+            adder.add_bytes(&[0x00, 0x01]); // one query
             adder.skip_bytes(6);
-            adder.add_bytes(&vec![0x00]); // no name
-            adder.add_bytes(&vec![0x12, 0x34]); // type
-            adder.add_bytes(&vec![0x45]); // first byte of class
+            adder.add_bytes(&[0x00]); // no name
+            adder.add_bytes(&[0x12, 0x34]); // type
+            adder.add_bytes(&[0x45]); // first byte of class
             adder.get_offset()
         };
 
@@ -706,7 +706,7 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 6);
-            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.add_bytes(&[0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
             adder.get_offset()
         };
@@ -723,9 +723,9 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 6);
-            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.add_bytes(&[0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
-            adder.add_bytes(&vec![0x01]); // length of first name part
+            adder.add_bytes(&[0x01]); // length of first name part
             adder.get_offset()
         };
 
@@ -741,10 +741,10 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 6);
-            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.add_bytes(&[0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
-            adder.add_bytes(&vec![0x02]); // length of first name part
-            adder.add_bytes(&vec![192, 193]); // illegal UTF-8
+            adder.add_bytes(&[0x02]); // length of first name part
+            adder.add_bytes(&[192, 193]); // illegal UTF-8
             adder.get_offset()
         };
 
@@ -760,10 +760,10 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 6);
-            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.add_bytes(&[0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
-            adder.add_bytes(&vec![0x00]); // no name
-            adder.add_bytes(&vec![0x12]); // first byte of type
+            adder.add_bytes(&[0x00]); // no name
+            adder.add_bytes(&[0x12]); // first byte of type
             adder.get_offset()
         };
 
@@ -779,11 +779,11 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 6);
-            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.add_bytes(&[0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
-            adder.add_bytes(&vec![0x00]); // no name
-            adder.add_bytes(&vec![0x12, 0x34]); // type
-            adder.add_bytes(&vec![0x45]); // first byte of class
+            adder.add_bytes(&[0x00]); // no name
+            adder.add_bytes(&[0x12, 0x34]); // type
+            adder.add_bytes(&[0x45]); // first byte of class
             adder.get_offset()
         };
 
@@ -799,12 +799,12 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 6);
-            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.add_bytes(&[0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
-            adder.add_bytes(&vec![0x00]); // no name
-            adder.add_bytes(&vec![0x12, 0x34]); // type
-            adder.add_bytes(&vec![0x45, 0x67]); // class
-            adder.add_bytes(&vec![0x89, 0xAB, 0xCD]); // first three bytes of time to live
+            adder.add_bytes(&[0x00]); // no name
+            adder.add_bytes(&[0x12, 0x34]); // type
+            adder.add_bytes(&[0x45, 0x67]); // class
+            adder.add_bytes(&[0x89, 0xAB, 0xCD]); // first three bytes of time to live
             adder.get_offset()
         };
 
@@ -820,13 +820,13 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 6);
-            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.add_bytes(&[0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
-            adder.add_bytes(&vec![0x00]); // no name
-            adder.add_bytes(&vec![0x12, 0x34]); // type
-            adder.add_bytes(&vec![0x45, 0x67]); // class
-            adder.add_bytes(&vec![0x89, 0xAB, 0xCD, 0xEF]); // time to live
-            adder.add_bytes(&vec![0x00]); // first byte of rdata length
+            adder.add_bytes(&[0x00]); // no name
+            adder.add_bytes(&[0x12, 0x34]); // type
+            adder.add_bytes(&[0x45, 0x67]); // class
+            adder.add_bytes(&[0x89, 0xAB, 0xCD, 0xEF]); // time to live
+            adder.add_bytes(&[0x00]); // first byte of rdata length
             adder.get_offset()
         };
 
@@ -842,13 +842,13 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 6);
-            adder.add_bytes(&vec![0x00, 0x01]); // one resource record
+            adder.add_bytes(&[0x00, 0x01]); // one resource record
             adder.skip_bytes(4);
-            adder.add_bytes(&vec![0x00]); // no name
-            adder.add_bytes(&vec![0x12, 0x34]); // type
-            adder.add_bytes(&vec![0x45, 0x67]); // class
-            adder.add_bytes(&vec![0x89, 0xAB, 0xCD, 0xEF]); // time to live
-            adder.add_bytes(&vec![0x00, 0x01]); // rdata length
+            adder.add_bytes(&[0x00]); // no name
+            adder.add_bytes(&[0x12, 0x34]); // type
+            adder.add_bytes(&[0x45, 0x67]); // class
+            adder.add_bytes(&[0x89, 0xAB, 0xCD, 0xEF]); // time to live
+            adder.add_bytes(&[0x00, 0x01]); // rdata length
             adder.get_offset()
         };
 
@@ -917,20 +917,20 @@ mod tests {
         let mut buf: [u8; 500] = [0; 500];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 4);
-            adder.add_bytes(&vec![0x00, 0x02]); // 2 queries
+            adder.add_bytes(&[0x00, 0x02]); // 2 queries
             adder.skip_bytes(6);
 
-            adder.add_bytes(&vec![0x03, 0x77, 0x77, 0x77]); // www
-            adder.add_bytes(&vec![0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
-            adder.add_bytes(&vec![0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
-            adder.add_bytes(&vec![0x00, 0x01]); // type A (host address)
-            adder.add_bytes(&vec![0x00, 0x01]); // class IN
+            adder.add_bytes(&[0x03, 0x77, 0x77, 0x77]); // www
+            adder.add_bytes(&[0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
+            adder.add_bytes(&[0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
+            adder.add_bytes(&[0x00, 0x01]); // type A (host address)
+            adder.add_bytes(&[0x00, 0x01]); // class IN
 
-            adder.add_bytes(&vec![0x03, 0x78, 0x79, 0x7A]); // xyz
-            adder.add_bytes(&vec![0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
-            adder.add_bytes(&vec![0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
-            adder.add_bytes(&vec![0x12, 0x34]); // invalid type
-            adder.add_bytes(&vec![0x23, 0x45]); // invalid class
+            adder.add_bytes(&[0x03, 0x78, 0x79, 0x7A]); // xyz
+            adder.add_bytes(&[0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
+            adder.add_bytes(&[0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
+            adder.add_bytes(&[0x12, 0x34]); // invalid type
+            adder.add_bytes(&[0x23, 0x45]); // invalid class
 
             adder.get_offset()
         };
@@ -956,29 +956,29 @@ mod tests {
         let mut buf: [u8; 500] = [0; 500];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 4);
-            adder.add_bytes(&vec![0x00, 0x01]); // 1 query
-            adder.add_bytes(&vec![0x00, 0x02]); // 2 answers
+            adder.add_bytes(&[0x00, 0x01]); // 1 query
+            adder.add_bytes(&[0x00, 0x02]); // 2 answers
             adder.skip_bytes(4);
 
-            adder.add_bytes(&vec![0x00, 0x12, 0x34, 0x43, 0x21]); // null query
+            adder.add_bytes(&[0x00, 0x12, 0x34, 0x43, 0x21]); // null query
 
-            adder.add_bytes(&vec![0x03, 0x77, 0x77, 0x77]); // www
-            adder.add_bytes(&vec![0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
-            adder.add_bytes(&vec![0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
-            adder.add_bytes(&vec![0x00, 0x01]); // type A (host address)
-            adder.add_bytes(&vec![0x00, 0x01]); // class IN
-            adder.add_bytes(&vec![0x45, 0x67, 0x89, 0xAB]); // time to live
-            adder.add_bytes(&vec![0x00, 0x04]); // rdata length
-            adder.add_bytes(&vec![0xCD, 0xEF, 0x01, 0x23]); // rdata
+            adder.add_bytes(&[0x03, 0x77, 0x77, 0x77]); // www
+            adder.add_bytes(&[0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
+            adder.add_bytes(&[0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
+            adder.add_bytes(&[0x00, 0x01]); // type A (host address)
+            adder.add_bytes(&[0x00, 0x01]); // class IN
+            adder.add_bytes(&[0x45, 0x67, 0x89, 0xAB]); // time to live
+            adder.add_bytes(&[0x00, 0x04]); // rdata length
+            adder.add_bytes(&[0xCD, 0xEF, 0x01, 0x23]); // rdata
 
-            adder.add_bytes(&vec![0x03, 0x78, 0x79, 0x7A]); // xyz
-            adder.add_bytes(&vec![0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
-            adder.add_bytes(&vec![0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
-            adder.add_bytes(&vec![0x23, 0x45]); // type
-            adder.add_bytes(&vec![0x34, 0x56]); // class
-            adder.add_bytes(&vec![0xFE, 0xDC, 0xBA, 0x98]); // time to live
-            adder.add_bytes(&vec![0x00, 0x04]); // rdata length
-            adder.add_bytes(&vec![0x56, 0x78, 0x9A, 0xBC]); // rdata
+            adder.add_bytes(&[0x03, 0x78, 0x79, 0x7A]); // xyz
+            adder.add_bytes(&[0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
+            adder.add_bytes(&[0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
+            adder.add_bytes(&[0x23, 0x45]); // type
+            adder.add_bytes(&[0x34, 0x56]); // class
+            adder.add_bytes(&[0xFE, 0xDC, 0xBA, 0x98]); // time to live
+            adder.add_bytes(&[0x00, 0x04]); // rdata length
+            adder.add_bytes(&[0x56, 0x78, 0x9A, 0xBC]); // rdata
 
             adder.get_offset()
         };
@@ -992,19 +992,13 @@ mod tests {
         assert_eq!(first_record.get_resource_type(), 0x0001);
         assert_eq!(first_record.get_resource_class(), 0x0001);
         assert_eq!(first_record.get_time_to_live(), 0x456789AB);
-        assert_eq!(
-            first_record.get_rdata(),
-            u8vec(&vec![0xCD, 0xEF, 0x01, 0x23])
-        );
+        assert_eq!(first_record.get_rdata(), u8vec(&[0xCD, 0xEF, 0x01, 0x23]));
         let second_record = &records[1];
         assert_eq!(second_record.get_name(), "xyz.fiddles.org");
         assert_eq!(second_record.get_resource_type(), 0x2345);
         assert_eq!(second_record.get_resource_class(), 0x3456);
         assert_eq!(second_record.get_time_to_live(), 0xFEDCBA98);
-        assert_eq!(
-            second_record.get_rdata(),
-            u8vec(&vec![0x56, 0x78, 0x9A, 0xBC])
-        );
+        assert_eq!(second_record.get_rdata(), u8vec(&[0x56, 0x78, 0x9A, 0xBC]));
 
         assert_eq!(subject.get_length(), length);
     }
@@ -1014,33 +1008,33 @@ mod tests {
         let mut buf: [u8; 500] = [0; 500];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 4);
-            adder.add_bytes(&vec![0x00, 0x01]); // 1 query
-            adder.add_bytes(&vec![0x00, 0x01]); // 1 answer
-            adder.add_bytes(&vec![0x00, 0x02]); // 2 authorities
+            adder.add_bytes(&[0x00, 0x01]); // 1 query
+            adder.add_bytes(&[0x00, 0x01]); // 1 answer
+            adder.add_bytes(&[0x00, 0x02]); // 2 authorities
             adder.skip_bytes(2);
 
-            adder.add_bytes(&vec![0x00, 0x12, 0x34, 0x43, 0x21]); // null query
-            adder.add_bytes(&vec![
+            adder.add_bytes(&[0x00, 0x12, 0x34, 0x43, 0x21]); // null query
+            adder.add_bytes(&[
                 0x00, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x12, 0x34, 0x00, 0x00,
             ]); // null answer
 
-            adder.add_bytes(&vec![0x03, 0x77, 0x77, 0x77]); // www
-            adder.add_bytes(&vec![0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
-            adder.add_bytes(&vec![0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
-            adder.add_bytes(&vec![0x00, 0x01]); // type A (host address)
-            adder.add_bytes(&vec![0x00, 0x01]); // class IN
-            adder.add_bytes(&vec![0x45, 0x67, 0x89, 0xAB]); // time to live
-            adder.add_bytes(&vec![0x00, 0x04]); // rdata length
-            adder.add_bytes(&vec![0xCD, 0xEF, 0x01, 0x23]); // rdata
+            adder.add_bytes(&[0x03, 0x77, 0x77, 0x77]); // www
+            adder.add_bytes(&[0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
+            adder.add_bytes(&[0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
+            adder.add_bytes(&[0x00, 0x01]); // type A (host address)
+            adder.add_bytes(&[0x00, 0x01]); // class IN
+            adder.add_bytes(&[0x45, 0x67, 0x89, 0xAB]); // time to live
+            adder.add_bytes(&[0x00, 0x04]); // rdata length
+            adder.add_bytes(&[0xCD, 0xEF, 0x01, 0x23]); // rdata
 
-            adder.add_bytes(&vec![0x03, 0x78, 0x79, 0x7A]); // xyz
-            adder.add_bytes(&vec![0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
-            adder.add_bytes(&vec![0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
-            adder.add_bytes(&vec![0x23, 0x45]); // type
-            adder.add_bytes(&vec![0x34, 0x56]); // class
-            adder.add_bytes(&vec![0xFE, 0xDC, 0xBA, 0x98]); // time to live
-            adder.add_bytes(&vec![0x00, 0x04]); // rdata length
-            adder.add_bytes(&vec![0x56, 0x78, 0x9A, 0xBC]); // rdata
+            adder.add_bytes(&[0x03, 0x78, 0x79, 0x7A]); // xyz
+            adder.add_bytes(&[0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
+            adder.add_bytes(&[0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
+            adder.add_bytes(&[0x23, 0x45]); // type
+            adder.add_bytes(&[0x34, 0x56]); // class
+            adder.add_bytes(&[0xFE, 0xDC, 0xBA, 0x98]); // time to live
+            adder.add_bytes(&[0x00, 0x04]); // rdata length
+            adder.add_bytes(&[0x56, 0x78, 0x9A, 0xBC]); // rdata
 
             adder.get_offset()
         };
@@ -1054,19 +1048,13 @@ mod tests {
         assert_eq!(first_record.get_resource_type(), 0x0001);
         assert_eq!(first_record.get_resource_class(), 0x0001);
         assert_eq!(first_record.get_time_to_live(), 0x456789AB);
-        assert_eq!(
-            first_record.get_rdata(),
-            u8vec(&vec![0xCD, 0xEF, 0x01, 0x23])
-        );
+        assert_eq!(first_record.get_rdata(), u8vec(&[0xCD, 0xEF, 0x01, 0x23]));
         let second_record = &records[1];
         assert_eq!(second_record.get_name(), "xyz.fiddles.org");
         assert_eq!(second_record.get_resource_type(), 0x2345);
         assert_eq!(second_record.get_resource_class(), 0x3456);
         assert_eq!(second_record.get_time_to_live(), 0xFEDCBA98);
-        assert_eq!(
-            second_record.get_rdata(),
-            u8vec(&vec![0x56, 0x78, 0x9A, 0xBC])
-        );
+        assert_eq!(second_record.get_rdata(), u8vec(&[0x56, 0x78, 0x9A, 0xBC]));
 
         assert_eq!(subject.get_length(), length);
     }
@@ -1076,36 +1064,36 @@ mod tests {
         let mut buf: [u8; 500] = [0; 500];
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 4);
-            adder.add_bytes(&vec![0x00, 0x01]); // 1 query
-            adder.add_bytes(&vec![0x00, 0x01]); // 1 answer
-            adder.add_bytes(&vec![0x00, 0x01]); // 1 authority
-            adder.add_bytes(&vec![0x00, 0x02]); // 2 additionals
+            adder.add_bytes(&[0x00, 0x01]); // 1 query
+            adder.add_bytes(&[0x00, 0x01]); // 1 answer
+            adder.add_bytes(&[0x00, 0x01]); // 1 authority
+            adder.add_bytes(&[0x00, 0x02]); // 2 additionals
 
-            adder.add_bytes(&vec![0x00, 0x12, 0x34, 0x43, 0x21]); // null query
-            adder.add_bytes(&vec![
+            adder.add_bytes(&[0x00, 0x12, 0x34, 0x43, 0x21]); // null query
+            adder.add_bytes(&[
                 0x00, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x12, 0x34, 0x00, 0x00,
             ]); // null answer
-            adder.add_bytes(&vec![
+            adder.add_bytes(&[
                 0x00, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10, 0x00, 0x00,
             ]); // null authority
 
-            adder.add_bytes(&vec![0x03, 0x77, 0x77, 0x77]); // www
-            adder.add_bytes(&vec![0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
-            adder.add_bytes(&vec![0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
-            adder.add_bytes(&vec![0x00, 0x01]); // type A (host address)
-            adder.add_bytes(&vec![0x00, 0x01]); // class IN
-            adder.add_bytes(&vec![0x45, 0x67, 0x89, 0xAB]); // time to live
-            adder.add_bytes(&vec![0x00, 0x04]); // rdata length
-            adder.add_bytes(&vec![0xCD, 0xEF, 0x01, 0x23]); // rdata
+            adder.add_bytes(&[0x03, 0x77, 0x77, 0x77]); // www
+            adder.add_bytes(&[0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
+            adder.add_bytes(&[0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
+            adder.add_bytes(&[0x00, 0x01]); // type A (host address)
+            adder.add_bytes(&[0x00, 0x01]); // class IN
+            adder.add_bytes(&[0x45, 0x67, 0x89, 0xAB]); // time to live
+            adder.add_bytes(&[0x00, 0x04]); // rdata length
+            adder.add_bytes(&[0xCD, 0xEF, 0x01, 0x23]); // rdata
 
-            adder.add_bytes(&vec![0x03, 0x78, 0x79, 0x7A]); // xyz
-            adder.add_bytes(&vec![0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
-            adder.add_bytes(&vec![0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
-            adder.add_bytes(&vec![0x23, 0x45]); // type
-            adder.add_bytes(&vec![0x34, 0x56]); // class
-            adder.add_bytes(&vec![0xFE, 0xDC, 0xBA, 0x98]); // time to live
-            adder.add_bytes(&vec![0x00, 0x04]); // rdata length
-            adder.add_bytes(&vec![0x56, 0x78, 0x9A, 0xBC]); // rdata
+            adder.add_bytes(&[0x03, 0x78, 0x79, 0x7A]); // xyz
+            adder.add_bytes(&[0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
+            adder.add_bytes(&[0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
+            adder.add_bytes(&[0x23, 0x45]); // type
+            adder.add_bytes(&[0x34, 0x56]); // class
+            adder.add_bytes(&[0xFE, 0xDC, 0xBA, 0x98]); // time to live
+            adder.add_bytes(&[0x00, 0x04]); // rdata length
+            adder.add_bytes(&[0x56, 0x78, 0x9A, 0xBC]); // rdata
 
             adder.get_offset()
         };
@@ -1119,19 +1107,13 @@ mod tests {
         assert_eq!(first_record.get_resource_type(), 0x0001);
         assert_eq!(first_record.get_resource_class(), 0x0001);
         assert_eq!(first_record.get_time_to_live(), 0x456789AB);
-        assert_eq!(
-            first_record.get_rdata(),
-            u8vec(&vec![0xCD, 0xEF, 0x01, 0x23])
-        );
+        assert_eq!(first_record.get_rdata(), u8vec(&[0xCD, 0xEF, 0x01, 0x23]));
         let second_record = &records[1];
         assert_eq!(second_record.get_name(), "xyz.fiddles.org");
         assert_eq!(second_record.get_resource_type(), 0x2345);
         assert_eq!(second_record.get_resource_class(), 0x3456);
         assert_eq!(second_record.get_time_to_live(), 0xFEDCBA98);
-        assert_eq!(
-            second_record.get_rdata(),
-            u8vec(&vec![0x56, 0x78, 0x9A, 0xBC])
-        );
+        assert_eq!(second_record.get_rdata(), u8vec(&[0x56, 0x78, 0x9A, 0xBC]));
 
         assert_eq!(subject.get_length(), length);
     }
@@ -1212,20 +1194,20 @@ mod tests {
         };
 
         let mut checker = ByteHandle::new(&mut buf, 4);
-        checker.check_bytes(&vec![0x00, 0x02]); // 2 queries
+        checker.check_bytes(&[0x00, 0x02]); // 2 queries
         checker.skip_bytes(6);
 
-        checker.check_bytes(&vec![0x03, 0x77, 0x77, 0x77]); // www
-        checker.check_bytes(&vec![0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
-        checker.check_bytes(&vec![0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
-        checker.check_bytes(&vec![0x00, 0x01]); // type A (host address)
-        checker.check_bytes(&vec![0x00, 0x01]); // class IN
+        checker.check_bytes(&[0x03, 0x77, 0x77, 0x77]); // www
+        checker.check_bytes(&[0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
+        checker.check_bytes(&[0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
+        checker.check_bytes(&[0x00, 0x01]); // type A (host address)
+        checker.check_bytes(&[0x00, 0x01]); // class IN
 
-        checker.check_bytes(&vec![0x03, 0x78, 0x79, 0x7A]); // xyz
-        checker.check_bytes(&vec![0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
-        checker.check_bytes(&vec![0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
-        checker.check_bytes(&vec![0x12, 0x34]); // invalid type
-        checker.check_bytes(&vec![0x23, 0x45]); // invalid class
+        checker.check_bytes(&[0x03, 0x78, 0x79, 0x7A]); // xyz
+        checker.check_bytes(&[0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
+        checker.check_bytes(&[0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
+        checker.check_bytes(&[0x12, 0x34]); // invalid type
+        checker.check_bytes(&[0x23, 0x45]); // invalid class
 
         assert_eq!(get_length, checker.get_offset());
     }
@@ -1243,7 +1225,7 @@ mod tests {
                     0x1234,
                     0x2345,
                     0x12345678,
-                    &vec![0x00, 0x05, 0x10, 0x15],
+                    &[0x00, 0x05, 0x10, 0x15],
                 ),
                 true
             );
@@ -1253,7 +1235,7 @@ mod tests {
                     0x3456,
                     0x4567,
                     0x87654321,
-                    &vec![0x20, 0x25, 0x30, 0x35],
+                    &[0x20, 0x25, 0x30, 0x35],
                 ),
                 true
             );
@@ -1262,29 +1244,29 @@ mod tests {
         };
 
         let mut checker = ByteHandle::new(&mut buf, 4);
-        checker.check_bytes(&vec![0x00, 0x01]); // 1 query
-        checker.check_bytes(&vec![0x00, 0x02]); // 2 answers
+        checker.check_bytes(&[0x00, 0x01]); // 1 query
+        checker.check_bytes(&[0x00, 0x02]); // 2 answers
         checker.skip_bytes(4);
 
-        checker.check_bytes(&vec![0x00, 0xFE, 0xDC, 0xBA, 0x98]); // query for spacing
+        checker.check_bytes(&[0x00, 0xFE, 0xDC, 0xBA, 0x98]); // query for spacing
 
-        checker.check_bytes(&vec![0x03, 0x77, 0x77, 0x77]); // www
-        checker.check_bytes(&vec![0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
-        checker.check_bytes(&vec![0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
-        checker.check_bytes(&vec![0x12, 0x34]); // resource_type
-        checker.check_bytes(&vec![0x23, 0x45]); // resource_class
-        checker.check_bytes(&vec![0x12, 0x34, 0x56, 0x78]); // time to live
-        checker.check_bytes(&vec![0x00, 0x04]); // resource data length
-        checker.check_bytes(&vec![0x00, 0x05, 0x10, 0x15]); // data
+        checker.check_bytes(&[0x03, 0x77, 0x77, 0x77]); // www
+        checker.check_bytes(&[0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
+        checker.check_bytes(&[0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
+        checker.check_bytes(&[0x12, 0x34]); // resource_type
+        checker.check_bytes(&[0x23, 0x45]); // resource_class
+        checker.check_bytes(&[0x12, 0x34, 0x56, 0x78]); // time to live
+        checker.check_bytes(&[0x00, 0x04]); // resource data length
+        checker.check_bytes(&[0x00, 0x05, 0x10, 0x15]); // data
 
-        checker.check_bytes(&vec![0x03, 0x78, 0x79, 0x7A]); // xyz
-        checker.check_bytes(&vec![0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
-        checker.check_bytes(&vec![0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
-        checker.check_bytes(&vec![0x34, 0x56]); // resource type
-        checker.check_bytes(&vec![0x45, 0x67]); // resource class
-        checker.check_bytes(&vec![0x87, 0x65, 0x43, 0x21]); // time to live
-        checker.check_bytes(&vec![0x00, 0x04]); // resource data length
-        checker.check_bytes(&vec![0x20, 0x25, 0x30, 0x35]); // data
+        checker.check_bytes(&[0x03, 0x78, 0x79, 0x7A]); // xyz
+        checker.check_bytes(&[0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
+        checker.check_bytes(&[0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
+        checker.check_bytes(&[0x34, 0x56]); // resource type
+        checker.check_bytes(&[0x45, 0x67]); // resource class
+        checker.check_bytes(&[0x87, 0x65, 0x43, 0x21]); // time to live
+        checker.check_bytes(&[0x00, 0x04]); // resource data length
+        checker.check_bytes(&[0x20, 0x25, 0x30, 0x35]); // data
 
         assert_eq!(get_length, checker.get_offset());
     }
@@ -1297,7 +1279,7 @@ mod tests {
 
             assert_eq!(subject.add_query("", 0xFEDC, 0xBA98), true);
             assert_eq!(
-                subject.add_answer("", 0xFEDC, 0xBA98, 0x76543210, &vec![]),
+                subject.add_answer("", 0xFEDC, 0xBA98, 0x76543210, &[]),
                 true
             );
             assert_eq!(
@@ -1306,7 +1288,7 @@ mod tests {
                     0x1234,
                     0x2345,
                     0x12345678,
-                    &vec![0x00, 0x05, 0x10, 0x15],
+                    &[0x00, 0x05, 0x10, 0x15],
                 ),
                 true
             );
@@ -1316,7 +1298,7 @@ mod tests {
                     0x3456,
                     0x4567,
                     0x87654321,
-                    &vec![0x20, 0x25, 0x30, 0x35],
+                    &[0x20, 0x25, 0x30, 0x35],
                 ),
                 true
             );
@@ -1325,33 +1307,33 @@ mod tests {
         };
 
         let mut checker = ByteHandle::new(&mut buf, 4);
-        checker.check_bytes(&vec![0x00, 0x01]); // 1 query
-        checker.check_bytes(&vec![0x00, 0x01]); // 1 answer
-        checker.check_bytes(&vec![0x00, 0x02]); // 2 authorities
+        checker.check_bytes(&[0x00, 0x01]); // 1 query
+        checker.check_bytes(&[0x00, 0x01]); // 1 answer
+        checker.check_bytes(&[0x00, 0x02]); // 2 authorities
         checker.skip_bytes(2);
 
-        checker.check_bytes(&vec![0x00, 0xFE, 0xDC, 0xBA, 0x98]); // query for spacing
-        checker.check_bytes(&vec![
+        checker.check_bytes(&[0x00, 0xFE, 0xDC, 0xBA, 0x98]); // query for spacing
+        checker.check_bytes(&[
             0x00, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10, 0x00, 0x00,
         ]); // answer for spacing
 
-        checker.check_bytes(&vec![0x03, 0x77, 0x77, 0x77]); // www
-        checker.check_bytes(&vec![0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
-        checker.check_bytes(&vec![0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
-        checker.check_bytes(&vec![0x12, 0x34]); // resource_type
-        checker.check_bytes(&vec![0x23, 0x45]); // resource_class
-        checker.check_bytes(&vec![0x12, 0x34, 0x56, 0x78]); // time to live
-        checker.check_bytes(&vec![0x00, 0x04]); // resource data length
-        checker.check_bytes(&vec![0x00, 0x05, 0x10, 0x15]); // data
+        checker.check_bytes(&[0x03, 0x77, 0x77, 0x77]); // www
+        checker.check_bytes(&[0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
+        checker.check_bytes(&[0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
+        checker.check_bytes(&[0x12, 0x34]); // resource_type
+        checker.check_bytes(&[0x23, 0x45]); // resource_class
+        checker.check_bytes(&[0x12, 0x34, 0x56, 0x78]); // time to live
+        checker.check_bytes(&[0x00, 0x04]); // resource data length
+        checker.check_bytes(&[0x00, 0x05, 0x10, 0x15]); // data
 
-        checker.check_bytes(&vec![0x03, 0x78, 0x79, 0x7A]); // xyz
-        checker.check_bytes(&vec![0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
-        checker.check_bytes(&vec![0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
-        checker.check_bytes(&vec![0x34, 0x56]); // resource type
-        checker.check_bytes(&vec![0x45, 0x67]); // resource class
-        checker.check_bytes(&vec![0x87, 0x65, 0x43, 0x21]); // time to live
-        checker.check_bytes(&vec![0x00, 0x04]); // resource data length
-        checker.check_bytes(&vec![0x20, 0x25, 0x30, 0x35]); // data
+        checker.check_bytes(&[0x03, 0x78, 0x79, 0x7A]); // xyz
+        checker.check_bytes(&[0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
+        checker.check_bytes(&[0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
+        checker.check_bytes(&[0x34, 0x56]); // resource type
+        checker.check_bytes(&[0x45, 0x67]); // resource class
+        checker.check_bytes(&[0x87, 0x65, 0x43, 0x21]); // time to live
+        checker.check_bytes(&[0x00, 0x04]); // resource data length
+        checker.check_bytes(&[0x20, 0x25, 0x30, 0x35]); // data
 
         assert_eq!(get_length, checker.get_offset());
     }
@@ -1364,11 +1346,11 @@ mod tests {
 
             assert_eq!(subject.add_query("", 0xFEDC, 0xBA98), true);
             assert_eq!(
-                subject.add_answer("", 0xFEDC, 0xBA98, 0x76543210, &vec![]),
+                subject.add_answer("", 0xFEDC, 0xBA98, 0x76543210, &[]),
                 true
             );
             assert_eq!(
-                subject.add_authority("", 0xFEDC, 0xBA98, 0x76543210, &vec![]),
+                subject.add_authority("", 0xFEDC, 0xBA98, 0x76543210, &[]),
                 true
             );
             assert_eq!(
@@ -1377,7 +1359,7 @@ mod tests {
                     0x1234,
                     0x2345,
                     0x12345678,
-                    &vec![0x00, 0x05, 0x10, 0x15],
+                    &[0x00, 0x05, 0x10, 0x15],
                 ),
                 true
             );
@@ -1387,7 +1369,7 @@ mod tests {
                     0x3456,
                     0x4567,
                     0x87654321,
-                    &vec![0x20, 0x25, 0x30, 0x35],
+                    &[0x20, 0x25, 0x30, 0x35],
                 ),
                 true
             );
@@ -1396,36 +1378,36 @@ mod tests {
         };
 
         let mut checker = ByteHandle::new(&mut buf, 4);
-        checker.check_bytes(&vec![0x00, 0x01]); // 1 query
-        checker.check_bytes(&vec![0x00, 0x01]); // 1 answer
-        checker.check_bytes(&vec![0x00, 0x01]); // 1 authority
-        checker.check_bytes(&vec![0x00, 0x02]); // 2 additionals
+        checker.check_bytes(&[0x00, 0x01]); // 1 query
+        checker.check_bytes(&[0x00, 0x01]); // 1 answer
+        checker.check_bytes(&[0x00, 0x01]); // 1 authority
+        checker.check_bytes(&[0x00, 0x02]); // 2 additionals
 
-        checker.check_bytes(&vec![0x00, 0xFE, 0xDC, 0xBA, 0x98]); // query for spacing
-        checker.check_bytes(&vec![
+        checker.check_bytes(&[0x00, 0xFE, 0xDC, 0xBA, 0x98]); // query for spacing
+        checker.check_bytes(&[
             0x00, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10, 0x00, 0x00,
         ]); // answer for spacing
-        checker.check_bytes(&vec![
+        checker.check_bytes(&[
             0x00, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10, 0x00, 0x00,
         ]); // authority for spacing
 
-        checker.check_bytes(&vec![0x03, 0x77, 0x77, 0x77]); // www
-        checker.check_bytes(&vec![0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
-        checker.check_bytes(&vec![0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
-        checker.check_bytes(&vec![0x12, 0x34]); // resource_type
-        checker.check_bytes(&vec![0x23, 0x45]); // resource_class
-        checker.check_bytes(&vec![0x12, 0x34, 0x56, 0x78]); // time to live
-        checker.check_bytes(&vec![0x00, 0x04]); // resource data length
-        checker.check_bytes(&vec![0x00, 0x05, 0x10, 0x15]); // data
+        checker.check_bytes(&[0x03, 0x77, 0x77, 0x77]); // www
+        checker.check_bytes(&[0x06, 0x64, 0x6F, 0x6D, 0x61, 0x69, 0x6E]); // domain
+        checker.check_bytes(&[0x03, 0x63, 0x6F, 0x6D, 0x00]); // com [end]
+        checker.check_bytes(&[0x12, 0x34]); // resource_type
+        checker.check_bytes(&[0x23, 0x45]); // resource_class
+        checker.check_bytes(&[0x12, 0x34, 0x56, 0x78]); // time to live
+        checker.check_bytes(&[0x00, 0x04]); // resource data length
+        checker.check_bytes(&[0x00, 0x05, 0x10, 0x15]); // data
 
-        checker.check_bytes(&vec![0x03, 0x78, 0x79, 0x7A]); // xyz
-        checker.check_bytes(&vec![0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
-        checker.check_bytes(&vec![0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
-        checker.check_bytes(&vec![0x34, 0x56]); // resource type
-        checker.check_bytes(&vec![0x45, 0x67]); // resource class
-        checker.check_bytes(&vec![0x87, 0x65, 0x43, 0x21]); // time to live
-        checker.check_bytes(&vec![0x00, 0x04]); // resource data length
-        checker.check_bytes(&vec![0x20, 0x25, 0x30, 0x35]); // data
+        checker.check_bytes(&[0x03, 0x78, 0x79, 0x7A]); // xyz
+        checker.check_bytes(&[0x07, 0x66, 0x69, 0x64, 0x64, 0x6C, 0x65, 0x73]); // fiddles
+        checker.check_bytes(&[0x03, 0x6F, 0x72, 0x67, 0x00]); // org [end]
+        checker.check_bytes(&[0x34, 0x56]); // resource type
+        checker.check_bytes(&[0x45, 0x67]); // resource class
+        checker.check_bytes(&[0x87, 0x65, 0x43, 0x21]); // time to live
+        checker.check_bytes(&[0x00, 0x04]); // resource data length
+        checker.check_bytes(&[0x20, 0x25, 0x30, 0x35]); // data
 
         assert_eq!(get_length, checker.get_offset());
     }
@@ -1435,12 +1417,12 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         {
             let mut adder = ByteHandle::new(&mut buf, 0);
-            adder.add_bytes(&vec![0x12, 0x34]); // transaction id
-            adder.add_bytes(&vec![0x56, 0x78]); // flags
-            adder.add_bytes(&vec![0x01, 0x01]); // query count
-            adder.add_bytes(&vec![0x01, 0x01]); // answer count
-            adder.add_bytes(&vec![0x01, 0x01]); // authority count
-            adder.add_bytes(&vec![0x01, 0x01]); // additional count
+            adder.add_bytes(&[0x12, 0x34]); // transaction id
+            adder.add_bytes(&[0x56, 0x78]); // flags
+            adder.add_bytes(&[0x01, 0x01]); // query count
+            adder.add_bytes(&[0x01, 0x01]); // answer count
+            adder.add_bytes(&[0x01, 0x01]); // authority count
+            adder.add_bytes(&[0x01, 0x01]); // additional count
         }
         {
             let mut subject = PacketFacade::new(&mut buf, 100);
@@ -1449,12 +1431,12 @@ mod tests {
         }
         {
             let mut checker = ByteHandle::new(&mut buf, 0);
-            checker.check_bytes(&vec![0x12, 0x34]); // transaction id unmolested
-            checker.check_bytes(&vec![0x56, 0x78]); // flags unmolested
-            checker.check_bytes(&vec![0x00, 0x00]); // queries cleared
-            checker.check_bytes(&vec![0x00, 0x00]); // answers cleared
-            checker.check_bytes(&vec![0x00, 0x00]); // authorities cleared
-            checker.check_bytes(&vec![0x00, 0x00]); // additionals cleared
+            checker.check_bytes(&[0x12, 0x34]); // transaction id unmolested
+            checker.check_bytes(&[0x56, 0x78]); // flags unmolested
+            checker.check_bytes(&[0x00, 0x00]); // queries cleared
+            checker.check_bytes(&[0x00, 0x00]); // answers cleared
+            checker.check_bytes(&[0x00, 0x00]); // authorities cleared
+            checker.check_bytes(&[0x00, 0x00]); // additionals cleared
         }
     }
 
@@ -1564,9 +1546,9 @@ mod tests {
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 0);
             adder.skip_bytes(4); // id and flags
-            adder.add_bytes(&vec![0x00, 0x01]); // one query
+            adder.add_bytes(&[0x00, 0x01]); // one query
             adder.skip_bytes(6); // answer, authority, additional counts
-            adder.add_bytes(&vec![0x01]); // 1-byte part
+            adder.add_bytes(&[0x01]); // 1-byte part
             adder.get_offset()
         };
         let subject = PacketFacade::new(&mut buf, length);
@@ -1591,9 +1573,9 @@ mod tests {
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 0);
             adder.skip_bytes(6); // id, flags, and query count
-            adder.add_bytes(&vec![0x00, 0x01]); // one answer
+            adder.add_bytes(&[0x00, 0x01]); // one answer
             adder.skip_bytes(4); // authority, additional count
-            adder.add_bytes(&vec![0x01]); // 1-byte part
+            adder.add_bytes(&[0x01]); // 1-byte part
             adder.get_offset()
         };
         let subject = PacketFacade::new(&mut buf, length);
@@ -1607,7 +1589,7 @@ mod tests {
         let mut buf: [u8; 12] = [0; 12];
         let mut subject = PacketFacade::new(&mut buf, 100);
 
-        let result = subject.add_answer("booga", 0x0101, 0x0202, 0x03030303, &vec![0x04]);
+        let result = subject.add_answer("booga", 0x0101, 0x0202, 0x03030303, &[0x04]);
 
         assert_eq!(result, false);
     }
@@ -1618,9 +1600,9 @@ mod tests {
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 0);
             adder.skip_bytes(8); // id, flags, and query, answer count
-            adder.add_bytes(&vec![0x00, 0x01]); // one authority
+            adder.add_bytes(&[0x00, 0x01]); // one authority
             adder.skip_bytes(2); // additional count
-            adder.add_bytes(&vec![0x01]); // 1-byte part
+            adder.add_bytes(&[0x01]); // 1-byte part
             adder.get_offset()
         };
         let subject = PacketFacade::new(&mut buf, length);
@@ -1634,7 +1616,7 @@ mod tests {
         let mut buf: [u8; 12] = [0; 12];
         let mut subject = PacketFacade::new(&mut buf, 100);
 
-        let result = subject.add_authority("booga", 0x0101, 0x0202, 0x03030303, &vec![0x04]);
+        let result = subject.add_authority("booga", 0x0101, 0x0202, 0x03030303, &[0x04]);
 
         assert_eq!(result, false);
     }
@@ -1645,8 +1627,8 @@ mod tests {
         let length = {
             let mut adder = ByteHandle::new(&mut buf, 0);
             adder.skip_bytes(10); // id, flags, and query, answer, authority count
-            adder.add_bytes(&vec![0x00, 0x01]); // one additional
-            adder.add_bytes(&vec![0x01]); // 1-byte part
+            adder.add_bytes(&[0x00, 0x01]); // one additional
+            adder.add_bytes(&[0x01]); // 1-byte part
             adder.get_offset()
         };
         let subject = PacketFacade::new(&mut buf, length);
@@ -1660,7 +1642,7 @@ mod tests {
         let mut buf: [u8; 12] = [0; 12];
         let mut subject = PacketFacade::new(&mut buf, 100);
 
-        let result = subject.add_authority("booga", 0x0101, 0x0202, 0x03030303, &vec![0x04]);
+        let result = subject.add_authority("booga", 0x0101, 0x0202, 0x03030303, &[0x04]);
 
         assert_eq!(result, false);
     }
@@ -1681,14 +1663,8 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         let mut subject = PacketFacade::new(&mut buf, 12);
 
-        let result = subject.write_resource_record(
-            12,
-            "booga",
-            0x1234,
-            0x5678,
-            0x9ABCDEF0,
-            &vec![0x24, 0x36],
-        );
+        let result =
+            subject.write_resource_record(12, "booga", 0x1234, 0x5678, 0x9ABCDEF0, &[0x24, 0x36]);
 
         assert_eq!(result, Some(19));
         assert_eq!(subject.length, 31);
@@ -1699,8 +1675,7 @@ mod tests {
         let mut buf: [u8; 14] = [0; 14];
         let mut subject = PacketFacade::new(&mut buf, 100);
 
-        let result =
-            subject.write_resource_record(12, "x", 0x1234, 0x5678, 0x9ABCDEF0, &vec![0x48]);
+        let result = subject.write_resource_record(12, "x", 0x1234, 0x5678, 0x9ABCDEF0, &[0x48]);
 
         assert_eq!(result, None);
     }
@@ -1710,7 +1685,7 @@ mod tests {
         let mut buf: [u8; 23] = [0; 23];
         let mut subject = PacketFacade::new(&mut buf, 100);
 
-        let result = subject.write_resource_record(12, "", 0x1234, 0x5678, 0x9ABCDEF0, &vec![0x48]);
+        let result = subject.write_resource_record(12, "", 0x1234, 0x5678, 0x9ABCDEF0, &[0x48]);
 
         assert_eq!(result, None);
     }
@@ -1733,12 +1708,12 @@ mod tests {
         subject.set_rcode(0x5);
         subject.add_query("a.b.c", 1000, 1001);
         subject.add_query("b.c.d", 1002, 1003);
-        subject.add_answer("c.d.e", 1004, 1005, 1006, &vec![0x01, 0x02]);
-        subject.add_answer("d.e.f", 1007, 1008, 1009, &vec![0x03, 0x04]);
-        subject.add_authority("e.f.g", 1010, 1011, 1012, &vec![0x05, 0x06]);
-        subject.add_authority("f.g.h", 1013, 1014, 1015, &vec![0x07, 0x08]);
-        subject.add_additional("g.h.i", 1016, 1017, 1018, &vec![0x09, 0x0A]);
-        subject.add_additional("h.i.j", 1019, 1020, 1021, &vec![0x0B, 0x0C]);
+        subject.add_answer("c.d.e", 1004, 1005, 1006, &[0x01, 0x02]);
+        subject.add_answer("d.e.f", 1007, 1008, 1009, &[0x03, 0x04]);
+        subject.add_authority("e.f.g", 1010, 1011, 1012, &[0x05, 0x06]);
+        subject.add_authority("f.g.h", 1013, 1014, 1015, &[0x07, 0x08]);
+        subject.add_additional("g.h.i", 1016, 1017, 1018, &[0x09, 0x0A]);
+        subject.add_additional("h.i.j", 1019, 1020, 1021, &[0x0B, 0x0C]);
 
         assert_eq!(subject.get_transaction_id(), Some(1022));
         assert_eq!(subject.is_query(), Some(false));
@@ -1766,12 +1741,12 @@ mod tests {
         assert_eq!(answers[0].get_resource_type(), 1004);
         assert_eq!(answers[0].get_resource_class(), 1005);
         assert_eq!(answers[0].get_time_to_live(), 1006);
-        assert_eq!(answers[0].get_rdata(), u8vec(&vec![0x01, 0x02]));
+        assert_eq!(answers[0].get_rdata(), u8vec(&[0x01, 0x02]));
         assert_eq!(answers[1].get_name(), "d.e.f");
         assert_eq!(answers[1].get_resource_type(), 1007);
         assert_eq!(answers[1].get_resource_class(), 1008);
         assert_eq!(answers[1].get_time_to_live(), 1009);
-        assert_eq!(answers[1].get_rdata(), u8vec(&vec![0x03, 0x04]));
+        assert_eq!(answers[1].get_rdata(), u8vec(&[0x03, 0x04]));
         assert_eq!(answers.len(), 2);
 
         let authorities = subject.get_authorities().unwrap();
@@ -1779,12 +1754,12 @@ mod tests {
         assert_eq!(authorities[0].get_resource_type(), 1010);
         assert_eq!(authorities[0].get_resource_class(), 1011);
         assert_eq!(authorities[0].get_time_to_live(), 1012);
-        assert_eq!(authorities[0].get_rdata(), u8vec(&vec![0x05, 0x06]));
+        assert_eq!(authorities[0].get_rdata(), u8vec(&[0x05, 0x06]));
         assert_eq!(authorities[1].get_name(), "f.g.h");
         assert_eq!(authorities[1].get_resource_type(), 1013);
         assert_eq!(authorities[1].get_resource_class(), 1014);
         assert_eq!(authorities[1].get_time_to_live(), 1015);
-        assert_eq!(authorities[1].get_rdata(), u8vec(&vec![0x07, 0x08]));
+        assert_eq!(authorities[1].get_rdata(), u8vec(&[0x07, 0x08]));
         assert_eq!(authorities.len(), 2);
 
         let additionals = subject.get_additionals().unwrap();
@@ -1792,12 +1767,12 @@ mod tests {
         assert_eq!(additionals[0].get_resource_type(), 1016);
         assert_eq!(additionals[0].get_resource_class(), 1017);
         assert_eq!(additionals[0].get_time_to_live(), 1018);
-        assert_eq!(additionals[0].get_rdata(), u8vec(&vec![0x09, 0x0A]));
+        assert_eq!(additionals[0].get_rdata(), u8vec(&[0x09, 0x0A]));
         assert_eq!(additionals[1].get_name(), "h.i.j");
         assert_eq!(additionals[1].get_resource_type(), 1019);
         assert_eq!(additionals[1].get_resource_class(), 1020);
         assert_eq!(additionals[1].get_time_to_live(), 1021);
-        assert_eq!(additionals[1].get_rdata(), u8vec(&vec![0x0B, 0x0C]));
+        assert_eq!(additionals[1].get_rdata(), u8vec(&[0x0B, 0x0C]));
         assert_eq!(additionals.len(), 2);
     }
 

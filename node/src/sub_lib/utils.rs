@@ -1,5 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use clap::App;
+use masq_lib::command::StdStreams;
+use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
+use masq_lib::shared_schema::ConfiguratorError;
+#[cfg(test)]
+use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 use std::io::ErrorKind;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -43,48 +49,6 @@ pub fn indicates_dead_stream(kind: ErrorKind) -> bool {
     DEAD_STREAM_ERRORS.contains(&kind)
 }
 
-pub fn index_of<T>(haystack: &[T], needles: &[T]) -> Option<usize>
-where
-    T: PartialEq,
-{
-    if needles.is_empty() {
-        return None;
-    }
-    for h in 0..haystack.len() {
-        let mut mismatch = false;
-        for n in 0..needles.len() {
-            let i = h + n;
-            if i >= haystack.len() {
-                mismatch = true;
-                break;
-            }
-            if haystack[i] != needles[n] {
-                mismatch = true;
-                break;
-            }
-        }
-        if !mismatch {
-            return Some(h);
-        }
-    }
-    None
-}
-
-pub fn index_of_from<T>(haystack: &Vec<T>, needle: &T, start_at: usize) -> Option<usize>
-where
-    T: PartialEq,
-{
-    let mut index = start_at;
-    while index < haystack.len() && (haystack[index] != *needle) {
-        index += 1;
-    }
-    if index >= haystack.len() {
-        None
-    } else {
-        Some(index)
-    }
-}
-
 pub fn time_t_timestamp() -> u32 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -99,15 +63,15 @@ pub fn make_printable_string(bytes: &[u8]) -> String {
             nonprintable if b"\n\r\t".contains(nonprintable) => {
                 format!("{}", *nonprintable as char)
             }
-            nonprintable if *nonprintable < ' ' as u8 => format!("{:02X}", nonprintable),
+            nonprintable if *nonprintable < b' ' => format!("{:02X}", nonprintable),
             _ => format!("{}", *b as char),
         })
         .collect();
     strs.join("")
 }
 
-pub fn to_string(data: &Vec<u8>) -> String {
-    match String::from_utf8(data.clone()) {
+pub fn to_string(data: &[u8]) -> String {
+    match String::from_utf8(data.to_owned()) {
         Ok(string) => make_printable_string(string.as_bytes()),
         Err(_) => format!("{:?}", data),
     }
@@ -131,6 +95,26 @@ pub static NODE_DESCRIPTOR_DELIMITERS: [char; 4] = ['_', '@', ':', ':'];
 
 pub fn node_descriptor_delimiter(chain_id: u8) -> char {
     NODE_DESCRIPTOR_DELIMITERS[chain_id as usize]
+}
+
+pub fn make_new_multi_config<'a>(
+    schema: &App<'a, 'a>,
+    vcls: Vec<Box<dyn VirtualCommandLine>>,
+    streams: &mut StdStreams,
+) -> Result<MultiConfig<'a>, ConfiguratorError> {
+    #[cfg(not(test))]
+    let running_test = false;
+    #[cfg(test)]
+    let running_test = true;
+    MultiConfig::try_new(schema, vcls, streams, running_test)
+}
+
+#[cfg(test)]
+pub fn make_new_test_multi_config<'a>(
+    schema: &App<'a, 'a>,
+    vcls: Vec<Box<dyn VirtualCommandLine>>,
+) -> Result<MultiConfig<'a>, ConfiguratorError> {
+    make_new_multi_config(schema, vcls, &mut FakeStreamHolder::new().streams())
 }
 
 #[cfg(test)]
@@ -185,84 +169,6 @@ pub mod tests {
                 kind
             )
         });
-    }
-
-    #[test]
-    fn index_of_fails_to_find_nonexistent_needle_in_haystack() {
-        let result = index_of("haystack".as_bytes(), "needle".as_bytes());
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn index_of_finds_needle_at_beginning_of_haystack() {
-        let result = index_of("haystack haystack".as_bytes(), "haystack".as_bytes());
-
-        assert_eq!(result, Some(0));
-    }
-
-    #[test]
-    fn index_of_finds_needle_at_end_of_haystack() {
-        let result = index_of("needle haystack".as_bytes(), "haystack".as_bytes());
-
-        assert_eq!(result, Some(7));
-    }
-
-    #[test]
-    fn index_of_fails_to_find_nonempty_needle_in_empty_haystack() {
-        let result = index_of("".as_bytes(), "needle".as_bytes());
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn index_of_returns_none_for_empty_needle() {
-        let result = index_of("haystack".as_bytes(), "".as_bytes());
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn index_of_fails_to_find_needle_that_ends_past_end_of_haystack() {
-        let result = index_of("haystack needl".as_bytes(), "needle".as_bytes());
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn index_of_from_fails_to_find_nonexistent_needle_in_haystack() {
-        let haystack = vec![true, true, true, true];
-
-        let result = index_of_from(&haystack, &false, 0);
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn index_of_from_fails_to_find_needle_in_empty_haystack() {
-        let haystack: Vec<i32> = vec![];
-
-        let result = index_of_from(&haystack, &-42, 0);
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn index_of_from_finds_needle_at_beginning_of_search() {
-        let haystack = vec![8, 7, 8, 3];
-
-        let result = index_of_from(&haystack, &8, 2);
-
-        assert_eq!(result, Some(2));
-    }
-
-    #[test]
-    fn index_of_from_finds_needle_at_end_of_haystack() {
-        let haystack = vec![8, 7, 8, 3];
-
-        let result = index_of_from(&haystack, &3, 0);
-
-        assert_eq!(result, Some(3));
     }
 
     #[test]

@@ -25,7 +25,7 @@ impl Command {
     }
 
     pub fn strings(slices: Vec<&str>) -> Vec<String> {
-        slices.into_iter().map(|x| String::from(x)).collect()
+        slices.into_iter().map(String::from).collect()
     }
 
     pub fn wait_for_exit(&mut self) -> i32 {
@@ -66,7 +66,7 @@ impl Command {
             string
         } else {
             string.truncate(MAX_PRINTED_STRING_SIZE);
-            string.extend(" [...truncated...]".chars());
+            string.push_str(" [...truncated...]");
             string
         }
     }

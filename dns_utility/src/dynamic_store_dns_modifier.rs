@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "macos")]
 use crate::dns_modifier::DnsModifier;
-use libc;
 use regex::Regex;
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -888,7 +887,7 @@ mod tests {
         assert!(cfpl_to_string_parameter_strings[2]
             .eq(&CFString::from_static_string("5.6.7.8").to_CFPropertyList()));
         assert_eq!(cfpl_to_string_parameter_strings.len(), 3);
-        assert!(get_parameters_from(cfpl_to_vec_parameters).eq(&vec!(server_addresses_cfpl)));
+        assert!(get_parameters_from(cfpl_to_vec_parameters).eq(&[server_addresses_cfpl]));
         let new_server_addresses =
             CFArray::from_CFTypes(&[CFString::from_static_string("127.0.0.1")]);
         let new_backup_server_addresses = CFArray::from_CFTypes(&[

@@ -117,7 +117,7 @@ fn verify_bill_payment() {
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = MASQRealNode::node_home_dir(&project_root, &consuming_node_name);
     let consuming_node_connection = DbInitializerReal::new()
-        .initialize(&consuming_node_path.clone().into(), cluster.chain_id)
+        .initialize(&consuming_node_path.clone().into(), cluster.chain_id, true)
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
     open_all_file_permissions(consuming_node_path.clone().into());
@@ -138,38 +138,50 @@ fn verify_bill_payment() {
         format!("{}", &serving_node_3_wallet),
         "0xb329c8b029a2d3d217e71bc4d188e8e1a4a8b924"
     );
-    consuming_payable_dao.more_money_payable(&serving_node_1_wallet, amount);
-    consuming_payable_dao.more_money_payable(&serving_node_2_wallet, amount);
-    consuming_payable_dao.more_money_payable(&serving_node_3_wallet, amount);
+    consuming_payable_dao
+        .more_money_payable(&serving_node_1_wallet, amount)
+        .unwrap();
+    consuming_payable_dao
+        .more_money_payable(&serving_node_2_wallet, amount)
+        .unwrap();
+    consuming_payable_dao
+        .more_money_payable(&serving_node_3_wallet, amount)
+        .unwrap();
 
     let (serving_node_1_name, serving_node_1_index) =
         cluster.prepare_real_node(&serving_node_1_config);
     let serving_node_1_path = MASQRealNode::node_home_dir(&project_root, &serving_node_1_name);
     let serving_node_1_connection = DbInitializerReal::new()
-        .initialize(&serving_node_1_path.clone().into(), cluster.chain_id)
+        .initialize(&serving_node_1_path.clone().into(), cluster.chain_id, true)
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
-    serving_node_1_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
+    serving_node_1_receivable_dao
+        .more_money_receivable(&contract_owner_wallet, amount)
+        .unwrap();
     open_all_file_permissions(serving_node_1_path.clone().into());
 
     let (serving_node_2_name, serving_node_2_index) =
         cluster.prepare_real_node(&serving_node_2_config);
     let serving_node_2_path = MASQRealNode::node_home_dir(&project_root, &serving_node_2_name);
     let serving_node_2_connection = DbInitializerReal::new()
-        .initialize(&serving_node_2_path.clone().into(), cluster.chain_id)
+        .initialize(&serving_node_2_path.clone().into(), cluster.chain_id, true)
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
-    serving_node_2_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
+    serving_node_2_receivable_dao
+        .more_money_receivable(&contract_owner_wallet, amount)
+        .unwrap();
     open_all_file_permissions(serving_node_2_path.clone().into());
 
     let (serving_node_3_name, serving_node_3_index) =
         cluster.prepare_real_node(&serving_node_3_config);
     let serving_node_3_path = MASQRealNode::node_home_dir(&project_root, &serving_node_3_name);
     let serving_node_3_connection = DbInitializerReal::new()
-        .initialize(&serving_node_3_path.clone().into(), cluster.chain_id)
+        .initialize(&serving_node_3_path.clone().into(), cluster.chain_id, true)
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
-    serving_node_3_receivable_dao.more_money_receivable(&contract_owner_wallet, amount);
+    serving_node_3_receivable_dao
+        .more_money_receivable(&contract_owner_wallet, amount)
+        .unwrap();
     open_all_file_permissions(serving_node_3_path.clone().into());
 
     expire_payables(consuming_node_path.into(), cluster.chain_id);
@@ -367,7 +379,7 @@ fn make_seed() -> Seed {
 
 fn expire_payables(path: PathBuf, chain_id: u8) {
     let conn = DbInitializerReal::new()
-        .initialize(&path, chain_id)
+        .initialize(&path, chain_id, true)
         .unwrap();
     let mut statement = conn
         .prepare(
@@ -384,7 +396,7 @@ fn expire_payables(path: PathBuf, chain_id: u8) {
 
 fn expire_receivables(path: PathBuf, chain_id: u8) {
     let conn = DbInitializerReal::new()
-        .initialize(&path, chain_id)
+        .initialize(&path, chain_id, true)
         .unwrap();
     let mut statement = conn
         .prepare("update receivable set last_received_timestamp = 0")

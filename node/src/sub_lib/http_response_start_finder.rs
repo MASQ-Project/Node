@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::masq_lib::utils::index_of;
 use crate::sub_lib::http_packet_framer::ChunkExistenceState;
 use crate::sub_lib::http_packet_framer::ChunkProgressState;
 use crate::sub_lib::http_packet_framer::HttpFramerState;
 use crate::sub_lib::http_packet_framer::HttpPacketStartFinder;
 use crate::sub_lib::http_packet_framer::PacketProgressState;
-use crate::sub_lib::utils::index_of;
 use regex::Regex;
 
 const LONGEST_PREFIX_LEN: usize = 13;

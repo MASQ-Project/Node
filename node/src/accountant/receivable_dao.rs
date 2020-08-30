@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::accountant::PaymentCurves;
+use crate::accountant::{jackass_unsigned_to_signed, PaymentCurves, PaymentError};
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::dao_utils;
 use crate::database::dao_utils::to_time_t;
@@ -11,7 +11,6 @@ use indoc::indoc;
 use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
-use std::convert::TryFrom;
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,7 +21,7 @@ pub struct ReceivableAccount {
 }
 
 pub trait ReceivableDao: Send {
-    fn more_money_receivable(&self, wallet: &Wallet, amount: u64);
+    fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError>;
 
     fn more_money_received(
         &mut self,
@@ -53,11 +52,12 @@ pub struct ReceivableDaoReal {
 }
 
 impl ReceivableDao for ReceivableDaoReal {
-    fn more_money_receivable(&self, wallet: &Wallet, amount: u64) {
-        match self.try_update(wallet, amount) {
-            Ok(true) => (),
-            Ok(false) => match self.try_insert(wallet, amount) {
-                Ok(_) => (),
+    fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError> {
+        let signed_amount = jackass_unsigned_to_signed(amount)?;
+        match self.try_update(wallet, signed_amount) {
+            Ok(true) => Ok(()),
+            Ok(false) => match self.try_insert(wallet, signed_amount) {
+                Ok(_) => Ok(()),
                 Err(e) => {
                     fatal!(self.logger, "Couldn't insert; database is corrupt: {}", e);
                 }
@@ -65,7 +65,7 @@ impl ReceivableDao for ReceivableDaoReal {
             Err(e) => {
                 fatal!(self.logger, "Couldn't update: database is corrupt: {}", e);
             }
-        };
+        }
     }
 
     fn more_money_received(
@@ -75,8 +75,8 @@ impl ReceivableDao for ReceivableDaoReal {
     ) {
         self.try_multi_insert_payment(persistent_configuration, payments)
             .unwrap_or_else(|e| {
-                warning!(self.logger, "Transaction failed, rolling back: {}", e);
-            });
+                error!(self.logger, "Transaction failed, rolling back: {}", e);
+            })
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
@@ -173,11 +173,11 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        let min_amt = match i64::try_from(minimum_amount) {
+        let min_amt = match jackass_unsigned_to_signed(minimum_amount) {
             Ok(n) => n,
             Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
-        let max_age = match i64::try_from(maximum_age) {
+        let max_age = match jackass_unsigned_to_signed(maximum_age) {
             Ok(n) => n,
             Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
         };
@@ -258,12 +258,12 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn try_update(&self, wallet: &Wallet, amount: u64) -> Result<bool, String> {
+    fn try_update(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
             .prepare("update receivable set balance = balance + ? where wallet_address = ?")
             .expect("Internal error");
-        let params: &[&dyn ToSql] = &[&(amount as i64), &wallet];
+        let params: &[&dyn ToSql] = &[&amount, &wallet];
         match stmt.execute(params) {
             Ok(0) => Ok(false),
             Ok(_) => Ok(true),
@@ -271,10 +271,10 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn try_insert(&self, wallet: &Wallet, amount: u64) -> Result<(), String> {
+    fn try_insert(&self, wallet: &Wallet, amount: i64) -> Result<(), String> {
         let timestamp = dao_utils::to_time_t(SystemTime::now());
         let mut stmt = self.conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect ("Internal error");
-        let params: &[&dyn ToSql] = &[&wallet, &(amount as i64), &(timestamp as i64)];
+        let params: &[&dyn ToSql] = &[&wallet, &amount, &(timestamp as i64)];
         match stmt.execute(params) {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("{}", e)),
@@ -303,11 +303,11 @@ impl ReceivableDaoReal {
             let mut stmt = tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?").expect("Internal error");
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
-                let params: &[&dyn ToSql] = &[
-                    &(transaction.gwei_amount as i64),
-                    &(timestamp as i64),
-                    &transaction.from,
-                ];
+                let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
+                    Ok(amount) => amount,
+                    Err(e) => return Err(format!("Amount too large: {:?}", e)),
+                };
+                let params: &[&dyn ToSql] = &[&gwei_amount, &timestamp, &transaction.from];
                 stmt.execute(params).map_err(|e| e.to_string())?;
             }
         }
@@ -359,11 +359,11 @@ mod tests {
         let status = {
             let subject = ReceivableDaoReal::new(
                 DbInitializerReal::new()
-                    .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
 
-            subject.more_money_receivable(&wallet, 1234);
+            subject.more_money_receivable(&wallet, 1234).unwrap();
             subject.account_status(&wallet).unwrap()
         };
 
@@ -395,10 +395,10 @@ mod tests {
         let subject = {
             let subject = ReceivableDaoReal::new(
                 DbInitializerReal::new()
-                    .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
-            subject.more_money_receivable(&wallet, 1234);
+            subject.more_money_receivable(&wallet, 1234).unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             let conn =
@@ -413,13 +413,30 @@ mod tests {
         };
 
         let status = {
-            subject.more_money_receivable(&wallet, 2345);
+            subject.more_money_receivable(&wallet, 2345).unwrap();
             subject.account_status(&wallet).unwrap()
         };
 
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance, 3579);
         assert_eq!(status.last_received_timestamp, SystemTime::UNIX_EPOCH);
+    }
+
+    #[test]
+    fn more_money_receivable_works_for_overflow() {
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "more_money_receivable_works_for_overflow",
+        );
+        let subject = ReceivableDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .unwrap(),
+        );
+
+        let result = subject.more_money_receivable(&make_wallet("booga"), std::u64::MAX);
+
+        assert_eq!(result, Err(PaymentError::SignConversion(std::u64::MAX)))
     }
 
     #[test]
@@ -434,11 +451,11 @@ mod tests {
         let mut subject = {
             let subject = ReceivableDaoReal::new(
                 DbInitializerReal::new()
-                    .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
-            subject.more_money_receivable(&debtor1, 1234);
-            subject.more_money_receivable(&debtor2, 2345);
+            subject.more_money_receivable(&debtor1, 1234).unwrap();
+            subject.more_money_receivable(&debtor2, 2345).unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             subject
@@ -446,7 +463,7 @@ mod tests {
 
         let config_dao = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let persistent_config: Box<dyn PersistentConfiguration> =
@@ -498,13 +515,13 @@ mod tests {
         let debtor = make_wallet("unknown_wallet");
         let mut subject = ReceivableDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
         let config_dao = ConfigDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let persistent_config: Box<dyn PersistentConfiguration> =
@@ -537,7 +554,7 @@ mod tests {
         receivable_dao.more_money_received(persistent_configuration.as_ref(), vec![]);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: ReceivableDaoReal: Transaction failed, rolling back: {}",
+            "ERROR: ReceivableDaoReal: Transaction failed, rolling back: {}",
             Error::InvalidQuery
         ));
     }
@@ -553,7 +570,7 @@ mod tests {
 
         let mut receivable_dao = ReceivableDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -563,7 +580,7 @@ mod tests {
         receivable_dao.more_money_received(persistent_configuration.as_ref(), vec![]);
 
         TestLogHandler::new().exists_log_containing(
-            "WARN: ReceivableDaoReal: Transaction failed, rolling back: no payments given",
+            "ERROR: ReceivableDaoReal: Transaction failed, rolling back: no payments given",
         );
     }
 
@@ -578,7 +595,7 @@ mod tests {
 
         let mut receivable_dao = ReceivableDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -597,7 +614,7 @@ mod tests {
         receivable_dao.more_money_received(persistent_configuration.as_ref(), payments);
 
         TestLogHandler::new().exists_log_containing(
-            r#"WARN: ReceivableDaoReal: Transaction failed, rolling back: BOOM"#,
+            r#"ERROR: ReceivableDaoReal: Transaction failed, rolling back: BOOM"#,
         );
     }
 
@@ -610,7 +627,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
@@ -631,12 +648,12 @@ mod tests {
 
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID)
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
 
-        subject.more_money_receivable(&wallet1, 1234);
-        subject.more_money_receivable(&wallet2, 2345);
+        subject.more_money_receivable(&wallet1, 1234).unwrap();
+        subject.more_money_receivable(&wallet2, 2345).unwrap();
 
         let accounts = subject
             .receivables()
@@ -702,7 +719,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
         let db_initializer = DbInitializerReal::new();
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         add_receivable_account(&conn, &not_delinquent_inside_grace_period);
         add_receivable_account(&conn, &not_delinquent_after_grace_below_slope);
@@ -740,7 +757,7 @@ mod tests {
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
         let db_initializer = DbInitializerReal::new();
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         add_receivable_account(&conn, &not_delinquent);
         add_receivable_account(&conn, &delinquent);
@@ -773,7 +790,7 @@ mod tests {
             ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
         let db_initializer = DbInitializerReal::new();
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         add_receivable_account(&conn, &not_delinquent);
         add_receivable_account(&conn, &delinquent);
@@ -809,7 +826,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::new();
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         add_receivable_account(&conn, &existing_delinquency);
         add_receivable_account(&conn, &new_delinquency);
@@ -839,7 +856,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("accountant", "paid_delinquencies");
         let db_initializer = DbInitializerReal::new();
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         add_receivable_account(&conn, &paid_delinquent);
         add_receivable_account(&conn, &unpaid_delinquent);
@@ -874,7 +891,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::new();
         let conn = db_initializer
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         add_receivable_account(&conn, &newly_non_delinquent);
         add_receivable_account(&conn, &old_non_delinquent);
@@ -891,7 +908,7 @@ mod tests {
     fn top_records_and_total() {
         let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
         let conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let insert = |wallet: &str, balance: i64, timestamp: i64| {
             let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp];
@@ -954,7 +971,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("receivable_dao", "correctly_totals_zero_records");
         let conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let subject = ReceivableDaoReal::new(conn);
 

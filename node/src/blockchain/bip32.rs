@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use bip39;
 use bip39::Seed;
 use ethsign::keyfile::Crypto;
 use ethsign::{Protected, PublicKey, SecretKey, Signature};

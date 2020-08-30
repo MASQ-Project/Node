@@ -151,8 +151,7 @@ mod tests {
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let target_key = PublicKey::new(&[1, 2]);
-        let target_node_addr =
-            NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &vec![1212, 2121]);
+        let target_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &[1212, 2121]);
         let package = NoLookupIncipientCoresPackage::new(
             main_cryptde(),
             &target_key,
@@ -190,8 +189,7 @@ mod tests {
     fn complains_when_consume_no_lookup_is_given_bad_parameters() {
         init_test_logging();
         let blank_key = PublicKey::new(b"");
-        let target_node_addr =
-            NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &vec![1212, 2121]);
+        let target_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &[1212, 2121]);
         let package = NoLookupIncipientCoresPackage {
             public_key: blank_key.clone(),
             node_addr: target_node_addr.clone(),

@@ -33,11 +33,13 @@ impl ServerImpersonator for ServerImpersonatorHttp {
             503,
             "DNS Resolution Problem",
             &format!("Exit Node couldn't resolve {}", quoted_server_name),
-            &format!("We chose the exit Node {} for your request to {}; but when it asked \
+            &format!(
+                "We chose the exit Node {} for your request to {}; but when it asked \
         its DNS server to look up the IP address for {}, it wasn't found. If {} exists, \
         it will need to be looked up by a different exit Node. We've deprioritized this exit Node. \
         Reload the page, and we'll try to find another.",
-                     exit_key, server_name, server_name, server_name),
+                exit_key, server_name, server_name, server_name
+            ),
         )
     }
 

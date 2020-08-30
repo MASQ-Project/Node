@@ -203,7 +203,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         let mut subject = DnsUtility::new();
 
-        let result = subject.go(&mut holder.streams(), &vec![String::new()]);
+        let result = subject.go(&mut holder.streams(), &[String::new()]);
 
         assert_eq!(result, 1);
         assert_eq!(
@@ -219,7 +219,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("blooga")],
+            &[String::new(), String::from("blooga")],
         );
 
         assert_eq!(result, 1);
@@ -238,7 +238,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("subvert")],
+            &[String::new(), String::from("subvert")],
         );
 
         assert_eq!(result, 1);
@@ -259,7 +259,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("subvert")],
+            &[String::new(), String::from("subvert")],
         );
 
         assert_eq!(result, 1);
@@ -279,7 +279,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("subvert")],
+            &[String::new(), String::from("subvert")],
         );
 
         assert_eq!(result, 0);
@@ -296,7 +296,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("revert")],
+            &[String::new(), String::from("revert")],
         );
 
         assert_eq!(result, 1);
@@ -316,7 +316,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("revert")],
+            &[String::new(), String::from("revert")],
         );
 
         assert_eq!(result, 0);
@@ -334,7 +334,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("inspect")],
+            &[String::new(), String::from("inspect")],
         );
 
         assert_eq!(result, 1);
@@ -354,7 +354,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("inspect")],
+            &[String::new(), String::from("inspect")],
         );
 
         assert_eq!(result, 0);
@@ -373,7 +373,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("status")],
+            &[String::new(), String::from("status")],
         );
 
         assert_eq!(result, 1);
@@ -393,7 +393,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("status")],
+            &[String::new(), String::from("status")],
         );
 
         assert_eq!(result, 0);
@@ -411,7 +411,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("status")],
+            &[String::new(), String::from("status")],
         );
 
         assert_eq!(result, 0);
@@ -430,7 +430,7 @@ mod tests {
 
         let result = subject.go(
             &mut holder.streams(),
-            &vec![String::new(), String::from("status")],
+            &[String::new(), String::from("status")],
         );
 
         assert_eq!(result, 0);

@@ -80,7 +80,7 @@ impl JsonFramer {
     }
 
     fn update_state(&mut self, byte: u8, offset: usize) {
-        static BS: u8 = '\\' as u8;
+        static BS: u8 = b'\\';
 
         if self.after_backslash {
             self.after_backslash = false;
@@ -95,8 +95,8 @@ impl JsonFramer {
     }
 
     fn handle_quotes(&mut self, byte: u8) {
-        static SQ: u8 = '\'' as u8;
-        static DQ: u8 = '"' as u8;
+        static SQ: u8 = b'\'';
+        static DQ: u8 = b'"';
 
         if self.possible_start.is_none() {
             return;
@@ -116,8 +116,8 @@ impl JsonFramer {
     }
 
     fn handle_braces(&mut self, byte: u8, offset: usize) {
-        static OB: u8 = '{' as u8;
-        static CB: u8 = '}' as u8;
+        static OB: u8 = b'{';
+        static CB: u8 = b'}';
 
         if byte == OB {
             self.brace_nest_count += 1;

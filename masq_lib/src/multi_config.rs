@@ -1,10 +1,15 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::command::StdStreams;
+use crate::shared_schema::{ConfiguratorError, ParamError};
+use crate::utils::exit_process;
 #[allow(unused_imports)]
 use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
+use regex::Regex;
+use serde::export::Formatter;
 use std::collections::HashSet;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::PathBuf;
@@ -47,6 +52,27 @@ macro_rules! values_m {
 
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
+    content: Box<dyn VirtualCommandLine>,
+}
+
+impl<'a> Debug for MultiConfig<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let representation = self
+            .content
+            .vcl_args()
+            .into_iter()
+            .map(|vcl_arg| {
+                let strings = vcl_arg.to_args();
+                if strings.len() == 1 {
+                    strings[0].clone()
+                } else {
+                    format!("{} {}", strings[0], strings[1])
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(" ");
+        write!(f, "{{{}}}", representation)
+    }
 }
 
 impl<'a> MultiConfig<'a> {
@@ -54,28 +80,72 @@ impl<'a> MultiConfig<'a> {
     /// several VirtualCommandLine objects in increasing priority order. That is, values found in
     /// VirtualCommandLine objects placed later in the list will override values found in
     /// VirtualCommandLine objects placed earlier.
-    pub fn new(schema: &App<'a, 'a>, vcls: Vec<Box<dyn VirtualCommandLine>>) -> MultiConfig<'a> {
+    pub fn try_new(
+        schema: &App<'a, 'a>,
+        vcls: Vec<Box<dyn VirtualCommandLine>>,
+        streams: &mut StdStreams,
+        running_test: bool,
+    ) -> Result<MultiConfig<'a>, ConfiguratorError> {
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
         let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
-        MultiConfig {
-            arg_matches: schema
-                .clone()
-                .get_matches_from_safe(merged.args().into_iter())
-                .unwrap_or_else(|e| {
-                    if cfg!(test) {
-                        panic!("{:?}. --panic to catch for testing--", e)
-                    } else {
-                        e.exit()
-                    }
-                }),
-        }
+        let arg_matches = match schema
+            .clone()
+            .get_matches_from_safe(merged.args().into_iter())
+        {
+            Ok(matches) => matches,
+            Err(e)
+                if (e.kind == clap::ErrorKind::HelpDisplayed)
+                    || (e.kind == clap::ErrorKind::VersionDisplayed) =>
+            {
+                writeln!(streams.stdout, "{}", e.message).expect("writeln! failed");
+                exit_process(0, "", running_test);
+                panic!("This line should never execute, but tells Rust there's no return");
+            }
+            Err(e) => return Err(Self::make_configurator_error(e)),
+        };
+        Ok(MultiConfig {
+            arg_matches,
+            content: merged,
+        })
     }
 
     pub fn arg_matches(&'a self) -> &ArgMatches<'a> {
         &self.arg_matches
+    }
+
+    fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
+        let invalid_value_regex =
+            Regex::new("Invalid value for.*'--(.*?) <.*? (.*)$").expect("Bad regex");
+        if let Some(captures) = invalid_value_regex.captures(&e.message) {
+            let name = &captures[1];
+            let message = format!("Invalid value: {}", &captures[2]);
+            return ConfiguratorError::required(name, &message);
+        }
+        if e.message
+            .contains("The following required arguments were not provided:")
+        {
+            let mut remaining_message = match e.message.find("USAGE:") {
+                Some(idx) => e.message[0..idx].to_string(),
+                None => e.message.to_string(),
+            };
+            let required_value_regex = Regex::new("--(.*?) ").expect("Bad regex");
+            let mut requireds: Vec<ParamError> = vec![];
+            while let Some(captures) = required_value_regex.captures(&remaining_message) {
+                requireds.push(ParamError::new(
+                    &captures[1],
+                    "ParamError parameter not provided",
+                ));
+                match remaining_message.find(&captures[1]) {
+                    Some(idx) => remaining_message = remaining_message[idx..].to_string(),
+                    None => remaining_message = "".to_string(),
+                }
+            }
+            return ConfiguratorError::new(requireds);
+        }
+        ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", e.message))
     }
 }
 
@@ -155,6 +225,12 @@ impl NameOnlyVclArg {
 pub trait VirtualCommandLine {
     fn vcl_args(&self) -> Vec<&dyn VclArg>;
     fn args(&self) -> Vec<String>;
+}
+
+impl Debug for dyn VirtualCommandLine {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self.args())
+    }
 }
 
 pub fn merge(
@@ -259,10 +335,10 @@ impl EnvironmentVcl {
             .collect();
         let mut vcl_args: Vec<Box<dyn VclArg>> = vec![];
         for (upper_name, value) in std::env::vars() {
-            if (upper_name.len() < 4) || (&upper_name[0..4] != "SUB_") {
+            if (upper_name.len() < 5) || (&upper_name[0..5] != "MASQ_") {
                 continue;
             }
-            let lower_name = str::replace(&upper_name[4..].to_lowercase(), "_", "-");
+            let lower_name = str::replace(&upper_name[5..].to_lowercase(), "_", "-");
             if opt_names.contains(&lower_name) {
                 let name = format!("--{}", lower_name);
                 vcl_args.push(Box::new(NameValueVclArg::new(&name, &value)));
@@ -286,70 +362,229 @@ impl VirtualCommandLine for ConfigFileVcl {
     }
 }
 
+#[derive(Debug)]
+pub enum ConfigFileVclError {
+    OpenError(PathBuf, std::io::Error),
+    CorruptUtf8(PathBuf),
+    Unreadable(PathBuf, std::io::Error),
+    CorruptToml(PathBuf, String),
+    InvalidConfig(PathBuf, String),
+}
+
+impl Display for ConfigFileVclError {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigFileVclError::OpenError(path, _) => write!(
+                fmt,
+                "Couldn't open configuration file {:?}. Are you sure it exists?",
+                path
+            ),
+            ConfigFileVclError::CorruptUtf8(path) => write!(
+                fmt,
+                "The configuration file {:?} looks like some kind of binary file, not UTF-8 text.",
+                path
+            ),
+            ConfigFileVclError::Unreadable(path, _) => write!(
+                fmt,
+                "The permissions on configuration file {:?} make it unreadable.",
+                path
+            ),
+            ConfigFileVclError::CorruptToml(path, error) => write!(
+                fmt,
+                "Configuration file {:?} isn't a valid TOML file: {}.",
+                path, error
+            ),
+            ConfigFileVclError::InvalidConfig(path, error) => write!(
+                fmt,
+                "Configuration file {:?} doesn't make sense: {}.",
+                path, error
+            ),
+        }
+    }
+}
+
 impl ConfigFileVcl {
-    pub fn new(file_path: &PathBuf, user_specified: bool) -> ConfigFileVcl {
+    pub fn new(
+        file_path: &PathBuf,
+        user_specified: bool,
+    ) -> Result<ConfigFileVcl, ConfigFileVclError> {
         let mut file: File = match File::open(file_path) {
             Err(e) => {
                 if user_specified {
-                    panic!(
-                        "Configuration file at {:?} could not be read: {}",
-                        file_path, e
-                    )
+                    return Err(ConfigFileVclError::OpenError(file_path.clone(), e));
                 } else {
-                    println!(
-                        "No configuration file was found at {} - skipping",
-                        file_path.display()
-                    );
-                    return ConfigFileVcl { vcl_args: vec![] };
+                    return Ok(ConfigFileVcl { vcl_args: vec![] });
                 }
             }
             Ok(file) => file,
         };
         let mut contents = String::new();
         match file.read_to_string(&mut contents) {
-            Err(ref e) if e.kind() == ErrorKind::InvalidData => panic!("Configuration file at {:?} is corrupted: contains data that cannot be interpreted as UTF-8", file_path),
-            Err(e) => panic!("Configuration file at {:?}: {}", file_path, e),
+            Err(ref e) if e.kind() == ErrorKind::InvalidData => {
+                return Err(ConfigFileVclError::CorruptUtf8(file_path.clone()))
+            }
+            Err(e) => return Err(ConfigFileVclError::Unreadable(file_path.clone(), e)),
             Ok(_) => (),
         };
         let table: Table = match toml::de::from_str(&contents) {
-            Err(e) => panic!(
-                "Configuration file at {:?} has bad TOML syntax: {}",
-                file_path, e
-            ),
+            Err(e) => {
+                return Err(ConfigFileVclError::CorruptToml(
+                    file_path.clone(),
+                    e.to_string(),
+                ))
+            }
             Ok(table) => table,
         };
-        let vcl_args: Vec<Box<dyn VclArg>> = table
+        let vcl_args_and_errs: Vec<Result<Box<dyn VclArg>, ConfigFileVclError>> = table
             .keys()
             .map(|key| {
                 let name = format!("--{}", key);
                 let value = match table.get(key).expect("value disappeared") {
-                    Value::Table(_) => Self::complain_about_data_elements(file_path),
-                    Value::Array(_) => Self::complain_about_data_elements(file_path),
-                    Value::Datetime(_) => Self::complain_about_data_elements(file_path),
-                    Value::String(v) => v.as_str().to_string(),
-                    v => v.to_string(),
+                    Value::Table(_) => Err(ConfigFileVclError::InvalidConfig(
+                        file_path.clone(),
+                        format!(
+                            "parameter '{}' must have a scalar value, not a table value",
+                            key
+                        ),
+                    )),
+                    Value::Array(_) => Err(ConfigFileVclError::InvalidConfig(
+                        file_path.clone(),
+                        format!(
+                            "parameter '{}' must have a scalar value, not an array value",
+                            key
+                        ),
+                    )),
+                    Value::Datetime(_) => Err(ConfigFileVclError::InvalidConfig(
+                        file_path.clone(),
+                        format!(
+                            "parameter '{}' must have a string value, not a date or time value",
+                            key
+                        ),
+                    )),
+                    Value::String(v) => Ok(v.as_str().to_string()),
+                    v => Ok(v.to_string()),
                 };
-                let result: Box<dyn VclArg> = Box::new(NameValueVclArg::new(&name, &value));
-                result
+                match value {
+                    Err(e) => Err(e),
+                    Ok(s) => {
+                        let v: Box<dyn VclArg> = Box::new(NameValueVclArg::new(&name, &s));
+                        Ok(v)
+                    }
+                }
             })
             .collect();
-
-        ConfigFileVcl { vcl_args }
+        let init: (Vec<Box<dyn VclArg>>, Vec<ConfigFileVclError>) = (vec![], vec![]);
+        let (vcl_args, mut vcl_errs) =
+            vcl_args_and_errs
+                .into_iter()
+                .fold(init, |(args, errs), item| match item {
+                    Ok(arg) => (append(args, arg), errs),
+                    Err(err) => (args, append(errs, err)),
+                });
+        if vcl_errs.is_empty() {
+            Ok(ConfigFileVcl { vcl_args })
+        } else {
+            Err(vcl_errs.remove(0))
+        }
     }
+}
 
-    fn complain_about_data_elements(file_path: &PathBuf) -> ! {
-        panic!("Configuration file at {:?} contains unsupported Datetime or non-scalar configuration values", file_path)
-    }
+fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
+    let mut result: Vec<T> = ts.into_iter().map(|x| x).collect();
+    result.push(t);
+    result
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
+    use crate::test_utils::fake_stream_holder::FakeStreamHolder;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;
+
+    #[test]
+    fn config_file_vcl_error_displays_open_error() {
+        let subject = ConfigFileVclError::OpenError(
+            PathBuf::from("booga.txt"),
+            std::io::Error::from(ErrorKind::Other),
+        );
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "Couldn't open configuration file \"booga.txt\". Are you sure it exists?".to_string()
+        )
+    }
+
+    #[test]
+    fn config_file_vcl_error_displays_corrupt_utf8() {
+        let subject = ConfigFileVclError::CorruptUtf8(PathBuf::from("booga.txt"));
+
+        let result = subject.to_string();
+
+        assert_eq! (result, "The configuration file \"booga.txt\" looks like some kind of binary file, not UTF-8 text.".to_string())
+    }
+
+    #[test]
+    fn config_file_vcl_error_displays_unreadable() {
+        let subject = ConfigFileVclError::Unreadable(
+            PathBuf::from("booga.txt"),
+            std::io::Error::from(ErrorKind::Other),
+        );
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "The permissions on configuration file \"booga.txt\" make it unreadable.".to_string()
+        )
+    }
+
+    #[test]
+    fn config_file_vcl_error_displays_corrupt_toml() {
+        let subject =
+            ConfigFileVclError::CorruptToml(PathBuf::from("booga.txt"), "Biggledy-Poo".to_string());
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "Configuration file \"booga.txt\" isn't a valid TOML file: Biggledy-Poo.".to_string()
+        )
+    }
+
+    #[test]
+    fn config_file_vcl_error_displays_invalid_config() {
+        let subject = ConfigFileVclError::InvalidConfig(
+            PathBuf::from("booga.txt"),
+            "Biggledy-Poo".to_string(),
+        );
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "Configuration file \"booga.txt\" doesn't make sense: Biggledy-Poo.".to_string()
+        );
+    }
+
+    #[test]
+    fn make_configurator_error_handles_unfamiliar_message() {
+        let result = MultiConfig::make_configurator_error(clap::Error {
+            message: "unfamiliar".to_string(),
+            kind: clap::ErrorKind::InvalidValue,
+            info: None,
+        });
+
+        assert_eq!(
+            result,
+            ConfiguratorError::required("<unknown>", "Unfamiliar message: unfamiliar")
+        )
+    }
 
     #[test]
     fn double_provided_optional_single_valued_parameter_with_no_default_produces_second_value() {
@@ -371,7 +606,9 @@ pub(crate) mod tests {
                 "20".to_string(),
             ])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -394,7 +631,9 @@ pub(crate) mod tests {
             ])),
             Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -417,7 +656,9 @@ pub(crate) mod tests {
                 "20".to_string(),
             ])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -446,7 +687,9 @@ pub(crate) mod tests {
                 "20,21".to_string(),
             ])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = values_m!(subject, "numeric-arg", u64);
 
@@ -471,7 +714,9 @@ pub(crate) mod tests {
             ])),
             Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = values_m!(subject, "numeric-arg", u64);
 
@@ -496,7 +741,9 @@ pub(crate) mod tests {
                 "20,21".to_string(),
             ])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = values_m!(subject, "numeric-arg", u64);
 
@@ -519,7 +766,9 @@ pub(crate) mod tests {
             ])),
             Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -542,7 +791,9 @@ pub(crate) mod tests {
                 "20".to_string(),
             ])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -566,7 +817,9 @@ pub(crate) mod tests {
             ])),
             Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let (result, user_specified) = value_user_specified_m!(subject, "numeric-arg", u64);
 
@@ -591,7 +844,9 @@ pub(crate) mod tests {
                 "20".to_string(),
             ])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let (result, user_specified) = value_user_specified_m!(subject, "numeric-arg", u64);
 
@@ -622,7 +877,9 @@ pub(crate) mod tests {
             "--numeric-arg".to_string(),
             "20".to_string(),
         ]))];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let (numeric_arg_result, user_specified_numeric) =
             value_user_specified_m!(subject, "numeric-arg", u64);
@@ -650,7 +907,9 @@ pub(crate) mod tests {
                 "--nonvalued".to_string(),
             ])),
         ];
-        let subject = MultiConfig::new(&schema, vcls);
+        let subject =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .unwrap();
 
         let result = subject.arg_matches();
 
@@ -658,17 +917,32 @@ pub(crate) mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "The following required arguments were not provided:")]
     fn clap_match_error_produces_panic() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
-                .long("numeric-arg")
-                .takes_value(true)
-                .required(true),
-        );
+        let schema = App::new("test")
+            .arg(
+                Arg::with_name("numeric-arg")
+                    .long("numeric-arg")
+                    .takes_value(true)
+                    .required(true),
+            )
+            .arg(
+                Arg::with_name("another-arg")
+                    .long("another-arg")
+                    .takes_value(true)
+                    .required(true),
+            );
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(vec![String::new()]))];
-        MultiConfig::new(&schema, vcls);
+
+        let result =
+            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams(), false)
+                .err()
+                .unwrap();
+
+        let expected =
+            ConfiguratorError::required("another-arg", "ParamError parameter not provided")
+                .another_required("numeric-arg", "ParamError parameter not provided");
+        assert_eq!(result, expected);
     }
 
     //////
@@ -722,7 +996,7 @@ pub(crate) mod tests {
                 .long("numeric-arg")
                 .takes_value(true),
         );
-        std::env::set_var("SUB_NUMERIC_ARG", "47");
+        std::env::set_var("MASQ_NUMERIC_ARG", "47");
 
         let subject = EnvironmentVcl::new(&schema);
 
@@ -756,7 +1030,7 @@ pub(crate) mod tests {
                 .unwrap();
         }
 
-        let subject = ConfigFileVcl::new(&file_path, true);
+        let subject = ConfigFileVcl::new(&file_path, true).unwrap();
 
         assert_eq!(
             vec![
@@ -789,15 +1063,14 @@ pub(crate) mod tests {
         let mut file_path = home_dir.clone();
         file_path.push("config.toml");
 
-        let subject = ConfigFileVcl::new(&file_path, false);
+        let subject = ConfigFileVcl::new(&file_path, false).unwrap();
 
         assert_eq!(vec!["".to_string()], subject.args());
         assert!(subject.vcl_args().is_empty());
     }
 
     #[test]
-    #[should_panic(expected = "could not be read: ")]
-    fn config_file_vcl_panics_about_missing_file_when_user_specified() {
+    fn config_file_vcl_complains_about_missing_file_when_user_specified() {
         let home_dir = ensure_node_home_directory_exists(
             "multi_config",
             "config_file_vcl_panics_about_missing_file_when_user_specified",
@@ -805,11 +1078,11 @@ pub(crate) mod tests {
         let mut file_path = home_dir.clone();
         file_path.push("config.toml");
 
-        ConfigFileVcl::new(&file_path, true);
+        let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+        assert_contains(&result.to_string(), "Couldn't open configuration file")
     }
 
     #[test]
-    #[should_panic(expected = "is corrupted: contains data that cannot be interpreted as UTF-8")]
     fn config_file_vcl_handles_non_utf8_contents() {
         let home_dir = ensure_node_home_directory_exists(
             "multi_config",
@@ -824,13 +1097,14 @@ pub(crate) mod tests {
             toml_file.write_all(&mut buf).unwrap();
         }
 
-        ConfigFileVcl::new(&file_path, true);
+        let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+        assert_contains(
+            &result.to_string(),
+            "looks like some kind of binary file, not UTF-8 text.",
+        )
     }
 
     #[test]
-    #[should_panic(
-        expected = "has bad TOML syntax: expected a table key, found a right bracket at line 1"
-    )]
     fn config_file_vcl_handles_non_toml_contents() {
         let home_dir = ensure_node_home_directory_exists(
             "multi_config",
@@ -843,11 +1117,14 @@ pub(crate) mod tests {
             toml_file.write_all(b"][=blah..[\n").unwrap();
         }
 
-        ConfigFileVcl::new(&file_path, true);
+        let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+        assert_contains(
+            &result.to_string(),
+            "isn't a valid TOML file: expected a table key, found a right bracket at line 1",
+        )
     }
 
     #[test]
-    #[should_panic(expected = "contains unsupported Datetime or non-scalar configuration values")]
     fn config_file_vcl_handles_datetime_element() {
         let home_dir = ensure_node_home_directory_exists(
             "multi_config",
@@ -860,11 +1137,11 @@ pub(crate) mod tests {
             toml_file.write_all(b"datetime = 12:34:56\n").unwrap();
         }
 
-        ConfigFileVcl::new(&file_path, true);
+        let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+        assert_contains(&result.to_string(), "doesn't make sense: parameter 'datetime' must have a string value, not a date or time value.")
     }
 
     #[test]
-    #[should_panic(expected = "contains unsupported Datetime or non-scalar configuration values")]
     fn config_file_vcl_handles_array_element() {
         let home_dir = ensure_node_home_directory_exists(
             "multi_config",
@@ -877,11 +1154,14 @@ pub(crate) mod tests {
             toml_file.write_all(b"array = [1, 2, 3]\n").unwrap();
         }
 
-        ConfigFileVcl::new(&file_path, true);
+        let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+        assert_contains(
+            &result.to_string(),
+            "doesn't make sense: parameter 'array' must have a scalar value, not an array value.",
+        )
     }
 
     #[test]
-    #[should_panic(expected = "contains unsupported Datetime or non-scalar configuration values")]
     fn config_file_vcl_handles_table_element() {
         let home_dir = ensure_node_home_directory_exists(
             "multi_config",
@@ -894,6 +1174,20 @@ pub(crate) mod tests {
             toml_file.write_all(b"[table]\nooga = \"booga\"").unwrap();
         }
 
-        ConfigFileVcl::new(&file_path, true);
+        let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+        assert_contains(
+            &result.to_string(),
+            "doesn't make sense: parameter 'table' must have a scalar value, not a table value.",
+        )
+    }
+
+    fn assert_contains(haystack: &str, needle: &str) {
+        assert_eq!(
+            haystack.contains(needle),
+            true,
+            "\n{:?}\ndoes not contain\n{:?}",
+            haystack,
+            needle
+        );
     }
 }

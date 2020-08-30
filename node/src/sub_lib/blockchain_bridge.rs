@@ -13,7 +13,7 @@ use std::fmt::{Debug, Formatter};
 pub struct BlockchainBridgeConfig {
     pub blockchain_service_url: Option<String>,
     pub chain_id: u8,
-    pub gas_price: Option<u64>,
+    pub gas_price: u64,
 }
 
 #[derive(Clone)]

@@ -62,6 +62,7 @@ use itertools::Itertools;
 use masq_lib::messages::UiMessageError::UnexpectedMessage;
 use masq_lib::messages::{UiMessageError, UiShutdownRequest};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::utils::exit_process;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
@@ -301,10 +302,13 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
             UiShutdownRequest::fmb(msg.body);
         match result {
             Ok((payload, _)) => self.handle_shutdown_order(client_id, payload),
-            Err(UnexpectedMessage(_, _)) => (),
+            Err(UnexpectedMessage(opcode, _)) => debug!(
+                &self.logger,
+                "Ignoring '{}' request from client {}", opcode, client_id
+            ),
             Err(e) => error!(
                 &self.logger,
-                "Bad {} request from client {}: {:?}", opcode, client_id, e
+                "Failure to parse '{}' message from client {}: {:?}", opcode, client_id, e
             ),
         }
     }
@@ -459,7 +463,7 @@ impl Neighborhood {
         if self.persistent_config_opt.is_none() {
             let db_initializer = DbInitializerReal::new();
             let conn = db_initializer
-                .initialize(&self.data_directory, self.chain_id)
+                .initialize(&self.data_directory, self.chain_id, true) // TODO: Probably should be false
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }
@@ -593,7 +597,7 @@ impl Neighborhood {
         };
     }
 
-    fn to_node_descriptors(&self, keys: &Vec<PublicKey>) -> Vec<NodeDescriptor> {
+    fn to_node_descriptors(&self, keys: &[PublicKey]) -> Vec<NodeDescriptor> {
         keys.iter()
             .map(|k| {
                 NodeDescriptor::from((
@@ -651,8 +655,8 @@ impl Neighborhood {
 
     fn handle_database_changes(
         &mut self,
-        neighbor_keys_before: &Vec<PublicKey>,
-        neighbor_keys_after: &Vec<PublicKey>,
+        neighbor_keys_before: &[PublicKey],
+        neighbor_keys_after: &[PublicKey],
     ) {
         self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
         self.check_connectedness();
@@ -660,8 +664,8 @@ impl Neighborhood {
 
     fn curate_past_neighbors(
         &self,
-        neighbor_keys_before: &Vec<PublicKey>,
-        neighbor_keys_after: &Vec<PublicKey>,
+        neighbor_keys_before: &[PublicKey],
+        neighbor_keys_after: &[PublicKey],
     ) {
         if neighbor_keys_after != neighbor_keys_before {
             if let Some(db_password) = &self.db_password_opt {
@@ -1163,7 +1167,7 @@ impl Neighborhood {
 
     fn gossip_source_name(
         &self,
-        accessible_gossip: &Vec<AccessibleGossipRecord>,
+        accessible_gossip: &[AccessibleGossipRecord],
         gossip_source: SocketAddr,
     ) -> String {
         match accessible_gossip.iter().find(|agr| {
@@ -1194,7 +1198,7 @@ impl Neighborhood {
 
     fn remove_neighbor(&mut self, neighbor_key: &PublicKey, peer_addr: &SocketAddr) {
         match self.neighborhood_database.remove_neighbor(neighbor_key) {
-            Err(_) => panic!("Node suddenly disappeared"),
+            Err(e) => panic!("Node suddenly disappeared: {:?}", e),
             Ok(true) => {
                 debug!(
                     self.logger,
@@ -1216,7 +1220,18 @@ impl Neighborhood {
             self.logger,
             "Received shutdown order from client {}: shutting down hard", client_id
         );
-        std::process::exit(0);
+        #[cfg(test)]
+        let running_test = true;
+        #[cfg(not(test))]
+        let running_test = false;
+        exit_process(
+            0,
+            &format!(
+                "Received shutdown order from client {}: shutting down hard",
+                client_id
+            ),
+            running_test,
+        );
     }
 }
 
@@ -1276,7 +1291,7 @@ mod tests {
     use masq_lib::constants::TLS_PORT;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessageBody;
-    use masq_lib::ui_gateway::MessagePath::{OneWay, TwoWay};
+    use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
     use serde_cbor;
     use std::cell::RefCell;
     use std::convert::TryInto;
@@ -1434,7 +1449,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             neighbor_node.public_key(),
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
@@ -1466,7 +1481,7 @@ mod tests {
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let one_neighbor_node = make_node_record(3456, true);
         let another_neighbor_node = make_node_record(4567, true);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
 
         let subject = Neighborhood::new(
             cryptde,
@@ -1534,7 +1549,7 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let one_neighbor_node: NodeRecord = make_node_record(3456, true);
         let another_neighbor_node: NodeRecord = make_node_record(4567, true);
-        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
 
         let subject = Neighborhood::new(
             cryptde,
@@ -1618,13 +1633,10 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(
-                                &IpAddr::from_str("1.2.3.4").unwrap(),
-                                &vec![1234, 2345],
-                            ),
+                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                             cryptde,
                         ))],
@@ -1661,7 +1673,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![node_record_to_neighbor_config(&one_neighbor)],
                         rate_pack(100),
                     ),
@@ -1708,13 +1720,10 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(
-                                &IpAddr::from_str("1.2.3.4").unwrap(),
-                                &vec![1234, 2345],
-                            ),
+                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                             cryptde,
                         ))],
@@ -2467,7 +2476,7 @@ mod tests {
             &cryptde.public_key(),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("5.4.3.2").unwrap(),
-                &vec![1234],
+                &[1234],
             )),
             100,
             true,
@@ -3362,7 +3371,7 @@ mod tests {
             &cryptde.public_key(),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("5.4.3.2").unwrap(),
-                &vec![1234],
+                &[1234],
             )),
             100,
             true,
@@ -3452,7 +3461,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![1234]),
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[1234]),
                         vec![NodeDescriptor::from((
                             &neighbor_inside,
                             DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
@@ -3635,12 +3644,12 @@ mod tests {
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![NodeDescriptor::from((
                                 &PublicKey::new(&b"booga"[..]),
                                 &NodeAddr::new(
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
-                                    &vec![1234, 2345],
+                                    &[1234, 2345],
                                 ),
                                 DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                                 cryptde,
@@ -3704,7 +3713,7 @@ mod tests {
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![node_record_to_neighbor_config(&one_neighbor)],
                             rate_pack(100),
                         ),
@@ -3762,12 +3771,12 @@ mod tests {
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &vec![5678]),
+                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                             vec![NodeDescriptor::from((
                                 &PublicKey::new(&b"booga"[..]),
                                 &NodeAddr::new(
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
-                                    &vec![1234, 2345],
+                                    &[1234, 2345],
                                 ),
                                 DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                                 cryptde,
@@ -4219,9 +4228,9 @@ mod tests {
         ));
     }
 
+    #[should_panic(expected = "0: Received shutdown order from client 1234: shutting down hard")]
     #[test]
     fn shutdown_instruction_generates_log() {
-        // TODO: Eventually this message should do more than just generate a log.
         init_test_logging();
         let system = System::new("test");
         let subject = Neighborhood::new(
@@ -4245,7 +4254,7 @@ mod tests {
                 client_id: 1234,
                 body: MessageBody {
                     opcode: "shutdown".to_string(),
-                    path: TwoWay(4321),
+                    path: Conversation(4321),
                     payload: Ok("{}".to_string()),
                 },
             })
@@ -4284,7 +4293,7 @@ mod tests {
                 client_id: 1234,
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             })
@@ -4295,7 +4304,7 @@ mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: Neighborhood: Bad booga request from client 1234: BadOpcode",
+            "DEBUG: Neighborhood: Ignoring 'booga' request from client 1234",
         );
     }
 

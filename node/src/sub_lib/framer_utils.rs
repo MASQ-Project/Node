@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::sub_lib::utils;
+use masq_lib::utils::index_of;
 
 #[derive(PartialEq, Debug)]
 pub struct ChunkOffsetLength {
@@ -27,7 +27,7 @@ pub fn find_chunk_offset_length(data_so_far: &[u8]) -> Option<ChunkOffsetLength>
 }
 
 fn find_next_chunk_offset_length(data_so_far: &[u8]) -> Result<ChunkOffsetLength, usize> {
-    match utils::index_of(data_so_far, CRLF) {
+    match index_of(data_so_far, CRLF) {
         None => Err(0),
         Some(0) => Err(CRLF.len()),
         Some(crlf_offset) => match evaluate_hex_digit(data_so_far[crlf_offset - 1]) {
@@ -58,7 +58,7 @@ fn find_reversed_digits(data_so_far: &[u8], backward_from: usize) -> Vec<u8> {
     result
 }
 
-fn value_of_reversed_digits(reversed_digits: &Vec<u8>) -> usize {
+fn value_of_reversed_digits(reversed_digits: &[u8]) -> usize {
     let mut multiplier: usize = 1;
     let mut result: usize = 0;
     for digit in reversed_digits {
@@ -69,11 +69,11 @@ fn value_of_reversed_digits(reversed_digits: &Vec<u8>) -> usize {
 }
 
 fn evaluate_hex_digit(digit: u8) -> Option<u8> {
-    match position_in_range(digit, '0' as u8, '9' as u8) {
+    match position_in_range(digit, b'0', b'9') {
         Some(pos) => Some(pos),
-        None => match position_in_range(digit, 'A' as u8, 'F' as u8) {
+        None => match position_in_range(digit, b'A', b'F') {
             Some(pos) => Some(10 + pos),
-            None => match position_in_range(digit, 'a' as u8, 'f' as u8) {
+            None => match position_in_range(digit, b'a', b'f') {
                 Some(pos) => Some(10 + pos),
                 None => None,
             },

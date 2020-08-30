@@ -175,7 +175,7 @@ mod tests {
     fn no_lookup_incipient_cores_package_is_created_correctly() {
         let cryptde = main_cryptde();
         let public_key = PublicKey::new(&[1, 2]);
-        let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1, 2, 3, 4]);
+        let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1, 2, 3, 4]);
         let payload = make_meaningless_message_type();
 
         let result =
@@ -201,7 +201,7 @@ mod tests {
         let result = NoLookupIncipientCoresPackage::new(
             cryptde,
             &PublicKey::new(&[]),
-            &NodeAddr::new(&IpAddr::from_str("1.1.1.1").unwrap(), &vec![]),
+            &NodeAddr::new(&IpAddr::from_str("1.1.1.1").unwrap(), &[]),
             make_meaningless_message_type(),
         );
         assert_eq!(

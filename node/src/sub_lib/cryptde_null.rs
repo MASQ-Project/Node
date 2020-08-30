@@ -44,16 +44,17 @@ impl CryptDE for CryptDENull {
             value
         };
         let mut key_data = [0u8; 8];
-        for i in 0..8 {
-            key_data[i] = (seed & 0xFF) as u8;
+        for byte in &mut key_data {
+            *byte = (seed & 0xFF) as u8;
             seed >>= 8;
         }
         SymmetricKey::new(&key_data)
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn random(&self, dest: &mut [u8]) {
         for i in 0..dest.len() {
-            dest[i] = '4' as u8
+            dest[i] = b'4'
         }
     }
 
@@ -135,8 +136,8 @@ impl CryptDENull {
     pub fn new(chain_id: u8) -> Self {
         let mut private_key = [0; 32];
         let mut rng = thread_rng();
-        for idx in 0..32 {
-            private_key[idx] = rng.gen();
+        for byte in &mut private_key {
+            *byte = rng.gen();
         }
         let private_key = PrivateKey::from(&private_key[..]);
         let public_key = Self::public_from_private(&private_key);

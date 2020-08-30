@@ -144,7 +144,7 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
 }
 
 impl NodeRecordInner_0v1 {
-    fn public_keys_to_btree_set(field_value: &Vec<Value>) -> Option<BTreeSet<PublicKey>> {
+    fn public_keys_to_btree_set(field_value: &[Value]) -> Option<BTreeSet<PublicKey>> {
         let mut output: BTreeSet<PublicKey> = BTreeSet::new();
         for value in field_value {
             match value_to_type::<PublicKey>(value) {

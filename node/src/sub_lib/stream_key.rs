@@ -1,13 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::cryptde::PublicKey;
-use base64;
 use serde::de::Visitor;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
-use sha1;
 use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;

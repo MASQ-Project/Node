@@ -8,6 +8,9 @@ pushd "$CI_DIR/.."
 case "$OSTYPE" in
     msys)
         echo "Windows"
+        netsh advfirewall set allprofiles state off
+        net stop sharedaccess || echo ICS already disabled
+        net stop W3SVC || echo W3SVC service already disabled
         ci/run_integration_tests.sh
         ;;
     Darwin | darwin*)

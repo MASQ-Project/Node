@@ -6,11 +6,11 @@ if [[ "$JENKINS_VERSION" != "" ]]; then
   PARENT_DIR="$1"
 else
   PARENT_DIR=""
-  TOOLCHAIN_HOME="$1"
+#  TOOLCHAIN_HOME="$1"
 fi
 
-source "$CI_DIR"/environment.sh "$TOOLCHAIN_HOME"
-export TOOLCHAIN_HOME
+#source "$CI_DIR"/environment.sh "$TOOLCHAIN_HOME"
+#export TOOLCHAIN_HOME
 
 case "$OSTYPE" in
   msys)
@@ -20,8 +20,6 @@ case "$OSTYPE" in
     echo "Multinode Integration Tests don't run under macOS"
     ;;
   linux*)
-    # Remove this line to slow down the build
-    export RUSTC_WRAPPER=sccache
     export RUSTFLAGS="-D warnings -Anon-snake-case"
 
     pushd "$CI_DIR/../multinode_integration_tests"

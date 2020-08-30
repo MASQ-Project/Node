@@ -117,8 +117,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         let port = unchecked_port as u16;
         match TcpListener::bind (SocketAddrV4::new (Ipv4Addr::from (0), port)) {
             Ok (_) => port,
-            Err (_) => panic!("Can't continue; clandestine port {} is in use. Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
+            Err (e) => panic!("Can't continue; clandestine port {} is in use. ({:?}) Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
                 port,
+                e,
                 LOWEST_USABLE_INSECURE_PORT,
                 HIGHEST_USABLE_PORT,
             )
@@ -303,7 +304,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_earning_wallet_address(&self, address: &str) {
         match Wallet::from_str(address) {
             Ok(_) => (),
-            Err(_) => panic!("Invalid earning wallet address '{}'", address),
+            Err(e) => panic!("Invalid earning wallet address '{}': {:?}", address, e),
         }
         if let Ok(existing_address) = self.dao.get_string("earning_wallet_address") {
             if address.to_lowercase() != existing_address.to_lowercase() {
@@ -364,7 +365,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             }
             None => match self.dao.clear("past_neighbors") {
                 Ok(_) => Ok(()),
-                Err(_) => unimplemented!(),
+                Err(e) => unimplemented!("{:?}", e),
             },
         }
     }
@@ -603,7 +604,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = " is in use. Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
+        expected = "Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
     )]
     fn clandestine_port_panics_if_configured_port_is_in_use() {
         let port = find_free_port();
@@ -807,7 +808,7 @@ mod tests {
             "set_start_block_transactionally_success",
         );
         let mut conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let transaction = conn.transaction().unwrap();
 
@@ -995,7 +996,7 @@ mod tests {
             "set_start_block_transactionally_returns_err_when_transaction_fails",
         );
         let mut conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let transaction = conn.transaction().unwrap();
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1570,7 +1571,7 @@ mod tests {
             "set_start_block_transactionally_panics_for_not_present_error",
         );
         let mut conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let transaction = conn.transaction().unwrap();
 
@@ -1592,7 +1593,7 @@ mod tests {
             "set_start_block_transactionally_panics_for_type_error",
         );
         let mut conn = DbInitializerReal::new()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID)
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let transaction = conn.transaction().unwrap();
 

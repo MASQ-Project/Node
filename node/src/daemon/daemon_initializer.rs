@@ -1,51 +1,43 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
-use crate::blockchain::blockchain_interface::chain_name_from_id;
+use crate::bootstrapper::RealUser;
 use crate::daemon::launcher::LauncherReal;
 use crate::daemon::{
     ChannelFactory, ChannelFactoryReal, Daemon, DaemonBindMessage, Launcher, Recipients,
 };
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-use crate::server_initializer::{LoggerInitializerWrapper, LoggerInitializerWrapperReal};
+use crate::node_configurator::{port_is_busy, DirsWrapper};
+use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::main_tools::main_with_args;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::ui_gateway::UiGateway;
 use actix::{Actor, System, SystemRunner};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use flexi_logger::LevelFilter;
 use itertools::Itertools;
 use masq_lib::command::{Command, StdStreams};
 use std::collections::HashMap;
-use std::sync::mpsc::{Receiver, Sender};
 
 pub trait RecipientsFactory {
-    fn make(
-        &self,
-        seed_params: &HashMap<String, String>,
-        launcher: Box<dyn Launcher>,
-        ui_port: u16,
-    ) -> Recipients;
+    fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
 }
 
 #[derive(Default)]
 pub struct RecipientsFactoryReal {}
 
 impl RecipientsFactory for RecipientsFactoryReal {
-    fn make(
-        &self,
-        seed_params: &HashMap<String, String>,
-        launcher: Box<dyn Launcher>,
-        ui_port: u16,
-    ) -> Recipients {
+    fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
         let ui_gateway_addr = UiGateway::new(&UiGatewayConfig {
             ui_port,
             node_descriptor: "".to_string(), // irrelevant; field should be removed
         })
         .start();
-        let daemon_addr = Daemon::new(seed_params, launcher).start();
+        let daemon_addr = Daemon::new(launcher).start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient(),
             ui_gateway_to_sub: ui_gateway_addr.clone().recipient(),
             from_ui_subs: vec![daemon_addr.clone().recipient()],
+            crash_notification_sub: daemon_addr.clone().recipient(),
             bind_message_subs: vec![daemon_addr.recipient(), ui_gateway_addr.recipient()],
         }
     }
@@ -65,7 +57,7 @@ impl ChannelFactory for ChannelFactoryReal {
         Sender<HashMap<String, String>>,
         Receiver<HashMap<String, String>>,
     ) {
-        std::sync::mpsc::channel()
+        unbounded()
     }
 }
 
@@ -77,7 +69,11 @@ pub struct DaemonInitializer {
 }
 
 impl Command for DaemonInitializer {
-    fn go(&mut self, _streams: &mut StdStreams<'_>, _args: &[String]) -> u8 {
+    fn go(&mut self, streams: &mut StdStreams<'_>, _args: &[String]) -> u8 {
+        if port_is_busy(self.config.ui_port) {
+            writeln! (streams.stderr, "There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port).unwrap();
+            return 1;
+        }
         let system = System::new("daemon");
         let (sender, receiver) = self.channel_factory.make();
 
@@ -111,14 +107,19 @@ impl RerunnerReal {
 
 impl DaemonInitializer {
     pub fn new(
+        dirs_wrapper: &dyn DirsWrapper,
+        mut logger_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
         config: InitializationConfig,
         channel_factory: Box<dyn ChannelFactory>,
         recipients_factory: Box<dyn RecipientsFactory>,
         rerunner: Box<dyn Rerunner>,
     ) -> DaemonInitializer {
-        LoggerInitializerWrapperReal {}.init(
-            config.data_directory.clone(),
-            &config.real_user,
+        logger_initializer_wrapper.init(
+            dirs_wrapper
+                .data_dir()
+                .expect("No data directory")
+                .join("MASQ"),
+            &RealUser::null().populate(dirs_wrapper),
             LevelFilter::Trace,
             Some("daemon"),
         );
@@ -130,23 +131,22 @@ impl DaemonInitializer {
         }
     }
 
-    fn bind(&mut self, sender: Sender<HashMap<String, String>>) {
+    fn bind(&mut self, sender: Sender<HashMap<String, String>>) -> u8 {
         let launcher = LauncherReal::new(sender);
-        let mut params = HashMap::new();
-        params.insert("dns-servers".to_string(), "1.1.1.1".to_string()); // TODO: This should be the regular system DNS server
-        params.extend(self.seed_params());
-        let recipients =
-            self.recipients_factory
-                .make(&params, Box::new(launcher), self.config.ui_port);
+        let recipients = self
+            .recipients_factory
+            .make(Box::new(launcher), self.config.ui_port);
         let bind_message = DaemonBindMessage {
             to_ui_message_recipient: recipients.ui_gateway_to_sub,
             from_ui_message_recipient: recipients.ui_gateway_from_sub,
             from_ui_message_recipients: recipients.from_ui_subs,
+            crash_notification_recipient: recipients.crash_notification_sub,
         };
         recipients.bind_message_subs.into_iter().for_each(|sub| {
             sub.try_send(bind_message.clone())
                 .expect("DaemonBindMessage recipient is dead")
         });
+        0
     }
 
     fn split(&mut self, system: SystemRunner, receiver: Receiver<HashMap<String, String>>) {
@@ -159,63 +159,34 @@ impl DaemonInitializer {
             .collect_vec();
         self.rerunner.rerun(param_vec);
     }
-
-    fn seed_params(&self) -> HashMap<String, String> {
-        let mut seed_params = HashMap::new();
-        if let Some(db_password) = self.config.db_password_opt.clone() {
-            seed_params.insert("db-password".to_string(), db_password);
-        };
-        seed_params.insert(
-            "data-directory".to_string(),
-            self.config.data_directory.to_string_lossy().to_string(),
-        );
-        seed_params.insert("real-user".to_string(), self.config.real_user.to_string());
-        seed_params.insert(
-            "chain".to_string(),
-            chain_name_from_id(self.config.chain_id).to_string(),
-        );
-        if let Some(config_file) = self.config.config_file_opt.clone() {
-            seed_params.insert(
-                "config-file".to_string(),
-                config_file.to_string_lossy().to_string(),
-            );
-        }
-        seed_params
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::bootstrapper::RealUser;
     use crate::daemon::{ChannelFactory, Recipients};
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-    use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
+    use crate::node_test_utils::MockDirsWrapper;
+    use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
+    use crossbeam_channel::unbounded;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
     use std::iter::FromIterator;
-    use std::path::PathBuf;
-    use std::str::FromStr;
+    use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
 
     struct RecipientsFactoryMock {
-        make_params: Arc<Mutex<Vec<(HashMap<String, String>, Box<dyn Launcher>, u16)>>>,
+        make_params: Arc<Mutex<Vec<(Box<dyn Launcher>, u16)>>>,
         make_results: RefCell<Vec<Recipients>>,
     }
 
     impl RecipientsFactory for RecipientsFactoryMock {
-        fn make(
-            &self,
-            seed_params: &HashMap<String, String>,
-            launcher: Box<dyn Launcher>,
-            ui_port: u16,
-        ) -> Recipients {
-            self.make_params
-                .lock()
-                .unwrap()
-                .push((seed_params.clone(), launcher, ui_port));
+        fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
+            self.make_params.lock().unwrap().push((launcher, ui_port));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -226,14 +197,6 @@ mod tests {
                 make_params: Arc::new(Mutex::new(vec![])),
                 make_results: RefCell::new(vec![]),
             }
-        }
-
-        fn make_params(
-            mut self,
-            params: &Arc<Mutex<Vec<(HashMap<String, String>, Box<dyn Launcher>, u16)>>>,
-        ) -> Self {
-            self.make_params = params.clone();
-            self
         }
 
         fn make_result(self, result: Recipients) -> Self {
@@ -303,71 +266,34 @@ mod tests {
     }
 
     #[test]
-    fn bind_incorporates_seed_params() {
-        let config = InitializationConfig {
-            chain_id: chain_id_from_name("ropsten"),
-            config_file_opt: Some(PathBuf::from("not_default.toml")),
-            data_directory: PathBuf::from("not_default_data"),
-            db_password_opt: Some("booga".to_string()),
-            real_user: RealUser::from_str("123:456:not_default_home").unwrap(),
-            ui_port: 1234,
-        };
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let recipients_factory = RecipientsFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(make_recipients(Recorder::new(), Recorder::new()));
-        let mut subject = DaemonInitializer::new(
-            config,
-            Box::new(ChannelFactoryMock::new()),
-            Box::new(recipients_factory),
-            Box::new(RerunnerMock::new()),
-        );
-
-        subject.bind(std::sync::mpsc::channel().0);
-
-        let expected_seed_params = HashMap::from_iter(
-            vec![
-                ("chain", "ropsten"),
-                ("config-file", "not_default.toml"),
-                ("data-directory", "not_default_data"),
-                ("db-password", "booga"),
-                ("real-user", "123:456:not_default_home"),
-                ("dns-servers", "1.1.1.1"),
-            ]
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string())),
-        );
-        let mut make_params = make_params_arc.lock().unwrap();
-        let (seed_params, _, port) = make_params.remove(0);
-        assert_eq!(seed_params, expected_seed_params);
-        assert_eq!(port, 1234);
-    }
-
-    #[test]
     fn bind_binds_everything_together() {
+        let data_dir = ensure_node_home_directory_exists(
+            "daemon_initializer",
+            "bind_binds_everything_together",
+        );
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (daemon, _, daemon_recording_arc) = make_recorder();
-        let system = System::new("test");
+        let system = System::new("bind_binds_everything_together");
         let recipients = make_recipients(ui_gateway, daemon);
-        let config = InitializationConfig {
-            chain_id: 0,                         // irrelevant
-            config_file_opt: Default::default(), // irrelevant
-            data_directory: RealDirsWrapper {}.data_dir().unwrap(),
-            db_password_opt: None, // irrelevant
-            real_user: Default::default(),
-            ui_port: 1234,
-        };
+        let dirs_wrapper = MockDirsWrapper::new()
+            .home_dir_result(Some(data_dir.clone()))
+            .data_dir_result(Some(data_dir));
+        let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
+        let port = find_free_port();
+        let config = InitializationConfig { ui_port: port };
         let channel_factory = ChannelFactoryMock::new();
         let addr_factory = RecipientsFactoryMock::new().make_result(recipients);
         let rerunner = RerunnerMock::new();
         let mut subject = DaemonInitializer::new(
+            &dirs_wrapper,
+            Box::new(logger_initializer_wrapper),
             config,
             Box::new(channel_factory),
             Box::new(addr_factory),
             Box::new(rerunner),
         );
 
-        subject.bind(std::sync::mpsc::channel().0);
+        subject.bind(unbounded().0);
 
         System::current().stop();
         system.run();
@@ -381,21 +307,26 @@ mod tests {
 
     #[test]
     fn split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args() {
-        let system = System::new("test");
-        let config = InitializationConfig {
-            chain_id: 0,                         // irrelevant
-            config_file_opt: Default::default(), // irrelevant
-            data_directory: RealDirsWrapper {}.data_dir().unwrap(),
-            db_password_opt: None, // irrelevant
-            real_user: Default::default(),
-            ui_port: 1234,
-        };
-        let (sender, receiver) = std::sync::mpsc::channel::<HashMap<String, String>>();
+        let data_dir = ensure_node_home_directory_exists(
+            "daemon_initializer",
+            "split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args",
+        );
+        let system =
+            System::new("split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args");
+        let dirs_wrapper = MockDirsWrapper::new()
+            .home_dir_result(Some(data_dir.clone()))
+            .data_dir_result(Some(data_dir));
+        let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
+        let port = find_free_port();
+        let config = InitializationConfig { ui_port: port };
+        let (sender, receiver) = unbounded();
         let channel_factory = ChannelFactoryMock::new();
         let addr_factory = RecipientsFactoryMock::new();
         let rerun_parameters_arc = Arc::new(Mutex::new(vec![]));
         let rerunner = RerunnerMock::new().rerun_parameters(&rerun_parameters_arc);
         let mut subject = DaemonInitializer::new(
+            &dirs_wrapper,
+            Box::new(logger_initializer_wrapper),
             config,
             Box::new(channel_factory),
             Box::new(addr_factory),
@@ -423,6 +354,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn go_detects_already_running_daemon() {
+        let data_dir = ensure_node_home_directory_exists(
+            "daemon_initializer",
+            "go_detects_already_running_daemon",
+        );
+        let dirs_wrapper = MockDirsWrapper::new()
+            .home_dir_result(Some(data_dir.clone()))
+            .data_dir_result(Some(data_dir));
+        let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
+        let port = find_free_port();
+        let _listener = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
+        let mut subject = DaemonInitializer::new(
+            &dirs_wrapper,
+            Box::new(logger_initializer_wrapper),
+            InitializationConfig { ui_port: port },
+            Box::new(ChannelFactoryMock::new()),
+            Box::new(RecipientsFactoryMock::new()),
+            Box::new(RerunnerMock::new()),
+        );
+        let mut holder = FakeStreamHolder::new();
+
+        let result = subject.go(&mut holder.streams(), &[]);
+
+        assert_eq!(result, 1);
+        assert_eq! (holder.stderr.get_string(), format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?\n", port));
+    }
+
     fn make_recipients(ui_gateway: Recorder, daemon: Recorder) -> Recipients {
         let ui_gateway_addr = ui_gateway.start();
         let daemon_addr = daemon.start();
@@ -433,6 +392,7 @@ mod tests {
                 daemon_addr.clone().recipient(),
                 ui_gateway_addr.clone().recipient(),
             ],
+            crash_notification_sub: daemon_addr.clone().recipient(),
             bind_message_subs: vec![daemon_addr.recipient(), ui_gateway_addr.recipient()],
         }
     }

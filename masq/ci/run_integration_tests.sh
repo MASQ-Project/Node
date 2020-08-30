@@ -10,7 +10,7 @@ export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings"
 
 pushd "$CI_DIR/.."
-cargo test --release -- --nocapture "_integration"
+cargo test --release -- --nocapture --test-threads=1 "_integration"
 BUILD_RESULT=$?
 popd
 exit "$BUILD_RESULT"

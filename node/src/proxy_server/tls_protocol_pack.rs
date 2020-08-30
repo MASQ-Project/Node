@@ -407,8 +407,8 @@ mod tests {
             0x00, 0x0D, // server_name_list_length
             0x00, // server_name_type
             0x00, 0x0A, // server_name_length
-            's' as u8, 'e' as u8, 'r' as u8, 'v' as u8, 'e' as u8, 'r' as u8, '.' as u8, 0xC3,
-            0x28, 'm' as u8, // bad server_name
+            b's', b'e', b'r', b'v', b'e', b'r', b'.', 0xC3,
+            0x28, b'm', // bad server_name
         ]);
 
         let result = TlsProtocolPack {}.find_host(&data);
@@ -700,8 +700,8 @@ mod tests {
             0x00, 0x0D, // server_name_list_length
             0x00, // server_name_type
             0x00, 0x0A, // server_name_length
-            's' as u8, 'e' as u8, 'r' as u8, 'v' as u8, 'e' as u8, 'r' as u8, '.' as u8, 'c' as u8,
-            'o' as u8, 'm' as u8, // server_name
+            b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c',
+            b'o', b'm', // server_name
         ]);
 
         let result = TlsProtocolPack {}.find_host(&data);
@@ -745,8 +745,8 @@ mod tests {
             0x00, 0x0D, // server_name_list_length
             0x00, // server_name_type
             0x00, 0x0A, // server_name_length
-            's' as u8, 'e' as u8, 'r' as u8, 'v' as u8, 'e' as u8, 'r' as u8, '.' as u8, 'c' as u8,
-            'o' as u8, 'm' as u8, // server_name
+            b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c',
+            b'o', b'm', // server_name
         ]);
 
         let result = TlsProtocolPack {}.find_host(&data);
@@ -784,8 +784,8 @@ mod tests {
             0x00, 0x0D, // server_name_list_length
             0x00, // server_name_type
             0x00, 0x0A, // server_name_length
-            's' as u8, 'e' as u8, 'r' as u8, 'v' as u8, 'e' as u8, 'r' as u8, '.' as u8, 'c' as u8,
-            'o' as u8, 'm' as u8, // server_name
+            b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c',
+            b'o', b'm', // server_name
         ]);
 
         let result = TlsProtocolPack {}.find_host(&data);

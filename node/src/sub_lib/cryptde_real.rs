@@ -17,7 +17,7 @@ lazy_static! {
     static ref INITIALIZED: bool = {
         match sodiumoxide::init() {
             Ok(_) => true,
-            Err(_) => panic!("sodiumoxide initialization failed"),
+            Err(e) => panic!("sodiumoxide initialization failed: {:?}", e),
         }
     };
 }

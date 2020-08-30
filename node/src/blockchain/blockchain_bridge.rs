@@ -1028,7 +1028,7 @@ mod tests {
 
         assert_eq!(
             result,
-            &vec![Err(BlockchainError::TransactionFailed(String::from(
+            &[Err(BlockchainError::TransactionFailed(String::from(
                 "mock payment failure"
             )))]
         );

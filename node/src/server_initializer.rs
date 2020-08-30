@@ -6,6 +6,7 @@ use crate::bootstrapper::{BootstrapperConfig, RealUser};
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::NodeConfiguratorStandardPrivileged;
 use crate::node_configurator::NodeConfigurator;
+use crate::node_configurator::RealDirsWrapper;
 use crate::sub_lib;
 use crate::sub_lib::socket_server::SocketServer;
 use backtrace::Backtrace;
@@ -17,7 +18,9 @@ use flexi_logger::{DeferredNow, Duplicate, Record};
 use futures::try_ready;
 use masq_lib::command::Command;
 use masq_lib::command::StdStreams;
+use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
+use std::fmt::Debug;
 use std::panic::{Location, PanicInfo};
 use std::path::PathBuf;
 use std::{io, thread};
@@ -32,32 +35,62 @@ pub struct ServerInitializer {
 
 impl Command for ServerInitializer {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
-        if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
-            self.privilege_dropper
-                .drop_privileges(&RealUser::null().populate());
-            NodeConfiguratorStandardPrivileged {}.configure(&args.to_vec(), streams);
-            0
-        } else {
-            self.dns_socket_server
-                .as_mut()
-                .initialize_as_privileged(args, streams);
-            self.bootstrapper
-                .as_mut()
-                .initialize_as_privileged(args, streams);
+        let mut result: Result<(), ConfiguratorError> = Ok(());
+        let exit_code =
+            if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
+                self.privilege_dropper
+                    .drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
+                result = Self::combine_results(
+                    result,
+                    NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams),
+                );
+                0
+            } else {
+                result = Self::combine_results(
+                    result,
+                    self.dns_socket_server
+                        .as_mut()
+                        .initialize_as_privileged(args, streams),
+                );
+                result = Self::combine_results(
+                    result,
+                    self.bootstrapper
+                        .as_mut()
+                        .initialize_as_privileged(args, streams),
+                );
 
-            let config = self.bootstrapper.get_configuration();
-            let real_user = config.real_user.populate();
-            self.privilege_dropper
-                .chown(&config.data_directory, &real_user);
-            self.privilege_dropper.drop_privileges(&real_user);
+                let config = self.bootstrapper.get_configuration();
+                let real_user = config.real_user.populate(&RealDirsWrapper {});
+                self.privilege_dropper
+                    .chown(&config.data_directory, &real_user);
+                self.privilege_dropper.drop_privileges(&real_user);
 
-            self.dns_socket_server
-                .as_mut()
-                .initialize_as_unprivileged(args, streams);
-            self.bootstrapper
-                .as_mut()
-                .initialize_as_unprivileged(args, streams);
+                result = Self::combine_results(
+                    result,
+                    self.dns_socket_server
+                        .as_mut()
+                        .initialize_as_unprivileged(args, streams),
+                );
+                result = Self::combine_results(
+                    result,
+                    self.bootstrapper
+                        .as_mut()
+                        .initialize_as_unprivileged(args, streams),
+                );
+                1
+            };
+        if let Some(err) = result.err() {
+            err.param_errors.into_iter().for_each(|param_error| {
+                writeln!(
+                    streams.stderr,
+                    "Problem with parameter {}: {}",
+                    param_error.parameter, param_error.reason
+                )
+                .expect("writeln! failed")
+            });
             1
+        } else {
+            exit_code
         }
     }
 }
@@ -82,6 +115,23 @@ impl ServerInitializer {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
+        }
+    }
+
+    fn combine_results<A: Debug, B: Debug>(
+        initial: Result<A, ConfiguratorError>,
+        additional: Result<B, ConfiguratorError>,
+    ) -> Result<(), ConfiguratorError> {
+        match (initial, additional) {
+            (Ok(_), Ok(_)) => Ok(()),
+            (Ok(_), Err(e)) => Err(e),
+            (Err(e), Ok(_)) => Err(e),
+            (Err(e1), Err(e2)) => Err(ConfiguratorError::new(
+                e1.param_errors
+                    .into_iter()
+                    .chain(e2.param_errors.into_iter())
+                    .collect(),
+            )),
         }
     }
 }
@@ -234,14 +284,18 @@ pub mod test_utils {
     use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
     use crate::server_initializer::LoggerInitializerWrapper;
+    #[cfg(not(target_os = "windows"))]
     use crate::test_utils::logging::init_test_logging;
     use log::LevelFilter;
+    use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     pub struct PrivilegeDropperMock {
         drop_privileges_params: Arc<Mutex<Vec<RealUser>>>,
         chown_params: Arc<Mutex<Vec<(PathBuf, RealUser)>>>,
+        expect_privilege_params: Arc<Mutex<Vec<bool>>>,
+        expect_privilege_results: RefCell<Vec<bool>>,
     }
 
     impl PrivilegeDropper for PrivilegeDropperMock {
@@ -258,6 +312,14 @@ pub mod test_utils {
                 .unwrap()
                 .push((file.clone(), real_user.clone()));
         }
+
+        fn expect_privilege(&self, privilege_expected: bool) -> bool {
+            self.expect_privilege_params
+                .lock()
+                .unwrap()
+                .push(privilege_expected);
+            self.expect_privilege_results.borrow_mut().remove(0)
+        }
     }
 
     impl PrivilegeDropperMock {
@@ -265,6 +327,8 @@ pub mod test_utils {
             Self {
                 drop_privileges_params: Arc::new(Mutex::new(vec![])),
                 chown_params: Arc::new(Mutex::new(vec![])),
+                expect_privilege_params: Arc::new(Mutex::new(vec![])),
+                expect_privilege_results: RefCell::new(vec![]),
             }
         }
 
@@ -275,6 +339,16 @@ pub mod test_utils {
 
         pub fn chown_params(mut self, params: &Arc<Mutex<Vec<(PathBuf, RealUser)>>>) -> Self {
             self.chown_params = params.clone();
+            self
+        }
+
+        pub fn expect_privilege_params(mut self, params: &Arc<Mutex<Vec<bool>>>) -> Self {
+            self.expect_privilege_params = params.clone();
+            self
+        }
+
+        pub fn expect_privilege_result(self, result: bool) -> Self {
+            self.expect_privilege_results.borrow_mut().push(result);
             self
         }
     }
@@ -300,6 +374,7 @@ pub mod test_utils {
                     None => None,
                 },
             ));
+            #[cfg(not(target_os = "windows"))]
             assert!(init_test_logging());
         }
     }
@@ -326,11 +401,13 @@ pub mod tests {
     use super::*;
     use crate::crash_test_dummy::CrashTestDummy;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
-    use crate::sub_lib::crash_point::CrashPoint;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::test_utils::ByteArrayReader;
-    use crate::test_utils::ByteArrayWriter;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::crash_point::CrashPoint;
+    use masq_lib::shared_schema::{ConfiguratorError, ParamError};
+    use masq_lib::test_utils::fake_stream_holder::{
+        ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
+    };
+    use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
 
@@ -342,15 +419,29 @@ pub mod tests {
             &self.configuration
         }
 
-        fn initialize_as_privileged(&mut self, _args: &[String], _streams: &mut StdStreams<'_>) {}
+        fn initialize_as_privileged(
+            &mut self,
+            _args: &[String],
+            _streams: &mut StdStreams<'_>,
+        ) -> Result<(), ConfiguratorError> {
+            Ok(())
+        }
 
-        fn initialize_as_unprivileged(&mut self, _args: &[String], _streams: &mut StdStreams<'_>) {}
+        fn initialize_as_unprivileged(
+            &mut self,
+            _args: &[String],
+            _streams: &mut StdStreams<'_>,
+        ) -> Result<(), ConfiguratorError> {
+            Ok(())
+        }
     }
 
     struct SocketServerMock<C> {
         get_configuration_result: C,
         initialize_as_privileged_params: Arc<Mutex<Vec<Vec<String>>>>,
+        initialize_as_privileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
         initialize_as_unprivileged_params: Arc<Mutex<Vec<Vec<String>>>>,
+        initialize_as_unprivileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
     }
 
     impl<C> Future for SocketServerMock<C> {
@@ -370,18 +461,30 @@ pub mod tests {
             &self.get_configuration_result
         }
 
-        fn initialize_as_privileged(&mut self, args: &[String], _streams: &mut StdStreams) {
+        fn initialize_as_privileged(
+            &mut self,
+            args: &[String],
+            _streams: &mut StdStreams,
+        ) -> Result<(), ConfiguratorError> {
             self.initialize_as_privileged_params
                 .lock()
                 .unwrap()
                 .push(args.to_vec());
+            self.initialize_as_privileged_results.borrow_mut().remove(0)
         }
 
-        fn initialize_as_unprivileged(&mut self, args: &[String], _streams: &mut StdStreams) {
+        fn initialize_as_unprivileged(
+            &mut self,
+            args: &[String],
+            _streams: &mut StdStreams,
+        ) -> Result<(), ConfiguratorError> {
             self.initialize_as_unprivileged_params
                 .lock()
                 .unwrap()
                 .push(args.to_vec());
+            self.initialize_as_unprivileged_results
+                .borrow_mut()
+                .remove(0)
         }
     }
 
@@ -390,7 +493,9 @@ pub mod tests {
             Self {
                 get_configuration_result,
                 initialize_as_privileged_params: Arc::new(Mutex::new(vec![])),
+                initialize_as_privileged_results: RefCell::new(vec![]),
                 initialize_as_unprivileged_params: Arc::new(Mutex::new(vec![])),
+                initialize_as_unprivileged_results: RefCell::new(vec![]),
             }
         }
 
@@ -404,6 +509,17 @@ pub mod tests {
         }
 
         #[allow(dead_code)]
+        pub fn initialize_as_privileged_result(
+            self,
+            result: Result<(), ConfiguratorError>,
+        ) -> Self {
+            self.initialize_as_privileged_results
+                .borrow_mut()
+                .push(result);
+            self
+        }
+
+        #[allow(dead_code)]
         pub fn initialize_as_unprivileged_params(
             mut self,
             params: &Arc<Mutex<Vec<Vec<String>>>>,
@@ -411,6 +527,91 @@ pub mod tests {
             self.initialize_as_unprivileged_params = params.clone();
             self
         }
+
+        #[allow(dead_code)]
+        pub fn initialize_as_unprivileged_result(
+            self,
+            result: Result<(), ConfiguratorError>,
+        ) -> Self {
+            self.initialize_as_unprivileged_results
+                .borrow_mut()
+                .push(result);
+            self
+        }
+    }
+
+    #[test]
+    fn combine_results_combines_success_and_success() {
+        let initial_success = Ok("booga");
+        let additional_success = Ok(42);
+
+        let result = ServerInitializer::combine_results(initial_success, additional_success);
+
+        assert_eq!(result, Ok(()))
+    }
+
+    #[test]
+    fn combine_results_combines_success_and_failure() {
+        let initial_success = Ok("success");
+        let additional_failure: Result<usize, ConfiguratorError> =
+            Err(ConfiguratorError::new(vec![
+                ParamError::new("param-one", "Reason One"),
+                ParamError::new("param-two", "Reason Two"),
+            ]));
+
+        let result = ServerInitializer::combine_results(initial_success, additional_failure);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![
+                ParamError::new("param-one", "Reason One"),
+                ParamError::new("param-two", "Reason Two"),
+            ]))
+        );
+    }
+
+    #[test]
+    fn combine_results_combines_failure_and_success() {
+        let initial_failure: Result<String, ConfiguratorError> = Err(ConfiguratorError::new(vec![
+            ParamError::new("param-one", "Reason One"),
+            ParamError::new("param-two", "Reason Two"),
+        ]));
+        let additional_success = Ok(42);
+
+        let result = ServerInitializer::combine_results(initial_failure, additional_success);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![
+                ParamError::new("param-one", "Reason One"),
+                ParamError::new("param-two", "Reason Two"),
+            ]))
+        );
+    }
+
+    #[test]
+    fn combine_results_combines_failure_and_failure() {
+        let initial_failure: Result<String, ConfiguratorError> = Err(ConfiguratorError::new(vec![
+            ParamError::new("param-one", "Reason One"),
+            ParamError::new("param-two", "Reason Two"),
+        ]));
+        let additional_failure: Result<usize, ConfiguratorError> =
+            Err(ConfiguratorError::new(vec![
+                ParamError::new("param-two", "Reason Three"),
+                ParamError::new("param-three", "Reason Four"),
+            ]));
+
+        let result = ServerInitializer::combine_results(initial_failure, additional_failure);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![
+                ParamError::new("param-one", "Reason One"),
+                ParamError::new("param-two", "Reason Two"),
+                ParamError::new("param-two", "Reason Three"),
+                ParamError::new("param-three", "Reason Four"),
+            ]))
+        );
     }
 
     #[test]
@@ -491,7 +692,7 @@ pub mod tests {
             stderr,
         };
 
-        subject.go(streams, &vec![]);
+        subject.go(streams, &[]);
         let res = subject.wait();
 
         assert!(res.is_err());
@@ -571,25 +772,25 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
         };
 
-        subject.go(streams, &vec![]);
+        subject.go(streams, &[]);
 
         let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
         assert_eq!(*drop_privileges_params, vec![real_user]);
     }
 
     #[test]
-    #[should_panic(expected = "kind: HelpDisplayed")]
+    #[should_panic(expected = "0: ")]
     fn go_with_help_should_print_help_and_artificially_panic() {
         go_with_something_should_print_something_and_artificially_panic("--help");
     }
 
     #[test]
-    #[should_panic(expected = "kind: VersionDisplayed")]
+    #[should_panic(expected = "0: ")]
     fn go_with_version_should_print_version_and_artificially_panic() {
         go_with_something_should_print_something_and_artificially_panic("--version");
     }
 
-    fn go_with_something_should_print_something_and_artificially_panic(something: &str) {
+    fn go_with_something_should_print_something_and_artificially_panic(parameter: &str) {
         let dns_socket_server = SocketServerMock::new(());
         let bootstrapper = SocketServerMock::new(BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
@@ -598,8 +799,51 @@ pub mod tests {
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
         };
-        let args = vec!["MASQ Node".to_string(), something.to_string()];
+        let args = vec!["MASQ Node".to_string(), parameter.to_string()];
 
         subject.go(&mut FakeStreamHolder::new().streams(), &args);
+    }
+
+    #[test]
+    fn go_should_combine_errors() {
+        let dns_socket_server = SocketServerMock::new(())
+            .initialize_as_privileged_result(Err(ConfiguratorError::required(
+                "dns-iap",
+                "dns-iap-reason",
+            )))
+            .initialize_as_unprivileged_result(Err(ConfiguratorError::required(
+                "dns-iau",
+                "dns-iau-reason",
+            )));
+        let bootstrapper = SocketServerMock::new(BootstrapperConfig::new())
+            .initialize_as_privileged_result(Err(ConfiguratorError::required(
+                "boot-iap",
+                "boot-iap-reason",
+            )))
+            .initialize_as_unprivileged_result(Err(ConfiguratorError::required(
+                "boot-iau",
+                "boot-iau-reason",
+            )));
+        let privilege_dropper = PrivilegeDropperMock::new();
+        let mut subject = ServerInitializer {
+            dns_socket_server: Box::new(dns_socket_server),
+            bootstrapper: Box::new(bootstrapper),
+            privilege_dropper: Box::new(privilege_dropper),
+        };
+        let args = vec!["MASQ Node".to_string()];
+        let stderr = ByteArrayWriter::new();
+        let mut holder = FakeStreamHolder::new();
+        holder.stderr = stderr;
+
+        let result = subject.go(&mut holder.streams(), &args);
+
+        assert_eq!(result, 1);
+        assert_eq!(
+            holder.stderr.get_string(),
+            "Problem with parameter dns-iap: dns-iap-reason\n\
+Problem with parameter boot-iap: boot-iap-reason\n\
+Problem with parameter dns-iau: dns-iau-reason\n\
+Problem with parameter boot-iau: boot-iau-reason\n"
+        );
     }
 }

@@ -15,14 +15,13 @@ use crate::listener_handler::ListenerHandlerFactoryReal;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
-use crate::node_configurator::{DirsWrapper, NodeConfigurator, RealDirsWrapper};
+use crate::node_configurator::{DirsWrapper, NodeConfigurator};
 use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
-use crate::sub_lib::crash_point::CrashPoint;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -37,10 +36,13 @@ use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::command::StdStreams;
-use masq_lib::ui_gateway::DEFAULT_UI_PORT;
+use masq_lib::constants::DEFAULT_UI_PORT;
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::shared_schema::ConfiguratorError;
 use std::collections::HashMap;
 use std::env::var;
-use std::fmt::{Debug, Error, Formatter};
+use std::fmt;
+use std::fmt::{Debug, Display, Error, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -108,7 +110,6 @@ impl EnvironmentWrapper for EnvironmentWrapperReal {
 pub struct RealUser {
     id_wrapper: Box<dyn IdWrapper>,
     environment_wrapper: Box<dyn EnvironmentWrapper>,
-    dirs_wrapper: Box<dyn DirsWrapper>,
     pub uid: Option<i32>,
     pub gid: Option<i32>,
     pub home_dir: Option<PathBuf>,
@@ -149,14 +150,23 @@ impl FromStr for RealUser {
         let parts: Vec<&str> = triple.splitn(3, ':').collect_vec();
         // validator should have ensured that there are exactly three parts,
         // and that the first two are empty or numeric
+        if parts.len() < 3 {
+            return Err(());
+        }
         let real_user = RealUser::new(
             match &parts[0] {
                 s if s.is_empty() => None,
-                s => Some(s.parse().expect("--real-user is not properly validated")),
+                s => match s.parse() {
+                    Ok(uid) => Some(uid),
+                    Err(_) => return Err(()),
+                },
             },
             match &parts[1] {
                 s if s.is_empty() => None,
-                s => Some(s.parse().expect("--real-user is not properly validated")),
+                s => match s.parse() {
+                    Ok(gid) => Some(gid),
+                    Err(_) => return Err(()),
+                },
             },
             match &parts[2] {
                 s if s.is_empty() => None,
@@ -176,7 +186,6 @@ impl RealUser {
         RealUser {
             id_wrapper: Box::new(IdWrapperReal),
             environment_wrapper: Box::new(EnvironmentWrapperReal),
-            dirs_wrapper: Box::new(RealDirsWrapper),
             uid: uid_opt,
             gid: gid_opt,
             home_dir: home_dir_opt,
@@ -187,7 +196,7 @@ impl RealUser {
         RealUser::new(None, None, None)
     }
 
-    pub fn populate(&self) -> RealUser {
+    pub fn populate(&self, dirs_wrapper: &dyn DirsWrapper) -> RealUser {
         let uid = Self::first_present(vec![
             self.uid,
             self.id_from_env("SUDO_UID"),
@@ -200,32 +209,14 @@ impl RealUser {
         ]);
         let home_dir = Self::first_present(vec![
             self.home_dir.clone(),
-            self.sudo_home_from_sudo_user_and_home(),
-            self.dirs_wrapper.home_dir(),
+            self.sudo_home_from_sudo_user_and_home(dirs_wrapper),
+            dirs_wrapper.home_dir(),
         ]);
         RealUser::new(Some(uid), Some(gid), Some(home_dir))
     }
 
-    pub fn to_string(&self) -> String {
-        format!(
-            "{}:{}:{}",
-            match self.uid {
-                Some(uid) => format!("{}", uid),
-                None => "".to_string(),
-            },
-            match self.gid {
-                Some(gid) => format!("{}", gid),
-                None => "".to_string(),
-            },
-            match &self.home_dir {
-                Some(home_dir) => home_dir.to_string_lossy().to_string(),
-                None => "".to_string(),
-            },
-        )
-    }
-
-    fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
-        match (self.environment_wrapper.var ("SUDO_USER"), self.dirs_wrapper.home_dir()) {
+    fn sudo_home_from_sudo_user_and_home(&self, dirs_wrapper: &dyn DirsWrapper) -> Option<PathBuf> {
+        match (self.environment_wrapper.var ("SUDO_USER"), dirs_wrapper.home_dir()) {
             (Some (sudo_user), Some (home_dir)) =>
                 match home_dir.parent().map(|px| px.join(PathBuf::from(sudo_user))) {
                     Some (hd) => Some (hd),
@@ -251,6 +242,27 @@ impl RealUser {
             .find(|t_opt| t_opt.is_some())
             .expect("Nothing was present")
             .expect("Internal error")
+    }
+}
+
+impl Display for RealUser {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}",
+            match self.uid {
+                Some(uid) => format!("{}", uid),
+                None => "".to_string(),
+            },
+            match self.gid {
+                Some(gid) => format!("{}", gid),
+                None => "".to_string(),
+            },
+            match &self.home_dir {
+                Some(home_dir) => home_dir.to_string_lossy().to_string(),
+                None => "".to_string(),
+            },
+        )
     }
 }
 
@@ -305,7 +317,7 @@ impl BootstrapperConfig {
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: 3u8, /*DEFAULT_CHAIN_ID*/
-                gas_price: None,
+                gas_price: 1,
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
@@ -361,8 +373,16 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
         &self.config
     }
 
-    fn initialize_as_privileged(&mut self, args: &[String], streams: &mut StdStreams) {
-        self.config = NodeConfiguratorStandardPrivileged {}.configure(&args.to_vec(), streams);
+    fn initialize_as_privileged(
+        &mut self,
+        args: &[String],
+        streams: &mut StdStreams,
+    ) -> Result<(), ConfiguratorError> {
+        self.config =
+            match NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams) {
+                Ok(config) => config,
+                Err(e) => return Err(e),
+            };
 
         self.logger_initializer.init(
             self.config.data_directory.clone(),
@@ -386,13 +406,18 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
                 }
                 self.listener_handlers.push(listener_handler);
             });
+        Ok(())
     }
 
-    fn initialize_as_unprivileged(&mut self, args: &[String], streams: &mut StdStreams) {
+    fn initialize_as_unprivileged(
+        &mut self,
+        args: &[String],
+        streams: &mut StdStreams,
+    ) -> Result<(), ConfiguratorError> {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         let unprivileged_config = NodeConfiguratorStandardUnprivileged::new(&self.config)
-            .configure(&args.to_vec(), streams);
+            .configure(&args.to_vec(), streams)?;
         self.config.merge_unprivileged(unprivileged_config);
         self.establish_clandestine_port();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
@@ -413,6 +438,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
         for f in self.listener_handlers.iter_mut() {
             f.bind_subs(stream_handler_pool_subs.add_sub.clone());
         }
+        Ok(())
     }
 }
 
@@ -495,6 +521,7 @@ impl Bootstrapper {
                 .initialize(
                     &self.config.data_directory,
                     self.config.blockchain_bridge_config.chain_id,
+                    true,
                 )
                 .expect("Cannot initialize database");
             let config_dao = ConfigDaoReal::new(conn);
@@ -516,7 +543,7 @@ impl Bootstrapper {
             self.listener_handlers.push(listener_handler);
             self.config.neighborhood_config = NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&node_addr.ip_addr(), &vec![clandestine_port]),
+                    NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
                     neighbor_configs.clone(),
                     rate_pack.clone(),
                 ),
@@ -562,6 +589,8 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use lazy_static::lazy_static;
+    use masq_lib::shared_schema::ParamError;
+    use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use regex::Regex;
@@ -719,18 +748,37 @@ mod tests {
     fn make_default_cli_params() -> Vec<String> {
         vec![
             String::from("MASQNode"),
-            String::from("--dns-servers"),
-            String::from("222.222.222.222"),
             String::from("--ip"),
             String::from("111.111.111.111"),
         ]
     }
 
     #[test]
-    fn real_user_from_many_colons() {
-        let subject = RealUser::from_str("::::::").unwrap();
+    fn real_user_from_blank() {
+        let result = RealUser::from_str("").err().unwrap();
 
-        assert_eq!(subject, RealUser::new(None, None, Some("::::".into())))
+        assert_eq!(result, ());
+    }
+
+    #[test]
+    fn real_user_from_one_colon() {
+        let result = RealUser::from_str(":").err().unwrap();
+
+        assert_eq!(result, ());
+    }
+
+    #[test]
+    fn real_user_from_nonnumeric_uid() {
+        let result = RealUser::from_str("booga:1234:").err().unwrap();
+
+        assert_eq!(result, ());
+    }
+
+    #[test]
+    fn real_user_from_nonnumeric_gid() {
+        let result = RealUser::from_str("1234:booga:").err().unwrap();
+
+        assert_eq!(result, ());
     }
 
     #[test]
@@ -738,6 +786,13 @@ mod tests {
         let subject = RealUser::from_str("::").unwrap();
 
         assert_eq!(subject, RealUser::new(None, None, None))
+    }
+
+    #[test]
+    fn real_user_from_many_colons() {
+        let subject = RealUser::from_str("::::::").unwrap();
+
+        assert_eq!(subject, RealUser::new(None, None, Some("::::".into())))
     }
 
     #[test]
@@ -804,10 +859,12 @@ mod tests {
             .add_listener_handler(Box::new(third_handler))
             .build();
 
-        subject.initialize_as_privileged(
-            &make_default_cli_params(),
-            &mut FakeStreamHolder::new().streams(),
-        );
+        subject
+            .initialize_as_privileged(
+                &make_default_cli_params(),
+                &mut FakeStreamHolder::new().streams(),
+            )
+            .unwrap();
 
         let mut all_calls = vec![];
         all_calls.extend(first_handler_log.lock().unwrap().dump());
@@ -841,14 +898,16 @@ mod tests {
             .add_listener_handler(second_handler)
             .build();
 
-        subject.initialize_as_privileged(
-            &vec![
-                "MASQNode".to_string(),
-                "--neighborhood-mode".to_string(),
-                "zero-hop".to_string(),
-            ],
-            &mut FakeStreamHolder::new().streams(),
-        );
+        subject
+            .initialize_as_privileged(
+                &[
+                    "MASQNode".to_string(),
+                    "--neighborhood-mode".to_string(),
+                    "zero-hop".to_string(),
+                ],
+                &mut FakeStreamHolder::new().streams(),
+            )
+            .unwrap();
 
         let config = subject.config;
         assert_eq!(
@@ -879,13 +938,14 @@ mod tests {
         subject.listener_handler_factory = Box::new(listener_handler_factory);
         let args: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--dns-servers", "1.1.1.1")
             .param("--ip", "2.2.2.2")
             .param("--real-user", "123:456:/home/booga")
             .into();
         let args_slice: &[String] = args.as_slice();
 
-        subject.initialize_as_privileged(args_slice, &mut FakeStreamHolder::new().streams());
+        subject
+            .initialize_as_privileged(args_slice, &mut FakeStreamHolder::new().streams())
+            .unwrap();
 
         let init_params = init_params_arc.lock().unwrap();
         assert_eq!(
@@ -897,6 +957,27 @@ mod tests {
                 None,
             )]
         )
+    }
+
+    #[test]
+    fn initialize_as_privileged_handles_error_from_configurator() {
+        let logger_initializer = LoggerInitializerWrapperMock::new();
+        let mut subject = Bootstrapper::new(Box::new(logger_initializer));
+        let args: Vec<String> = ArgsBuilder::new().param("--booga", "value").into();
+        let args_slice: &[String] = args.as_slice();
+
+        let result =
+            subject.initialize_as_privileged(args_slice, &mut FakeStreamHolder::new().streams());
+
+        assert_eq! (result, Err(ConfiguratorError::new(vec![ParamError {
+            parameter: "<unknown>".to_string(),
+            reason: "Unfamiliar message: error: Found argument '--booga' which wasn't expected, or isn't valid in this context
+
+USAGE:
+    MASQNode [OPTIONS]
+
+For more information try --help".to_string()
+        }])));
     }
 
     #[test]
@@ -916,16 +997,18 @@ mod tests {
             .config(config)
             .build();
 
-        subject.initialize_as_unprivileged(
-            &vec![
-                "MASQNode".to_string(),
-                String::from("--ip"),
-                String::from("1.2.3.4"),
-                String::from("--data-directory"),
-                data_dir.to_str().unwrap().to_string(),
-            ],
-            &mut FakeStreamHolder::new().streams(),
-        );
+        subject
+            .initialize_as_unprivileged(
+                &[
+                    "MASQNode".to_string(),
+                    String::from("--ip"),
+                    String::from("1.2.3.4"),
+                    String::from("--data-directory"),
+                    data_dir.to_str().unwrap().to_string(),
+                ],
+                &mut FakeStreamHolder::new().streams(),
+            )
+            .unwrap();
 
         let config = subject.config;
         assert!(!config.ui_gateway_config.node_descriptor.is_empty());
@@ -947,21 +1030,23 @@ mod tests {
             .config(config)
             .build();
 
-        subject.initialize_as_unprivileged(
-            &vec![
-                "MASQNode".to_string(),
-                String::from("--data-directory"),
-                data_dir.to_str().unwrap().to_string(),
-                String::from("--ip"),
-                String::from("1.2.3.4"),
-                String::from("--gas-price"),
-                "11".to_string(),
-            ],
-            &mut FakeStreamHolder::new().streams(),
-        );
+        subject
+            .initialize_as_unprivileged(
+                &[
+                    "MASQNode".to_string(),
+                    String::from("--data-directory"),
+                    data_dir.to_str().unwrap().to_string(),
+                    String::from("--ip"),
+                    String::from("1.2.3.4"),
+                    String::from("--gas-price"),
+                    "11".to_string(),
+                ],
+                &mut FakeStreamHolder::new().streams(),
+            )
+            .unwrap();
 
         let config = subject.config;
-        assert_eq!(Some(11u64), config.blockchain_bridge_config.gas_price);
+        assert_eq!(config.blockchain_bridge_config.gas_price, 11);
     }
 
     #[test]
@@ -980,10 +1065,8 @@ mod tests {
             .add_listener_handler(second_handler)
             .add_listener_handler(third_handler)
             .build();
-        let args = &vec![
+        let args = &[
             String::from("MASQNode"),
-            String::from("--dns-servers"),
-            String::from("222.222.222.222"),
             String::from("--neighborhood-mode"),
             String::from("zero-hop"),
             String::from("--clandestine-port"),
@@ -993,8 +1076,12 @@ mod tests {
         ];
         let mut holder = FakeStreamHolder::new();
 
-        subject.initialize_as_privileged(&args, &mut holder.streams());
-        subject.initialize_as_unprivileged(&args, &mut holder.streams());
+        subject
+            .initialize_as_privileged(args, &mut holder.streams())
+            .unwrap();
+        subject
+            .initialize_as_unprivileged(args, &mut holder.streams())
+            .unwrap();
 
         let config = subject.config;
         assert!(config.neighborhood_config.mode.node_addr_opt().is_none());
@@ -1005,11 +1092,12 @@ mod tests {
     fn init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged(
     ) {
         let _lock = INITIALIZATION.lock();
+        let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged",
         );
-        let args = &vec![
+        let args = &[
             String::from("MASQNode"),
             String::from("--dns-servers"),
             String::from("1.2.3.4,2.3.4.5"),
@@ -1036,16 +1124,20 @@ mod tests {
             ))
             .build();
 
-        subject.initialize_as_privileged(&args, &mut holder.streams());
-        subject.initialize_as_unprivileged(&args, &mut holder.streams());
+        subject
+            .initialize_as_privileged(args, &mut holder.streams())
+            .unwrap();
+        subject
+            .initialize_as_unprivileged(args, &mut holder.streams())
+            .unwrap();
 
         let dns_servers_guard = dns_servers_arc.lock().unwrap();
         assert_eq!(
             dns_servers_guard.as_ref().unwrap(),
-            &vec!(
+            &vec![
                 SocketAddr::from_str("1.2.3.4:53").unwrap(),
                 SocketAddr::from_str("2.3.4.5:53").unwrap()
-            )
+            ]
         )
     }
 
@@ -1063,16 +1155,16 @@ mod tests {
             ))
             .build();
 
-        subject.initialize_as_privileged(
-            &vec![
-                String::from("MASQNode"),
-                String::from("--dns-servers"),
-                String::from("1.1.1.1"),
-                String::from("--ip"),
-                String::from("111.111.111.111"),
-            ],
-            &mut FakeStreamHolder::new().streams(),
-        );
+        subject
+            .initialize_as_privileged(
+                &[
+                    String::from("MASQNode"),
+                    String::from("--ip"),
+                    String::from("111.111.111.111"),
+                ],
+                &mut FakeStreamHolder::new().streams(),
+            )
+            .unwrap();
     }
 
     #[test]
@@ -1105,7 +1197,7 @@ mod tests {
         init_test_logging();
         let node_addr = NodeAddr::new(
             &IpAddr::from_str("2.3.4.5").expect("Couldn't create IP address"),
-            &vec![3456u16, 4567u16],
+            &[3456u16, 4567u16],
         );
         let mut holder = FakeStreamHolder::new();
         let cryptde_ref = {
@@ -1240,29 +1332,31 @@ mod tests {
             .add_listener_handler(Box::new(clandestine_listener_handler))
             .build();
         let mut holder = FakeStreamHolder::new();
-        subject.initialize_as_privileged(
-            &vec![
-                "MASQNode".to_string(),
-                "--dns-servers".to_string(),
-                "1.1.1.1".to_string(),
-                "--data-directory".to_string(),
-                data_dir.display().to_string(),
-            ],
-            &mut holder.streams(),
-        );
+        subject
+            .initialize_as_privileged(
+                &[
+                    "MASQNode".to_string(),
+                    "--data-directory".to_string(),
+                    data_dir.display().to_string(),
+                ],
+                &mut holder.streams(),
+            )
+            .unwrap();
 
-        subject.initialize_as_unprivileged(
-            &vec![
-                "MASQNode".to_string(),
-                "--clandestine-port".to_string(),
-                "1234".to_string(),
-                "--ip".to_string(),
-                "1.2.3.4".to_string(),
-                String::from("--data-directory"),
-                data_dir.display().to_string(),
-            ],
-            &mut holder.streams(),
-        );
+        subject
+            .initialize_as_unprivileged(
+                &[
+                    "MASQNode".to_string(),
+                    "--clandestine-port".to_string(),
+                    "1234".to_string(),
+                    "--ip".to_string(),
+                    "1.2.3.4".to_string(),
+                    String::from("--data-directory"),
+                    data_dir.display().to_string(),
+                ],
+                &mut holder.streams(),
+            )
+            .unwrap();
 
         let calls = clandestine_listener_handler_log_arc.lock().unwrap().dump();
         assert_eq!(
@@ -1301,9 +1395,13 @@ mod tests {
             .add_listener_handler(Box::new(yet_another_listener_handler))
             .config(config)
             .build();
-        subject.initialize_as_privileged(&args, &mut holder.streams());
+        subject
+            .initialize_as_privileged(&args, &mut holder.streams())
+            .unwrap();
 
-        subject.initialize_as_unprivileged(&args, &mut holder.streams());
+        subject
+            .initialize_as_unprivileged(&args, &mut holder.streams())
+            .unwrap();
 
         // Checking log message cause I don't know how to get at add_stream_sub
         let tlh = TestLogHandler::new();
@@ -1376,16 +1474,18 @@ mod tests {
             .build();
         let args = vec![
             String::from("MASQNode"),
-            String::from("--dns-servers"),
-            String::from("222.222.222.222"),
             String::from("--neighborhood-mode"),
             String::from("zero-hop"),
             String::from("--data-directory"),
             data_dir.to_str().unwrap().to_string(),
         ];
 
-        subject.initialize_as_privileged(&args, &mut holder.streams());
-        subject.initialize_as_unprivileged(&args, &mut holder.streams());
+        subject
+            .initialize_as_privileged(&args, &mut holder.streams())
+            .unwrap();
+        subject
+            .initialize_as_unprivileged(&args, &mut holder.streams())
+            .unwrap();
 
         thread::spawn(|| {
             tokio::run(subject);
@@ -1417,10 +1517,10 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![4321]),
+                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[4321]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                     cryptde,
                 ))],
@@ -1439,7 +1539,7 @@ mod tests {
         subject.establish_clandestine_port();
 
         let conn = DbInitializerReal::new()
-            .initialize(&data_dir, chain_id)
+            .initialize(&data_dir, chain_id, true)
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1486,10 +1586,10 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![]),
+                NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                     cryptde,
                 ))],
@@ -1508,7 +1608,7 @@ mod tests {
         subject.establish_clandestine_port();
 
         let conn = DbInitializerReal::new()
-            .initialize(&data_dir, chain_id)
+            .initialize(&data_dir, chain_id, true)
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1540,7 +1640,7 @@ mod tests {
             mode: NeighborhoodMode::OriginateOnly(
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
-                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                    &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                     cryptde,
                 ))],
@@ -1577,7 +1677,7 @@ mod tests {
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
-                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![1234]),
+                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                 DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
                 cryptde,
             ))]),
@@ -1641,9 +1741,8 @@ mod tests {
         let mut from_configurator = RealUser::new(Some(1), Some(2), Some("three".into()));
         from_configurator.id_wrapper = Box::new(id_wrapper);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
-        from_configurator.dirs_wrapper = Box::new(MockDirsWrapper::new());
 
-        let result = from_configurator.populate();
+        let result = from_configurator.populate(&MockDirsWrapper::new());
 
         assert_eq!(result, from_configurator);
     }
@@ -1656,10 +1755,9 @@ mod tests {
         let mut from_configurator = RealUser::null();
         from_configurator.id_wrapper = Box::new(id_wrapper);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
-        from_configurator.dirs_wrapper =
-            Box::new(MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
 
-        let result = from_configurator.populate();
+        let result = from_configurator
+            .populate(&MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
 
         assert_eq!(
             result,
@@ -1682,10 +1780,8 @@ mod tests {
         let mut from_configurator = RealUser::null();
         from_configurator.id_wrapper = Box::new(id_wrapper);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
-        from_configurator.dirs_wrapper =
-            Box::new(MockDirsWrapper::new().home_dir_result(Some("/".into())));
 
-        from_configurator.populate();
+        from_configurator.populate(&MockDirsWrapper::new().home_dir_result(Some("/".into())));
     }
 
     #[test]
@@ -1695,10 +1791,9 @@ mod tests {
         let mut from_configurator = RealUser::null();
         from_configurator.id_wrapper = Box::new(id_wrapper);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
-        from_configurator.dirs_wrapper =
-            Box::new(MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
 
-        let result = from_configurator.populate();
+        let result = from_configurator
+            .populate(&MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
 
         assert_eq!(
             result,

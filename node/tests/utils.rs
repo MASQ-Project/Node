@@ -132,8 +132,10 @@ impl MASQNode {
             assert_eq!(
                 MASQNode::millis_since(started_at) < real_limit_ms,
                 true,
-                "Timeout: waited for more than {}ms",
-                real_limit_ms
+                "Timeout: waited for more than {}ms without finding '{}' in these logs:\n{}\n",
+                real_limit_ms,
+                pattern,
+                self.logfile_contents
             );
             thread::sleep(Duration::from_millis(200));
         }
@@ -185,7 +187,7 @@ impl MASQNode {
     #[cfg(target_os = "windows")]
     pub fn kill(&mut self) {
         let mut command = process::Command::new("taskkill");
-        command.args(&vec!["/IM", "MASQNode.exe", "/F"]);
+        command.args(&["/IM", "MASQNode.exe", "/F"]);
         let _ = command.output().expect("Couldn't kill MASQNode.exe");
         self.child.take();
         // Be nice if we could figure out how to populate self.output here
@@ -214,7 +216,10 @@ impl MASQNode {
         Self::remove_database();
         let mut command = command_to_start();
         let mut args = Self::daemon_args();
-        args.extend(Self::get_extra_args(config));
+        args.extend(match config {
+            Some(c) => c.args,
+            None => vec![],
+        });
         command.args(&args);
         command
     }
@@ -263,7 +268,6 @@ impl MASQNode {
 
     fn standard_args() -> Vec<String> {
         apply_prefix_parameters(CommandConfig::new())
-            .pair("--dns-servers", "8.8.8.8")
             .pair("--neighborhood-mode", "zero-hop")
             .pair(
                 "--consuming-private-key",

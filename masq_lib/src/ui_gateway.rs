@@ -2,18 +2,17 @@
 
 use actix::Message;
 
-pub const DEFAULT_UI_PORT: u16 = 5333;
-
 #[derive(PartialEq, Clone, Debug)]
 pub enum MessageTarget {
     ClientId(u64),
+    AllExcept(u64),
     AllClients,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum MessagePath {
-    OneWay,
-    TwoWay(u64), // context_id
+    FireAndForget,
+    Conversation(u64), // context_id
 }
 
 #[derive(PartialEq, Clone, Debug)]

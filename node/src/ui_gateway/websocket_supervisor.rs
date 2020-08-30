@@ -12,7 +12,7 @@ use futures::Sink;
 use futures::Stream;
 use itertools::Itertools;
 use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL, UNMARSHAL_ERROR};
-use masq_lib::ui_gateway::MessagePath::TwoWay;
+use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
@@ -100,7 +100,7 @@ impl WebSocketSupervisorReal {
         port: u16,
         from_ui_message: Recipient<FromUiMessage>,
         from_ui_message_sub: Recipient<NodeFromUiMessage>,
-    ) -> WebSocketSupervisorReal {
+    ) -> std::io::Result<WebSocketSupervisorReal> {
         let inner = Arc::new(Mutex::new(WebSocketSupervisorInner {
             port,
             next_client_id: 0,
@@ -134,15 +134,21 @@ impl WebSocketSupervisorReal {
                 Err(())
             }
         }));
-        WebSocketSupervisorReal { inner }
+        Ok(WebSocketSupervisorReal { inner })
     }
 
     fn send_msg(locked_inner: &mut MutexGuard<WebSocketSupervisorInner>, msg: NodeToUiMessage) {
         let client_ids = match msg.target {
             MessageTarget::ClientId(n) => vec![n],
+            MessageTarget::AllExcept(n) => locked_inner
+                .client_by_id
+                .keys()
+                .filter(|k| k != &&n)
+                .copied()
+                .collect_vec(),
             MessageTarget::AllClients => locked_inner.client_by_id.keys().copied().collect_vec(),
         };
-        let json = UiTrafficConverter::new_marshal_to_ui(msg);
+        let json = UiTrafficConverter::new_marshal(msg.body);
         Self::send_to_clients(locked_inner, client_ids, json);
     }
 
@@ -371,7 +377,7 @@ impl WebSocketSupervisorReal {
                                 target: ClientId(client_id),
                                 body: MessageBody {
                                     opcode,
-                                    path: TwoWay(context_id),
+                                    path: Conversation(context_id),
                                     payload: Err((UNMARSHAL_ERROR, e.to_string())),
                                 },
                             },
@@ -435,7 +441,14 @@ impl WebSocketSupervisorReal {
                 .get_mut(&client_id)
                 .unwrap_or_else(|| panic!("Tried to send to a nonexistent client {}", client_id));
             match client.send(OwnedMessage::Text(json.clone())) {
-                Ok(_) => client.flush().expect("Flush error"),
+                Ok(_) => match client.flush() {
+                    Ok(_) => (),
+                    Err(_) => warning!(
+                        Logger::new("WebSocketSupervisor"),
+                        "Client {} dropped its connection before it could be flushed",
+                        client_id
+                    ),
+                },
                 Err(e) => error!(
                     Logger::new("WebSocketSupervisor"),
                     "Error sending to client {}: {:?}", client_id, e
@@ -512,7 +525,7 @@ mod tests {
     use masq_lib::messages::{
         FromMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL, UNMARSHAL_ERROR,
     };
-    use masq_lib::ui_gateway::MessagePath::OneWay;
+    use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_traffic_converter::UiTrafficConverter;
     use masq_lib::utils::{find_free_port, localhost};
@@ -693,7 +706,8 @@ mod tests {
             let system = System::new("logs_pre_upgrade_connection_errors");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -715,7 +729,8 @@ mod tests {
             let system = System::new("rejects_connection_attempt_with_improper_protocol_name");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -742,7 +757,8 @@ mod tests {
             let system = System::new("logs_unexpected_binary_ping_pong_websocket_messages");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -786,7 +802,8 @@ mod tests {
             let system = System::new("can_connect_two_old_clients_and_receive_messages_from_them");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -843,7 +860,8 @@ mod tests {
             let system = System::new("can_connect_two_clients_and_receive_messages_from_them");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -886,7 +904,7 @@ mod tests {
                 client_id: 0,
                 body: MessageBody {
                     opcode: "one".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             },
@@ -897,7 +915,7 @@ mod tests {
                 client_id: 1,
                 body: MessageBody {
                     opcode: "another".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             },
@@ -908,7 +926,7 @@ mod tests {
                 client_id: 0,
                 body: MessageBody {
                     opcode: "athird".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             },
@@ -1123,11 +1141,40 @@ mod tests {
                 target: ClientId(0),
                 body: MessageBody {
                     opcode: "setup".to_string(),
-                    path: TwoWay(3333),
+                    path: Conversation(3333),
                     payload: Err((UNMARSHAL_ERROR, expected_traffic_conversion_message))
                 }
             }
         );
+    }
+
+    #[test]
+    fn can_handle_flush_failure_after_send() {
+        init_test_logging();
+        let (ui_gateway, _, _) = make_recorder();
+        let (from_ui_message, from_ui_message_sub) = subs(ui_gateway);
+        let client = ClientWrapperMock::new()
+            .send_result(Ok(()))
+            .flush_result(Err(WebSocketError::NoDataAvailable));
+        let mut client_by_id: HashMap<u64, Box<dyn ClientWrapper>> = HashMap::new();
+        client_by_id.insert(1234, Box::new(client));
+        let inner_arc = Arc::new(Mutex::new(WebSocketSupervisorInner {
+            port: 0,
+            next_client_id: 0,
+            from_ui_message,
+            from_ui_message_sub,
+            client_id_by_socket_addr: Default::default(),
+            old_client_by_id: Default::default(),
+            client_by_id,
+        }));
+
+        WebSocketSupervisorReal::send_to_clients(
+            &mut inner_arc.lock().unwrap(),
+            vec![1234],
+            "json".to_string(),
+        );
+
+        TestLogHandler::new().exists_log_containing ("WARN: WebSocketSupervisor: Client 1234 dropped its connection before it could be flushed");
     }
 
     #[test]
@@ -1139,7 +1186,8 @@ mod tests {
             let system = System::new("client_dot_graph_request_is_forwarded_to_ui_gateway");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -1173,7 +1221,8 @@ mod tests {
                 System::new("client_receives_dot_graph_response_from_websocket_supervisor");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -1203,13 +1252,13 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_dot_graph_response_sends_it_to_the_client");
-        let mut client_id = 0;
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let mock_client = ClientWrapperMock::new()
                 .send_result(Ok(()))
                 .flush_result(Ok(()));
-            client_id = subject.inject_mock_client(mock_client, true);
+            let client_id = subject.inject_mock_client(mock_client, true);
 
             let json_string = UiTrafficConverterOldReal::new()
                 .marshal(UiMessage::NeighborhoodDotGraphResponse(String::from(
@@ -1246,7 +1295,8 @@ mod tests {
             let system = System::new("once_a_client_sends_a_close_no_more_data_is_accepted");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -1282,7 +1332,8 @@ mod tests {
             let system = System::new("a_client_that_violates_the_protocol_is_terminated");
             let (from_ui_message, ui_message_sub) = subs(ui_gateway);
             let subject = lazy(move || {
-                let _subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+                let _subject =
+                    WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
                 Ok(())
             });
             actix::spawn(subject);
@@ -1316,13 +1367,13 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_sends_a_message_to_the_client");
-        let mut client_id = 0;
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let mock_client = ClientWrapperMock::new()
                 .send_result(Ok(()))
                 .flush_result(Ok(()));
-            client_id = subject.inject_mock_client(mock_client, true);
+            let client_id = subject.inject_mock_client(mock_client, true);
 
             let json_string = "{totally: 'valid'}";
 
@@ -1352,7 +1403,8 @@ mod tests {
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_sends_a_message_to_the_client");
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let one_mock_client = ClientWrapperMock::new()
                 .send_result(Ok(()))
                 .flush_result(Ok(()));
@@ -1363,7 +1415,7 @@ mod tests {
                 target: MessageTarget::ClientId(one_client_id),
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };
@@ -1387,13 +1439,58 @@ mod tests {
     }
 
     #[test]
-    fn send_msg_with_no_client_id_sends_a_message_to_all_clients() {
+    fn send_msg_with_all_except_sends_a_message_to_all_except() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_sends_a_message_to_the_client");
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
+            let one_mock_client = ClientWrapperMock::new()
+                .send_result(Ok(()))
+                .flush_result(Ok(()));
+            let another_mock_client = ClientWrapperMock::new()
+                .send_result(Ok(()))
+                .flush_result(Ok(()));
+            let one_client_id = subject.inject_mock_client(one_mock_client, false);
+            let another_client_id = subject.inject_mock_client(another_mock_client, false);
+            let msg = NodeToUiMessage {
+                target: MessageTarget::AllExcept(another_client_id),
+                body: MessageBody {
+                    opcode: "booga".to_string(),
+                    path: FireAndForget,
+                    payload: Ok("{}".to_string()),
+                },
+            };
+
+            subject.send_msg(msg.clone());
+
+            let one_mock_client_ref = subject.get_mock_client(one_client_id);
+            let actual_message = match one_mock_client_ref.send_params.lock().unwrap().get(0) {
+                Some(OwnedMessage::Text(json)) => UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllExcept(another_client_id)).unwrap(),
+                Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
+                None => panic! ("send should have been called, but wasn't"),
+            };
+            assert_eq!(actual_message, msg);
+            let another_mock_client_ref = subject.get_mock_client(another_client_id);
+            assert_eq!(another_mock_client_ref.send_params.lock().unwrap().len(), 0);
+            Ok(())
+        });
+        actix::spawn(lazy_future);
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    fn send_msg_with_all_clients_sends_a_message_to_all_clients() {
+        let port = find_free_port();
+        let (ui_gateway, _, _) = make_recorder();
+        let (from_ui_message, ui_message_sub) = subs(ui_gateway);
+        let system = System::new("send_msg_sends_a_message_to_the_client");
+        let lazy_future = lazy(move || {
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let one_mock_client = ClientWrapperMock::new()
                 .send_result(Ok(()))
                 .flush_result(Ok(()));
@@ -1406,7 +1503,7 @@ mod tests {
                 target: MessageTarget::AllClients,
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };
@@ -1442,13 +1539,13 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("receive_sends_a_message_and_errors_on_flush");
-        let mut client_id = 0;
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let mock_client = ClientWrapperMock::new()
                 .send_result(Ok(()))
                 .flush_result(Err(WebSocketError::NoDataAvailable));
-            client_id = subject.inject_mock_client(mock_client, true);
+            let client_id = subject.inject_mock_client(mock_client, true);
 
             let json_string = "{totally: 'valid'}";
 
@@ -1461,24 +1558,25 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Flush error: NoDataAvailable")]
-    fn send_msg_tries_to_send_message_and_panics_on_flush() {
+    fn send_msg_tries_to_send_message_and_logs_warning_on_flush_failure() {
+        init_test_logging();
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_tries_to_send_message_and_panics_on_flush");
-        let mut correspondent = MessageTarget::ClientId(0);
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let mock_client = ClientWrapperMock::new()
                 .send_result(Ok(()))
                 .flush_result(Err(WebSocketError::NoDataAvailable));
-            correspondent = MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
+            let correspondent =
+                MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
             let msg = NodeToUiMessage {
                 target: correspondent,
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };
@@ -1488,6 +1586,9 @@ mod tests {
         actix::spawn(lazy_future);
         System::current().stop();
         system.run();
+        TestLogHandler::new().exists_log_containing(
+            "WARN: WebSocketSupervisor: Client 0 dropped its connection before it could be flushed",
+        );
     }
 
     #[test]
@@ -1497,12 +1598,12 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_tries_to_send_message_and_panics");
-        let mut client_id = 0;
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let mock_client =
                 ClientWrapperMock::new().send_result(Err(WebSocketError::NoDataAvailable));
-            client_id = subject.inject_mock_client(mock_client, true);
+            let client_id = subject.inject_mock_client(mock_client, true);
 
             let json_string = "{totally: 'valid'}";
 
@@ -1521,17 +1622,16 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_tries_to_send_message_and_panics");
-        let mut correspondent = MessageTarget::ClientId(0);
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let mock_client =
                 ClientWrapperMock::new().send_result(Err(WebSocketError::NoDataAvailable));
-            correspondent = MessageTarget::ClientId(subject.inject_mock_client(mock_client, false));
             let msg = NodeToUiMessage {
-                target: correspondent,
+                target: MessageTarget::ClientId(subject.inject_mock_client(mock_client, false)),
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };
@@ -1554,7 +1654,8 @@ mod tests {
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_fails_to_look_up_client_to_send_to");
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
 
             let json_string = "{totally: 'valid'}";
 
@@ -1574,12 +1675,13 @@ mod tests {
         let (from_ui_message, ui_message_sub) = subs(ui_gateway);
         let system = System::new("send_msg_fails_to_look_up_client_to_send_to");
         let lazy_future = lazy(move || {
-            let subject = WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub);
+            let subject =
+                WebSocketSupervisorReal::new(port, from_ui_message, ui_message_sub).unwrap();
             let msg = NodeToUiMessage {
                 target: MessageTarget::ClientId(7),
                 body: MessageBody {
                     opcode: "booga".to_string(),
-                    path: OneWay,
+                    path: FireAndForget,
                     payload: Ok("{}".to_string()),
                 },
             };

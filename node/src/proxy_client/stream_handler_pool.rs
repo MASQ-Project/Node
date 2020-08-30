@@ -1105,7 +1105,7 @@ mod tests {
         proxy_client_awaiter.await_message_count(1);
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
-            &vec!["that.try.".to_string()]
+            &["that.try.".to_string()]
         );
         assert_eq!(
             expected_write_parameters.lock().unwrap().remove(0),

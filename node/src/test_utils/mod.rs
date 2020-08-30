@@ -41,20 +41,16 @@ use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use regex::Regex;
 use rustc_hex::ToHex;
-use std::cmp::min;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::io;
+use std::io::ErrorKind;
 use std::io::Read;
-use std::io::Write;
-use std::io::{Error, ErrorKind};
 use std::iter::repeat;
 use std::net::SocketAddr;
 use std::net::{Shutdown, TcpStream};
-use std::str::from_utf8;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
@@ -79,73 +75,6 @@ pub fn main_cryptde() -> &'static CryptDENull {
 
 pub fn alias_cryptde() -> &'static CryptDENull {
     &ALIAS_CRYPTDE_NULL
-}
-
-#[derive(Default)]
-pub struct ByteArrayWriter {
-    pub byte_array: Vec<u8>,
-    pub next_error: Option<Error>,
-}
-
-impl ByteArrayWriter {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn get_bytes(&self) -> &[u8] {
-        self.byte_array.as_slice()
-    }
-    pub fn get_string(&self) -> String {
-        String::from(from_utf8(self.byte_array.as_slice()).unwrap())
-    }
-
-    pub fn reject_next_write(&mut self, error: Error) {
-        self.next_error = Some(error);
-    }
-}
-
-impl Write for ByteArrayWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let next_error_opt = self.next_error.take();
-        match next_error_opt {
-            None => {
-                for byte in buf {
-                    self.byte_array.push(*byte)
-                }
-                Ok(buf.len())
-            }
-            Some(next_error) => Err(next_error),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-pub struct ByteArrayReader {
-    byte_array: Vec<u8>,
-    position: usize,
-}
-
-impl ByteArrayReader {
-    pub fn new(byte_array: &[u8]) -> ByteArrayReader {
-        ByteArrayReader {
-            byte_array: byte_array.to_vec(),
-            position: 0,
-        }
-    }
-}
-
-impl Read for ByteArrayReader {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let to_copy = min(buf.len(), self.byte_array.len() - self.position);
-        for idx in 0..to_copy {
-            buf[idx] = self.byte_array[self.position + idx]
-        }
-        self.position += to_copy;
-        Ok(to_copy)
-    }
 }
 
 pub struct ArgsBuilder {
@@ -278,6 +207,7 @@ pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
         .consuming_wallet_public_key_result(None)
         .mnemonic_seed_result(Ok(None))
         .past_neighbors_result(Ok(None))
+        .gas_price_result(1)
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -433,7 +363,7 @@ where
     }
 }
 
-pub fn assert_contains<T>(haystack: &Vec<T>, needle: &T)
+pub fn assert_contains<T>(haystack: &[T], needle: &T)
 where
     T: Debug + PartialEq,
 {
@@ -544,7 +474,6 @@ mod tests {
     use crate::sub_lib::neighborhood::ExpectedService;
     use std::borrow::BorrowMut;
     use std::iter;
-    use std::ops::Deref;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
@@ -672,9 +601,8 @@ mod tests {
                 handle
             };
             handle.join().unwrap();
-            let mutex_guard = check_log.as_ref().lock().unwrap();
-            let log: &Vec<&str> = mutex_guard.deref();
-            assert_eq!(log, &vec!("signaler", "waiter"));
+            let log = check_log.as_ref().lock().unwrap();
+            assert_eq!(*log, vec!["signaler", "waiter"]);
         }
     }
 

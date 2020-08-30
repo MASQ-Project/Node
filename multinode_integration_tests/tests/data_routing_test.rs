@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use itertools::Itertools;
+use masq_lib::utils::index_of;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
@@ -13,7 +14,6 @@ use native_tls::TlsStream;
 use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 use node_lib::proxy_server::protocol_pack::ServerImpersonator;
 use node_lib::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
-use node_lib::sub_lib::utils::index_of;
 use node_lib::test_utils::{handle_connection_error, read_until_timeout};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
@@ -268,8 +268,7 @@ fn tls_routing_failure_produces_internal_error_response() {
         0x00, 0x0D, // server_name_list_length
         0x00, // server_name_type
         0x00, 0x0A, // server_name_length
-        's' as u8, 'e' as u8, 'r' as u8, 'v' as u8, 'e' as u8, 'r' as u8, '.' as u8, 'c' as u8,
-        'o' as u8, 'm' as u8, // server_name
+        b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c', b'o', b'm', // server_name
     ];
 
     client.send_chunk(&client_hello);
@@ -314,7 +313,7 @@ fn multiple_stream_zero_hop_test() {
     assert_eq!(
         index_of(
             &another_response,
-            &b"FALLING FALLING .COM BY RAFAEL ROZENDAAL"[..]
+            &b"FALLING FALLING .COM BY RAFAEL ROZENDAAL"[..],
         )
         .is_some(),
         true,

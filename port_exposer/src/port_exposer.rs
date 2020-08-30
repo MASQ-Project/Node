@@ -26,6 +26,12 @@ struct ListenerAndPort {
 
 pub struct PortExposer {}
 
+impl Default for PortExposer {
+    fn default() -> PortExposer {
+        PortExposer {}
+    }
+}
+
 impl PortExposer {
     pub fn new() -> PortExposer {
         PortExposer {}
@@ -55,13 +61,10 @@ impl PortExposer {
             .into_iter()
             .map(|lap| {
                 thread::spawn(move || loop {
-                    match Self::make_connection(&lap) {
-                        Ok((outside, inside)) => {
-                            thread::spawn(move || {
-                                Self::handle_stream(outside, inside);
-                            });
-                        }
-                        Err(_) => (),
+                    if let Ok((outside, inside)) = Self::make_connection(&lap) {
+                        thread::spawn(move || {
+                            Self::handle_stream(outside, inside);
+                        });
                     }
                 })
             })
@@ -80,19 +83,17 @@ impl PortExposer {
         args.into_iter()
             .skip(1)
             .map(|arg| {
-                let port_strs: Vec<&str> = arg.split(":").collect();
+                let port_strs: Vec<&str> = arg.split(':').collect();
                 if port_strs.len() != 2 {
                     panic!("A port pair is <loopback port>:<NIC port>, not {}", arg);
                 }
                 PortPair {
-                    loopback: str::parse::<u16>(port_strs[0]).expect(&format!(
-                        "Couldn't convert '{}' to a port number",
-                        port_strs[0]
-                    )),
-                    nic: str::parse::<u16>(port_strs[1]).expect(&format!(
-                        "Couldn't convert '{}' to a port number",
-                        port_strs[1]
-                    )),
+                    loopback: str::parse::<u16>(port_strs[0]).unwrap_or_else(|_| {
+                        panic!("Couldn't convert '{}' to a port number", port_strs[0])
+                    }),
+                    nic: str::parse::<u16>(port_strs[1]).unwrap_or_else(|_| {
+                        panic!("Couldn't convert '{}' to a port number", port_strs[1])
+                    }),
                 }
             })
             .collect()
@@ -103,10 +104,8 @@ impl PortExposer {
             "Opening listener on port {} to connect to {}",
             port_pair.nic, port_pair.loopback
         );
-        let listener =
-            TcpListener::bind(SocketAddrV4::new(Ipv4Addr::from(0), port_pair.nic)).expect(
-                &format!("Couldn't bind TcpListener to 0.0.0.0:{}", port_pair.nic),
-            );
+        let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::from(0), port_pair.nic))
+            .unwrap_or_else(|_| panic!("Couldn't bind TcpListener to 0.0.0.0:{}", port_pair.nic));
         eprintln!(
             "Opened listener on port {} to connect to {}",
             port_pair.nic, port_pair.loopback
@@ -122,10 +121,10 @@ impl PortExposer {
             .listener
             .local_addr()
             .expect("No local address for listener");
-        let (outside, peer_addr) = lap.listener.accept().expect(&format!(
-            "Couldn't accept incoming connection on {}",
-            local_addr
-        ));
+        let (outside, peer_addr) = lap
+            .listener
+            .accept()
+            .unwrap_or_else(|_| panic!("Couldn't accept incoming connection on {}", local_addr));
         eprintln!("Accepted connection from {} on {}", peer_addr, local_addr);
         let target = SocketAddrV4::new(Ipv4Addr::LOCALHOST, lap.loopback_port);
         match TcpStream::connect(target) {
@@ -167,8 +166,8 @@ impl PortExposer {
                         out_stream.local_addr().unwrap()
                     );
                     out_stream
-                        .write(&buf[0..len])
-                        .expect(&format!("Couldn't write {} bytes", len));
+                        .write_all(&buf[0..len])
+                        .unwrap_or_else(|_| panic!("Couldn't write {} bytes", len));
                 }
                 Err(ref e) if DEAD_STREAM_ERRORS.contains(&e.kind()) => {
                     eprintln!(

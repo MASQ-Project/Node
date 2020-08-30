@@ -29,7 +29,7 @@ const CONSUMING_PATH: &str = "m/44'/60'/1'/2/3";
 fn persistent_config(chain_id: u8) -> PersistentConfigurationReal {
     PersistentConfigurationReal::from(
         DbInitializerReal::new()
-            .initialize(&MASQNode::data_dir().to_path_buf(), chain_id)
+            .initialize(&MASQNode::data_dir().to_path_buf(), chain_id, true)
             .unwrap(),
     )
 }
@@ -273,7 +273,7 @@ fn create_database_generating_neither_derivation_path_integration() {
         persistent_config.earning_wallet_from_address(),
         Some(wallet_from_phrase_and_path(
             &phrase,
-            DEFAULT_EARNING_DERIVATION_PATH
+            DEFAULT_EARNING_DERIVATION_PATH,
         ))
     );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
@@ -344,7 +344,7 @@ fn create_database_generating_only_consuming_derivation_path_integration() {
         persistent_config.earning_wallet_from_address(),
         Some(wallet_from_phrase_and_path(
             &phrase,
-            DEFAULT_EARNING_DERIVATION_PATH
+            DEFAULT_EARNING_DERIVATION_PATH,
         ))
     );
     assert_eq!(persistent_config.consuming_wallet_public_key(), None);
