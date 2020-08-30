@@ -9,10 +9,11 @@
 | Preamble – The Greypaper | [Navigate](#preamble) |
 | Introduction | [Navigate](#introduction) |
 | Solution – Rule of Three | [Navigate](#solution) |
-| Clandestine Routing | [In progress](#clandestine) |
-| Docker Style CLI | [In progress](#docker-cli) |
 | Founding Principles | [Navigate](#founding-principles) |
 | Key Project Goals Currently | [Navigate](#key-goals) |
+| Docker Style CLI | [In progress](#docker-cli) |
+| Graphic User Interface (GUI) | [In progress](#gui) |
+| Clandestine Routing | [In progress](#clandestine) |
 | Next Steps | [Navigate](#next-steps) |
 | Tokenomics | [Navigate](#tokenomics)  |
 | Don the MASQ & Get Involved | [Support Us](#support-us) |
@@ -84,12 +85,22 @@ Similarly, members of the Committee will remain pseudo-anonymous until such time
 # KEY PROJECT GOALS CURRENTLY
 
 <a id="docker-cli"></a>
-### Docker-Style CLI Interface
+### Docker-Style CLI Interface - in progress, nearing completion
 We have discontinued development and maintainance on the dated GUI, which was not only inefficient, but didn't reflect the features of Node entirely. From here our development is focused on the skeleton behind any GUI, and is now based on a Command Line interface, which will be adapted to be used on the main platforms.
 
 Our goal is to have a configuration file be set up and referenced by the software Daemon, and then Node can be initialized by the user with a few simple commands on a Command Prompt in Windows, Linux or Mac
 
-After more of our UI-gateway design is developed and implemented, further UI components and GUIs can be designed and built on top for more user-friendly adoption and full-fledged visual features
+After more of our UI-Gateway design is developed and implemented, further UI components and GUIs can be designed and built on top for more user-friendly adoption and full-fledged visual features.
+
+As of August 2020, most of the UI-Gateway interface has been implemented and allows UIs to communicate directly with the running Node instance (masqd).
+
+<a id="gui"></a>
+### Graphic User Interface (GUI) - in progress
+Through our amazing Community, we have formed a group who is developing a streamlined GUI that will operate my communicating through the new MASQ Node UI-Gateway over Websocket broadcasts and messaging.
+
+The GUI will first be a browser-based solution for Alpha and Beta type testing with community, and then be developed into further iterations of GUIs. These may be based on other platforms or languages for greater user experience and streamlined features.
+
+### Auto Port-Forwarding
 
 ### Clandestine Routing
 
@@ -97,7 +108,6 @@ After more of our UI-gateway design is developed and implemented, further UI com
 
 ### Terminal Intelligence
 
-### Auto Port-Forwarding
 
 # NEXT STEPS
 
@@ -128,9 +138,8 @@ MASQ is using a clone of an OpenZeppelin ERC20 token smart contract adapted by S
 Our smart contract in Solidity can be view publicly on our [verified contract address](https://etherscan.io/address/0x02ba9B528425f9de08F961B88A10b03Be8B8B998) on etherscan.io
 
 ## Token Supply 
-Token supply estimates are based on minted supply of 472 Million tokens, adjusted by airdrop exclusions, additional Developement wallet and Committee wallets.
-
-Final Total Supply **estimates** are 55-60% of the original minted supply
+Final Total Supply is 236,424,274.7575735
+This is 50% of the original minted supply from the deployed Smart Contract
 
 ## Development Wallet
 A development wallet of 40 million tokens is earmarked to provide further project support during growth, testing and community engagement
@@ -140,18 +149,21 @@ Permanent committee members will receive a one-off 1.25 million tokens each
 
 (at time of writing we have 7 permanent members, so if this changes we will announce immediately)
 
-## Airdrop Distribution (completed at 2:27am Feb 22, 2020)
+## Airdrop Distribution (completed on Feb 22, 2020)
 All non-exchange wallets **holding 500 or more SUB tokens** were airdropped MASQ tokens on a 1:1 ratio
 
 Major exchange wallets and previous project founders/network wallets were excluded from airdrop. 
 
-Remaining tokens after airdrop, development wallet and committee wallets will be sent to the zero-ethereum address
-
-**date for this has not been set yet**
-
 Using blockchain analysis tools, the MASQ committee reviewed monthly historical snapshots of holders from Dec 2019, Jan 2020 and Feb 2020. There were not significant changes to token-holder balances in this time.
 
 Final snapshot was taken at 3:50pm 6th Feb 2020 PST, which coincides with the Committee announcement of the plans to airdrop the custom MASQ token. This was to avoid both manipulation and speculative trading of other tokens.
+
+## Tokens Supply Adjustment (completed on May 11, 2020)
+Remaining tokens (235,575,725.2424265) after the completed airdrop, development wallet and committee wallets have been sent to the zero-ethereum address - this occured on 11th May 2020 and the Transaction Hash can be viewed [here](https://etherscan.io/tx/0x9401af799b5aca513081e3541b6a15f6d2de84bd44c982ba1e7feea050f6bf5f) on etherscan.io
+
+## Suspense - remaining tokens
+There are 10M remaining tokens which were earmarked for previous holders on the COSS exchange. This was before their platform underwent a corporate changeover and discussions stalled in terms of partnership to support holders.
+Details around this are still being explored, but these tokens will be repurposed if there is no appropriate arrangement created between management
 
 
 <a id="support-us"></a>
