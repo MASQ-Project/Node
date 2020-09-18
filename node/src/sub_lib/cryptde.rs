@@ -607,7 +607,8 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
+    use crate::test_utils::main_cryptde;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;

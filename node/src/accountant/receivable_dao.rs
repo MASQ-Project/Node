@@ -340,11 +340,11 @@ mod tests {
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::persistent_configuration::PersistentConfigurationReal;
+    use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{assert_contains, make_wallet};
-    use crate::test_utils::{logging, DEFAULT_CHAIN_ID};
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
 

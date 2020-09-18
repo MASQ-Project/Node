@@ -14,11 +14,19 @@ use web3::transports::EventLoopHandle;
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256};
 use web3::{Transport, Web3};
 
-// HOT (Ropsten)
-pub const TESTNET_CONTRACT_ADDRESS: Address = Address {
+// SHRD (Ropsten)
+pub const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = Address {
     0: [
-        0xcd, 0x6c, 0x58, 0x8e, 0x00, 0x50, 0x32, 0xdd, 0x88, 0x2c, 0xd4, 0x3b, 0xf5, 0x3a, 0x32,
-        0x12, 0x9b, 0xe8, 0x13, 0x02,
+        0x38, 0x4d, 0xec, 0x25, 0xe0, 0x3f, 0x94, 0x93, 0x17, 0x67, 0xce, 0x4c, 0x35, 0x56, 0x16,
+        0x84, 0x68, 0xba, 0x24, 0xc3,
+    ],
+};
+
+// SHRD (Rinkeby)
+pub const RINKEBY_TESTNET_CONTRACT_ADDRESS: Address = Address {
+    0: [
+        0x02, 0xba, 0x9b, 0x52, 0x84, 0x25, 0xf9, 0xde, 0x08, 0xf9, 0x61, 0xb8, 0x8a, 0x10, 0xb0,
+        0x3b, 0xe8, 0xb8, 0xb9, 0x98,
     ],
 };
 
@@ -31,40 +39,43 @@ pub const MULTINODE_TESTNET_CONTRACT_ADDRESS: Address = Address {
 
 pub const MAINNET_CONTRACT_ADDRESS: Address = Address {
     0: [
-        0x8d, 0x75, 0x95, 0x9f, 0x1e, 0x61, 0xec, 0x25, 0x71, 0xaa, 0x72, 0x79, 0x82, 0x37, 0x10,
-        0x1f, 0x08, 0x4d, 0xe6, 0x3a,
+        0x02, 0xba, 0x9b, 0x52, 0x84, 0x25, 0xf9, 0xde, 0x08, 0xf9, 0x61, 0xb8, 0x8a, 0x10, 0xb0,
+        0x3b, 0xe8, 0xb8, 0xb9, 0x98,
     ],
 };
 
-const CONTRACTS: [Address; 4] = [
+const CONTRACTS: [Address; 5] = [
     Address { 0: [0u8; 20] },
     MAINNET_CONTRACT_ADDRESS,
     MULTINODE_TESTNET_CONTRACT_ADDRESS,
-    TESTNET_CONTRACT_ADDRESS,
+    ROPSTEN_TESTNET_CONTRACT_ADDRESS,
+    RINKEBY_TESTNET_CONTRACT_ADDRESS,
 ];
 
-pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 6_905_550;
-pub const ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 4_647_463;
+pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 9_415_932;
+pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
+pub const RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 5_893_771;
 
-pub const CONTRACT_CREATION_BLOCK: [u64; 4] = [
+pub const CONTRACT_CREATION_BLOCK: [u64; 5] = [
     0,
     MAINNET_CONTRACT_CREATION_BLOCK,
     0,
-    ROPSTEN_CONTRACT_CREATION_BLOCK,
+    ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
+    RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
 ];
 
-pub const CHAIN_NAMES: [&str; 4] = ["", "mainnet", "dev", "ropsten"];
+pub const CHAIN_NAMES: [&str; 5] = ["", "mainnet", "dev", "ropsten", "rinkeby"];
 
 pub fn contract_address(chain_id: u8) -> Address {
     match chain_id {
-        1u8 | 2u8 | 3u8 => CONTRACTS[usize::from(chain_id)], // IDEA/CLion is wrong: This is copy
-        _ => CONTRACTS[0],                                   // IDEA/CLion is wrong: This is copy
+        1u8 | 2u8 | 3u8 | 4u8 => CONTRACTS[usize::from(chain_id)], // IDEA/CLion is wrong: This is copy
+        _ => CONTRACTS[0], // IDEA/CLion is wrong: This is copy
     }
 }
 
 pub fn chain_name(chain_id: u8) -> &'static str {
     match chain_id {
-        1u8 | 2u8 | 3u8 => CHAIN_NAMES[chain_id as usize],
+        1u8 | 2u8 | 3u8 | 4u8 => CHAIN_NAMES[usize::from(chain_id)],
         _ => CHAIN_NAMES[3],
     }
 }
@@ -73,20 +84,22 @@ pub fn chain_id_from_name(name: &str) -> u8 {
     match name.to_lowercase().as_str() {
         "mainnet" => 1u8,
         "dev" => 2u8,
+        "ropsten" => 3u8,
+        "rinkeby" => 4u8,
         _ => 3u8,
     }
 }
 
 pub fn chain_name_from_id(chain_id: u8) -> &'static str {
     match chain_id {
-        1u8 | 2u8 | 3u8 => CHAIN_NAMES[usize::from(chain_id)],
+        1u8 | 2u8 | 3u8 | 4u8 => CHAIN_NAMES[usize::from(chain_id)],
         _ => CHAIN_NAMES[3],
     }
 }
 
 pub fn contract_creation_block_from_chain_id(chain_id: u8) -> u64 {
     match chain_id {
-        1u8 | 2u8 | 3u8 => CONTRACT_CREATION_BLOCK[usize::from(chain_id)],
+        1u8 | 2u8 | 3u8 | 4u8 => CONTRACT_CREATION_BLOCK[usize::from(chain_id)],
         _ => CONTRACT_CREATION_BLOCK[3],
     }
 }
@@ -428,10 +441,11 @@ where
 mod tests {
     use super::*;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::{make_paying_wallet, make_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core as rpc;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::utils::find_free_port;
     use serde_json::json;
     use serde_json::Value;
@@ -876,7 +890,7 @@ mod tests {
             2u64,
         );
 
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894cd6c588e005032dd882cd43bf53a32129be8130280b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd90002aa0210a8dc04a802e579493e9c3b0c6aca5d19197af17637e1c5ae61f3332746734a00ad3bddb042061f4ce99800fea66e36a684b1e168d16485dfdb2e4d2254f589e""#)]);
+        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
         transport.assert_no_more_requests();
         assert_eq!(result, Ok(H256::from_uint(&U256::from(1))));
     }

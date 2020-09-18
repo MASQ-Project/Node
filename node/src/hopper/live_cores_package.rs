@@ -105,8 +105,8 @@ mod tests {
     use crate::sub_lib::route::{Route, RouteError};
     use crate::test_utils::{
         main_cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
-        DEFAULT_CHAIN_ID,
     };
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
 

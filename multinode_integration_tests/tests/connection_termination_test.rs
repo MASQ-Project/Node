@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
@@ -24,8 +25,8 @@ use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
 use node_lib::sub_lib::versioned_data::VersionedData;
+use node_lib::test_utils::make_meaningless_stream_key;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-use node_lib::test_utils::{make_meaningless_stream_key, DEFAULT_CHAIN_ID};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;

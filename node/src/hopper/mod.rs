@@ -138,10 +138,11 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::{
         alias_cryptde, main_cryptde, make_meaningless_message_type, make_paying_wallet,
-        route_to_proxy_client, DEFAULT_CHAIN_ID,
+        route_to_proxy_client,
     };
     use actix::Actor;
     use actix::System;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
 

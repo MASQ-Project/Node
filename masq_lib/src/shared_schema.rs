@@ -1,5 +1,6 @@
 use crate::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HIGHEST_USABLE_PORT,
+    LOWEST_USABLE_INSECURE_PORT,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -138,7 +139,7 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .value_name("CHAIN")
         .min_values(0)
         .max_values(1)
-        .possible_values(&["dev", "mainnet", "ropsten"])
+        .possible_values(&["dev", DEFAULT_CHAIN_NAME, "ropsten", "rinkeby"])
         .help(CHAIN_HELP)
 }
 

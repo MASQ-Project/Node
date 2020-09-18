@@ -525,10 +525,11 @@ mod tests {
         alias_cryptde, main_cryptde, make_meaningless_message_type, make_meaningless_stream_key,
         make_paying_wallet, make_request_payload, make_response_payload, rate_pack_routing,
         rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client,
-        route_to_proxy_server, DEFAULT_CHAIN_ID,
+        route_to_proxy_server,
     };
     use actix::System;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
 

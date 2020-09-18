@@ -36,7 +36,7 @@ use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::DEFAULT_UI_PORT;
+use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::collections::HashMap;
@@ -462,7 +462,7 @@ impl Bootstrapper {
         Self::initialize_cryptdes(
             main_cryptde_null_opt,
             alias_cryptde_null_opt,
-            crate::test_utils::DEFAULT_CHAIN_ID,
+            masq_lib::test_utils::utils::DEFAULT_CHAIN_ID,
         )
     }
 
@@ -497,7 +497,7 @@ impl Bootstrapper {
                 let node_descriptor = NodeDescriptor::from((
                     cryptde.public_key(),
                     &node_addr,
-                    chain_id == chain_id_from_name("mainnet"),
+                    chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     cryptde,
                 ));
                 node_descriptor.to_string(cryptde)
@@ -579,20 +579,21 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::{assert_contains, rate_pack, ArgsBuilder};
-    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use actix::Recipient;
     use actix::System;
     use lazy_static::lazy_static;
+    use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::shared_schema::ParamError;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use regex::Regex;
     use std::cell::RefCell;
     use std::io;
@@ -1521,7 +1522,7 @@ For more information try --help".to_string()
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1590,7 +1591,7 @@ For more information try --help".to_string()
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1641,7 +1642,7 @@ For more information try --help".to_string()
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1678,7 +1679,7 @@ For more information try --help".to_string()
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                 cryptde,
             ))]),
         };

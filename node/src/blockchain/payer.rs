@@ -63,7 +63,8 @@ mod tests {
     use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde;
     use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
-    use crate::test_utils::{make_payer, DEFAULT_CHAIN_ID};
+    use crate::test_utils::make_payer;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
 
     #[test]

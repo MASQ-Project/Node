@@ -4,6 +4,7 @@ pub mod utils;
 
 use bip39::{Language, Mnemonic, Seed};
 use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::database::db_initializer::{
     DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
@@ -12,7 +13,7 @@ use node_lib::persistent_configuration::{PersistentConfiguration, PersistentConf
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
-use node_lib::test_utils::{assert_string_contains, DEFAULT_CHAIN_ID};
+use node_lib::test_utils::assert_string_contains;
 use regex::Regex;
 use std::str::FromStr;
 use utils::CommandConfig;

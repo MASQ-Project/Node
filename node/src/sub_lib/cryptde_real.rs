@@ -227,8 +227,8 @@ impl CryptDEReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::DEFAULT_CHAIN_ID;
     use ethsign_crypto::Keccak256;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 
     impl Default for CryptDEReal {
         fn default() -> Self {

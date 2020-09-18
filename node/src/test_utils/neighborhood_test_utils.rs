@@ -12,6 +12,7 @@ use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDes
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
+use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -91,7 +92,7 @@ pub fn neighborhood_from_nodes(
                 root.node_addr_opt().unwrap(),
                 vec![NodeDescriptor::from((
                     neighbor,
-                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     cryptde,
                 ))],
                 root.rate_pack().clone(),

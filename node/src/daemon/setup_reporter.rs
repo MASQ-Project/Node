@@ -860,7 +860,7 @@ mod tests {
     use masq_lib::messages::UiSetupResponseValueStatus;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
     use std::fs::File;
@@ -898,7 +898,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::new();
         let conn = db_initializer
-            .initialize(&home_dir, chain_id_from_name("mainnet"), true)
+            .initialize(&home_dir, chain_id_from_name(DEFAULT_CHAIN_NAME), true)
             .unwrap();
         let config = PersistentConfigurationReal::from(conn);
         config.set_password("password");
@@ -945,7 +945,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "", Required),
-            ("chain", "mainnet", Default),
+            ("chain", DEFAULT_CHAIN_NAME, Default),
             ("clandestine-port", "1234", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
@@ -999,7 +999,7 @@ mod tests {
         );
         let existing_setup = vec![
             ("blockchain-service-url", "https://example.com"),
-            ("chain", "ropsten"),
+            ("chain", TEST_DEFAULT_CHAIN_NAME),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("data-directory", home_dir.to_str().unwrap()),
@@ -1022,7 +1022,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Set),
-            ("chain", "ropsten", Set),
+            ("chain", TEST_DEFAULT_CHAIN_NAME, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
@@ -1056,7 +1056,7 @@ mod tests {
         );
         let incoming_setup = vec![
             ("blockchain-service-url", "https://example.com"),
-            ("chain", "ropsten"),
+            ("chain", TEST_DEFAULT_CHAIN_NAME),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("data-directory", home_dir.to_str().unwrap()),
@@ -1081,7 +1081,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Set),
-            ("chain", "ropsten", Set),
+            ("chain", TEST_DEFAULT_CHAIN_NAME, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
@@ -1116,7 +1116,7 @@ mod tests {
         );
         vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
-            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
@@ -1139,7 +1139,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Configured),
-            ("chain", "ropsten", Configured),
+            ("chain", TEST_DEFAULT_CHAIN_NAME, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
@@ -1172,7 +1172,7 @@ mod tests {
             "switching_config_files_changes_setup",
         );
         let data_root = home_dir.join("data_root");
-        let mainnet_dir = data_root.join("MASQ").join("mainnet");
+        let mainnet_dir = data_root.join("MASQ").join(DEFAULT_CHAIN_NAME);
         {
             std::fs::create_dir_all(mainnet_dir.clone()).unwrap();
             let mut config_file = File::create(mainnet_dir.join("config.toml")).unwrap();
@@ -1198,7 +1198,7 @@ mod tests {
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
         }
-        let ropsten_dir = data_root.join("MASQ").join("ropsten");
+        let ropsten_dir = data_root.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
         {
             std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
             let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
@@ -1230,9 +1230,9 @@ mod tests {
                 .home_dir_result(Some(home_dir.clone()))
                 .data_dir_result(Some(data_root.clone())),
         );
-        let params = vec![UiSetupRequestValue::new("chain", "mainnet")];
+        let params = vec![UiSetupRequestValue::new("chain", DEFAULT_CHAIN_NAME)];
         let existing_setup = subject.get_modified_setup(HashMap::new(), params).unwrap();
-        let params = vec![UiSetupRequestValue::new("chain", "ropsten")];
+        let params = vec![UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME)];
 
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
@@ -1242,7 +1242,7 @@ mod tests {
                 "https://www.ropsten.com",
                 Configured,
             ),
-            ("chain", "ropsten", Set),
+            ("chain", TEST_DEFAULT_CHAIN_NAME, Set),
             ("clandestine-port", "8877", Configured),
             ("config-file", "config.toml", Default),
             (
@@ -1255,7 +1255,7 @@ mod tests {
                 &ropsten_dir.to_string_lossy().to_string(),
                 Default,
             ),
-            ("db-password", "ropsten", Configured),
+            ("db-password", TEST_DEFAULT_CHAIN_NAME, Configured),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -1300,7 +1300,7 @@ mod tests {
         );
         vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
-            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
@@ -1373,7 +1373,7 @@ mod tests {
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Configured),
-            ("chain", "ropsten", Configured),
+            ("chain", TEST_DEFAULT_CHAIN_NAME, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
@@ -1412,10 +1412,14 @@ mod tests {
     fn get_modified_setup_data_directory_depends_on_new_chain_on_success() {
         let _guard = EnvironmentGuard::new();
         let wrapper = RealDirsWrapper {};
-        let data_directory = wrapper.data_dir().unwrap().join("MASQ").join("mainnet");
+        let data_directory = wrapper
+            .data_dir()
+            .unwrap()
+            .join("MASQ")
+            .join(DEFAULT_CHAIN_NAME);
         let existing_setup = vec![
             ("neighborhood-mode", "zero-hop", Set),
-            ("chain", "mainnet", Default),
+            ("chain", DEFAULT_CHAIN_NAME, Default),
             (
                 "data-directory",
                 &data_directory.to_string_lossy().to_string(),
@@ -1437,11 +1441,15 @@ mod tests {
             )
         })
         .collect::<SetupCluster>();
-        let incoming_setup = vec![("chain", "ropsten")]
+        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN_NAME)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let expected_data_directory = wrapper.data_dir().unwrap().join("MASQ").join("ropsten");
+        let expected_data_directory = wrapper
+            .data_dir()
+            .unwrap()
+            .join("MASQ")
+            .join(TEST_DEFAULT_CHAIN_NAME);
         let subject = SetupReporterReal::new();
 
         let result = subject
@@ -1456,10 +1464,14 @@ mod tests {
     fn get_modified_setup_data_directory_depends_on_new_chain_on_error() {
         let _guard = EnvironmentGuard::new();
         let wrapper = RealDirsWrapper {};
-        let data_directory = wrapper.data_dir().unwrap().join("MASQ").join("mainnet");
+        let data_directory = wrapper
+            .data_dir()
+            .unwrap()
+            .join("MASQ")
+            .join(DEFAULT_CHAIN_NAME);
         let existing_setup = vec![
             ("blockchain-service-url", "", Required),
-            ("chain", "mainnet", Default),
+            ("chain", DEFAULT_CHAIN_NAME, Default),
             ("clandestine-port", "7788", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
@@ -1496,11 +1508,15 @@ mod tests {
             )
         })
         .collect::<SetupCluster>();
-        let incoming_setup = vec![("chain", "ropsten")]
+        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN_NAME)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let expected_data_directory = wrapper.data_dir().unwrap().join("MASQ").join("ropsten");
+        let expected_data_directory = wrapper
+            .data_dir()
+            .unwrap()
+            .join("MASQ")
+            .join(TEST_DEFAULT_CHAIN_NAME);
         let subject = SetupReporterReal::new();
 
         let result = subject
@@ -1546,7 +1562,7 @@ mod tests {
     fn calculate_fundamentals_with_only_environment() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1571,14 +1587,14 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("env_dir")));
-        assert_eq!(chain_name, "ropsten".to_string());
+        assert_eq!(chain_name, TEST_DEFAULT_CHAIN_NAME.to_string());
     }
 
     #[test]
     fn calculate_fundamentals_with_environment_and_obsolete_setup() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1605,14 +1621,14 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("env_dir")));
-        assert_eq!(chain_name, "ropsten".to_string());
+        assert_eq!(chain_name, TEST_DEFAULT_CHAIN_NAME.to_string());
     }
 
     #[test]
     fn calculate_fundamentals_with_environment_and_overriding_setup() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", "ropsten"),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1695,7 +1711,7 @@ mod tests {
             Some(crate::bootstrapper::RealUser::null().populate(&RealDirsWrapper {}))
         );
         assert_eq!(data_directory_opt, None);
-        assert_eq!(chain_name, "mainnet".to_string());
+        assert_eq!(chain_name, DEFAULT_CHAIN_NAME.to_string());
     }
 
     #[test]
@@ -1918,7 +1934,11 @@ mod tests {
             config_file.write_all(b"gas-price = \"10\"\n").unwrap();
         }
         let wrapper = RealDirsWrapper {};
-        let data_directory = wrapper.data_dir().unwrap().join("MASQ").join("mainnet");
+        let data_directory = wrapper
+            .data_dir()
+            .unwrap()
+            .join("MASQ")
+            .join(DEFAULT_CHAIN_NAME);
         let setup = vec![
             // no config-file setting
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
@@ -1952,7 +1972,11 @@ mod tests {
         let config_file_dir = config_file_dir.canonicalize().unwrap();
         let config_file_path = config_file_dir.join("nonexistent.toml");
         let wrapper = RealDirsWrapper {};
-        let data_directory = wrapper.data_dir().unwrap().join("MASQ").join("mainnet");
+        let data_directory = wrapper
+            .data_dir()
+            .unwrap()
+            .join("MASQ")
+            .join(DEFAULT_CHAIN_NAME);
         let setup = vec![
             // no config-file setting
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),

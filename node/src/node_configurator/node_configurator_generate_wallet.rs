@@ -356,7 +356,9 @@ mod tests {
     use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
     use regex::Regex;
     use std::cell::RefCell;
     use std::io::Cursor;

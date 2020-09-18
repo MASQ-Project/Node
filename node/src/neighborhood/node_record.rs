@@ -10,6 +10,7 @@ use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
@@ -97,7 +98,11 @@ impl NodeRecord {
     }
 
     pub fn node_descriptor(&self, chain_id: u8, cryptde: &dyn CryptDE) -> NodeDescriptor {
-        NodeDescriptor::from((self, chain_id == chain_id_from_name("mainnet"), cryptde))
+        NodeDescriptor::from((
+            self,
+            chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME),
+            cryptde,
+        ))
     }
 
     pub fn set_node_addr(
@@ -350,9 +355,8 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use crate::test_utils::{
-        assert_contains, main_cryptde, make_wallet, rate_pack, DEFAULT_CHAIN_ID,
-    };
+    use crate::test_utils::{assert_contains, main_cryptde, make_wallet, rate_pack};
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::IpAddr;
     use std::str::FromStr;
 

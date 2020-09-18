@@ -150,10 +150,9 @@ mod tests {
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{
-        main_cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
-    };
+    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::Actor;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::IpAddr;
     use std::str::FromStr;
 

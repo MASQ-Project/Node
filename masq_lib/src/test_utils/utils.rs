@@ -3,6 +3,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
+pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten"; //For testing only
 pub const BASE_TEST_DIR: &str = "generated/test";
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {

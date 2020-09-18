@@ -13,7 +13,6 @@ pub mod node_record;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::masq_lib::messages::FromMessageBody;
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
@@ -59,6 +58,8 @@ use gossip_acceptor::GossipAcceptorReal;
 use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
+use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiMessageError::UnexpectedMessage;
 use masq_lib::messages::{UiMessageError, UiShutdownRequest};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -371,7 +372,7 @@ impl Neighborhood {
             cryptde,
         );
         let is_mainnet =
-            || config.blockchain_bridge_config.chain_id == chain_id_from_name("mainnet");
+            || config.blockchain_bridge_config.chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME);
         let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
             .mode
             .neighbor_configs()
@@ -604,7 +605,7 @@ impl Neighborhood {
                     self.neighborhood_database
                         .node_by_key(k)
                         .expect("Node disappeared"),
-                    self.chain_id == chain_id_from_name("mainnet"),
+                    self.chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     self.cryptde,
                 ))
             })
@@ -1282,14 +1283,16 @@ mod tests {
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{assert_contains, make_wallet};
     use crate::test_utils::{assert_matches, make_meaningless_route};
-    use crate::test_utils::{main_cryptde, make_paying_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, make_paying_wallet};
     use actix::dev::{MessageResponse, ResponseChannel};
     use actix::Message;
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
     use masq_lib::constants::TLS_PORT;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
     use serde_cbor;
@@ -1318,7 +1321,7 @@ mod tests {
             None,
             "cant_create_mainnet_neighborhood_with_non_mainnet_neighbors",
         );
-        bc.blockchain_bridge_config.chain_id = chain_id_from_name("mainnet");
+        bc.blockchain_bridge_config.chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME);
 
         let _ = Neighborhood::new(cryptde, &bc);
     }
@@ -1340,7 +1343,7 @@ mod tests {
             None,
             "cant_create_non_mainnet_neighborhood_with_mainnet_neighbors",
         );
-        bc.blockchain_bridge_config.chain_id = chain_id_from_name("testnet");
+        bc.blockchain_bridge_config.chain_id = chain_id_from_name(TEST_DEFAULT_CHAIN_NAME);
 
         let _ = Neighborhood::new(cryptde, &bc);
     }
@@ -1452,7 +1455,7 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
                         vec![NodeDescriptor::from((
                             neighbor_node.public_key(),
-                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -1492,12 +1495,12 @@ mod tests {
                         vec![
                             NodeDescriptor::from((
                                 &one_neighbor_node,
-                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                                 cryptde,
                             )),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
-                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                                 cryptde,
                             )),
                         ],
@@ -1530,12 +1533,12 @@ mod tests {
             vec![
                 NodeDescriptor::from((
                     &one_neighbor_node,
-                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     cryptde,
                 )),
                 NodeDescriptor::from((
                     &another_neighbor_node,
-                    DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     cryptde,
                 ))
             ]
@@ -1560,12 +1563,12 @@ mod tests {
                         vec![
                             NodeDescriptor::from((
                                 &one_neighbor_node,
-                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                                 cryptde,
                             )),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
-                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                                 cryptde,
                             )),
                         ],
@@ -1637,7 +1640,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
                             &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -1724,7 +1727,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
                             &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -1764,7 +1767,7 @@ mod tests {
                         node_record.node_addr_opt().unwrap(),
                         vec![NodeDescriptor::from((
                             &node_record,
-                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -2937,7 +2940,7 @@ mod tests {
             &neighbors,
             &NodeDescriptor::from((
                 &old_neighbor,
-                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                 cryptde,
             )),
         );
@@ -2945,7 +2948,7 @@ mod tests {
             &neighbors,
             &NodeDescriptor::from((
                 &new_neighbor,
-                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                 cryptde,
             )),
         );
@@ -3464,7 +3467,7 @@ mod tests {
                         NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[1234]),
                         vec![NodeDescriptor::from((
                             &neighbor_inside,
-                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -3583,7 +3586,7 @@ mod tests {
         NodeDescriptor::from((
             &node_record_ref.public_key().clone(),
             &node_record_ref.node_addr_opt().unwrap().clone(),
-            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
             cryptde,
         ))
     }
@@ -3651,7 +3654,7 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
                                 ),
-                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                                 cryptde,
                             ))],
                             rate_pack(100),
@@ -3778,7 +3781,7 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
                                 ),
-                                DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                                DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                                 cryptde,
                             ))],
                             rate_pack(100),
@@ -3841,7 +3844,7 @@ mod tests {
                         node_record.node_addr_opt().unwrap(),
                         vec![NodeDescriptor::from((
                             &node_record,
-                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -3904,7 +3907,7 @@ mod tests {
                         node_record.node_addr_opt().unwrap(),
                         vec![NodeDescriptor::from((
                             &node_record,
-                            DEFAULT_CHAIN_ID == chain_id_from_name("mainnet"),
+                            DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
                             cryptde,
                         ))],
                         rate_pack(100),

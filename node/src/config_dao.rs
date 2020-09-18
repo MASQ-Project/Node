@@ -322,12 +322,12 @@ fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), Config
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::ROPSTEN_CONTRACT_CREATION_BLOCK;
+    use crate::blockchain::blockchain_interface::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
-    use crate::test_utils::{assert_contains, DEFAULT_CHAIN_ID};
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use crate::test_utils::assert_contains;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
 
     #[test]
@@ -353,7 +353,7 @@ mod tests {
             &result,
             &(
                 "start_block".to_string(),
-                Some(ROPSTEN_CONTRACT_CREATION_BLOCK.to_string()),
+                Some(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK.to_string()),
             ),
         );
         assert_contains(&result, &("seed".to_string(), None));

@@ -319,7 +319,7 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::TESTNET_CONTRACT_ADDRESS;
+    use crate::blockchain::blockchain_interface::ROPSTEN_TESTNET_CONTRACT_ADDRESS;
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::resolver_wrapper::ResolverWrapper;
@@ -803,7 +803,7 @@ mod tests {
             ),
             main_cryptde,
             None,
-            Some(TESTNET_CONTRACT_ADDRESS),
+            Some(ROPSTEN_TESTNET_CONTRACT_ADDRESS),
         )
         .unwrap();
         let package = ExpiredCoresPackage::new(

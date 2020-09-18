@@ -17,6 +17,7 @@ use actix::Message;
 use actix::Recipient;
 use core::fmt;
 use lazy_static::lazy_static;
+use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
@@ -184,13 +185,13 @@ impl From<(&NodeRecord, bool, &dyn CryptDE)> for NodeDescriptor {
 impl NodeDescriptor {
     pub fn from_str(cryptde: &dyn CryptDE, s: &str) -> Result<NodeDescriptor, String> {
         let (mainnet, pieces) = {
-            let chain_id = chain_id_from_name("mainnet");
+            let chain_id = chain_id_from_name(DEFAULT_CHAIN_NAME);
             let delimiter = node_descriptor_delimiter(chain_id);
             let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
             if pieces.len() == 2 {
                 (true, pieces)
             } else {
-                let chain_id = chain_id_from_name("testnet");
+                let chain_id = chain_id_from_name("ropsten");
                 let delimiter = node_descriptor_delimiter(chain_id);
                 let pieces: Vec<&str> = s.splitn(2, delimiter).collect();
                 if pieces.len() == 2 {
@@ -421,9 +422,10 @@ impl fmt::Display for GossipFailure_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_real::CryptDEReal;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
     use actix::Actor;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::utils::localhost;
     use std::str::FromStr;
 

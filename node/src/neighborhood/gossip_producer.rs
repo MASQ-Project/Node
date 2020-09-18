@@ -108,9 +108,10 @@ mod tests {
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
+    use crate::test_utils::assert_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use crate::test_utils::{assert_contains, DEFAULT_CHAIN_ID};
     use itertools::Itertools;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
 

@@ -7,6 +7,7 @@ use crate::masq_node::PortSelector;
 use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
+use masq_lib::test_utils::utils::{DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
 use masq_lib::utils::localhost;
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::blockchain::blockchain_interface::chain_id_from_name;
@@ -20,7 +21,6 @@ use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
-use node_lib::test_utils::{DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
 use regex::Regex;
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
@@ -1159,6 +1159,7 @@ impl Drop for MASQRealNodeGuts {
 mod tests {
     use super::*;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
     use masq_lib::utils::localhost;
 
     #[test]

@@ -711,14 +711,16 @@ mod tests {
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::{ArgsBuilder, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
+    use crate::test_utils::ArgsBuilder;
     use bip39::{Mnemonic, MnemonicType, Seed};
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::db_password_arg;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
     use masq_lib::utils::{find_free_port, localhost};
     use std::io::Cursor;
     use std::net::{SocketAddr, TcpListener};

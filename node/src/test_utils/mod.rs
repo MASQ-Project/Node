@@ -39,6 +39,7 @@ use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMoc
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
+use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 use regex::Regex;
 use rustc_hex::ToHex;
 use std::collections::btree_set::BTreeSet;
@@ -60,9 +61,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-
-pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
-pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten"; //For testing only
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);

@@ -446,12 +446,12 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::test_utils::{DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
     use masq_lib::constants::{
         DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
     };
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+        DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use rusqlite::types::Type::Null;
     use rusqlite::OpenFlags;

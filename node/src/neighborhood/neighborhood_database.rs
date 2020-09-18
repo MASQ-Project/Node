@@ -351,8 +351,9 @@ mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
+    use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use crate::test_utils::{assert_string_contains, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::iter::FromIterator;
     use std::str::FromStr;
 

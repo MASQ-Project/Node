@@ -223,8 +223,9 @@ impl CryptDENull {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{main_cryptde, DEFAULT_CHAIN_ID};
+    use crate::test_utils::main_cryptde;
     use ethsign_crypto::Keccak256;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 
     #[test]
     fn encode_with_empty_key() {

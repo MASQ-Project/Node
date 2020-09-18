@@ -463,10 +463,11 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{main_cryptde, make_wallet, DEFAULT_CHAIN_ID};
+    use crate::test_utils::{main_cryptde, make_wallet};
     use actix::System;
     use log::LevelFilter;
     use masq_lib::crash_point::CrashPoint;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;

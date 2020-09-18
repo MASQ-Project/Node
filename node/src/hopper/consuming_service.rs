@@ -140,10 +140,9 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::{
-        main_cryptde, make_meaningless_message_type, make_paying_wallet, DEFAULT_CHAIN_ID,
-    };
+    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::System;
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
