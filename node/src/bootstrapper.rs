@@ -359,9 +359,7 @@ impl Future for Bootstrapper {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        try_ready!(
-            CrashTestDummy::new(self.config.crash_point.clone(), BootstrapperConfig::new()).poll()
-        );
+        try_ready!(CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).poll());
 
         try_ready!(self.listener_handlers.poll());
         Ok(Async::Ready(()))

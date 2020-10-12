@@ -14,13 +14,19 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
+use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::Wallet;
 use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::messages::{FromMessageBody, UiCrashRequest};
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
+
+pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
 pub struct BlockchainBridge {
     consuming_wallet: Option<Wallet>,
@@ -29,6 +35,7 @@ pub struct BlockchainBridge {
     persistent_config: Box<dyn PersistentConfiguration>,
     ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
     set_consuming_wallet_subs: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
+    crashable: bool,
 }
 
 impl Actor for BlockchainBridge {
@@ -175,6 +182,16 @@ impl Handler<SetDbPasswordMsg> for BlockchainBridge {
     }
 }
 
+impl Handler<NodeFromUiMessage> for BlockchainBridge {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
+            handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY)
+        }
+    }
+}
+
 impl BlockchainBridge {
     pub fn new(
         config: &BootstrapperConfig,
@@ -188,6 +205,7 @@ impl BlockchainBridge {
             persistent_config,
             ui_carrier_message_sub: None,
             set_consuming_wallet_subs: None,
+            crashable: config.crash_point == CrashPoint::Message,
         }
     }
 
@@ -198,6 +216,7 @@ impl BlockchainBridge {
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
             set_consuming_db_password_sub: recipient!(addr, SetDbPasswordMsg),
+            ui_sub: recipient!(addr, NodeFromUiMessage),
         }
     }
 
@@ -290,6 +309,8 @@ mod tests {
     use ethsign::{Protected, SecretKey};
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
+    use masq_lib::crash_point::CrashPoint;
+    use masq_lib::messages::ToMessageBody;
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
@@ -1067,6 +1088,76 @@ mod tests {
         let result = &request.wait().unwrap();
 
         assert_eq!(result, &Err("No consuming wallet specified".to_string()));
+    }
+
+    #[test]
+    fn cant_be_crashed_if_key_doesnt_match() {
+        let system = System::new("test");
+        let mut config = BootstrapperConfig::new();
+        config.crash_point = CrashPoint::Message;
+        let subject = BlockchainBridge::new(
+            &config,
+            Box::new(BlockchainInterfaceMock::default()),
+            Box::new(PersistentConfigurationMock::default()),
+        );
+        let addr: Addr<BlockchainBridge> = subject.start();
+
+        addr.try_send(NodeFromUiMessage {
+            client_id: 0,
+            body: UiCrashRequest::new("MISMATCH", "panic message").tmb(0),
+        })
+        .unwrap();
+
+        System::current().stop();
+        system.run();
+        // no panic: test passes
+    }
+
+    #[test]
+    fn cant_be_crashed_if_not_crashable() {
+        init_test_logging();
+        let system = System::new("test");
+        let subject = BlockchainBridge::new(
+            &BootstrapperConfig::new(),
+            Box::new(BlockchainInterfaceMock::default()),
+            Box::new(PersistentConfigurationMock::default()),
+        );
+        let addr: Addr<BlockchainBridge> = subject.start();
+
+        addr.try_send(NodeFromUiMessage {
+            client_id: 0,
+            body: UiCrashRequest::new(CRASH_KEY, "panic message").tmb(0),
+        })
+        .unwrap();
+
+        System::current().stop();
+        system.run();
+        TestLogHandler::new().exists_log_containing(
+            "INFO: BlockchainBridge: Rejected crash attempt: 'panic message'",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message")]
+    fn can_be_crashed() {
+        let system = System::new("test");
+        let mut config = BootstrapperConfig::new();
+        config.crash_point = CrashPoint::Message;
+        let subject = BlockchainBridge::new(
+            &config,
+            Box::new(BlockchainInterfaceMock::default()),
+            Box::new(PersistentConfigurationMock::default()),
+        );
+        let addr: Addr<BlockchainBridge> = subject.start();
+
+        addr.try_send(NodeFromUiMessage {
+            client_id: 0,
+            body: UiCrashRequest::new(CRASH_KEY, "panic message").tmb(0),
+        })
+        .unwrap();
+
+        System::current().stop();
+        system.run();
     }
 
     fn bc_from_wallet(consuming_wallet: Option<Wallet>) -> BootstrapperConfig {

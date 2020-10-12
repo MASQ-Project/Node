@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::commands::setup_command::SetupCommand;
-use crate::notifications::crashed_notification::CrashedNotification;
+use crate::notifications::crashed_notification::CrashNotifier;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
 use masq_lib::messages::{UiNodeCrashedBroadcast, UiSetupBroadcast};
 use masq_lib::ui_gateway::MessageBody;
@@ -55,28 +55,21 @@ impl BroadcastHandlerReal {
         Self {}
     }
 
-    fn thread_loop_guts(
-        message_rx: &Receiver<MessageBody>,
-        stdout: &mut dyn Write,
-        stderr: &mut dyn Write,
-    ) {
-        select! {
-            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr),
-        }
-    }
-
     fn handle_message_body(
         message_body_result: Result<MessageBody, RecvError>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
     ) {
-        let message_body = message_body_result.expect("Message from beyond the grave");
+        let message_body = match message_body_result {
+            Ok(mb) => mb,
+            Err(_) => return, // Receiver died; masq is going down
+        };
         match &message_body.opcode {
             o if o == UiSetupBroadcast::type_opcode() => {
                 SetupCommand::handle_broadcast(message_body, stdout, stderr)
             }
             o if o == UiNodeCrashedBroadcast::type_opcode() => {
-                CrashedNotification::handle_broadcast(message_body, stdout, stderr)
+                CrashNotifier::handle_broadcast(message_body, stdout, stderr)
             }
             opcode => {
                 write!(
@@ -86,6 +79,16 @@ impl BroadcastHandlerReal {
                 )
                 .expect("write! failed");
             }
+        }
+    }
+
+    fn thread_loop_guts(
+        message_rx: &Receiver<MessageBody>,
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+    ) {
+        select! {
+            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr),
         }
     }
 }

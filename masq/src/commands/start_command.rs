@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use clap::{App, SubCommand};
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
 use std::default::Default;
@@ -18,7 +20,8 @@ pub struct StartCommand {}
 impl Command for StartCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let out_message = UiStartOrder {};
-        let result: Result<UiStartResponse, CommandError> = transaction(out_message, context);
+        let result: Result<UiStartResponse, CommandError> =
+            transaction(out_message, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
         match result {
             Ok(response) => {
                 writeln!(
@@ -45,6 +48,7 @@ impl StartCommand {
 mod tests {
     // use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::commands::commands_common::STANDARD_COMMAND_TIMEOUT_MILLIS;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
@@ -70,7 +74,10 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(*transact_params, vec![UiStartOrder {}.tmb(0)]);
+        assert_eq!(
+            *transact_params,
+            vec![(UiStartOrder {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+        );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "MASQNode successfully started as process 1234, listening for UIs on port 4321\n"

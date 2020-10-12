@@ -36,7 +36,7 @@ there are [several other choices](https://medium.com/cloud-native-the-gathering/
 
 * A link to the [MASQ Node issues board](https://github.com/orgs/MASQ/projects/1)
 
-* A link to the [MASQ Node Azure Pipelines build site](https://dev.azure.com/masqpipelines/MASQ%20Node/_build)
+* A link to the [MASQ Node GitHub Actions build site](https://github.com/MASQ-Project/Node/actions)
 
 * A link to the [MASQ Node build results site](https://masq-results.github.io/MASQ-results/)
 
@@ -59,7 +59,7 @@ our multinode integration tests make heavy use of it. If you're developing with 
 the multinode integration tests, but you might still want Docker in order to run TNT for manual testing. If
 you're using Windows, nothing we do with Docker is guaranteed to work.
 
-Here are [installation instructions for Docker](https://docs.docker.com/v17.12/install/).
+Here are [installation instructions for Docker](https://docs.docker.com/get-docker/).
 
 After you install Docker, be sure to follow the instructions about creating the `docker` group on your machine and
 joining it. Otherwise, you have to use `sudo` to execute most Docker commands, and our scripts aren't set up for
@@ -103,29 +103,25 @@ git remote add upstream https://github.com/MASQ/Node.git
 This will connect your sandbox not only to the fork in your GitHub account, but also to the MASQ public
 repository, so that you can retrieve updates that other people make.
 
-#### Set Up Toolchains
-For our continuous-integration builds, we use Microsoft Azure Pipelines. When we submit a build, Microsoft gives
-us a set of virtual machines that are outfitted in general in a vaguely development-y sort of way, but not specifically
-as we need them; so we run some provisioning scripts to outfit them with what they need to run our builds.
+#### Install Rust
+You'll need the latest version of the Rust toolchain. You can get it by following the instructions at the
+[Rust website](https://www.rust-lang.org/tools/install). After you have Rust (specifically `rustup`) installed,
+add two other toolchain links that the MASQ project uses:
 
-You can use these scripts to provision your own machine as well, although if it's not already outfitted in general
-in a vaguely development-y way, they may fail because of the absence of some important tool, like curl or gcc,
-which you can install separately, and then run the script again.
+```
+rustup component add rustfmt
+rustup component add clippy
+```
 
-The scripts should work on any of the three platforms, although they do different things in each case.
-
-The provisioning scripts are:
- 
-* \<sandbox directory\>`/ci/install_node_toolchain.sh`
-* \<sandbox directory\>`/ci/install_ui_test_toolchain.sh`
+`rustfmt` automatically formats the source code according to a common coding standard; `clippy` is a static analyzer
+that suggests modifications to make the code smaller, faster, clearer, or otherwise better.
 
 #### Install Development Environment
 If you don't already have a favorite development environment set up, you'll need one to work on MASQ Node.
 [Here's an article](https://medium.com/cloud-native-the-gathering/whats-the-best-ide-for-developing-in-rust-5087d46006f5)
 listing several such choices.
 
-The MASQ team uses JetBrains IntelliJ IDEA, Ultimate Edition, with the Rust plugin installed, but if we were 
-starting over again with what we know now we'd probably use JetBrains CLion, for its symbolic-debugger support.
+The MASQ team uses JetBrains IntelliJ IDEA, Ultimate Edition, with the Rust plugin installed.
 
 #### Kick the Tires
 To see if you've gotten everything working, navigate on your development machine to your fork's sandbox
@@ -142,17 +138,17 @@ correctly.
 ## Addressing an Issue
 
 #### Select the Issue
-The MASQ team's priorities are reflected in the __To Do__ column of the
+The MASQ team's priorities are reflected in the __Awaiting Development (Prioritized)__ column of the
 [issues board](https://github.com/orgs/MASQ-Project/projects/1). The top issue in that column is the one that is
 currently most urgently needed, and if you choose that issue to work on you'll get the most attention and support
 (although if you spend too much time on it, you may be bypassed by someone who needs it done faster).
 
-If you're new to Rust or to MASQ Node or both, the top issue in __To Do__ may not be the sort of thing you want to
+If you're new to Rust or to MASQ Node or both, the top issue in __Awaiting Development__ may not be the sort of thing you want to
 take on, especially if you're alone. In that case, you're encouraged to look through the __Ready for Development__ column
 for something that fits your aptitudes--especially something marked as technical debt. The __Ready for Development__
-issues are not presented in any particular order; specifically, they are not prioritized like the issues in __To Do.__
+issues are not presented in any particular order; specifically, they are not prioritized like the issues in __Awaiting Development.__
 
-Once you've selected the issue, drag it from __To Do__ or __Ready for Development__ into the __In progress__ column.
+Once you've selected the issue, drag it from __Awaiting Development__ or __Ready for Development__ into the __Development In Progress__ column.
 Click on its name to get a summary on the right-hand side of your browser window. Scroll down to the "Assignees" section
 where you should see "No one--assign yourself". Click "assign yourself" to put your name on the issue.
 
@@ -211,8 +207,8 @@ MASQ Node. Keep your eye on it, because in order to run zero-hop integration tes
 to use `sudo`, so you'll have to type in your password to get it to continue.
 
 If you're developing on Linux (encouraged!), run `ci/multinode_integration_tests.sh` too. (Whether you do or not, 
-Azure Pipelines will, so if there's a problem, it's good to know about it early.) If you're developing on macOS or
-Windows, `ci/multinode_integration_tests.sh` won't do much for you, so you'll have to wait for the Pipelines run.
+GitHub Actions will, so if there's a problem, it's good to know about it early.) If you're developing on macOS or
+Windows, `ci/multinode_integration_tests.sh` won't do much for you, so you'll have to wait for the Actions run.
 
 #### Open a Pull Request
 First, make sure you've pushed the last of your changes to your feature branch on your fork.
@@ -233,9 +229,9 @@ pull request" button.
 Look for the message "This branch has no conflicts with the base branch." If you don't see it, that means you'll have
 to go back to __Merge in `master`__ and assimilate those changes before your pull request can be reviewed.
 
-#### Watch the Pipelines Build
+#### Watch the Actions Build
 As soon as you create your pull request, the
-[Azure Pipelines build site](https://dev.azure.com/masqpipelines/MASQ%20Node/_build) should
+[GitHub Actions build site](https://github.com/MASQ-Project/Node/actions) should
 begin building your feature branch on Linux, macOS, and Windows platforms. It will also run the multinode integration
 tests on Linux. Track the builds as they proceed, and watch for failures. If there are any, go back to __Complete the Work__
 and fix the problems. Sometimes, especially for failures in multinode integration tests, the reasons for the failures may
@@ -244,39 +240,12 @@ not appear in Pipelines' console logs. In that case, they will probably be made 
 completes. Download from there the appropriate `generated-`\<platform\>`.tar.gz` file, pop it open, and look at the files inside.
 
 #### Wait for Approval
-Once your Pipelines build succeeds, your pull request will be handled by a human reviewer.  Again, issues that come
-from the top of the __To Do__ column will take precedence over others, but you shouldn't have to wait too long for a
+Once your Actions build succeeds, your pull request will be handled by a human reviewer.  Again, issues that come
+from the top of the __Awaiting Development__ column will take precedence over others, but you shouldn't have to wait too long for a
 response even if your issue is from deep in the __Ready for Development__ column.  If your reviewer comments on your PR,
 either defend your decisions in the comment thread or address the reviewer's comments and push your changes to your
-feature branch again. This time, Pipelines should pick up your changes immediately and start another build. Shepherd
-your changes through Pipelines, and when it's green, your reviewer will take another look at your PR.
+feature branch again. This time, Actions should pick up your changes immediately and start another build. Shepherd
+your changes through Actions, and when it's green, your reviewer will take another look at your PR.
 
 Once your PR is approved, the reviewer will merge it into the public repo's `master` branch for you, and you can start
 on another issue!
-
-#### Rolling Your Own Pipelines Build
-
-Setting up your own pipelines build allows you to create pull requests against your forked repository and receive
-constant feedback from the pipelines build until you're ready to merge your work back upstream into the official
-repository.
-
-##### Things You'll Need
-
-* An account on [Azure DevOps](https://dev.azure.com).
-* Fork of the [MASQ Node repository](https://github.com/MASQ-Project/Node).
-* Fork of the [MASQ-results repository](https://masq-results.github.io/MASQ-results).
-* The Windows Application Driver extension for Azure Pipelines (this is required to run UI integration tests on Windows).
-* GitHub Personal Access Token. Please see
-  [Git automation with OAuth tokens](https://help.github.com/en/articles/git-automation-with-oauth-tokens)
-  for instructions on how to set one up.
-
-##### Things You'll Want To Configure
-
-Additional configuration to your Azure Pipelines is required for publishing build results.
-
-* Edit your Azure Pipelines and add the following variables:
-  * ``GITHUB_TOKEN`` set to your GitHub Personal Access Token. e.g. f5dd976e301999zy073q7990be93a7e5i482030
-    * Check "Keep this value secret" to avoid having your token compromised.
-  * ``RESULTS_REPO_NAME`` set to your GitHub repository's name. Ours, for example, is ``MASQ-results``.
-  * ``RESULTS_REPO_OWNER`` set to your GitHub repository's user name. Ours, for example, is ``masq-results``.
-* Save your changes

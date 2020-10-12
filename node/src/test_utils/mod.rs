@@ -6,6 +6,7 @@ pub mod config_dao_mock;
 pub mod data_hunk;
 pub mod data_hunk_framer;
 pub mod little_tcp_server;
+pub mod logfile_name_guard;
 pub mod logging;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;

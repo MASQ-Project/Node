@@ -71,6 +71,8 @@ use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+pub const CRASH_KEY: &str = "NEIGHBORHOOD";
+
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper: Option<Recipient<IncipientCoresPackage>>,
@@ -1221,17 +1223,12 @@ impl Neighborhood {
             self.logger,
             "Received shutdown order from client {}: shutting down hard", client_id
         );
-        #[cfg(test)]
-        let running_test = true;
-        #[cfg(not(test))]
-        let running_test = false;
         exit_process(
             0,
             &format!(
                 "Received shutdown order from client {}: shutting down hard",
                 client_id
             ),
-            running_test,
         );
     }
 }

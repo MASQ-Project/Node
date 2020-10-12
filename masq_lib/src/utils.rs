@@ -8,6 +8,7 @@ use std::sync::Mutex;
 
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
 const FIND_FREE_PORT_HIGHEST: u16 = 65535;
+static mut RUNNING_TEST: bool = false;
 
 lazy_static! {
     static ref FIND_FREE_PORT_NEXT: Arc<Mutex<u16>> = Arc::new(Mutex::new(FIND_FREE_PORT_LOWEST));
@@ -82,8 +83,14 @@ where
     }
 }
 
-pub fn exit_process(code: i32, message: &str, running_test: bool) {
-    if running_test {
+pub fn running_test() {
+    unsafe {
+        RUNNING_TEST = true;
+    }
+}
+
+pub fn exit_process(code: i32, message: &str) {
+    if unsafe { RUNNING_TEST } {
         panic!("{}: {}", code, message);
     } else {
         eprintln!("{}", message);

@@ -2,6 +2,7 @@
 
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::commands_common::Command;
+use crate::commands::crash_command::CrashCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
@@ -22,12 +23,16 @@ pub struct CommandFactoryReal {}
 impl CommandFactory for CommandFactoryReal {
     fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError> {
         let boxed_command: Box<dyn Command> = match pieces[0].as_str() {
+            "crash" => match CrashCommand::new(&pieces[..]) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
             "setup" => match SetupCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
-            "start" => Box::new(StartCommand::new()),
             "shutdown" => Box::new(ShutdownCommand::new()),
+            "start" => Box::new(StartCommand::new()),
             unrecognized => return Err(UnrecognizedSubcommand(unrecognized.to_string())),
         };
         Ok(boxed_command)

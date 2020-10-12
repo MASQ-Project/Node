@@ -102,7 +102,20 @@ impl MockWebSocketsServer {
             log(do_log, index, "Waiting for handshake");
             let mut client = upgrade.accept().unwrap();
             client.set_nonblocking(true).unwrap();
-            looping_tx.send(()).unwrap();
+            match looping_tx.send(()) {
+                Ok(_) => (),
+                Err(e) => {
+                    log(
+                        do_log,
+                        index,
+                        &format!(
+                            "MockWebSocketsServerStopHandle died before loop could start: {:?}",
+                            e
+                        ),
+                    );
+                    return;
+                }
+            }
             log(do_log, index, "Entering background loop");
             loop {
                 log(do_log, index, "Checking for message from client");
@@ -117,7 +130,7 @@ impl MockWebSocketsServer {
                         log(do_log, index, "No message waiting");
                         None
                     }
-                    Err(e) => panic!("Error serving WebSocket: {:?}", e),
+                    Err(e) => Some(Err(format!("Error serving WebSocket: {:?}", e))),
                     Ok(OwnedMessage::Text(json)) => {
                         log(do_log, index, &format!("Received '{}'", json));
                         Some(match UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
@@ -131,7 +144,11 @@ impl MockWebSocketsServer {
                     }
                 };
                 if let Some(incoming) = incoming_opt {
-                    log(do_log, index, "Recording incoming message");
+                    log(
+                        do_log,
+                        index,
+                        &format!("Recording incoming message: {:?}", incoming),
+                    );
                     requests.push(incoming.clone());
                     if let Ok(message_body) = incoming {
                         match message_body.path {
@@ -160,7 +177,14 @@ impl MockWebSocketsServer {
                                         client.send_message(&OwnedMessage::Text(outgoing)).unwrap()
                                     }
                                 }
-                                om => client.send_message(&om).unwrap(),
+                                om => {
+                                    log(
+                                        do_log,
+                                        index,
+                                        &format!("Responding with preset OwnedMessage: {:?}", om),
+                                    );
+                                    client.send_message(&om).unwrap()
+                                }
                             },
                             MessagePath::FireAndForget => {
                                 log(

@@ -19,6 +19,8 @@ use actix::Handler;
 use consuming_service::ConsumingService;
 use routing_service::RoutingService;
 
+pub const CRASH_KEY: &str = "HOPPER";
+
 pub struct Hopper {
     main_cryptde: &'static dyn CryptDE,
     alias_cryptde: &'static dyn CryptDE,

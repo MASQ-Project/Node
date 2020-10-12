@@ -6,6 +6,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -160,6 +161,7 @@ pub struct DispatcherSubs {
     pub bind: Recipient<BindMessage>,
     pub from_dispatcher_client: Recipient<TransmitDataMsg>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    pub ui_sub: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for DispatcherSubs {
@@ -175,6 +177,7 @@ impl Clone for DispatcherSubs {
             bind: self.bind.clone(),
             from_dispatcher_client: self.from_dispatcher_client.clone(),
             stream_shutdown_sub: self.stream_shutdown_sub.clone(),
+            ui_sub: self.ui_sub.clone(),
         }
     }
 }
@@ -196,6 +199,7 @@ mod tests {
             bind: recipient!(addr, BindMessage),
             from_dispatcher_client: recipient!(addr, TransmitDataMsg),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
+            ui_sub: recipient!(addr, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "DispatcherSubs");

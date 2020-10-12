@@ -7,6 +7,7 @@ use std::sync::{Mutex, MutexGuard};
 lazy_static! {
     static ref ENVIRONMENT_GUARD_MUTEX: Mutex<()> = Mutex::new(());
     static ref CLAP_GUARD_MUTEX: Mutex<()> = Mutex::new(());
+    static ref LOGFILE_NAME_GUARD_MUTEX: Mutex<()> = Mutex::new(());
 }
 
 pub struct ConcurrencyPreventer<'a> {

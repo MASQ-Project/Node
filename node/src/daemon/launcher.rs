@@ -12,7 +12,7 @@ use itertools::Itertools;
 use masq_lib::utils::find_free_port;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Command, Output};
 use std::thread;
 
 trait ChildWrapper: Send {
@@ -64,11 +64,7 @@ impl SpawnWrapper for SpawnWrapperReal {
         exe_path: PathBuf,
         params: Vec<String>,
     ) -> std::io::Result<Box<dyn ChildWrapper>> {
-        match Command::new(exe_path)
-            .args(params)
-            .stderr(Stdio::piped())
-            .spawn()
-        {
+        match Command::new(exe_path).args(params).spawn() {
             Ok(child) => Ok(Box::new(ChildWrapperReal::new(child))),
             Err(e) => Err(e),
         }
@@ -104,7 +100,10 @@ impl Execer for ExecerReal {
                     Ok(output) => {
                         let stderr = match output.stderr.len() {
                             0 => None,
-                            _ => Some(String::from_utf8_lossy(&output.stderr).to_string()),
+                            _ => {
+                                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                                Some(stderr)
+                            }
                         };
                         crashed_recipient
                             .try_send(CrashNotification {

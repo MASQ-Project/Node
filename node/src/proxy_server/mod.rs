@@ -52,6 +52,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use tokio::prelude::Future;
 
+pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 
 struct ProxyServerOutSubs {

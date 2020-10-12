@@ -80,14 +80,34 @@ impl Main {
         let mut line = String::new();
         match stdin.read_line(&mut line) {
             Ok(0) => Ok(None),
-            Ok(_) => Ok(Some(
-                line.split(char::is_whitespace)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .collect(),
-            )),
+            Ok(_) => Ok(Some(Self::split_quoted_line(line))),
             Err(e) => Err(e),
         }
+    }
+
+    fn split_quoted_line(input: String) -> Vec<String> {
+        let mut active_single = false;
+        let mut active_double = false;
+        let mut pieces: Vec<String> = vec![];
+        let mut current_piece = String::new();
+        input.chars().for_each(|c| {
+            if c.is_whitespace() && !active_double && !active_single {
+                if !current_piece.is_empty() {
+                    pieces.push(current_piece.clone());
+                    current_piece.clear();
+                }
+            } else if c == '"' && !active_single {
+                active_double = !active_double;
+            } else if c == '\'' && !active_double {
+                active_single = !active_single;
+            } else {
+                current_piece.push(c);
+            }
+        });
+        if !current_piece.is_empty() {
+            pieces.push(current_piece)
+        }
+        pieces
     }
 
     fn go_interactive(
@@ -246,7 +266,7 @@ mod tests {
             Err(Transmission("Other(\"not really an error\")".to_string()))
         );
         let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(*transact_params, vec![UiShutdownRequest {}.tmb(1)]);
+        assert_eq!(*transact_params, vec![(UiShutdownRequest {}.tmb(1), 1000)]);
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "MockCommand output".to_string()
@@ -445,6 +465,86 @@ mod tests {
     }
 
     #[test]
+    fn accept_subcommand_handles_balanced_double_quotes() {
+        let result = Main::accept_subcommand(&mut ByteArrayReader::new(
+            b"  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth\" ",
+        ))
+        .unwrap();
+
+        assert_eq!(
+            result,
+            Some(vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth'fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth".to_string(),
+            ])
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_unbalanced_double_quotes() {
+        let result = Main::accept_subcommand(&mut ByteArrayReader::new(
+            b"  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth  ",
+        ))
+        .unwrap();
+
+        assert_eq!(
+            result,
+            Some(vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth'fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth  ".to_string(),
+            ])
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_balanced_single_quotes() {
+        let result = Main::accept_subcommand(&mut ByteArrayReader::new(
+            b"  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth' ",
+        ))
+        .unwrap();
+
+        assert_eq!(
+            result,
+            Some(vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth\"fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth".to_string(),
+            ])
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_unbalanced_single_quotes() {
+        let result = Main::accept_subcommand(&mut ByteArrayReader::new(
+            b"  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth  ",
+        ))
+        .unwrap();
+
+        assert_eq!(
+            result,
+            Some(vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth\"fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth  ".to_string(),
+            ])
+        )
+    }
+
+    #[test]
     fn go_works_when_command_is_unrecognized() {
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
@@ -535,7 +635,7 @@ mod tests {
     #[test]
     fn go_works_when_daemon_is_not_running() {
         let processor_factory = CommandProcessorFactoryMock::new()
-            .make_result(Err(CommandError::ConnectionRefused("booga".to_string())));
+            .make_result(Err(CommandError::ConnectionProblem("booga".to_string())));
         let mut subject = Main {
             command_factory: Box::new(CommandFactoryMock::new()),
             processor_factory: Box::new(processor_factory),
@@ -551,7 +651,7 @@ mod tests {
         assert_eq!(stream_holder.stdout.get_string(), "".to_string());
         assert_eq!(
             stream_holder.stderr.get_string(),
-            "Can't connect to Daemon or Node (ConnectionRefused(\"booga\")). Probably this means the Daemon isn't running.\n".to_string()
+            "Can't connect to Daemon or Node (ConnectionProblem(\"booga\")). Probably this means the Daemon isn't running.\n".to_string()
         );
     }
 }

@@ -3,9 +3,9 @@
 use crate::command::StdStreams;
 use std::cmp::min;
 use std::io;
-use std::io::Error;
 use std::io::Read;
 use std::io::Write;
+use std::io::{BufRead, Error};
 use std::sync::{Arc, Mutex};
 
 pub struct ByteArrayWriter {
@@ -109,6 +109,21 @@ impl Read for ByteArrayReader {
                 self.position += to_copy;
                 Ok(to_copy)
             }
+        }
+    }
+}
+
+impl BufRead for ByteArrayReader {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        Ok(&self.byte_array[self.position..])
+    }
+
+    fn consume(&mut self, amt: usize) {
+        let result = self.position + amt;
+        self.position = if result < self.byte_array.len() {
+            result
+        } else {
+            self.byte_array.len()
         }
     }
 }

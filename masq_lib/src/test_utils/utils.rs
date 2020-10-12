@@ -24,3 +24,11 @@ pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
     let _ = fs::create_dir_all(&home_dir);
     home_dir
 }
+
+pub fn is_running_under_github_actions() -> bool {
+    if let Ok(value) = std::env::var("GITHUB_ACTIONS") {
+        &value == "true"
+    } else {
+        false
+    }
+}

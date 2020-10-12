@@ -162,14 +162,9 @@ impl NodeConfiguratorRecoverWallet {
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
         if mnemonic_seed_exists(persistent_config) {
-            #[cfg(test)]
-            let running_test = true;
-            #[cfg(not(test))]
-            let running_test = false;
             exit_process(
                 1,
                 "Can't recover wallets: mnemonic seed has already been created",
-                running_test,
             )
         }
         self.make_wallet_creation_config(multi_config, streams)
@@ -221,13 +216,7 @@ impl NodeConfiguratorRecoverWallet {
         let phrase = phrase_words.join(" ");
         match Validators::validate_mnemonic_words(phrase.clone(), language) {
             Ok(_) => (),
-            Err(e) => {
-                #[cfg(test)]
-                let running_test = true;
-                #[cfg(not(test))]
-                let running_test = false;
-                exit_process(1, &e, running_test)
-            }
+            Err(e) => exit_process(1, &e),
         }
         Mnemonic::from_phrase(phrase, language).expect("Error creating Mnemonic")
     }
@@ -288,6 +277,7 @@ mod tests {
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
+    use masq_lib::utils::running_test;
     use std::io::Cursor;
 
     #[test]
@@ -471,6 +461,7 @@ mod tests {
 
     #[test]
     fn parse_args_creates_configuration_with_defaults() {
+        running_test();
         let password = "secret-db-password";
         let phrase = "company replace elder oxygen access into pair squeeze clip occur world crowd";
         let args = ArgsBuilder::new()
@@ -516,6 +507,7 @@ mod tests {
         expected = "\"one two three four five six seven eight nine ten eleven twelve\" is not valid for English (invalid word in phrase)"
     )]
     fn mnemonic_argument_fails_with_invalid_words() {
+        running_test();
         let args = ArgsBuilder::new()
             .opt("--recover-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
@@ -604,6 +596,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Can't recover wallets: mnemonic seed has already been created")]
     fn preexisting_mnemonic_seed_causes_collision_and_panics() {
+        running_test();
         let data_directory = ensure_node_home_directory_exists(
             "node_configurator_recover_wallet",
             "preexisting_mnemonic_seed_causes_collision_and_panics",

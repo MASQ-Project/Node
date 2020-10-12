@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use clap::{value_t, App, SubCommand};
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::{
@@ -29,7 +31,8 @@ impl Command for SetupCommand {
         let out_message = UiSetupRequest {
             values: self.values.clone(),
         };
-        let result: Result<UiSetupResponse, CommandError> = transaction(out_message, context);
+        let result: Result<UiSetupResponse, CommandError> =
+            transaction(out_message, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
         match result {
             Ok(response) => {
                 Self::dump_setup(UiSetupInner::from(response), context.stdout());
@@ -96,13 +99,13 @@ impl SetupCommand {
         });
         writeln!(
             stdout,
-            "NAME                      VALUE                                                            STATUS"
+            "NAME                   VALUE                                                            STATUS"
         )
             .expect("writeln! failed");
         inner.values.into_iter().for_each(|value| {
             writeln!(
                 stdout,
-                "{:26}{:65}{:?}",
+                "{:23}{:65}{:?}",
                 value.name, value.value, value.status
             )
             .expect("writeln! failed");
@@ -111,7 +114,7 @@ impl SetupCommand {
         if !inner.errors.is_empty() {
             writeln!(stdout, "ERRORS:").expect("writeln! failed");
             inner.errors.into_iter().for_each(|(parameter, reason)| {
-                writeln!(stdout, "{:26}{}", parameter, reason).expect("writeln! failed")
+                writeln!(stdout, "{:23}{}", parameter, reason).expect("writeln! failed")
             });
             writeln!(stdout).expect("writeln! failed");
         }
@@ -187,19 +190,22 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![UiSetupRequest {
-                values: vec![
-                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
-                    UiSetupRequestValue::clear("log-level"),
-                    UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
-                ]
-            }
-            .tmb(0)]
+            vec![(
+                UiSetupRequest {
+                    values: vec![
+                        UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                        UiSetupRequestValue::clear("log-level"),
+                        UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
+                    ]
+                }
+                .tmb(0),
+                STANDARD_COMMAND_TIMEOUT_MILLIS
+            )]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
-"NAME                      VALUE                                                            STATUS\n\
-chain                     ropsten                                                          Configured\n\
-neighborhood-mode         zero-hop                                                         Set\n\
+"NAME                   VALUE                                                            STATUS\n\
+chain                  ropsten                                                          Configured\n\
+neighborhood-mode      zero-hop                                                         Set\n\
 \n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
@@ -241,24 +247,27 @@ neighborhood-mode         zero-hop                                              
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![UiSetupRequest {
-                values: vec![
-                    UiSetupRequestValue::new("chain", "ropsten"),
-                    UiSetupRequestValue::new("clandestine-port", "8534"),
-                    UiSetupRequestValue::clear("log-level"),
-                    UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
-                ]
-            }
-            .tmb(0)]
+            vec![(
+                UiSetupRequest {
+                    values: vec![
+                        UiSetupRequestValue::new("chain", "ropsten"),
+                        UiSetupRequestValue::new("clandestine-port", "8534"),
+                        UiSetupRequestValue::clear("log-level"),
+                        UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
+                    ]
+                }
+                .tmb(0),
+                STANDARD_COMMAND_TIMEOUT_MILLIS
+            )]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
-"NAME                      VALUE                                                            STATUS\n\
-chain                     ropsten                                                          Set\n\
-clandestine-port          8534                                                             Default\n\
-neighborhood-mode         zero-hop                                                         Configured\n\
+"NAME                   VALUE                                                            STATUS\n\
+chain                  ropsten                                                          Set\n\
+clandestine-port       8534                                                             Default\n\
+neighborhood-mode      zero-hop                                                         Configured\n\
 \n\
 ERRORS:
-ip                        Nosir, I don't like it.\n\
+ip                     Nosir, I don't like it.\n\
 \n\
 NOTE: no changes were made to the setup because the Node is currently running.\n\
 \n");
@@ -286,13 +295,13 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
 "\n\
 Daemon setup has changed:\n\
 \n\
-NAME                      VALUE                                                            STATUS\n\
-chain                     ropsten                                                          Set\n\
-clandestine-port          8534                                                             Default\n\
-neighborhood-mode         zero-hop                                                         Configured\n\
+NAME                   VALUE                                                            STATUS\n\
+chain                  ropsten                                                          Set\n\
+clandestine-port       8534                                                             Default\n\
+neighborhood-mode      zero-hop                                                         Configured\n\
 \n\
 ERRORS:
-ip                        Nosir, I don't like it.\n\
+ip                     Nosir, I don't like it.\n\
 \n\
 masq> ");
     }

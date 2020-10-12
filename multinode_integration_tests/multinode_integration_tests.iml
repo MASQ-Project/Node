@@ -8,9 +8,6 @@
       <sourceFolder url="file://$MODULE_DIR$/../node/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/../node/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/../masq_lib/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/../masq_lib/tests" isTestSource="true" />
-      <excludeFolder url="file://$MODULE_DIR$/../masq_lib/target" />
-      <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/../node/target" />
     </content>
     <orderEntry type="inheritedJdk" />

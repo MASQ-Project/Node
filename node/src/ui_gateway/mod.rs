@@ -30,6 +30,8 @@ use actix::Handler;
 use actix::Recipient;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 
+pub const CRASH_KEY: &str = "UIGATEWAY";
+
 // TODO: Once we switch all the way over to MASQNode-UIv2 protocol, this entire struct should
 // disappear.
 struct UiGatewayOutSubs {
@@ -70,8 +72,8 @@ impl UiGateway {
             bind: recipient!(addr, BindMessage),
             ui_message_sub: recipient!(addr, UiCarrierMessage),
             from_ui_message_sub: recipient!(addr, FromUiMessage),
-            new_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
-            new_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
+            node_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
+            node_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
         }
     }
 }
@@ -108,11 +110,13 @@ impl Handler<BindMessage> for UiGateway {
         self.incoming_message_recipients = vec![
             msg.peer_actors.accountant.ui_message_sub.clone(),
             msg.peer_actors.neighborhood.from_ui_message_sub.clone(),
+            msg.peer_actors.blockchain_bridge.ui_sub.clone(),
+            msg.peer_actors.dispatcher.ui_sub.clone(),
         ];
         self.websocket_supervisor = match WebSocketSupervisorReal::new(
             self.port,
             msg.peer_actors.ui_gateway.from_ui_message_sub,
-            msg.peer_actors.ui_gateway.new_from_ui_message_sub,
+            msg.peer_actors.ui_gateway.node_from_ui_message_sub,
         ) {
             Ok(wss) => Some(Box::new(wss)),
             Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),

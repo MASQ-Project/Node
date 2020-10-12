@@ -54,6 +54,7 @@ Temporary Items
 **/.idea/jsLibraryMappings.xml
 **/.idea/markdown-navigator.xml
 **/.idea/markdown-navigator/**
+**/.idea/aws.xml
 
 # Sensitive or high-churn files:
 **/.idea/**/dataSources/

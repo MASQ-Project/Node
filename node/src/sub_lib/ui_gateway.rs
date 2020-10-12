@@ -27,8 +27,8 @@ pub struct UiGatewaySubs {
     pub bind: Recipient<BindMessage>,
     pub ui_message_sub: Recipient<UiCarrierMessage>,
     pub from_ui_message_sub: Recipient<FromUiMessage>,
-    pub new_from_ui_message_sub: Recipient<NodeFromUiMessage>,
-    pub new_to_ui_message_sub: Recipient<NodeToUiMessage>,
+    pub node_from_ui_message_sub: Recipient<NodeFromUiMessage>,
+    pub node_to_ui_message_sub: Recipient<NodeToUiMessage>,
 }
 
 impl Debug for UiGatewaySubs {
@@ -74,8 +74,8 @@ mod tests {
             bind: recipient!(recorder, BindMessage),
             ui_message_sub: recipient!(recorder, UiCarrierMessage),
             from_ui_message_sub: recipient!(recorder, FromUiMessage),
-            new_from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
-            new_to_ui_message_sub: recipient!(recorder, NodeToUiMessage),
+            node_from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
+            node_to_ui_message_sub: recipient!(recorder, NodeToUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "UiGatewaySubs");

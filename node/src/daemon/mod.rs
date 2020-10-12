@@ -19,19 +19,16 @@ use actix::{Actor, Context, Handler, Message};
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use masq_lib::messages::UiMessageError::UnexpectedMessage;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiMessageError, UiNodeCrashedBroadcast, UiRedirect,
-    UiSetupBroadcast, UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder,
-    UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+    FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
+    UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder, UiStartResponse,
+    NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
-use masq_lib::ui_gateway::{
-    MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
-};
+use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 
@@ -132,30 +129,12 @@ impl Handler<NodeFromUiMessage> for Daemon {
             "Handing NodeFromUiMessage from client {}: {}", msg.client_id, msg.body.opcode
         );
         let client_id = msg.client_id;
-        let opcode = msg.body.opcode.clone();
-        // TODO: Gotta be a better way to arrange this code; but I'll wait until there are more than 2 choices
-        let result: Result<(UiSetupRequest, u64), UiMessageError> =
-            UiSetupRequest::fmb(msg.body.clone());
-        match result {
-            Ok((payload, context_id)) => self.handle_setup(client_id, context_id, payload),
-            Err(UnexpectedMessage(_, _)) => {
-                let result: Result<(UiStartOrder, u64), UiMessageError> =
-                    UiStartOrder::fmb(msg.body.clone());
-                match result {
-                    Ok((_, context_id)) => self.handle_start_order(client_id, context_id),
-                    Err(UnexpectedMessage(_, _)) => {
-                        self.handle_unexpected_message(msg.client_id, msg.body);
-                    }
-                    Err(e) => error!(
-                        &self.logger,
-                        "Bad {} request from client {}: {:?}", opcode, client_id, e
-                    ),
-                }
-            }
-            Err(e) => error!(
-                &self.logger,
-                "Bad {} request from client {}: {:?}", opcode, client_id, e
-            ),
+        if let Ok((setup_request, context_id)) = UiSetupRequest::fmb(msg.body.clone()) {
+            self.handle_setup(client_id, context_id, setup_request);
+        } else if let Ok((_, context_id)) = UiStartOrder::fmb(msg.body.clone()) {
+            self.handle_start_order(client_id, context_id);
+        } else {
+            self.handle_unexpected_message(client_id, msg.body);
         }
         debug!(&self.logger, "NodeFromUiMessage handled");
     }
@@ -286,7 +265,7 @@ impl Daemon {
                     ClientId(client_id),
                 );
             }
-            None => self.send_node_is_not_running_redirect(client_id, body.opcode),
+            None => self.send_node_is_not_running_error(client_id, body.opcode),
         }
     }
 
@@ -322,26 +301,16 @@ impl Daemon {
         }
     }
 
-    fn send_node_is_not_running_redirect(&self, client_id: u64, opcode: String) {
+    fn send_node_is_not_running_error(&self, client_id: u64, err_opcode: String) {
         error!(
             &self.logger,
             "Daemon is sending redirect error for {} message to UI {}: Node is not running",
-            opcode,
+            &err_opcode,
             client_id
         );
-        self.send_node_is_not_running_error(client_id, "redirect", &opcode, FireAndForget);
-    }
-
-    fn send_node_is_not_running_error(
-        &self,
-        client_id: u64,
-        msg_opcode: &str,
-        err_opcode: &str,
-        path: MessagePath,
-    ) {
         let body = MessageBody {
-            opcode: msg_opcode.to_string(),
-            path,
+            opcode: "redirect".to_string(),
+            path: FireAndForget,
             payload: Err((
                 NODE_NOT_RUNNING_ERROR,
                 format!("Cannot handle {} request: Node is not running", err_opcode),
@@ -469,10 +438,10 @@ mod tests {
         NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
     };
     use masq_lib::shared_schema::ConfiguratorError;
-    use masq_lib::test_utils::environment_guard::ClapGuard;
+    use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
-    use masq_lib::ui_gateway::MessageTarget;
     use masq_lib::ui_gateway::MessageTarget::AllExcept;
+    use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::iter::FromIterator;
@@ -861,7 +830,7 @@ mod tests {
                 actual_pairs.contains(&("chain".to_string(), TEST_DEFAULT_CHAIN_NAME.to_string())),
                 true
             );
-            assert_eq!(errors.is_empty(), true);
+            assert_eq!(errors, vec![]);
         };
         let record = get_record(0);
         assert_eq!(record.target, ClientId(1234));
@@ -1164,7 +1133,12 @@ mod tests {
 
     #[test]
     fn maintains_setup_through_start_order() {
+        let _environment_guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
+        let data_dir = ensure_node_home_directory_exists(
+            "daemon",
+            "accepts_start_order_launches_and_replies_failure",
+        );
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new().launch_result(Ok(Some(LaunchSuccess {
             new_process_id: 2345,
@@ -1183,6 +1157,14 @@ mod tests {
         subject.params.insert(
             "neighborhood-mode".to_string(),
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
+        );
+        subject.params.insert(
+            "data-directory".to_string(),
+            UiSetupResponseValue::new(
+                "data-directory",
+                data_dir.to_string_lossy().to_string().as_str(),
+                Set,
+            ),
         );
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
@@ -1218,35 +1200,19 @@ mod tests {
             .clone();
         assert_eq!(record.target, ClientId(1234));
         let (setup_response_before, _) = UiSetupResponse::fmb(record.body).unwrap();
-        let setup_response_before_pairs = setup_response_before
-            .values
-            .into_iter()
-            .map(|pair| (pair.name, pair.value))
-            .collect::<HashSet<(String, String)>>();
-        // ------
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(1)
             .clone();
         assert_eq!(record.target, AllExcept(1234));
         let (setup_broadcast_before, _) = UiSetupBroadcast::fmb(record.body).unwrap();
-        let setup_broadcast_before_pairs = setup_broadcast_before
-            .values
-            .into_iter()
-            .map(|pair| (pair.name, pair.value))
-            .collect::<HashSet<(String, String)>>();
         // skip start record (2)
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(3)
             .clone();
         let (setup_after, _) = UiSetupResponse::fmb(record.body).unwrap();
-        let setup_after_pairs = setup_after
-            .values
-            .into_iter()
-            .map(|pair| (pair.name, pair.value))
-            .collect::<HashSet<(String, String)>>();
         // ------
-        assert_eq!(setup_after_pairs, setup_response_before_pairs);
-        assert_eq!(setup_after_pairs, setup_broadcast_before_pairs);
+        assert_eq!(setup_after.values, setup_response_before.values);
+        assert_eq!(setup_after.values, setup_broadcast_before.values);
     }
 
     #[test]

@@ -45,6 +45,7 @@ use receivable_dao::ReceivableDao;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PAYABLE_SCAN_INTERVAL: u64 = 3600; // one hour
 pub const DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL: u64 = 3600; // one hour
 
@@ -522,7 +523,7 @@ impl Accountant {
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
-        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.new_to_ui_message_sub);
+        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
 
         info!(self.logger, "Accountant bound");
     }

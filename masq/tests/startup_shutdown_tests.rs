@@ -16,7 +16,7 @@ fn masq_without_daemon_integration() {
 
     assert_eq!(&stdout, "", "{}", stdout);
     assert_eq!(
-        stderr.starts_with("Can't connect to Daemon or Node"),
+        stderr.contains("Can't connect to Daemon or Node"),
         true,
         "{}",
         stderr

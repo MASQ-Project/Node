@@ -5,12 +5,17 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::messages::{FromMessageBody, UiCrashRequest};
+use masq_lib::ui_gateway::NodeFromUiMessage;
+
+pub const CRASH_KEY: &str = "DISPATCHER";
 
 struct DispatcherOutSubs {
     to_proxy_server: Recipient<InboundClientData>,
@@ -21,6 +26,7 @@ struct DispatcherOutSubs {
 
 pub struct Dispatcher {
     subs: Option<DispatcherOutSubs>,
+    crashable: bool,
     to_stream: Option<Recipient<TransmitDataMsg>>,
     logger: Logger,
 }
@@ -100,10 +106,21 @@ impl Handler<StreamShutdownMsg> for Dispatcher {
     }
 }
 
+impl Handler<NodeFromUiMessage> for Dispatcher {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
+            handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY);
+        }
+    }
+}
+
 impl Dispatcher {
-    pub fn new() -> Dispatcher {
+    pub fn new(crash_point: CrashPoint) -> Dispatcher {
         Dispatcher {
             subs: None,
+            crashable: crash_point == CrashPoint::Message,
             to_stream: None,
             logger: Logger::new("Dispatcher"),
         }
@@ -115,6 +132,7 @@ impl Dispatcher {
             bind: addr.clone().recipient::<BindMessage>(),
             from_dispatcher_client: addr.clone().recipient::<TransmitDataMsg>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+            ui_sub: addr.clone().recipient::<NodeFromUiMessage>(),
         }
     }
 
@@ -150,7 +168,7 @@ mod tests {
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new();
+        let subject = Dispatcher::new(CrashPoint::None);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
@@ -191,7 +209,7 @@ mod tests {
     #[test]
     fn sends_inbound_data_for_hopper_to_hopper() {
         let system = System::new("test");
-        let subject = Dispatcher::new();
+        let subject = Dispatcher::new(CrashPoint::None);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -230,7 +248,7 @@ mod tests {
     #[should_panic(expected = "ProxyServer unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new();
+        let subject = Dispatcher::new(CrashPoint::None);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
@@ -255,7 +273,7 @@ mod tests {
     #[should_panic(expected = "Hopper unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new();
+        let subject = Dispatcher::new(CrashPoint::None);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
@@ -280,7 +298,7 @@ mod tests {
     #[should_panic(expected = "StreamHandlerPool unbound in Dispatcher")]
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new();
+        let subject = Dispatcher::new(CrashPoint::None);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.recipient::<TransmitDataMsg>();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -301,7 +319,7 @@ mod tests {
     #[test]
     fn forwards_outbound_data_to_stream_handler_pool() {
         let system = System::new("test");
-        let subject = Dispatcher::new();
+        let subject = Dispatcher::new(CrashPoint::None);
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let stream_handler_pool = Recorder::new();
@@ -348,7 +366,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new();
+        let subject = Dispatcher::new(CrashPoint::None);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -382,7 +400,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
         let system = System::new("test");
-        let subject = Dispatcher::new();
+        let subject = Dispatcher::new(CrashPoint::None);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();

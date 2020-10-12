@@ -353,6 +353,7 @@ pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
         bind: recipient!(addr, BindMessage),
         from_dispatcher_client: recipient!(addr, TransmitDataMsg),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
+        ui_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
 
@@ -420,8 +421,8 @@ pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
         bind: recipient!(addr, BindMessage),
         ui_message_sub: recipient!(addr, UiCarrierMessage),
         from_ui_message_sub: recipient!(addr, FromUiMessage),
-        new_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
-        new_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
+        node_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
+        node_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
     }
 }
 
@@ -432,6 +433,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
         set_consuming_db_password_sub: recipient!(addr, SetDbPasswordMsg),
+        ui_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
 

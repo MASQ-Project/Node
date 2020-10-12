@@ -46,6 +46,7 @@ where
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         match self.crash_point {
             CrashPoint::None => Ok(Async::Ready(())),
+            CrashPoint::Message => Ok(Async::Ready(())),
             CrashPoint::Panic => {
                 error!(self.logger, "Intercepted instruction to panic.");
                 panic!(self.message.clone());

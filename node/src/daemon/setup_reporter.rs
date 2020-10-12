@@ -29,7 +29,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-// TODO: Probably can take this out once GH-290 makes it in
 const CONSOLE_DIAGNOSTICS: bool = false;
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
@@ -555,6 +554,13 @@ impl ValueRetriever for ConsumingPrivateKey {
     }
 }
 
+struct CrashPoint {}
+impl ValueRetriever for CrashPoint {
+    fn value_name(&self) -> &'static str {
+        "crash-point"
+    }
+}
+
 struct DataDirectory {
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
@@ -827,6 +833,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(ClandestinePort {}),
         Box::new(ConfigFile {}),
         Box::new(ConsumingPrivateKey {}),
+        Box::new(CrashPoint {}),
         Box::new(DataDirectory::new(dirs_wrapper)),
         Box::new(DbPassword {}),
         Box::new(DnsServers {}),
@@ -949,6 +956,7 @@ mod tests {
             ("clandestine-port", "1234", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
+            ("crash-point", "", Blank),
             ("data-directory", home_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "1.1.1.1", Default),
@@ -1002,6 +1010,7 @@ mod tests {
             ("chain", TEST_DEFAULT_CHAIN_NAME),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
+            ("crash-point", "Message"),
             ("data-directory", home_dir.to_str().unwrap()),
             ("db-password", "password"),
             ("dns-servers", "8.8.8.8"),
@@ -1026,6 +1035,7 @@ mod tests {
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
+            ("crash-point", "Message", Set),
             ("data-directory", home_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
@@ -1059,6 +1069,7 @@ mod tests {
             ("chain", TEST_DEFAULT_CHAIN_NAME),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
+            ("crash-point", "Message"),
             ("data-directory", home_dir.to_str().unwrap()),
             ("db-password", "password"),
             ("dns-servers", "8.8.8.8"),
@@ -1085,6 +1096,7 @@ mod tests {
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
+            ("crash-point", "Message", Set),
             ("data-directory", home_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
@@ -1119,6 +1131,7 @@ mod tests {
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
+            ("MASQ_CRASH_POINT", "Error"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
             ("MASQ_DB_PASSWORD", "password"),
             ("MASQ_DNS_SERVERS", "8.8.8.8"),
@@ -1143,6 +1156,7 @@ mod tests {
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
+            ("crash-point", "Error", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
             ("db-password", "password", Configured),
             ("dns-servers", "8.8.8.8", Configured),
@@ -1183,6 +1197,7 @@ mod tests {
                 .write_all(b"clandestine-port = \"7788\"\n")
                 .unwrap();
             config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
                 .write_all(b"db-password = \"mainnet\"\n")
                 .unwrap();
@@ -1209,6 +1224,7 @@ mod tests {
                 .write_all(b"clandestine-port = \"8877\"\n")
                 .unwrap();
             config_file.write_all(b"consuming-private-key = \"FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
                 .write_all(b"db-password = \"ropsten\"\n")
                 .unwrap();
@@ -1250,6 +1266,7 @@ mod tests {
                 "FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100",
                 Configured,
             ),
+            ("crash-point", "None", Configured),
             (
                 "data-directory",
                 &ropsten_dir.to_string_lossy().to_string(),
@@ -1303,6 +1320,7 @@ mod tests {
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
+            ("MASQ_CRASH_POINT", "Panic"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
             ("MASQ_DB_PASSWORD", "password"),
             ("MASQ_DNS_SERVERS", "8.8.8.8"),
@@ -1321,6 +1339,7 @@ mod tests {
             "clandestine-port",
             "config-file",
             "consuming-private-key",
+            "crash-point",
             "data-directory",
             "db-password",
             "dns-servers",
@@ -1342,6 +1361,7 @@ mod tests {
                 "consuming-private-key",
                 "7766554433221100776655443322110077665544332211007766554433221100",
             ),
+            ("crash-point", "Message"),
             ("data-directory", "booga"),
             ("db-password", "drowssap"),
             ("dns-servers", "4.4.4.4"),
@@ -1377,6 +1397,7 @@ mod tests {
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
+            ("crash-point", "Panic", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
             ("db-password", "password", Configured),
             ("dns-servers", "8.8.8.8", Configured),
