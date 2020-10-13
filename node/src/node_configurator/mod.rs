@@ -713,7 +713,7 @@ mod tests {
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
-    use masq_lib::utils::{find_free_port, localhost, running_test};
+    use masq_lib::utils::{find_free_port, running_test};
     use std::io::Cursor;
     use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
