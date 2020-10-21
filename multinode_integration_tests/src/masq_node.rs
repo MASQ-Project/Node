@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
-use masq_lib::constants::HIGHEST_USABLE_PORT;
+use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::RatePack;
@@ -248,7 +248,7 @@ impl MASQNodeUtils {
                 "-t",
                 name,
                 "cat",
-                "/node_root/home/MASQNode_rCURRENT.log",
+                &format!("/node_root/home/{}", CURRENT_LOGFILE_NAME),
             ]),
         );
         command.stdout_and_stderr()

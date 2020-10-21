@@ -186,7 +186,7 @@ impl Handler<NodeFromUiMessage> for UiGateway {
             recipient.try_send(msg.clone()).unwrap_or_else(|_| {
                 panic!("UiGateway's NodeFromUiMessage recipient #{} has died.", idx)
             })
-        });
+        })
     }
 }
 

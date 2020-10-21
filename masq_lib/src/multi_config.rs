@@ -489,7 +489,7 @@ impl ConfigFileVcl {
 }
 
 fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
-    let mut result: Vec<T> = ts.into_iter().map(|x| x).collect();
+    let mut result: Vec<T> = ts.into_iter().collect();
     result.push(t);
     result
 }

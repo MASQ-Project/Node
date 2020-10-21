@@ -1292,6 +1292,7 @@ mod tests {
     };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
+    use masq_lib::utils::running_test;
     use serde_cbor;
     use std::cell::RefCell;
     use std::convert::TryInto;
@@ -4231,6 +4232,7 @@ mod tests {
     #[should_panic(expected = "0: Received shutdown order from client 1234: shutting down hard")]
     #[test]
     fn shutdown_instruction_generates_log() {
+        running_test();
         init_test_logging();
         let system = System::new("test");
         let subject = Neighborhood::new(

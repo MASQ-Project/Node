@@ -8,6 +8,7 @@ use crate::communications::connection_manager::{ConnectionManager, REDIRECT_TIME
 use crate::communications::node_conversation::ClientError;
 use masq_lib::messages::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
+use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 
@@ -64,6 +65,12 @@ pub struct CommandContextReal {
     pub stdin: Box<dyn Read>,
     pub stdout: Box<dyn Write>,
     pub stderr: Box<dyn Write>,
+}
+
+impl Debug for CommandContextReal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CommandContextReal")
+    }
 }
 
 impl CommandContext for CommandContextReal {
@@ -306,28 +313,26 @@ mod tests {
         let stderr_arc = stderr.inner_arc();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
-        let mut subject =
-            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+        let stream_factory = Box::new(StreamFactoryReal::new());
+        let subject_result = CommandContextReal::new(port, stream_factory);
+        let mut subject = subject_result.unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);
         subject.stderr = Box::new(stderr);
+        let msg = UiCrashRequest {
+            actor: "Dispatcher".to_string(),
+            panic_message: "Message".to_string(),
+        }
+        .tmb(0);
 
-        let response = subject
-            .send(
-                UiCrashRequest {
-                    actor: "Dispatcher".to_string(),
-                    panic_message: "Message".to_string(),
-                }
-                .tmb(0),
-            )
-            .unwrap();
+        let result = subject.send(msg);
 
+        assert_eq!(result, Ok(()));
         let mut input = String::new();
         subject.stdin().read_to_string(&mut input).unwrap();
         write!(subject.stdout(), "This is stdout.").unwrap();
         write!(subject.stderr(), "This is stderr.").unwrap();
 
-        assert_eq!(response, ());
         assert_eq!(input, "This is stdin.".to_string());
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),

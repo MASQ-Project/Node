@@ -256,34 +256,32 @@ impl NeighborhoodDatabase {
         let mut present: HashSet<PublicKey> = HashSet::new();
         let mut node_renderables: Vec<NodeRenderable> = vec![];
         let mut edge_renderables: Vec<EdgeRenderable> = vec![];
-        let node_records = self
-            .keys()
+        self.keys()
             .into_iter()
             .map(|k| self.node_by_key(k).expect("Node magically disappeared"))
-            .collect::<Vec<&NodeRecord>>();
-        node_records.into_iter().for_each(|nr| {
-            present.insert(nr.public_key().clone());
-            let public_key = nr.public_key();
-            nr.half_neighbor_keys().into_iter().for_each(|k| {
-                mentioned.insert(k.clone());
-                edge_renderables.push(EdgeRenderable {
-                    from: public_key.clone(),
-                    to: k.clone(),
-                })
+            .for_each(|nr| {
+                present.insert(nr.public_key().clone());
+                let public_key = nr.public_key();
+                nr.half_neighbor_keys().into_iter().for_each(|k| {
+                    mentioned.insert(k.clone());
+                    edge_renderables.push(EdgeRenderable {
+                        from: public_key.clone(),
+                        to: k.clone(),
+                    })
+                });
+                node_renderables.push(NodeRenderable {
+                    inner: Some(NodeRenderableInner {
+                        version: nr.version(),
+                        accepts_connections: nr.accepts_connections(),
+                        routes_data: nr.routes_data(),
+                    }),
+                    public_key: public_key.clone(),
+                    node_addr: nr.node_addr_opt(),
+                    known_source: public_key == self.root().public_key(),
+                    known_target: false,
+                    is_present: true,
+                });
             });
-            node_renderables.push(NodeRenderable {
-                inner: Some(NodeRenderableInner {
-                    version: nr.version(),
-                    accepts_connections: nr.accepts_connections(),
-                    routes_data: nr.routes_data(),
-                }),
-                public_key: public_key.clone(),
-                node_addr: nr.node_addr_opt(),
-                known_source: public_key == self.root().public_key(),
-                known_target: false,
-                is_present: true,
-            });
-        });
         mentioned.difference(&present).for_each(|k| {
             node_renderables.push(NodeRenderable {
                 inner: None,

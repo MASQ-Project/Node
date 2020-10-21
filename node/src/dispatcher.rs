@@ -12,8 +12,10 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use masq_lib::crash_point::CrashPoint;
-use masq_lib::messages::{FromMessageBody, UiCrashRequest};
-use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiCrashRequest, UiDescriptorRequest, UiDescriptorResponse,
+};
+use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 
 pub const CRASH_KEY: &str = "DISPATCHER";
 
@@ -22,11 +24,13 @@ struct DispatcherOutSubs {
     to_hopper: Recipient<InboundClientData>,
     proxy_server_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     neighborhood_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    ui_gateway_sub: Recipient<NodeToUiMessage>,
 }
 
 pub struct Dispatcher {
     subs: Option<DispatcherOutSubs>,
     crashable: bool,
+    node_descriptor: String,
     to_stream: Option<Recipient<TransmitDataMsg>>,
     logger: Logger,
 }
@@ -45,6 +49,7 @@ impl Handler<BindMessage> for Dispatcher {
             to_hopper: msg.peer_actors.hopper.from_dispatcher,
             proxy_server_stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
             neighborhood_stream_shutdown_sub: msg.peer_actors.neighborhood.stream_shutdown_sub,
+            ui_gateway_sub: msg.peer_actors.ui_gateway.node_to_ui_message_sub,
         };
         self.subs = Some(subs);
     }
@@ -110,17 +115,20 @@ impl Handler<NodeFromUiMessage> for Dispatcher {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
+        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body.clone()) {
             handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY);
+        } else if let Ok((_, context_id)) = UiDescriptorRequest::fmb(msg.body) {
+            self.handle_descriptor_request(msg.client_id, context_id);
         }
     }
 }
 
 impl Dispatcher {
-    pub fn new(crash_point: CrashPoint) -> Dispatcher {
+    pub fn new(crash_point: CrashPoint, node_descriptor: String) -> Dispatcher {
         Dispatcher {
             subs: None,
             crashable: crash_point == CrashPoint::Message,
+            node_descriptor,
             to_stream: None,
             logger: Logger::new("Dispatcher"),
         }
@@ -149,6 +157,20 @@ impl Dispatcher {
                 .expect("ProxyServer is dead"),
         }
     }
+
+    fn handle_descriptor_request(&mut self, client_id: u64, context_id: u64) {
+        let response_inner = UiDescriptorResponse {
+            node_descriptor: self.node_descriptor.clone(),
+        };
+        let response_msg = NodeToUiMessage {
+            target: MessageTarget::ClientId(client_id),
+            body: response_inner.tmb(context_id),
+        };
+        let subs = self.subs.as_ref().expect("Dispatcher is unbound");
+        subs.ui_gateway_sub
+            .try_send(response_msg)
+            .expect("UiGateway is dead");
+    }
 }
 
 #[cfg(test)]
@@ -162,13 +184,15 @@ mod tests {
     use actix::Addr;
     use actix::System;
     use masq_lib::constants::HTTP_PORT;
+    use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
+    use masq_lib::ui_gateway::MessageTarget;
     use std::net::SocketAddr;
     use std::str::FromStr;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None);
+        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
@@ -209,7 +233,7 @@ mod tests {
     #[test]
     fn sends_inbound_data_for_hopper_to_hopper() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None);
+        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
         let subject_addr: Addr<Dispatcher> = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -248,7 +272,7 @@ mod tests {
     #[should_panic(expected = "ProxyServer unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None);
+        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
@@ -273,7 +297,7 @@ mod tests {
     #[should_panic(expected = "Hopper unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None);
+        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
@@ -298,7 +322,7 @@ mod tests {
     #[should_panic(expected = "StreamHandlerPool unbound in Dispatcher")]
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None);
+        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.recipient::<TransmitDataMsg>();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -319,7 +343,7 @@ mod tests {
     #[test]
     fn forwards_outbound_data_to_stream_handler_pool() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None);
+        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
         let subject_addr: Addr<Dispatcher> = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let stream_handler_pool = Recorder::new();
@@ -366,7 +390,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None);
+        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -400,7 +424,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None);
+        let subject = Dispatcher::new(CrashPoint::None, "descriptor".to_string());
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -425,6 +449,38 @@ mod tests {
         assert_eq!(
             neighborhood_recording.get_record::<StreamShutdownMsg>(0),
             &msg
+        );
+    }
+
+    #[test]
+    fn descriptor_request_results_in_descriptor_response() {
+        let system = System::new("test");
+        let subject = Dispatcher::new(CrashPoint::None, "Node descriptor".to_string());
+        let addr = subject.start();
+        let (ui_gateway_recorder, _, ui_gateway_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .ui_gateway(ui_gateway_recorder)
+            .build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+        let msg = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiDescriptorRequest {}.tmb(4321),
+        };
+
+        addr.try_send(msg).unwrap();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiDescriptorResponse {
+                    node_descriptor: "Node descriptor".to_string()
+                }
+                .tmb(4321)
+            }
         );
     }
 }

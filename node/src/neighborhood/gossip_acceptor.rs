@@ -1046,10 +1046,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
             .gossip_handlers
             .iter()
             .map(|h| (h.qualifies(database, &agrs, gossip_source), h.as_ref()))
-            .find(|pair| match pair {
-                (Qualification::Unmatched, _) => false,
-                _ => true,
-            })
+            .find(|pair| !matches!(pair, (Qualification::Unmatched, _)))
             .expect("gossip_handlers should intercept everything");
         match qualification {
             Qualification::Matched => {

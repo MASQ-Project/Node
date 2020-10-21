@@ -2,11 +2,12 @@
 
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::CommandError::{
-    ConnectionProblem, Payload, Transmission, UnexpectedResponse,
+    ConnectionProblem, Other, Payload, Reception, Transmission, UnexpectedResponse,
 };
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
+use std::fmt::Display;
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 5000;
 
@@ -18,6 +19,20 @@ pub enum CommandError {
     UnexpectedResponse(UiMessageError),
     Payload(u64, String),
     Other(String),
+}
+
+impl Display for CommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let msg = match self {
+            ConnectionProblem(s) => format!("Connection problem: {}", s),
+            Transmission(s) => format!("Transmission problem: {}", s),
+            Reception(s) => format!("Reception problem: {}", s),
+            UnexpectedResponse(e) => format!("{}", e),
+            Payload(code, s) => format!("{} (Code {})", s, code),
+            Other(s) => s.to_string(),
+        };
+        write!(f, "{}", msg)
+    }
 }
 
 pub trait Command: Debug {
@@ -79,7 +94,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::commands::commands_common::CommandError::{
-        Payload, Transmission, UnexpectedResponse,
+        Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
@@ -170,6 +185,37 @@ mod tests {
     fn check_conversion(from: ContextError, expected_into: CommandError) {
         let actual_into: CommandError = from.into();
         assert_eq!(actual_into, expected_into);
+    }
+
+    #[test]
+    fn command_error_displays_properly() {
+        assert_eq!(
+            format!("{}", ConnectionProblem("string".to_string())),
+            "Connection problem: string".to_string()
+        );
+        assert_eq!(
+            format!("{}", Transmission("string".to_string())),
+            "Transmission problem: string".to_string()
+        );
+        assert_eq!(
+            format!("{}", Reception("string".to_string())),
+            "Reception problem: string".to_string()
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                UnexpectedResponse(UiMessageError::DeserializationError("string".to_string()))
+            ),
+            "Could not deserialize message from Daemon or Node: string".to_string()
+        );
+        assert_eq!(
+            format!("{}", Payload(1234, "string".to_string())),
+            "string (Code 1234)".to_string()
+        );
+        assert_eq!(
+            format!("{}", Other("string".to_string())),
+            "string".to_string()
+        );
     }
 
     #[test]

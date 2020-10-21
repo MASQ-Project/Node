@@ -336,7 +336,7 @@ impl StreamHandlerPoolReal {
                 );
                 return Err(io::Error::from(e));
             }
-            Ok(lookup_ip) => lookup_ip.iter().map(|x| x).collect(),
+            Ok(lookup_ip) => lookup_ip.iter().collect(),
         };
         debug!(
             logger,

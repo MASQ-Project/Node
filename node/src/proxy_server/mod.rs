@@ -783,10 +783,8 @@ impl ProxyServer {
         let destination_key_opt = if !expected_services.is_empty()
             && expected_services
                 .iter()
-                .all(|expected_service| match expected_service {
-                    ExpectedService::Nothing => true,
-                    _ => false,
-                }) {
+                .all(|expected_service| matches!(expected_service, ExpectedService::Nothing))
+        {
             Some(payload.originator_public_key.clone())
         } else {
             expected_services.iter().find_map(|service| match service {

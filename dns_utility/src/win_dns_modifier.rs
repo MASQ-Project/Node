@@ -424,7 +424,7 @@ impl RegKeyTrait for RegKeyReal {
     }
 
     fn enum_keys(&self) -> Vec<io::Result<String>> {
-        self.delegate.enum_keys().map(|x| x).collect()
+        self.delegate.enum_keys().collect()
     }
 
     fn open_subkey_with_flags(&self, path: &str, perms: u32) -> io::Result<Box<dyn RegKeyTrait>> {

@@ -159,7 +159,7 @@ impl Main {
             }
         };
         if let Err(e) = processor.process(command) {
-            writeln!(stderr, "{:?}", e).expect("writeln! failed");
+            writeln!(stderr, "{}", e).expect("writeln! failed");
             Err(())
         } else {
             Ok(())
@@ -628,7 +628,7 @@ mod tests {
         assert_eq!(stream_holder.stdout.get_string(), "".to_string());
         assert_eq!(
             stream_holder.stderr.get_string(),
-            "Transmission(\"Booga!\")\n".to_string()
+            "Transmission problem: Booga!\n".to_string()
         );
     }
 

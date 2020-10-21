@@ -20,7 +20,7 @@ pub fn crash_subcommand() -> App<'static, 'static> {
             .index (1)
             .possible_values(&[
                 "BlockchainBridge",
-                // "Dispatcher",
+                "Dispatcher",
                 // "Accountant",
                 // "Hopper",
                 // "Neighborhood",
@@ -87,7 +87,7 @@ mod tests {
         let subject = factory
             .make(vec![
                 "crash".to_string(),
-                "BlockchainBridge".to_string(),
+                "Dispatcher".to_string(),
                 "panic message".to_string(),
             ])
             .unwrap();

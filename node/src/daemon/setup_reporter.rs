@@ -33,6 +33,14 @@ const CONSOLE_DIAGNOSTICS: bool = false;
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
+#[cfg(test)]
+pub fn setup_cluster_from(input: Vec<(&str, &str, UiSetupResponseValueStatus)>) -> SetupCluster {
+    input
+        .into_iter()
+        .map(|(k, v, s)| (k.to_string(), UiSetupResponseValue::new(k, v, s)))
+        .collect::<SetupCluster>()
+}
+
 pub trait SetupReporter {
     fn get_modified_setup(
         &self,
@@ -481,10 +489,7 @@ trait ValueRetriever {
 }
 
 fn is_required_for_blockchain(params: &SetupCluster) -> bool {
-    match params.get("neighborhood-mode") {
-        Some(nhm) if &nhm.value == "zero-hop" => false,
-        _ => true,
-    }
+    !matches! (params.get("neighborhood-mode"), Some(nhm) if &nhm.value == "zero-hop")
 }
 
 struct BlockchainServiceUrl {}
@@ -864,7 +869,6 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use masq_lib::messages::UiSetupResponseValueStatus;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
@@ -1005,26 +1009,24 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_database_nonexistent_everything_preexistent",
         );
-        let existing_setup = vec![
-            ("blockchain-service-url", "https://example.com"),
-            ("chain", TEST_DEFAULT_CHAIN_NAME),
-            ("clandestine-port", "1234"),
-            ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
-            ("crash-point", "Message"),
-            ("data-directory", home_dir.to_str().unwrap()),
-            ("db-password", "password"),
-            ("dns-servers", "8.8.8.8"),
-            ("earning-wallet", "0x0123456789012345678901234567890123456789"),
-            ("gas-price", "50"),
-            ("ip", "4.3.2.1"),
-            ("log-level", "error"),
-            ("neighborhood-mode", "originate-only"),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+        let existing_setup = setup_cluster_from(vec![
+            ("blockchain-service-url", "https://example.com", Set),
+            ("chain", TEST_DEFAULT_CHAIN_NAME, Set),
+            ("clandestine-port", "1234", Set),
+            ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
+            ("crash-point", "Message", Set),
+            ("data-directory", home_dir.to_str().unwrap(), Set),
+            ("db-password", "password", Set),
+            ("dns-servers", "8.8.8.8", Set),
+            ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
+            ("gas-price", "50", Set),
+            ("ip", "4.3.2.1", Set),
+            ("log-level", "error", Set),
+            ("neighborhood-mode", "originate-only", Set),
+            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "9999:9999:booga"),
-        ].into_iter()
-            .map (|(name, value)| (name.to_string(), UiSetupResponseValue::new(name, value, Set)))
-            .collect::<SetupCluster>();
+            ("real-user", "9999:9999:booga", Set),
+        ]);
         let subject = SetupReporterReal::new();
 
         let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
@@ -1354,39 +1356,34 @@ mod tests {
         .into_iter()
         .map(|name| UiSetupRequestValue::clear(name))
         .collect_vec();
-        let existing_setup = vec![
-            ("blockchain-service-url", "https://booga.com"),
-            ("clandestine-port", "4321"),
+        let existing_setup = setup_cluster_from(vec![
+            ("blockchain-service-url", "https://booga.com", Set),
+            ("clandestine-port", "4321", Set),
             (
                 "consuming-private-key",
                 "7766554433221100776655443322110077665544332211007766554433221100",
+                Set,
             ),
-            ("crash-point", "Message"),
-            ("data-directory", "booga"),
-            ("db-password", "drowssap"),
-            ("dns-servers", "4.4.4.4"),
+            ("crash-point", "Message", Set),
+            ("data-directory", "booga", Set),
+            ("db-password", "drowssap", Set),
+            ("dns-servers", "4.4.4.4", Set),
             (
                 "earning-wallet",
                 "0x9876543210987654321098765432109876543210",
+                Set,
             ),
-            ("gas-price", "5"),
-            ("ip", "1.2.3.4"),
-            ("neighborhood-mode", "consume-only"),
+            ("gas-price", "5", Set),
+            ("ip", "1.2.3.4", Set),
+            ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
                 "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:9.10.11.12:9101",
+                Set,
             ),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "6666:6666:agoob"),
-        ]
-        .into_iter()
-        .map(|(name, value)| {
-            (
-                name.to_string(),
-                UiSetupResponseValue::new(name, value, Set),
-            )
-        })
-        .collect::<SetupCluster>();
+            ("real-user", "6666:6666:agoob", Set),
+        ]);
         let subject = SetupReporterReal::new();
 
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
@@ -1438,7 +1435,7 @@ mod tests {
             .unwrap()
             .join("MASQ")
             .join(DEFAULT_CHAIN_NAME);
-        let existing_setup = vec![
+        let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN_NAME, Default),
             (
@@ -1453,15 +1450,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
-        ]
-        .into_iter()
-        .map(|(name, value, status)| {
-            (
-                name.to_string(),
-                UiSetupResponseValue::new(name, value, status),
-            )
-        })
-        .collect::<SetupCluster>();
+        ]);
         let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN_NAME)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
@@ -1490,7 +1479,7 @@ mod tests {
             .unwrap()
             .join("MASQ")
             .join(DEFAULT_CHAIN_NAME);
-        let existing_setup = vec![
+        let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
             ("chain", DEFAULT_CHAIN_NAME, Default),
             ("clandestine-port", "7788", Default),
@@ -1520,15 +1509,7 @@ mod tests {
                     .to_string(),
                 Default,
             ),
-        ]
-        .into_iter()
-        .map(|(name, value, status)| {
-            (
-                name.to_string(),
-                UiSetupResponseValue::new(name, value, status),
-            )
-        })
-        .collect::<SetupCluster>();
+        ]);
         let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN_NAME)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
@@ -1553,18 +1534,10 @@ mod tests {
     #[test]
     fn get_modified_blanking_something_that_shouldnt_be_blanked_fails_properly() {
         let _guard = EnvironmentGuard::new();
-        let existing_setup = vec![
+        let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "standard", Set),
             ("ip", "1.2.3.4", Set),
-        ]
-        .into_iter()
-        .map(|(name, value, status)| {
-            (
-                name.to_string(),
-                UiSetupResponseValue::new(name, value, status),
-            )
-        })
-        .collect::<SetupCluster>();
+        ]);
         let incoming_setup = vec![UiSetupRequestValue::clear("ip")];
         let subject = SetupReporterReal::new();
 
@@ -1589,12 +1562,7 @@ mod tests {
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));
-        let setup = vec![]
-            .into_iter()
-            .map(|(k, v, s): (&str, &str, UiSetupResponseValueStatus)| {
-                (k.to_string(), UiSetupResponseValue::new(k, v, s))
-            })
-            .collect::<SetupCluster>();
+        let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
             SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
@@ -1621,14 +1589,11 @@ mod tests {
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));
-        let setup = vec![
+        let setup = setup_cluster_from(vec![
             ("chain", "dev", Configured),
             ("data-directory", "setup_dir", Default),
             ("real-user", "1111:1111:agoob", Configured),
-        ]
-        .into_iter()
-        .map(|(k, v, s)| (k.to_string(), UiSetupResponseValue::new(k, v, s)))
-        .collect::<SetupCluster>();
+        ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
             SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
@@ -1655,16 +1620,11 @@ mod tests {
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));
-        let setup = vec![
+        let setup = setup_cluster_from(vec![
             ("chain", "dev", Set),
             ("data-directory", "setup_dir", Set),
             ("real-user", "1111:1111:agoob", Set),
-        ]
-        .into_iter()
-        .map(|(k, v, s): (&str, &str, UiSetupResponseValueStatus)| {
-            (k.to_string(), UiSetupResponseValue::new(k, v, s))
-        })
-        .collect::<SetupCluster>();
+        ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
             SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
@@ -1687,14 +1647,11 @@ mod tests {
         vec![]
             .into_iter()
             .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
-        let setup = vec![
+        let setup = setup_cluster_from(vec![
             ("chain", "dev", Configured),
             ("data-directory", "setup_dir", Default),
             ("real-user", "1111:1111:agoob", Configured),
-        ]
-        .into_iter()
-        .map(|(k, v, s)| (k.to_string(), UiSetupResponseValue::new(k, v, s)))
-        .collect::<SetupCluster>();
+        ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
             SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
@@ -1717,12 +1674,7 @@ mod tests {
         vec![]
             .into_iter()
             .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
-        let setup = vec![]
-            .into_iter()
-            .map(|(k, v, s): (&str, &str, UiSetupResponseValueStatus)| {
-                (k.to_string(), UiSetupResponseValue::new(k, v, s))
-            })
-            .collect::<SetupCluster>();
+        let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
             SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();

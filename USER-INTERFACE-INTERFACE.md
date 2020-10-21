@@ -323,6 +323,28 @@ The `payables` and `receivables` arrays are not in any particular order.
 For security reasons, the Node does not keep track of individual blockchain transactions, with the exception
 of payments that have not yet been confirmed. Only cumulative account balances are retained.
 
+#### `descriptor`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {}
+```
+##### Description:
+Requests the Node descriptor from a Node.
+
+#### `descriptor`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "nodeDescriptor": <string>
+}
+```
+##### Description:
+Contains a Node's Node descriptor.
+
 #### `redirect`
 ##### Direction: Unsolicited Response
 ##### Correspondent: Daemon
@@ -478,6 +500,7 @@ information is presently in its Setup space.
 ```
 "payload": {
     "newProcessId": <integer>,
+    "nodeDescriptor": <string>,
     "redirectUiPort": <integer greater than 1024>,
 }
 ```
@@ -490,6 +513,10 @@ The `redirectUiPort` field is the WebSockets port on which the UI can now connec
 starts the Node can take advantage of this to preemptively connect to the Node without processing a Redirect; but
 a UI that starts after the Node is already running must go through the Redirect operation to find it. It requires
 less code to simply have your UI always use Redirects.
+
+Because the Daemon is not allowed to communicate with the Node for security reasons, the Daemon cannot know
+the Node's Node descriptor; therefore it cannot be included in the response to the `start` request. To
+discover a newly-started Node's Node descriptor, send the `descriptor` message directly to the Node itself.
 
 #### `unmarshalError`
 ##### Direction: Response

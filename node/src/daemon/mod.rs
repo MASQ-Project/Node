@@ -426,7 +426,7 @@ mod tests {
     use super::*;
     use crate::daemon::crash_notification::CrashNotification;
     use crate::daemon::mocks::VerifierToolsMock;
-    use crate::daemon::setup_reporter::SetupCluster;
+    use crate::daemon::setup_reporter::{setup_cluster_from, SetupCluster};
     use crate::daemon::LaunchSuccess;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
@@ -1311,6 +1311,7 @@ mod tests {
         subject.ui_gateway_sub = Some(gateway_recipient.clone());
         subject.crash_notification_sub = Some(crash_notification_recipient);
         subject.verifier_tools = Box::new(verifier_tools);
+        subject.params = setup_cluster_from(vec![("data-directory", "bigglesworth", Set)]);
 
         subject.handle_start_order(1234, 2345);
 
@@ -1322,7 +1323,11 @@ mod tests {
                 .iter()
                 .map(|x| &x.0)
                 .collect::<Vec<&HashMap<String, String>>>(),
-            vec![&(vec![].into_iter().collect::<HashMap<String, String>>())]
+            vec![
+                (&vec![("data-directory".to_string(), "bigglesworth".to_string())]
+                    .into_iter()
+                    .collect::<HashMap<String, String>>())
+            ]
         );
         let crashed_msg_to_daemon = CrashNotification {
             process_id: 54321,

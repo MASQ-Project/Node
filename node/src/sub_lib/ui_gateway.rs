@@ -19,7 +19,8 @@ pub struct UiGatewayConfig {
     pub ui_port: u16,
     pub node_descriptor: String, // TODO: This really shouldn't be here; it exists only to answer
                                  // the GetNodeDescriptor message, which A) is part of MASQNode-UI,
-                                 // and B) shouldn't be answered by the UiGateway anyway.
+                                 // and B) shouldn't be answered by the UiGateway anyway. Move it
+                                 // to the Dispatcher part of the BootstrapperConfig.
 }
 
 #[derive(Clone)]

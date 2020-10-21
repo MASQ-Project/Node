@@ -78,10 +78,7 @@ impl PartialEq<WalletKind> for WalletKind {
                 }
                 _ => false,
             },
-            WalletKind::Uninitialized => match self {
-                WalletKind::Uninitialized => true,
-                _ => false,
-            },
+            WalletKind::Uninitialized => matches!(self, WalletKind::Uninitialized),
         }
     }
 }

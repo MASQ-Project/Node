@@ -87,10 +87,7 @@ impl NeighborhoodMode {
     }
 
     pub fn accepts_connections(&self) -> bool {
-        match self {
-            NeighborhoodMode::Standard(_, _, _) => true,
-            _ => false,
-        }
+        matches!(self, NeighborhoodMode::Standard(_, _, _))
     }
 
     pub fn routes_data(&self) -> bool {
@@ -102,31 +99,19 @@ impl NeighborhoodMode {
     }
 
     pub fn is_standard(&self) -> bool {
-        match self {
-            NeighborhoodMode::Standard(_, _, _) => true,
-            _ => false,
-        }
+        matches!(self, NeighborhoodMode::Standard(_, _, _))
     }
 
     pub fn is_originate_only(&self) -> bool {
-        match self {
-            NeighborhoodMode::OriginateOnly(_, _) => true,
-            _ => false,
-        }
+        matches!(self, NeighborhoodMode::OriginateOnly(_, _))
     }
 
     pub fn is_consume_only(&self) -> bool {
-        match self {
-            NeighborhoodMode::ConsumeOnly(_) => true,
-            _ => false,
-        }
+        matches!(self, NeighborhoodMode::ConsumeOnly(_))
     }
 
     pub fn is_zero_hop(&self) -> bool {
-        match self {
-            NeighborhoodMode::ZeroHop => true,
-            _ => false,
-        }
+        matches!(self, NeighborhoodMode::ZeroHop)
     }
 }
 

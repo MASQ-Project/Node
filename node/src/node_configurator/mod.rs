@@ -372,10 +372,7 @@ pub fn cannot_be_blank(password: &str) -> Result<(), String> {
 }
 
 pub fn mnemonic_seed_exists(persistent_config: &dyn PersistentConfiguration) -> bool {
-    match persistent_config.mnemonic_seed("bad password") {
-        Ok(Some(_)) | Err(PersistentConfigError::PasswordError) => true,
-        _ => false,
-    }
+    matches! (persistent_config.mnemonic_seed("bad password"), Ok(Some(_)) | Err(PersistentConfigError::PasswordError))
 }
 
 #[derive(Debug, PartialEq, Clone)]

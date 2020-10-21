@@ -207,7 +207,7 @@ mod tests {
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
         let borrowed_guts = unwrapped_guts.borrow();
         let log = &borrowed_guts.log;
-        assert_eq!(log[0], "bind ('V4(127.0.0.1:53)')")
+        assert_eq!(log[0], "bind ('127.0.0.1:53')")
     }
 
     #[test]
@@ -281,12 +281,12 @@ mod tests {
         assert_eq!(
             log,
             vec![
-                String::from("recv_from (Ok(Ready((12, V4(0.0.0.0:0)))))"),
-                String::from("send_to (buf, V4(0.0.0.0:0))"),
-                String::from("recv_from (Ok(Ready((12, V4(1.0.0.0:0)))))"),
-                String::from("send_to (buf, V4(1.0.0.0:0))"),
-                String::from("recv_from (Ok(Ready((12, V4(2.0.0.0:0)))))"),
-                String::from("send_to (buf, V4(2.0.0.0:0))"),
+                String::from("recv_from (Ok(Ready((12, 0.0.0.0:0))))"),
+                String::from("send_to (buf, 0.0.0.0:0)"),
+                String::from("recv_from (Ok(Ready((12, 1.0.0.0:0))))"),
+                String::from("send_to (buf, 1.0.0.0:0)"),
+                String::from("recv_from (Ok(Ready((12, 2.0.0.0:0))))"),
+                String::from("send_to (buf, 2.0.0.0:0)"),
                 String::from("recv_from (Err(Kind(BrokenPipe)))")
             ]
         );

@@ -212,10 +212,10 @@ mod tests {
     #[test]
     fn detects_successful_launch_after_two_attempts() {
         let can_connect_to_ui_gateway_params_arc = Arc::new(Mutex::new(vec![]));
-        let delay_parms_arc = Arc::new(Mutex::new(vec![]));
+        let delay_params_arc = Arc::new(Mutex::new(vec![]));
         let tools = VerifierToolsMock::new()
             .can_connect_to_ui_gateway_params(&can_connect_to_ui_gateway_params_arc)
-            .delay_params(&delay_parms_arc)
+            .delay_params(&delay_params_arc)
             .can_connect_to_ui_gateway_result(false)
             .can_connect_to_ui_gateway_result(false)
             .can_connect_to_ui_gateway_result(true);
@@ -227,7 +227,7 @@ mod tests {
         assert_eq!(result, Launched);
         let can_connect_to_ui_gateway_parms = can_connect_to_ui_gateway_params_arc.lock().unwrap();
         assert_eq!(*can_connect_to_ui_gateway_parms, vec![4321, 4321, 4321]);
-        let delay_params = delay_parms_arc.lock().unwrap();
+        let delay_params = delay_params_arc.lock().unwrap();
         assert_eq!(
             *delay_params,
             vec![RESPONSE_CHECK_INTERVAL_MS, RESPONSE_CHECK_INTERVAL_MS,]

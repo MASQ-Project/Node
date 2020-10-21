@@ -15,7 +15,7 @@ clap = "2.33.1"
 lazy_static = "1.4.0"
 masq_lib = { path = "../masq_lib" }
 websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
-crossbeam-channel = "0.4"
+crossbeam-channel = "0.5.0"
 
 [lib]
 name = "masq_cli_lib"

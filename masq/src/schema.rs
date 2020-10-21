@@ -1,4 +1,6 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::commands::crash_command::crash_subcommand;
+use crate::commands::descriptor_command::descriptor_subcommand;
 use crate::commands::setup_command::setup_subcommand;
 use crate::commands::shutdown_command::shutdown_subcommand;
 use crate::commands::start_command::start_subcommand;
@@ -40,6 +42,8 @@ pub fn app() -> App<'static, 'static> {
                 .validator(validate_ui_port)
                 .help(UI_PORT_HELP.as_str()),
         )
+        .subcommand(crash_subcommand())
+        .subcommand(descriptor_subcommand())
         .subcommand(setup_subcommand())
         .subcommand(start_subcommand())
         .subcommand(shutdown_subcommand())

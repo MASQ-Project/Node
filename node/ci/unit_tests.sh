@@ -5,5 +5,5 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings -Anon-snake-case"
 pushd "$CI_DIR/.."
-cargo test --release -- --nocapture --skip _integration
+cargo test --release --lib --no-fail-fast -- --nocapture --skip _integration
 popd

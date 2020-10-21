@@ -159,10 +159,7 @@ impl Launcher for LauncherReal {
         match self.execer.exec(params_vec, crashed_recipient) {
             Ok(new_process_id) => {
                 match self.verifier.verify_launch(new_process_id, redirect_ui_port) {
-                    Launched => Ok(Some(LaunchSuccess {
-                        new_process_id,
-                        redirect_ui_port
-                    })),
+                    Launched => Ok(Some(LaunchSuccess { new_process_id, redirect_ui_port })),
                     CleanFailure => Err(format! ("Node started in process {}, but died immediately.", new_process_id)),
                     DirtyFailure => Err(format! ("Node started in process {}, but was unresponsive and was successfully killed.", new_process_id)),
                     InterventionRequired => Err(format! ("Node started in process {}, but was unresponsive and could not be killed. Manual intervention is required.", new_process_id)),

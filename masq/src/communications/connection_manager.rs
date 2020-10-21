@@ -16,20 +16,21 @@ use std::collections::{HashMap, HashSet};
 use std::net::TcpStream;
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use websocket::sender::Writer;
 use websocket::sync::Client;
 use websocket::ws::sender::Sender as WsSender;
 use websocket::OwnedMessage;
 use websocket::{ClientBuilder, WebSocketResult};
 
+pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
 pub const FALLBACK_TIMEOUT_MILLIS: u64 = 500;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutgoingMessageType {
     ConversationMessage(MessageBody),
-    FireAndForgetMessage(MessageBody),
+    FireAndForgetMessage(MessageBody, u64),
     SignOff(u64),
 }
 
@@ -125,9 +126,14 @@ impl ConnectionManager {
         self.demand_tx
             .send(Demand::ActivePort)
             .expect("ConnectionManagerThread is dead");
-        self.active_port_response_rx
-            .recv()
-            .expect("ConnectionManagerThread is dead")
+        match self
+            .active_port_response_rx
+            .recv_timeout(Duration::from_millis(COMPONENT_RESPONSE_TIMEOUT_MILLIS))
+        {
+            Ok(ui_port_opt) => ui_port_opt,
+            Err(RecvTimeoutError::Disconnected) => panic!("ConnectionManager is not connected"),
+            Err(RecvTimeoutError::Timeout) => panic!("ConnectionManager is not responding"),
+        }
     }
 
     pub fn start_conversation(&self) -> NodeConversation {
@@ -175,22 +181,8 @@ fn connect_insecure_timeout(
 ) -> Result<WebSocketResult<Client<TcpStream>>, RecvTimeoutError> {
     let (tx, rx) = unbounded();
     thread::spawn(move || {
-        let begin = Instant::now();
         let result = builder.connect_insecure();
-        let interval = Instant::now().duration_since(begin);
-        let result_str = match &result {
-            Ok(_) => "success".to_string(),
-            Err(e) => format!("{:?}", e),
-        };
-        match tx.send(result) {
-            Ok(_) => (),
-            Err(_) => eprintln!(
-                "connect_insecure_timeout returned after {}ms, having blown a {}ms timeout: {:?}",
-                interval.as_millis(),
-                timeout_millis,
-                result_str
-            ),
-        }
+        let _ = tx.send(result);
     });
     rx.recv_timeout(Duration::from_millis(timeout_millis))
 }
@@ -347,10 +339,20 @@ impl ConnectionManagerThread {
                 },
                 MessagePath::FireAndForget => panic!("NodeConversation should have prevented sending a FireAndForget message with transact()"),
             },
-            Ok(OutgoingMessageType::FireAndForgetMessage(message_body)) => match message_body.path {
+            Ok(OutgoingMessageType::FireAndForgetMessage(message_body, context_id)) => match message_body.path {
                 MessagePath::FireAndForget => {
                     match inner.talker_half.sender.send_message(&mut inner.talker_half.stream, &OwnedMessage::Text(UiTrafficConverter::new_marshal(message_body))) {
-                        Ok (_) => (),
+                        Ok (_) => {
+                            if let Some(manager_to_conversation_tx) = inner.conversations.get(&context_id) {
+                                match manager_to_conversation_tx.send(Err(NodeConversationTermination::FiredAndForgotten)) {
+                                    Ok(_) => (),
+                                    Err(_) => {
+                                        // The conversation waiting for this message died
+                                        let _ = inner.conversations.remove(&context_id);
+                                    }
+                                }
+                            }
+                        },
                         Err (_) => inner = Self::fallback(inner, NodeConversationTermination::Fatal),
                     }
                 }
@@ -1287,6 +1289,7 @@ mod tests {
             inner,
             Ok(OutgoingMessageType::FireAndForgetMessage(
                 outgoing_message.clone(),
+                1,
             )),
         );
 
@@ -1405,6 +1408,7 @@ mod tests {
                     bad_data: String::new(),
                 }
                 .tmb(0),
+                2,
             )),
         );
 

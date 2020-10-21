@@ -17,7 +17,7 @@ base64 = "0.10.1"
 bytes = "0.4.12"
 chrono = "0.4.7"
 clap = "2.33.1"
-crossbeam-channel = "0.4"
+crossbeam-channel = "0.5.0"
 dirs = "2.0.2"
 ethsign = {version = "0.6.1", default-features = false, features = ["pure-rust"]}
 ethsign-crypto = "0.1.0"

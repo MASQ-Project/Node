@@ -244,10 +244,7 @@ mod tests {
         );
 
         assert_eq!(result.unwrap(), ());
-        assert_eq!(
-            listener_log.dump(),
-            vec!(format!("bind (V4(0.0.0.0:2345))"))
-        );
+        assert_eq!(listener_log.dump(), vec!(format!("bind (0.0.0.0:2345)")));
         assert_eq!(subject.port, Some(2345));
         let mut port_configuration = subject.port_configuration.unwrap();
         let factory = port_configuration.discriminator_factories.remove(0);
@@ -272,10 +269,7 @@ mod tests {
         );
 
         assert_eq!(result.unwrap(), ());
-        assert_eq!(
-            listener_log.dump(),
-            vec!(format!("bind (V4(127.0.0.1:2345))"))
-        );
+        assert_eq!(listener_log.dump(), vec!(format!("bind (127.0.0.1:2345)")));
         assert_eq!(subject.port, Some(2345));
         let mut port_configuration = subject.port_configuration.unwrap();
         let factory = port_configuration.discriminator_factories.remove(0);

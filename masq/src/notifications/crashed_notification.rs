@@ -13,7 +13,7 @@ impl CrashNotifier {
         let (response, _) = UiNodeCrashedBroadcast::fmb(msg.clone())
             .unwrap_or_else(|_| panic!("Bad UiNodeCrashedBroadcast:\n{:?}", msg));
         if response.crash_reason == CrashReason::DaemonCrashed {
-            exit_process(1, "The Daemon is no longer running; masq is terminating.");
+            exit_process(1, "The Daemon is no longer running; masq is terminating.\n");
         }
         writeln!(
             stdout,

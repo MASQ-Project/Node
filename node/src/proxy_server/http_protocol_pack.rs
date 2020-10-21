@@ -85,10 +85,10 @@ impl HttpProtocolPack {
             .cloned()
             .collect();
 
-        match http::Method::from_bytes(method_bytes.as_slice()) {
-            Ok(http::Method::CONNECT) => true,
-            _ => false,
-        }
+        matches!(
+            http::Method::from_bytes(method_bytes.as_slice()),
+            Ok(http::Method::CONNECT)
+        )
     }
 
     fn port_from_string(port_str: String) -> Option<u16> {

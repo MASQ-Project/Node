@@ -257,11 +257,7 @@ pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> C
 }
 
 pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
-    let mut data = Vec::with_capacity(bytes);
-    for _ in 0..bytes {
-        data.push(0);
-    }
-    data
+    vec![0; bytes]
 }
 
 pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {

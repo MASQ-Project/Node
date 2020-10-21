@@ -24,12 +24,13 @@ jobs:
           key: ${{ runner.os }}-0001
       - name: Build ${{ matrix.os }}
         run: |
+          rustup show
+          rustup update stable
+          rustup show
           rustup component add rustfmt
           rustup component add clippy
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
-          rustup show
-          rustup update stable
         shell: bash
       - name: Publish ${{ matrix.os }}
         run: |

@@ -417,6 +417,17 @@ fire_and_forget_message!(UiUnmarshalError, "unmarshalError");
 // These messages are sent to or by the Node only
 ///////////////////////////////////////////////////////////////////
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiDescriptorRequest {}
+conversation_message!(UiDescriptorRequest, "descriptor");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiDescriptorResponse {
+    #[serde(rename = "nodeDescriptor")]
+    pub node_descriptor: String,
+}
+conversation_message!(UiDescriptorResponse, "descriptor");
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiPayableAccount {
     pub wallet: String,
