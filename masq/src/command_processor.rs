@@ -65,9 +65,9 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
+    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
 
     #[derive(Debug)]

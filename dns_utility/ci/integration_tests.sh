@@ -4,6 +4,13 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 TOOLCHAIN_HOME="$1"
 
 pushd "$CI_DIR/.."
+
+export PATH="$PATH:$HOME/.cargo/bin"
+source "$CI_DIR"/../../ci/environment.sh "$TOOLCHAIN_HOME"
+
+export RUSTFLAGS="-D warnings -Anon-snake-case"
+cargo test --no-run --release -- --nocapture "_integration"
+
 case "$OSTYPE" in
     msys)
         echo "Windows"

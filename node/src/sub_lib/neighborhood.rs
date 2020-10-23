@@ -251,7 +251,6 @@ pub struct NeighborhoodSubs {
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
-    pub from_ui_gateway: Recipient<NeighborhoodDotGraphRequest>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
 }
 
@@ -439,7 +438,6 @@ mod tests {
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
-            from_ui_gateway: recipient!(recorder, NeighborhoodDotGraphRequest),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
         };
 

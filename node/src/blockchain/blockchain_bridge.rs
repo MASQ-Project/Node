@@ -1,19 +1,16 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::Payment;
-use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, Transaction,
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
+use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use crate::sub_lib::blockchain_bridge::SetDbPasswordMsg;
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetGasPriceMsg};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::Wallet;
 use actix::Context;
@@ -33,7 +30,6 @@ pub struct BlockchainBridge {
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
-    ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
     set_consuming_wallet_subs: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     crashable: bool,
 }
@@ -46,7 +42,6 @@ impl Handler<BindMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
         self.set_consuming_wallet_subs = Some(vec![
             msg.peer_actors
                 .neighborhood
@@ -138,50 +133,6 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
     }
 }
 
-impl Handler<SetGasPriceMsg> for BlockchainBridge {
-    type Result = ();
-
-    fn handle(&mut self, msg: SetGasPriceMsg, _ctx: &mut Self::Context) -> Self::Result {
-        let gas_price_accepted = match msg.gas_price.parse::<u64>() {
-            Ok(gas_price) => {
-                self.persistent_config.set_gas_price(gas_price);
-                true
-            }
-            Err(e) => {
-                debug!(
-                    self.logger,
-                    r#"error setting gas price to "{}" {:?}"#, &msg.gas_price, e
-                );
-                false
-            }
-        };
-        self.ui_carrier_message_sub
-            .as_ref()
-            .expect("UiGateway is unbound")
-            .try_send(UiCarrierMessage {
-                client_id: msg.client_id,
-                data: UiMessage::SetGasPriceResponse(gas_price_accepted),
-            })
-            .expect("UiGateway is dead");
-    }
-}
-
-impl Handler<SetDbPasswordMsg> for BlockchainBridge {
-    type Result = ();
-
-    fn handle(&mut self, msg: SetDbPasswordMsg, _ctx: &mut Self::Context) -> Self::Result {
-        let password_accepted = self.accept_db_password(&msg.password);
-        self.ui_carrier_message_sub
-            .as_ref()
-            .expect("UiGateway is unbound")
-            .try_send(UiCarrierMessage {
-                client_id: msg.client_id,
-                data: UiMessage::SetDbPasswordResponse(password_accepted),
-            })
-            .expect("UiGateway is dead")
-    }
-}
-
 impl Handler<NodeFromUiMessage> for BlockchainBridge {
     type Result = ();
 
@@ -203,7 +154,6 @@ impl BlockchainBridge {
             blockchain_interface,
             logger: Logger::new("BlockchainBridge"),
             persistent_config,
-            ui_carrier_message_sub: None,
             set_consuming_wallet_subs: None,
             crashable: config.crash_point == CrashPoint::Message,
         }
@@ -214,69 +164,7 @@ impl BlockchainBridge {
             bind: recipient!(addr, BindMessage),
             report_accounts_payable: recipient!(addr, ReportAccountsPayable),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
-            set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
-            set_consuming_db_password_sub: recipient!(addr, SetDbPasswordMsg),
             ui_sub: recipient!(addr, NodeFromUiMessage),
-        }
-    }
-
-    fn accept_db_password(&mut self, password: &str) -> bool {
-        if self.consuming_wallet.is_some() {
-            error!(
-                self.logger,
-                "Database password rejected: consuming wallet already active"
-            );
-            return false;
-        }
-        let consuming_wallet_derivation_path = match self
-            .persistent_config
-            .consuming_wallet_derivation_path()
-        {
-            Some(cwdp) => cwdp,
-            None => {
-                error!(
-                    self.logger,
-                    "Database password rejected: no consuming wallet derivation path has been configured"
-                );
-                return false;
-            }
-        };
-        match self.persistent_config.mnemonic_seed(password) {
-            Ok(Some(plain_data)) => {
-                let key_pair = Bip32ECKeyPair::from_raw(
-                    &plain_data.as_slice(),
-                    &consuming_wallet_derivation_path,
-                )
-                .expect("Internal Error");
-                let consuming_wallet = Wallet::from(key_pair);
-                self.set_consuming_wallet_subs
-                    .as_ref()
-                    .expect("SetConsumingWalletMessage handlers are unbound in Blockchain Bridge")
-                    .iter()
-                    .for_each(|sub| {
-                        sub.try_send(SetConsumingWalletMessage {
-                            wallet: consuming_wallet.clone(),
-                        })
-                        .expect("SetConsumingWalletMessage handler is dead")
-                    });
-                self.consuming_wallet = Some(consuming_wallet);
-                debug!(
-                    self.logger,
-                    "unlocked consuming wallet address {:?}", &self.consuming_wallet
-                );
-                true
-            }
-            Ok(None) => {
-                error!(
-                    self.logger,
-                    "Database password rejected: no mnemonic phrase has been configured"
-                );
-                false
-            }
-            Err(e) => {
-                warning!(self.logger, "failed to unlock consuming wallet: {:?}", e);
-                false
-            }
         }
     }
 }
@@ -290,23 +178,16 @@ mod tests {
         contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
         Transactions,
     };
-    use crate::persistent_configuration::PersistentConfigError;
-    use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-    use crate::sub_lib::ui_gateway::UiMessage;
-    use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{
         make_default_persistent_configuration, make_paying_wallet, make_wallet,
     };
     use actix::Addr;
     use actix::System;
-    use bip39::{Language, Mnemonic, Seed};
-    use ethsign::keyfile::Crypto;
-    use ethsign::{Protected, SecretKey};
+    use ethsign::SecretKey;
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
     use masq_lib::crash_point::CrashPoint;
@@ -314,303 +195,12 @@ mod tests {
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
-    use std::num::NonZeroU32;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
-    }
-
-    #[test]
-    fn blockchain_bridge_sets_wallet_when_password_is_received() {
-        init_test_logging();
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-        let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
-        let (proxy_server, proxy_server_awaiter, proxy_server_recording_arc) = make_recorder();
-        let password = "ilikecheetos";
-        let mnemonic = Mnemonic::from_phrase(
-            "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp \
-             absent write kind term toddler sphere ripple idle dragon curious hold",
-            Language::English,
-        )
-        .unwrap();
-        let seed = Seed::new(&mnemonic, "some passphrase");
-        let seed_bytes = seed.as_bytes().to_vec();
-        let encrypted_seed = serde_cbor::to_vec(
-            &Crypto::encrypt(
-                &seed_bytes,
-                &Protected::new(password.as_bytes()),
-                NonZeroU32::new(10240).expect("Internal error"),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let crypto = serde_cbor::from_slice::<Crypto>(&encrypted_seed).unwrap();
-        let mnemonic_seed = crypto
-            .decrypt(&Protected::new(password.as_bytes()))
-            .unwrap();
-        let key_pair = Bip32ECKeyPair::from_raw(
-            PlainData::new(&mnemonic_seed).as_slice(),
-            DEFAULT_CONSUMING_DERIVATION_PATH,
-        )
-        .unwrap();
-        let expected_wallet = Some(Wallet::from(key_pair));
-
-        thread::spawn(move || {
-            let persistent_config_mock = PersistentConfigurationMock::default()
-                .mnemonic_seed_result(Ok(Some(PlainData::from(seed_bytes))))
-                .consuming_wallet_derivation_path_result(Some(
-                    DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
-                ));
-
-            let subject = BlockchainBridge::new(
-                &bc_from_wallet(None),
-                stub_bi(),
-                Box::new(persistent_config_mock),
-            );
-
-            let system = System::new("blockchain_bridge_sets_wallet_when_password_is_received");
-            let addr = subject.start();
-
-            addr.try_send(BindMessage {
-                peer_actors: peer_actors_builder()
-                    .neighborhood(neighborhood)
-                    .proxy_server(proxy_server)
-                    .ui_gateway(ui_gateway)
-                    .build(),
-            })
-            .unwrap();
-            addr.try_send(SetDbPasswordMsg {
-                client_id: 42,
-                password: password.to_string(),
-            })
-            .unwrap();
-
-            system.run();
-        });
-
-        ui_gateway_awaiter.await_message_count(1);
-
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
-            &UiCarrierMessage {
-                client_id: 42,
-                data: UiMessage::SetDbPasswordResponse(true),
-            }
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "unlocked consuming wallet address {:?}",
-            &expected_wallet
-        ));
-
-        neighborhood_awaiter.await_message_count(1);
-        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        assert_eq!(
-            neighborhood_recording.get_record::<SetConsumingWalletMessage>(0),
-            &SetConsumingWalletMessage {
-                wallet: expected_wallet.clone().unwrap()
-            }
-        );
-
-        proxy_server_awaiter.await_message_count(1);
-        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
-        assert_eq!(
-            proxy_server_recording.get_record::<SetConsumingWalletMessage>(0),
-            &SetConsumingWalletMessage {
-                wallet: expected_wallet.unwrap()
-            }
-        );
-    }
-
-    #[test]
-    fn blockchain_bridge_logs_warning_when_setting_wallet_with_bad_password() {
-        init_test_logging();
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-
-        thread::spawn(move || {
-            let persistent_config_mock = PersistentConfigurationMock::default()
-                .mnemonic_seed_result(Err(PersistentConfigError::PasswordError))
-                .consuming_wallet_derivation_path_result(Some(
-                    DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
-                ));
-
-            let subject = BlockchainBridge::new(
-                &bc_from_wallet(None),
-                stub_bi(),
-                Box::new(persistent_config_mock),
-            );
-
-            let system = System::new("blockchain_bridge_sets_wallet_when_password_is_received");
-            let addr = subject.start();
-
-            addr.try_send(BindMessage {
-                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
-            })
-            .unwrap();
-            addr.try_send(SetDbPasswordMsg {
-                client_id: 42,
-                password: "ihatecheetos".to_string(),
-            })
-            .unwrap();
-
-            system.run();
-        });
-
-        ui_gateway_awaiter.await_message_count(1);
-
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
-            &UiCarrierMessage {
-                client_id: 42,
-                data: UiMessage::SetDbPasswordResponse(false),
-            }
-        );
-        TestLogHandler::new()
-            .exists_log_containing(&format!("failed to unlock consuming wallet: PasswordError"));
-    }
-
-    #[test]
-    fn blockchain_bridge_logs_error_when_setting_db_password_when_wallet_already_exists() {
-        init_test_logging();
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-        thread::spawn(move || {
-            let persistent_config_mock = PersistentConfigurationMock::default();
-            let subject = BlockchainBridge::new(
-                &bc_from_wallet(Some(Wallet::new(
-                    "0x0000000000000000000000000000000000000000",
-                ))),
-                stub_bi(),
-                Box::new(persistent_config_mock),
-            );
-
-            let system = System::new(
-                "blockchain_bridge_logs_error_when_setting_db_password_when_wallet_already_exists",
-            );
-            let addr = subject.start();
-
-            addr.try_send(BindMessage {
-                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
-            })
-            .unwrap();
-            addr.try_send(SetDbPasswordMsg {
-                client_id: 42,
-                password: "ilikecheetos".to_string(),
-            })
-            .unwrap();
-
-            system.run();
-        });
-
-        ui_gateway_awaiter.await_message_count(1);
-
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
-            &UiCarrierMessage {
-                client_id: 42,
-                data: UiMessage::SetDbPasswordResponse(false),
-            }
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "Database password rejected: consuming wallet already active"
-        ));
-    }
-
-    #[test]
-    fn blockchain_bridge_logs_error_when_setting_db_password_when_no_consuming_wallet_derivation_path(
-    ) {
-        init_test_logging();
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-        thread::spawn(move || {
-            let persistent_config_mock =
-                PersistentConfigurationMock::new().consuming_wallet_derivation_path_result(None);
-            let subject = BlockchainBridge::new(
-                &bc_from_wallet(None),
-                stub_bi(),
-                Box::new(persistent_config_mock),
-            );
-
-            let system = System::new("blockchain_bridge_logs_error_when_setting_db_password_when_no_consuming_wallet_derivation_path");
-            let addr = subject.start();
-
-            addr.try_send(BindMessage {
-                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
-            })
-            .unwrap();
-            addr.try_send(SetDbPasswordMsg {
-                client_id: 42,
-                password: "ilikecheetos".to_string(),
-            })
-            .unwrap();
-
-            system.run();
-        });
-
-        ui_gateway_awaiter.await_message_count(1);
-
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
-            &UiCarrierMessage {
-                client_id: 42,
-                data: UiMessage::SetDbPasswordResponse(false),
-            }
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "Database password rejected: no consuming wallet derivation path has been configured"
-        ));
-    }
-
-    #[test]
-    fn blockchain_bridge_logs_error_when_setting_db_password_when_no_mnemonic_seed() {
-        init_test_logging();
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-        thread::spawn(move || {
-            let persistent_config_mock = PersistentConfigurationMock::new()
-                .consuming_wallet_derivation_path_result(Some("m/44'/60'/1'/2/3".to_string()))
-                .mnemonic_seed_result(Ok(None));
-            let subject = BlockchainBridge::new(
-                &bc_from_wallet(None),
-                stub_bi(),
-                Box::new(persistent_config_mock),
-            );
-
-            let system = System::new(
-                "blockchain_bridge_logs_error_when_setting_db_password_when_no_mnemonic_seed",
-            );
-            let addr = subject.start();
-
-            addr.try_send(BindMessage {
-                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
-            })
-            .unwrap();
-            addr.try_send(SetDbPasswordMsg {
-                client_id: 42,
-                password: "ilikecheetos".to_string(),
-            })
-            .unwrap();
-
-            system.run();
-        });
-
-        ui_gateway_awaiter.await_message_count(1);
-
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
-            &UiCarrierMessage {
-                client_id: 42,
-                data: UiMessage::SetDbPasswordResponse(false),
-            }
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "Database password rejected: no mnemonic phrase has been configured"
-        ));
     }
 
     #[test]
@@ -665,95 +255,6 @@ mod tests {
         system.run();
         TestLogHandler::new().exists_log_containing(
             "DEBUG: BlockchainBridge: Received BindMessage; no consuming wallet address specified",
-        );
-    }
-
-    #[test]
-    fn blockchain_bridge_sets_gas_price_when_received() {
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-        let gas_price_params_arc = Arc::new(Mutex::new(vec![]));
-
-        let persistent_config_mock = PersistentConfigurationMock::default()
-            .set_gas_price_params(&gas_price_params_arc.clone());
-
-        thread::spawn(move || {
-            let subject = BlockchainBridge::new(
-                &bc_from_wallet(None),
-                stub_bi(),
-                Box::new(persistent_config_mock),
-            );
-
-            let system = System::new("blockchain_bridge_sets_gas_price_when_received");
-            let addr = subject.start();
-
-            addr.try_send(BindMessage {
-                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
-            })
-            .unwrap();
-            addr.try_send(SetGasPriceMsg {
-                client_id: 41,
-                gas_price: "99".to_string(),
-            })
-            .unwrap();
-
-            system.run();
-        });
-
-        ui_gateway_awaiter.await_message_count(1);
-
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(99u64, gas_price_params_arc.lock().unwrap()[0]);
-        assert_eq!(
-            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
-            &UiCarrierMessage {
-                client_id: 41,
-                data: UiMessage::SetGasPriceResponse(true),
-            }
-        );
-    }
-
-    #[test]
-    fn blockchain_bridge_does_not_set_gas_price_when_received_badly() {
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-        let gas_price_params_arc = Arc::new(Mutex::new(vec![]));
-
-        let persistent_config_mock = PersistentConfigurationMock::default()
-            .set_gas_price_params(&gas_price_params_arc.clone());
-
-        thread::spawn(move || {
-            let subject = BlockchainBridge::new(
-                &bc_from_wallet(None),
-                stub_bi(),
-                Box::new(persistent_config_mock),
-            );
-
-            let system =
-                System::new("blockchain_bridge_does_not_set_gas_price_when_received_badly");
-            let addr = subject.start();
-
-            addr.try_send(BindMessage {
-                peer_actors: peer_actors_builder().ui_gateway(ui_gateway).build(),
-            })
-            .unwrap();
-            addr.try_send(SetGasPriceMsg {
-                client_id: 41,
-                gas_price: "0xf".to_string(),
-            })
-            .unwrap();
-
-            system.run();
-        });
-
-        ui_gateway_awaiter.await_message_count(1);
-
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert!(gas_price_params_arc.lock().unwrap().is_empty());
-        assert_eq!(
-            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
-            &UiCarrierMessage {
-                client_id: 41,
-                data: UiMessage::SetGasPriceResponse(false),
-            }
         );
     }
 

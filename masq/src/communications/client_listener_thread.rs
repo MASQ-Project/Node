@@ -138,10 +138,10 @@ impl ClientListenerThread {
 mod tests {
     use super::*;
     use crate::test_utils::client_utils::make_client;
-    use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
     use crossbeam_channel::unbounded;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
+    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
     use std::time::Duration;
     use websocket::ws::sender::Sender;

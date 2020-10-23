@@ -2,5 +2,6 @@
 
 pub mod environment_guard;
 pub mod fake_stream_holder;
+pub mod mock_websockets_server;
 pub mod ui_connection;
 pub mod utils;

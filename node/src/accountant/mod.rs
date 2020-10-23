@@ -13,16 +13,15 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::persistent_configuration::PersistentConfiguration;
+use crate::sub_lib::accountant::AccountantConfig;
+use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::accountant::{AccountantConfig, GetFinancialStatisticsMessage};
-use crate::sub_lib::accountant::{AccountantSubs, FinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -99,7 +98,6 @@ pub struct Accountant {
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayments>>,
-    ui_carrier_message_sub: Option<Recipient<UiCarrierMessage>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     logger: Logger,
 }
@@ -211,18 +209,6 @@ impl Handler<ReportExitServiceConsumedMessage> for Accountant {
     }
 }
 
-impl Handler<GetFinancialStatisticsMessage> for Accountant {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: GetFinancialStatisticsMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.handle_get_financial_statistics_message(msg);
-    }
-}
-
 impl Handler<NodeFromUiMessage> for Accountant {
     type Result = ();
 
@@ -251,7 +237,6 @@ impl Accountant {
             retrieve_transactions_sub: None,
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
-            ui_carrier_message_sub: None,
             ui_message_sub: None,
             logger: Logger::new("Accountant"),
         }
@@ -275,7 +260,6 @@ impl Accountant {
                 .recipient::<ReportExitServiceConsumedMessage>(),
             report_new_payments: addr.clone().recipient::<ReceivedPayments>(),
             report_sent_payments: addr.clone().recipient::<SentPayments>(),
-            get_financial_statistics_sub: addr.clone().recipient::<GetFinancialStatisticsMessage>(),
             ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
         }
     }
@@ -522,7 +506,6 @@ impl Accountant {
             Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
-        self.ui_carrier_message_sub = Some(msg.peer_actors.ui_gateway.ui_message_sub.clone());
         self.ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
 
         info!(self.logger, "Accountant bound");
@@ -636,32 +619,6 @@ impl Accountant {
         );
     }
 
-    fn handle_get_financial_statistics_message(&mut self, msg: GetFinancialStatisticsMessage) {
-        let pending_credit = self
-            .receivable_dao
-            .receivables()
-            .into_iter()
-            .map(|account| account.balance)
-            .sum();
-        let pending_debt = self
-            .payable_dao
-            .non_pending_payables()
-            .into_iter()
-            .map(|account| account.balance)
-            .sum();
-        self.ui_carrier_message_sub
-            .as_ref()
-            .expect("UiGateway is unbound")
-            .try_send(UiCarrierMessage {
-                client_id: msg.client_id,
-                data: UiMessage::FinancialStatisticsResponse(FinancialStatisticsMessage {
-                    pending_credit,
-                    pending_debt,
-                }),
-            })
-            .expect("UiGateway is dead");
-    }
-
     fn handle_node_from_ui_message(&mut self, msg: NodeFromUiMessage) {
         let client_id = msg.client_id;
         let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
@@ -744,17 +701,13 @@ pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, PaymentError> {
 pub mod tests {
     use super::*;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::test_utils::make_receivable_account;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::Transaction;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
-    use crate::sub_lib::accountant::{
-        FinancialStatisticsMessage, ReportRoutingServiceConsumedMessage,
-    };
+    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::ui_gateway::{UiCarrierMessage, UiMessage};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
@@ -1044,11 +997,6 @@ pub mod tests {
 
         fn paid_delinquencies_result(self, result: Vec<ReceivableAccount>) -> ReceivableDaoMock {
             self.paid_delinquencies_results.borrow_mut().push(result);
-            self
-        }
-
-        fn receivables_result(self, result: Vec<ReceivableAccount>) -> ReceivableDaoMock {
-            self.receivables_results.borrow_mut().push(result);
             self
         }
 
@@ -1538,62 +1486,6 @@ pub mod tests {
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(0, accountant_recording.len());
-    }
-
-    #[test]
-    fn accountant_responds_with_financial_statistics_when_instructed() {
-        let config = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(10_000),
-            payment_received_scan_interval: Duration::from_secs(10_000),
-        };
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-
-        let system = System::new("accountant_responds_with_financial_statistics_when_instructed");
-        let payable_dao = PayableDaoMock::new()
-            .non_pending_payables_result(vec![
-                make_payable_account(20),
-                make_payable_account(20),
-                make_payable_account(2),
-            ])
-            .non_pending_payables_result(vec![]);
-        let receivable_dao = ReceivableDaoMock::new().receivables_result(vec![
-            make_receivable_account(35, false),
-            make_receivable_account(30, false),
-            make_receivable_account(4, false),
-        ]);
-
-        let subject = Accountant::new(
-            &bc_from_ac_plus_earning_wallet(config, make_wallet("blah")),
-            Box::new(payable_dao),
-            Box::new(receivable_dao),
-            Box::new(BannedDaoMock::new()),
-            Box::new(PersistentConfigurationMock::new()),
-        );
-        let addr = subject.start();
-        let subject_subs = Accountant::make_subs_from(&addr);
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-
-        send_bind_message!(subject_subs, peer_actors);
-
-        addr.try_send(GetFinancialStatisticsMessage { client_id: 1234 })
-            .unwrap();
-
-        System::current().stop();
-        system.run();
-
-        ui_gateway_awaiter.await_message_count(1);
-
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<UiCarrierMessage>(0),
-            &UiCarrierMessage {
-                client_id: 1234,
-                data: UiMessage::FinancialStatisticsResponse(FinancialStatisticsMessage {
-                    pending_credit: 69_000_000_000,
-                    pending_debt: 42_000_000_000,
-                }),
-            }
-        );
     }
 
     #[test]

@@ -22,8 +22,6 @@ pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
-    pub set_consuming_db_password_sub: Recipient<SetDbPasswordMsg>,
-    pub set_gas_price_sub: Recipient<SetGasPriceMsg>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
 }
 
@@ -69,8 +67,6 @@ mod tests {
             bind: recipient!(recorder, BindMessage),
             report_accounts_payable: recipient!(recorder, ReportAccountsPayable),
             retrieve_transactions: recipient!(recorder, RetrieveTransactions),
-            set_consuming_db_password_sub: recipient!(recorder, SetDbPasswordMsg),
-            set_gas_price_sub: recipient!(recorder, SetGasPriceMsg),
             ui_sub: recipient!(recorder, NodeFromUiMessage),
         };
 

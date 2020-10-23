@@ -147,12 +147,12 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::messages::{
         FromMessageBody, UiCrashRequest, UiSetupRequest, TIMEOUT_ERROR, UNMARSHAL_ERROR,
     };
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
+    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};

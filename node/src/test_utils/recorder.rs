@@ -40,7 +40,6 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::ui_gateway::{FromUiMessage, UiCarrierMessage};
 use crate::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;
@@ -104,7 +103,6 @@ recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<Gossip_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<GossipFailure_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<MessageType>);
-recorder_message_handler!(FromUiMessage);
 recorder_message_handler!(GetFinancialStatisticsMessage);
 recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
@@ -129,7 +127,6 @@ recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
-recorder_message_handler!(UiCarrierMessage);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -392,7 +389,6 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
-        from_ui_gateway: addr.clone().recipient::<NeighborhoodDotGraphRequest>(),
         from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
     }
 }
@@ -411,7 +407,6 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
         report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
         report_new_payments: recipient!(addr, ReceivedPayments),
         report_sent_payments: recipient!(addr, SentPayments),
-        get_financial_statistics_sub: recipient!(addr, GetFinancialStatisticsMessage),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
@@ -419,8 +414,6 @@ pub fn make_accountant_subs_from(addr: &Addr<Recorder>) -> AccountantSubs {
 pub fn make_ui_gateway_subs_from(addr: &Addr<Recorder>) -> UiGatewaySubs {
     UiGatewaySubs {
         bind: recipient!(addr, BindMessage),
-        ui_message_sub: recipient!(addr, UiCarrierMessage),
-        from_ui_message_sub: recipient!(addr, FromUiMessage),
         node_from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
         node_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
     }
@@ -431,8 +424,6 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
         bind: recipient!(addr, BindMessage),
         report_accounts_payable: recipient!(addr, ReportAccountsPayable),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
-        set_gas_price_sub: recipient!(addr, SetGasPriceMsg),
-        set_consuming_db_password_sub: recipient!(addr, SetDbPasswordMsg),
         ui_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
