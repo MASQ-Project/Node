@@ -15,6 +15,7 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use tokio::net::TcpListener;
+use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: &str = "0.0.10";
@@ -152,7 +153,7 @@ impl DbInitializerReal {
             "create table if not exists config (
                 name text not null,
                 value text,
-                encrypted integer
+                encrypted integer not null
             )",
             NO_PARAMS,
         )
@@ -170,7 +171,7 @@ impl DbInitializerReal {
         conn: &Connection,
         chain_id: u8,
     ) -> Result<(), InitializationError> {
-        Self::set_config_value(conn, "example_encrypted", None, false, "example_encrypted");
+        Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, false, "example_encrypted");
         Self::set_config_value(
             conn,
             "clandestine_port",

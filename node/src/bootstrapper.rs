@@ -4,7 +4,7 @@ use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
-use crate::config_dao::ConfigDaoReal;
+use crate::config_dao_old::ConfigDaoReal;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::discriminator::DiscriminatorFactory;
@@ -558,7 +558,7 @@ mod tests {
     use super::*;
     use crate::actor_system_factory::ActorFactory;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::config_dao::ConfigDaoReal;
+    use crate::config_dao_old::ConfigDaoReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;

@@ -1,22 +1,23 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::config_dao::ConfigDaoError::DatabaseError;
 use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::cryptde::PlainData;
 use rand::Rng;
 use rusqlite::types::ToSql;
-use rusqlite::{OptionalExtension, Rows, NO_PARAMS};
+use rusqlite::{OptionalExtension, Rows, NO_PARAMS, Transaction};
+use crate::config_dao_old::ConfigDaoError::DatabaseError;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
     NotPresent,
     TypeError,
     PasswordError,
+    TransactionError,
     CryptoError(String),
     DatabaseError(String),
 }
 
-pub trait ConfigDao: Send {
+pub trait ConfigDaoOld: Send {
     fn get_all(
         &self,
         db_password: Option<&str>,
@@ -51,7 +52,7 @@ pub struct ConfigDaoReal {
     conn: Box<dyn ConnectionWrapper>,
 }
 
-impl ConfigDao for ConfigDaoReal {
+impl ConfigDaoOld for ConfigDaoReal {
     fn get_all(
         &self,
         _db_password: Option<&str>,

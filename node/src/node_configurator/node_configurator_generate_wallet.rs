@@ -342,7 +342,7 @@ impl NodeConfiguratorGenerateWallet {
 mod tests {
     use super::*;
     use crate::bootstrapper::RealUser;
-    use crate::config_dao::ConfigDaoReal;
+    use crate::config_dao_old::ConfigDaoReal;
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};

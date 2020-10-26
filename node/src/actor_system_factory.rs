@@ -19,7 +19,7 @@ use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
-use crate::config_dao::ConfigDaoReal;
+use crate::config_dao_old::ConfigDaoReal;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::AccountantSubs;

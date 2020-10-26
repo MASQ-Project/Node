@@ -333,7 +333,7 @@ impl ReceivableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::make_receivable_account;
-    use crate::config_dao::ConfigDaoReal;
+    use crate::config_dao_old::ConfigDaoReal;
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;

@@ -942,7 +942,7 @@ mod tests {
         chain_id_from_name, chain_name_from_id, contract_address,
     };
     use crate::bootstrapper::RealUser;
-    use crate::config_dao::{ConfigDao, ConfigDaoReal};
+    use crate::config_dao_old::{ConfigDaoOld, ConfigDaoReal};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::node_configurator::RealDirsWrapper;
     use crate::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal};
@@ -1561,7 +1561,7 @@ mod tests {
             "node_configurator",
             "unprivileged_parse_args_creates_configurations",
         );
-        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
+        let config_dao: Box<dyn ConfigDaoOld> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true)
                 .unwrap(),
