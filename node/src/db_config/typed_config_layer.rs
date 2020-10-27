@@ -115,7 +115,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, String)>, SecureConfigLayerError> {
+        fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, Option<String>)>, SecureConfigLayerError> {
             unimplemented!()
         }
 
