@@ -66,21 +66,11 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         records.into_iter()
             .filter (|record| record.name != EXAMPLE_ENCRYPTED)
             .map(|record| {
-                let decrypted_value = match record.encrypted {
-                    false => record.value_opt,
-                    true => match (record.value_opt, db_password_opt) {
-                        (None, _) => None,
-                        (Some(_), None) => return Err (SecureConfigLayerError::DatabaseError(format!("Database without password contains encrypted value for '{}'", record.name))),
-                        (Some(encrypted_value), Some (db_password)) => match Bip39::decrypt_bytes(&encrypted_value, &db_password) {
-                            Err(e) => return Err (SecureConfigLayerError::DatabaseError(format!("Password for '{}' does not match database password", record.name))),
-                            Ok (decrypted_value) => match String::from_utf8(decrypted_value.into()) {
-                                Err(_) => return Err (SecureConfigLayerError::DatabaseError(format!("Database contains a non-UTF-8 value for '{}'", record.name))),
-                                Ok (string) => Some (string),
-                            }
-                        }
-                    }
-                };
-                Ok((record.name, decrypted_value))
+                let record_name = record.name.clone();
+                match Self::reduce_record(record, db_password_opt) {
+                    Ok(decrypted_value_opt) => Ok((record_name, decrypted_value_opt)),
+                    Err(e) => Err(e)
+                }
             })
             .fold(init, |so_far_result, pair_result| {
                 match (so_far_result, pair_result) {
@@ -95,19 +85,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         if !self.check_password(db_password_opt)? {
             return Err(SecureConfigLayerError::PasswordError)
         }
-        let record = self.dao.get (name)?;
-        match (record.encrypted, record.value_opt, db_password_opt) {
-            (false, value_opt, _) => Ok(value_opt),
-            (true, None, _) => Ok (None),
-            (true, Some (value), None) => Err(SecureConfigLayerError::DatabaseError (format!("Database without password contains encrypted value for '{}'", name))),
-            (true, Some (value), Some(db_password)) => match Bip39::decrypt_bytes(&value, db_password) {
-                Ok(plain_data) => match String::from_utf8(plain_data.into()) {
-                    Ok (string) => Ok (Some (string)),
-                    Err (e) => Err(SecureConfigLayerError::DatabaseError(format!("Database contains a non-UTF-8 value for '{}'", name))),
-                },
-                Err (e) => Err(SecureConfigLayerError::DatabaseError(format!("Password for '{}' does not match database password", name))),
-            },
-        }
+        Self::reduce_record(self.dao.get (name)?, db_password_opt)
     }
 
     fn transaction(&self) -> Box<dyn TransactionWrapper> {
@@ -171,24 +149,26 @@ impl SecureConfigLayerReal {
                 }
             }) {
             Err (e) => Err (e),
-            Ok (reencrypted_records) => {
-                let init: Result<(), SecureConfigLayerError> = Ok(());
-                reencrypted_records.into_iter()
-                    .fold(init, |so_far, record| {
-                        if so_far.is_ok() {
-                            let setter = |value_opt: Option<&str>| self.dao.set(&record.name, value_opt);
-                            let result = match &record.value_opt {
-                                Some (value) => setter (Some (value)),
-                                None => setter (None),
-                            };
-                            result.map_err (|e| SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' could not be set: {:?}", record.name, e)))
-                        }
-                        else {
-                            so_far
-                        }
-                    })
-            }
+            Ok (reencrypted_records) => self.update_records (reencrypted_records),
         }
+    }
+
+    fn update_records(&self, reencrypted_records: Vec<ConfigDaoRecord>) -> Result<(), SecureConfigLayerError> {
+        let init: Result<(), SecureConfigLayerError> = Ok(());
+        reencrypted_records.into_iter()
+            .fold(init, |so_far, record| {
+                if so_far.is_ok() {
+                    let setter = |value_opt: Option<&str>| self.dao.set(&record.name, value_opt);
+                    let result = match &record.value_opt {
+                        Some (value) => setter (Some (value)),
+                        None => setter (None),
+                    };
+                    result.map_err (|e| SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' could not be set: {:?}", record.name, e)))
+                }
+                else {
+                    so_far
+                }
+            })
     }
 
     fn reencrypt_record(old_record: ConfigDaoRecord, old_password_opt: Option<&str>, new_password: &str) -> Result<ConfigDaoRecord, SecureConfigLayerError> {
@@ -219,6 +199,21 @@ impl SecureConfigLayerReal {
         self.dao
             .set(EXAMPLE_ENCRYPTED, Some (&example_encrypted))
             .map_err(|e| SecureConfigLayerError::from (e))
+    }
+
+    fn reduce_record(record: ConfigDaoRecord, db_password_opt: Option<&str>) -> Result<Option<String>, SecureConfigLayerError> {
+        match (record.encrypted, record.value_opt, db_password_opt) {
+            (false, value_opt, _) => Ok(value_opt),
+            (true, None, _) => Ok (None),
+            (true, Some (value), None) => Err(SecureConfigLayerError::DatabaseError (format!("Database without password contains encrypted value for '{}'", record.name))),
+            (true, Some (value), Some(db_password)) => match Bip39::decrypt_bytes(&value, db_password) {
+                Ok(plain_data) => match String::from_utf8(plain_data.into()) {
+                    Ok (string) => Ok (Some (string)),
+                    Err (e) => Err(SecureConfigLayerError::DatabaseError(format!("Database contains a non-UTF-8 value for '{}'", record.name))),
+                },
+                Err (e) => Err(SecureConfigLayerError::DatabaseError(format!("Password for '{}' does not match database password", record.name))),
+            },
+        }
     }
 }
 
