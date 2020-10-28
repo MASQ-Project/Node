@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip39::{Bip39, Bip39Error};
+use crate::config_dao_old::ConfigDaoError::DatabaseError;
 use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::cryptde::PlainData;
 use rand::Rng;
 use rusqlite::types::ToSql;
-use rusqlite::{OptionalExtension, Rows, NO_PARAMS, Transaction};
-use crate::config_dao_old::ConfigDaoError::DatabaseError;
+use rusqlite::{OptionalExtension, Rows, NO_PARAMS};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {

@@ -5,7 +5,7 @@ use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::cryptde::PlainData;
 use rand::Rng;
 use rusqlite::types::ToSql;
-use rusqlite::{OptionalExtension, Rows, NO_PARAMS, Transaction};
+use rusqlite::{OptionalExtension, Rows, Transaction, NO_PARAMS};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -18,15 +18,15 @@ pub enum ConfigDaoError {
 pub struct ConfigDaoRecord {
     pub name: String,
     pub value_opt: Option<String>,
-    pub encrypted: bool
+    pub encrypted: bool,
 }
 
 impl ConfigDaoRecord {
-    pub(crate) fn new (name: &str, value: Option<&str>, encrypted: bool) -> Self {
+    pub(crate) fn new(name: &str, value: Option<&str>, encrypted: bool) -> Self {
         Self {
             name: name.to_string(),
-            value_opt: value.map (|x| x.to_string()),
-            encrypted
+            value_opt: value.map(|x| x.to_string()),
+            encrypted,
         }
     }
 }
@@ -35,9 +35,7 @@ pub trait TransactionWrapper: Send + Drop {
     fn commit(&mut self);
 }
 
-pub struct TransactionWrapperReal {
-
-}
+pub struct TransactionWrapperReal {}
 
 impl TransactionWrapper for TransactionWrapperReal {
     fn commit(&mut self) {

@@ -1,10 +1,12 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
-use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, TransactionWrapper, ConfigDaoRecord};
 use crate::blockchain::bip39::{Bip39, Bip39Error};
-use rand::Rng;
-use crate::sub_lib::cryptde::PlainData;
+use crate::db_config::config_dao::{
+    ConfigDao, ConfigDaoError, ConfigDaoRecord, TransactionWrapper,
+};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
+use crate::sub_lib::cryptde::PlainData;
+use rand::Rng;
 
 #[derive(Debug, PartialEq)]
 pub enum TypedConfigLayerError {
@@ -22,22 +24,56 @@ impl From<SecureConfigLayerError> for TypedConfigLayerError {
             SecureConfigLayerError::NotPresent => TypedConfigLayerError::NotPresent,
             SecureConfigLayerError::TransactionError => TypedConfigLayerError::TransactionError,
             SecureConfigLayerError::DatabaseError(msg) => TypedConfigLayerError::DatabaseError(msg),
-            e => unimplemented! ("Remove from SecureConfigLayerError: {:?}", e),
+            e => unimplemented!("Remove from SecureConfigLayerError: {:?}", e),
         }
     }
 }
 
 pub trait TypedConfigLayer: Send {
     fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, TypedConfigLayerError>;
-    fn change_password(&self, old_password_opt: Option<&str>, new_password_opt: &str) -> Result<(), TypedConfigLayerError>;
-    fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, Option<String>)>, TypedConfigLayerError>;
-    fn get_string(&self, name: &str, db_password_opt: Option<&str>) -> Result<String, TypedConfigLayerError>;
-    fn get_u64(&self, name: &str, db_password_opt: Option<&str>) -> Result<u64, TypedConfigLayerError>;
-    fn get_bytes(&self, name: &str, db_password_opt: Option<&str>) -> Result<PlainData, TypedConfigLayerError>;
+    fn change_password(
+        &self,
+        old_password_opt: Option<&str>,
+        new_password_opt: &str,
+    ) -> Result<(), TypedConfigLayerError>;
+    fn get_all(
+        &self,
+        db_password_opt: Option<&str>,
+    ) -> Result<Vec<(String, Option<String>)>, TypedConfigLayerError>;
+    fn get_string(
+        &self,
+        name: &str,
+        db_password_opt: Option<&str>,
+    ) -> Result<String, TypedConfigLayerError>;
+    fn get_u64(
+        &self,
+        name: &str,
+        db_password_opt: Option<&str>,
+    ) -> Result<u64, TypedConfigLayerError>;
+    fn get_bytes(
+        &self,
+        name: &str,
+        db_password_opt: Option<&str>,
+    ) -> Result<PlainData, TypedConfigLayerError>;
     fn transaction(&self) -> Box<dyn TransactionWrapper>;
-    fn set_string(&self, name: &str, value: &str, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
-    fn set_u64(&self, name: &str, value: u64, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
-    fn set_bytes(&self, name: &str, value: &PlainData, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
+    fn set_string(
+        &self,
+        name: &str,
+        value: &str,
+        db_password_opt: Option<&str>,
+    ) -> Result<(), TypedConfigLayerError>;
+    fn set_u64(
+        &self,
+        name: &str,
+        value: u64,
+        db_password_opt: Option<&str>,
+    ) -> Result<(), TypedConfigLayerError>;
+    fn set_bytes(
+        &self,
+        name: &str,
+        value: &PlainData,
+        db_password_opt: Option<&str>,
+    ) -> Result<(), TypedConfigLayerError>;
 }
 
 struct TypedConfigLayerReal {
@@ -49,23 +85,42 @@ impl TypedConfigLayer for TypedConfigLayerReal {
         unimplemented!()
     }
 
-    fn change_password(&self, old_password_opt: Option<&str>, new_password_opt: &str) -> Result<(), TypedConfigLayerError> {
+    fn change_password(
+        &self,
+        old_password_opt: Option<&str>,
+        new_password_opt: &str,
+    ) -> Result<(), TypedConfigLayerError> {
         unimplemented!()
     }
 
-    fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, Option<String>)>, TypedConfigLayerError> {
+    fn get_all(
+        &self,
+        db_password_opt: Option<&str>,
+    ) -> Result<Vec<(String, Option<String>)>, TypedConfigLayerError> {
         unimplemented!()
     }
 
-    fn get_string(&self, name: &str, db_password_opt: Option<&str>) -> Result<String, TypedConfigLayerError> {
+    fn get_string(
+        &self,
+        name: &str,
+        db_password_opt: Option<&str>,
+    ) -> Result<String, TypedConfigLayerError> {
         unimplemented!()
     }
 
-    fn get_u64(&self, name: &str, db_password_opt: Option<&str>) -> Result<u64, TypedConfigLayerError> {
+    fn get_u64(
+        &self,
+        name: &str,
+        db_password_opt: Option<&str>,
+    ) -> Result<u64, TypedConfigLayerError> {
         unimplemented!()
     }
 
-    fn get_bytes(&self, name: &str, db_password_opt: Option<&str>) -> Result<PlainData, TypedConfigLayerError> {
+    fn get_bytes(
+        &self,
+        name: &str,
+        db_password_opt: Option<&str>,
+    ) -> Result<PlainData, TypedConfigLayerError> {
         unimplemented!()
     }
 
@@ -73,15 +128,30 @@ impl TypedConfigLayer for TypedConfigLayerReal {
         unimplemented!()
     }
 
-    fn set_string(&self, name: &str, value: &str, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError> {
+    fn set_string(
+        &self,
+        name: &str,
+        value: &str,
+        db_password_opt: Option<&str>,
+    ) -> Result<(), TypedConfigLayerError> {
         unimplemented!()
     }
 
-    fn set_u64(&self, name: &str, value: u64, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError> {
+    fn set_u64(
+        &self,
+        name: &str,
+        value: u64,
+        db_password_opt: Option<&str>,
+    ) -> Result<(), TypedConfigLayerError> {
         unimplemented!()
     }
 
-    fn set_bytes(&self, name: &str, value: &PlainData, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError> {
+    fn set_bytes(
+        &self,
+        name: &str,
+        value: &PlainData,
+        db_password_opt: Option<&str>,
+    ) -> Result<(), TypedConfigLayerError> {
         unimplemented!()
     }
 }
@@ -95,30 +165,42 @@ impl TypedConfigLayerReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip39::Bip39;
     use crate::db_config::config_dao::{ConfigDaoError, ConfigDaoRecord};
+    use crate::sub_lib::cryptde::PlainData;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
-    use crate::blockchain::bip39::Bip39;
-    use crate::sub_lib::cryptde::PlainData;
 
-    struct SecureConfigLayerMock {
-
-    }
+    struct SecureConfigLayerMock {}
 
     impl SecureConfigLayer for SecureConfigLayerMock {
-        fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, SecureConfigLayerError> {
+        fn check_password(
+            &self,
+            db_password_opt: Option<&str>,
+        ) -> Result<bool, SecureConfigLayerError> {
             unimplemented!()
         }
 
-        fn change_password(&self, old_password_opt: Option<&str>, new_password_opt: &str) -> Result<(), SecureConfigLayerError> {
+        fn change_password(
+            &self,
+            old_password_opt: Option<&str>,
+            new_password_opt: &str,
+        ) -> Result<(), SecureConfigLayerError> {
             unimplemented!()
         }
 
-        fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, Option<String>)>, SecureConfigLayerError> {
+        fn get_all(
+            &self,
+            db_password_opt: Option<&str>,
+        ) -> Result<Vec<(String, Option<String>)>, SecureConfigLayerError> {
             unimplemented!()
         }
 
-        fn get(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<String>, SecureConfigLayerError> {
+        fn get(
+            &self,
+            name: &str,
+            db_password_opt: Option<&str>,
+        ) -> Result<Option<String>, SecureConfigLayerError> {
             unimplemented!()
         }
 
@@ -126,84 +208,111 @@ mod tests {
             unimplemented!()
         }
 
-        fn set(&self, name: &str, value: Option<&str>, db_password_opt: Option<&str>) -> Result<(), SecureConfigLayerError> {
+        fn set(
+            &self,
+            name: &str,
+            value: Option<&str>,
+            db_password_opt: Option<&str>,
+        ) -> Result<(), SecureConfigLayerError> {
             unimplemented!()
         }
     }
 
     impl SecureConfigLayerMock {
-        fn new () -> Self {
-            Self {
-
-            }
+        fn new() -> Self {
+            Self {}
         }
 
-        fn check_password_params (mut self, params: &Arc<Mutex<Vec<Option<String>>>>) -> Self {
+        fn check_password_params(mut self, params: &Arc<Mutex<Vec<Option<String>>>>) -> Self {
             unimplemented!()
         }
 
-        fn check_password_result (self, result: Result<bool, SecureConfigLayerError>) -> Self {
+        fn check_password_result(self, result: Result<bool, SecureConfigLayerError>) -> Self {
             unimplemented!()
         }
 
-        fn change_password_params (mut self, params: &Arc<Mutex<Vec<(Option<String>, String)>>>) -> Self {
+        fn change_password_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(Option<String>, String)>>>,
+        ) -> Self {
             unimplemented!()
         }
 
-        fn change_password_result (self, result: Result<(), SecureConfigLayerError>) -> Self {
+        fn change_password_result(self, result: Result<(), SecureConfigLayerError>) -> Self {
             unimplemented!()
         }
 
-        fn get_all_params (mut self, params: &Arc<Mutex<Vec<Option<String>>>>) -> Self {
+        fn get_all_params(mut self, params: &Arc<Mutex<Vec<Option<String>>>>) -> Self {
             unimplemented!()
         }
 
-        fn get_all_result (self, result: Result<Vec<(String, Option<String>)>, SecureConfigLayerError>) -> Self {
+        fn get_all_result(
+            self,
+            result: Result<Vec<(String, Option<String>)>, SecureConfigLayerError>,
+        ) -> Self {
             unimplemented!()
         }
 
-        fn get_params (mut self, params: &Arc<Mutex<Vec<(String, Option<String>)>>>) -> Self {
+        fn get_params(mut self, params: &Arc<Mutex<Vec<(String, Option<String>)>>>) -> Self {
             unimplemented!()
         }
 
-        fn get_result (self, result: Result<String, SecureConfigLayerError>) -> Self {
+        fn get_result(self, result: Result<String, SecureConfigLayerError>) -> Self {
             unimplemented!()
         }
 
-        fn transaction_result (self, result: Box<dyn TransactionWrapper>) -> Self {
+        fn transaction_result(self, result: Box<dyn TransactionWrapper>) -> Self {
             unimplemented!()
         }
 
-        fn set_params (mut self, params: &Arc<Mutex<Vec<(String, String, Option<String>)>>>) -> Self {
+        fn set_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(String, String, Option<String>)>>>,
+        ) -> Self {
             unimplemented!()
         }
 
-        fn set_result (self, result: Result<(), SecureConfigLayerError>) -> Self {
+        fn set_result(self, result: Result<(), SecureConfigLayerError>) -> Self {
             unimplemented!()
         }
     }
 
     #[test]
     fn typed_config_layer_error_from_secure_config_layer_error() {
-        assert_eq! (TypedConfigLayerError::from (SecureConfigLayerError::NotPresent), TypedConfigLayerError::NotPresent);
-        assert_eq! (TypedConfigLayerError::from (SecureConfigLayerError::PasswordError), TypedConfigLayerError::PasswordError);
-        assert_eq! (TypedConfigLayerError::from (SecureConfigLayerError::TransactionError), TypedConfigLayerError::TransactionError);
-        assert_eq! (TypedConfigLayerError::from (SecureConfigLayerError::DatabaseError("booga".to_string())), TypedConfigLayerError::DatabaseError("booga".to_string()));
+        assert_eq!(
+            TypedConfigLayerError::from(SecureConfigLayerError::NotPresent),
+            TypedConfigLayerError::NotPresent
+        );
+        assert_eq!(
+            TypedConfigLayerError::from(SecureConfigLayerError::PasswordError),
+            TypedConfigLayerError::PasswordError
+        );
+        assert_eq!(
+            TypedConfigLayerError::from(SecureConfigLayerError::TransactionError),
+            TypedConfigLayerError::TransactionError
+        );
+        assert_eq!(
+            TypedConfigLayerError::from(SecureConfigLayerError::DatabaseError("booga".to_string())),
+            TypedConfigLayerError::DatabaseError("booga".to_string())
+        );
     }
 
     #[test]
     fn get_string_passes_through_to_get() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let scl = SecureConfigLayerMock::new()
-            .get_params (&get_params_arc)
-            .get_result (Ok("booga".to_string()));
-        let subject = TypedConfigLayerReal::new (Box::new (scl));
+            .get_params(&get_params_arc)
+            .get_result(Ok("booga".to_string()));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
 
-        let result = subject.get_string("parameter_name", Some ("password"));
+        let result = subject.get_string("parameter_name", Some("password"));
 
-        assert_eq! (result, Ok ("booga".to_string()));
+        assert_eq!(result, Ok("booga".to_string()));
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq! (*get_params, vec![("parameter_name".to_string(), Some ("password".to_string()))])
+        assert_eq!(
+            *get_params,
+            vec![("parameter_name".to_string(), Some("password".to_string()))]
+        )
     }
 
     /*
