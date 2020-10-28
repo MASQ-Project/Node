@@ -72,7 +72,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
                         (None, _) => None,
                         (Some(_), None) => return Err (SecureConfigLayerError::DatabaseError(format!("Database without password contains encrypted value for '{}'", record.name))),
                         (Some(encrypted_value), Some (db_password)) => match Bip39::decrypt_bytes(&encrypted_value, &db_password) {
-                            Err(e) => return Err (SecureConfigLayerError::DatabaseError(format!("Database without password contains encrypted value for '{}'", record.name))),
+                            Err(e) => return Err (SecureConfigLayerError::DatabaseError(format!("Password for '{}' does not match database password", record.name))),
                             Ok (decrypted_value) => match String::from_utf8(decrypted_value.into()) {
                                 Err(_) => return Err (SecureConfigLayerError::DatabaseError(format!("Database contains a non-UTF-8 value for '{}'", record.name))),
                                 Ok (string) => Some (string),
@@ -97,19 +97,15 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         }
         let record = self.dao.get (name)?;
         match (record.encrypted, record.value_opt, db_password_opt) {
-            (false, None, None) => unimplemented!(),
-            (false, None, Some(db_password)) => unimplemented!(),
-            (false, Some (value), None) => Ok (Some (value)),
-            (false, Some (value), Some(db_password)) => Ok (Some (value)),
-            (true, None, None) => Ok (None),
-            (true, None, Some(db_password)) => unimplemented!(),
-            (true, Some (value), None) => unimplemented!(),
+            (false, value_opt, _) => Ok(value_opt),
+            (true, None, _) => Ok (None),
+            (true, Some (value), None) => Err(SecureConfigLayerError::DatabaseError (format!("Database without password contains encrypted value for '{}'", name))),
             (true, Some (value), Some(db_password)) => match Bip39::decrypt_bytes(&value, db_password) {
                 Ok(plain_data) => match String::from_utf8(plain_data.into()) {
                     Ok (string) => Ok (Some (string)),
-                    Err (e) => unimplemented! ("{:?}", e),
+                    Err (e) => Err(SecureConfigLayerError::DatabaseError(format!("Database contains a non-UTF-8 value for '{}'", name))),
                 },
-                Err (e) => unimplemented! ("{:?}", e),
+                Err (e) => Err(SecureConfigLayerError::DatabaseError(format!("Password for '{}' does not match database password", name))),
             },
         }
     }
@@ -696,7 +692,7 @@ mod tests {
 
         let result = subject.get_all (Some ("password"));
 
-        assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Database without password contains encrypted value for 'encrypted_value_key'".to_string())));
+        assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Password for 'encrypted_value_key' does not match database password".to_string())));
     }
 
     #[test]
@@ -796,6 +792,53 @@ mod tests {
     }
 
     #[test]
+    fn get_objects_if_value_is_encrypted_and_present_but_password_is_not_supplied () {
+        let value = b"These are the times that try men's souls.";
+        let encrypted_value = Bip39::encrypt_bytes(value, "password").unwrap();
+        let dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+            .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some(&encrypted_value), true)));
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("attribute_name", None);
+
+        assert_eq! (result, Err(SecureConfigLayerError::DatabaseError ("Database without password contains encrypted value for 'attribute_name'".to_string())));
+    }
+
+    #[test]
+    fn get_objects_if_password_is_wrong () {
+        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
+        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let value = b"These are the times that try men's souls.";
+        let encrypted_value = Bip39::encrypt_bytes(value, "bad_password").unwrap();
+        let dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true)))
+            .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some(&encrypted_value), true)));
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("attribute_name", Some ("password"));
+
+        assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Password for 'attribute_name' does not match database password".to_string())));
+    }
+
+    #[test]
+    fn get_objects_if_decrypted_string_violates_utf8 () {
+        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
+        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        // UTF-8 doesn't tolerate 192 followed by 193
+        let unencrypted_value: &[u8] = &[32, 32, 192, 193, 32, 32];
+        let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "password").unwrap();
+        let dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true)))
+            .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some(&encrypted_value), true)));
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("attribute_name", Some ("password"));
+
+        assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Database contains a non-UTF-8 value for 'attribute_name'".to_string())));
+    }
+
+    #[test]
     fn get_objects_if_value_is_unrecognized () {
         let dao = ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
@@ -818,6 +861,7 @@ mod tests {
 
         assert_eq! (result, Err(SecureConfigLayerError::PasswordError));
     }
+
 
 
 
