@@ -3,7 +3,8 @@
 use std::sync::{Mutex, Arc};
 use crate::db_config::config_dao::TransactionWrapper;
 
-struct TransactionWrapperMock {
+#[derive (Debug)]
+pub struct TransactionWrapperMock {
     committed: Arc<Mutex<Option<bool>>>
 }
 
@@ -23,13 +24,13 @@ impl Drop for TransactionWrapperMock {
 }
 
 impl TransactionWrapperMock {
-    fn new () -> Self {
+    pub fn new () -> Self {
         Self {
             committed: Arc::new (Mutex::new (None)),
         }
     }
 
-    fn committed_arc (&self) -> Arc<Mutex<Option<bool>>> {
+    pub fn committed_arc (&self) -> Arc<Mutex<Option<bool>>> {
         self.committed.clone()
     }
 }

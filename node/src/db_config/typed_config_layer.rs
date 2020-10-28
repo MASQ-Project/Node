@@ -99,7 +99,6 @@ mod tests {
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
     use crate::blockchain::bip39::Bip39;
-    use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
 
     struct SecureConfigLayerMock {
