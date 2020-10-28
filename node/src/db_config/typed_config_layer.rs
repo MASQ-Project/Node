@@ -118,7 +118,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn get(&self, name: &str, db_password_opt: Option<&str>) -> Result<String, SecureConfigLayerError> {
+        fn get(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<String>, SecureConfigLayerError> {
             unimplemented!()
         }
 

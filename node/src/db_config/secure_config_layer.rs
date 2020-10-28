@@ -29,9 +29,9 @@ pub trait SecureConfigLayer: Send {
     fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, SecureConfigLayerError>;
     fn change_password(&self, old_password_opt: Option<&str>, new_password_opt: &str) -> Result<(), SecureConfigLayerError>;
     fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, Option<String>)>, SecureConfigLayerError>;
-    fn get(&self, name: &str, db_password_opt: Option<&str>) -> Result<String, SecureConfigLayerError>; // TODO: Make it return an Option<String>
+    fn get(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<String>, SecureConfigLayerError>;
     fn transaction(&self) -> Box<dyn TransactionWrapper>;
-    fn set(&self, name: &str, value: Option<&str>, db_password_opt: Option<&str>) -> Result<(), SecureConfigLayerError>; // TODO: Make it accept an Option<&str> value
+    fn set(&self, name: &str, value: Option<&str>, db_password_opt: Option<&str>) -> Result<(), SecureConfigLayerError>;
 }
 
 struct SecureConfigLayerReal {
@@ -91,8 +91,27 @@ impl SecureConfigLayer for SecureConfigLayerReal {
             })
     }
 
-    fn get(&self, name: &str, db_password_opt: Option<&str>) -> Result<String, SecureConfigLayerError> {
-        unimplemented!()
+    fn get(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<String>, SecureConfigLayerError> {
+        if !self.check_password(db_password_opt)? {
+            return Err(SecureConfigLayerError::PasswordError)
+        }
+        let record = self.dao.get (name)?;
+        match (record.encrypted, record.value_opt, db_password_opt) {
+            (false, None, None) => unimplemented!(),
+            (false, None, Some(db_password)) => unimplemented!(),
+            (false, Some (value), None) => Ok (Some (value)),
+            (false, Some (value), Some(db_password)) => Ok (Some (value)),
+            (true, None, None) => Ok (None),
+            (true, None, Some(db_password)) => unimplemented!(),
+            (true, Some (value), None) => unimplemented!(),
+            (true, Some (value), Some(db_password)) => match Bip39::decrypt_bytes(&value, db_password) {
+                Ok(plain_data) => match String::from_utf8(plain_data.into()) {
+                    Ok (string) => Ok (Some (string)),
+                    Err (e) => unimplemented! ("{:?}", e),
+                },
+                Err (e) => unimplemented! ("{:?}", e),
+            },
+        }
     }
 
     fn transaction(&self) -> Box<dyn TransactionWrapper> {
@@ -699,6 +718,108 @@ mod tests {
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Database contains a non-UTF-8 value for 'encrypted_value_key'".to_string())));
     }
+
+
+
+
+    #[test]
+    fn get_works_when_database_is_unencrypted_value_is_unencrypted () {
+        let get_params_arc = Arc::new (Mutex::new (vec![]));
+        let dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+            .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some("attribute_value"), false)));
+
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("attribute_name", None);
+
+        assert_eq! (result, Ok(Some("attribute_value".to_string())));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq! (*get_params, vec![EXAMPLE_ENCRYPTED.to_string(), "attribute_name".to_string()]);
+    }
+
+    #[test]
+    fn get_works_when_database_is_unencrypted_value_is_encrypted_and_absent () {
+        let get_params_arc = Arc::new (Mutex::new (vec![]));
+        let dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+            .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true)));
+
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("attribute_name", None);
+
+        assert_eq! (result, Ok(None));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq! (*get_params, vec![EXAMPLE_ENCRYPTED.to_string(), "attribute_name".to_string()]);
+    }
+
+    #[test]
+    fn get_works_when_database_is_encrypted_value_is_unencrypted () {
+        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
+        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let get_params_arc = Arc::new (Mutex::new (vec![]));
+        let dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true)))
+            .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some("attribute_value"), false)));
+
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("attribute_name", Some ("password"));
+
+        assert_eq! (result, Ok(Some("attribute_value".to_string())));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq! (*get_params, vec![EXAMPLE_ENCRYPTED.to_string(), "attribute_name".to_string()]);
+    }
+
+    #[test]
+    fn get_works_when_database_is_encrypted_value_is_encrypted () {
+        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
+        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let value = b"These are the times that try men's souls.";
+        let encrypted_value = Bip39::encrypt_bytes(value, "password").unwrap();
+        let get_params_arc = Arc::new (Mutex::new (vec![]));
+        let dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true)))
+            .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some(&encrypted_value), true)));
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("attribute_name", Some ("password"));
+
+        assert_eq! (result, Ok(Some("These are the times that try men's souls.".to_string())));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq! (*get_params, vec![EXAMPLE_ENCRYPTED.to_string(), "attribute_name".to_string()]);
+    }
+
+    #[test]
+    fn get_objects_if_value_is_unrecognized () {
+        let dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+            .get_result(Err(ConfigDaoError::NotPresent));
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("unrecognized_name", None);
+
+        assert_eq! (result, Err(SecureConfigLayerError::NotPresent));
+    }
+
+    #[test]
+    fn get_objects_if_passwords_dont_match () {
+        let dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)));
+
+        let subject = SecureConfigLayerReal::new (Box::new (dao));
+
+        let result = subject.get ("attribute_name", Some ("password"));
+
+        assert_eq! (result, Err(SecureConfigLayerError::PasswordError));
+    }
+
+
 
     #[test]
     fn transaction_delegates_to_dao() {
