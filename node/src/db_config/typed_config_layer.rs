@@ -7,6 +7,7 @@ use crate::db_config::config_dao::{
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::sub_lib::cryptde::PlainData;
 use rand::Rng;
+use rustc_hex::FromHex;
 
 #[derive(Debug, PartialEq)]
 pub enum TypedConfigLayerError {
@@ -92,7 +93,13 @@ impl TypedConfigLayer for TypedConfigLayerReal {
         name: &str,
         db_password_opt: Option<&str>,
     ) -> Result<Option<PlainData>, TypedConfigLayerError> {
-        unimplemented!()
+        match self.scl.get (name, db_password_opt)? {
+            Some (string) => match string.from_hex::<Vec<u8>>() {
+                Ok(bytes) => Ok (Some (PlainData::from (bytes))),
+                Err(e) => Err (TypedConfigLayerError::TypeError),
+            },
+            None => Ok (None),
+        }
     }
 
     fn transaction(&self) -> Box<dyn TransactionWrapper> {
@@ -145,6 +152,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use crate::db_config::mocks::TransactionWrapperMock;
     use crate::db_config::secure_config_layer::SCLActor;
+    use rustc_hex::ToHex;
 
     struct SecureConfigLayerMock {
         check_password_params: Arc<Mutex<Vec<Option<String>>>>,
@@ -441,6 +449,48 @@ mod tests {
         let subject = TypedConfigLayerReal::new(Box::new(scl));
 
         let result = subject.get_u64("parameter_name", Some("password"));
+
+        assert_eq! (result, Ok(None));
+    }
+
+    #[test]
+    fn get_bytes_handles_present_good_value() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let value = PlainData::new (&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let value_string: String = value.as_slice().to_hex();
+        let scl = SecureConfigLayerMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(Some (value_string)));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.get_bytes("parameter_name", Some("password"));
+
+        assert_eq!(result, Ok(Some(value)));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec![("parameter_name".to_string(), Some("password".to_string()))]
+        )
+    }
+
+    #[test]
+    fn get_bytes_handles_present_bad_value() {
+        let scl = SecureConfigLayerMock::new()
+            .get_result(Ok(Some ("I am not a valid hexadecimal string".to_string())));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.get_bytes("parameter_name", Some("password"));
+
+        assert_eq!(result, Err(TypedConfigLayerError::TypeError));
+    }
+
+    #[test]
+    fn get_bytes_handles_absent_value() {
+        let scl = SecureConfigLayerMock::new()
+            .get_result(Ok(None));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.get_bytes("parameter_name", Some("password"));
 
         assert_eq! (result, Ok(None));
     }
