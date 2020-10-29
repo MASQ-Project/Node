@@ -7,7 +7,7 @@ use crate::db_config::config_dao::{
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::sub_lib::cryptde::PlainData;
 use rand::Rng;
-use rustc_hex::FromHex;
+use rustc_hex::{FromHex, ToHex};
 
 #[derive(Debug, PartialEq)]
 pub enum TypedConfigLayerError {
@@ -109,28 +109,34 @@ impl TypedConfigLayer for TypedConfigLayerReal {
     fn set_string(
         &self,
         name: &str,
-        value: Option<&str>,
+        value_opt: Option<&str>,
         db_password_opt: Option<&str>,
     ) -> Result<(), TypedConfigLayerError> {
-        unimplemented!()
+        Ok(self.scl.set (name, value_opt, db_password_opt)?)
     }
 
     fn set_u64(
         &self,
         name: &str,
-        value: Option<u64>,
+        value_opt: Option<u64>,
         db_password_opt: Option<&str>,
     ) -> Result<(), TypedConfigLayerError> {
-        unimplemented!()
+        match value_opt {
+            Some (number) => Ok (self.scl.set (name, Some (&format!("{}", number)), db_password_opt)?),
+            None => Ok(self.scl.set (name, None, db_password_opt)?),
+        }
     }
 
     fn set_bytes(
         &self,
         name: &str,
-        value: Option<&PlainData>,
+        value_opt: Option<&PlainData>,
         db_password_opt: Option<&str>,
     ) -> Result<(), TypedConfigLayerError> {
-        unimplemented!()
+        match value_opt {
+            Some (bytes) => Ok (self.scl.set (name, Some (&bytes.as_slice().to_hex::<String>()), db_password_opt)?),
+            None => Ok(self.scl.set (name, None, db_password_opt)?),
+        }
     }
 }
 
@@ -164,8 +170,8 @@ mod tests {
         get_params: Arc<Mutex<Vec<(String, Option<String>)>>>,
         get_results: RefCell<Vec<Result<Option<String>, SecureConfigLayerError>>>,
         transaction_results: RefCell<Vec<Box<dyn TransactionWrapper>>>,
-        set_informed_params: Arc<Mutex<Vec<(String, Option<String>, Option<String>, Box<dyn SCLActor>)>>>,
-        set_informed_results: RefCell<Vec<Result<(), SecureConfigLayerError>>>,
+        set_params: Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>>,
+        set_results: RefCell<Vec<Result<(), SecureConfigLayerError>>>,
     }
 
     impl SecureConfigLayer for SecureConfigLayerMock {
@@ -210,10 +216,11 @@ mod tests {
         fn set(
             &self,
             name: &str,
-            value: Option<&str>,
+            value_opt: Option<&str>,
             db_password_opt: Option<&str>,
         ) -> Result<(), SecureConfigLayerError> {
-            unimplemented!()
+            self.set_params.lock().unwrap().push ((name.to_string(), value_opt.map (|x| x.to_string()), db_password_opt.map (|x| x.to_string())));
+            self.set_results.borrow_mut().remove(0)
         }
 
         fn set_informed(
@@ -223,13 +230,7 @@ mod tests {
             db_password_opt: Option<&str>,
             act: Box<dyn SCLActor>
         ) -> Result<(), SecureConfigLayerError> {
-            self.set_informed_params.lock().unwrap().push ((
-                name.to_string(),
-                value.map (|x| String::from (x)),
-                db_password_opt.map (|x| x.to_string()),
-                act
-            ));
-            self.set_informed_results.borrow_mut().remove(0)
+            unimplemented!()
         }
     }
 
@@ -245,8 +246,8 @@ mod tests {
                 get_params: Arc::new(Mutex::new(vec![])),
                 get_results: RefCell::new(vec![]),
                 transaction_results: RefCell::new(vec![]),
-                set_informed_params: Arc::new(Mutex::new(vec![])),
-                set_informed_results: RefCell::new(vec![]),
+                set_params: Arc::new(Mutex::new(vec![])),
+                set_results: RefCell::new(vec![]),
             }
         }
 
@@ -305,11 +306,13 @@ mod tests {
             mut self,
             params: &Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>>,
         ) -> Self {
-            unimplemented!()
+            self.set_params = params.clone();
+            self
         }
 
         fn set_result(self, result: Result<(), SecureConfigLayerError>) -> Self {
-            unimplemented!()
+            self.set_results.borrow_mut().push (result);
+            self
         }
 
         fn set_informed_params(
@@ -514,5 +517,97 @@ mod tests {
             let committed = committed_arc.lock().unwrap();
             assert_eq! (*committed, Some(true));
         }
+    }
+
+    #[test]
+    fn set_string_passes_through_to_set() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let scl = SecureConfigLayerMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.set_string("parameter_name", Some ("value"), Some("password"));
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("parameter_name".to_string(), Some ("value".to_string()), Some("password".to_string()))]
+        )
+    }
+
+    #[test]
+    fn set_u64_handles_present_value() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let scl = SecureConfigLayerMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Err(SecureConfigLayerError::TransactionError));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.set_u64("parameter_name", Some (1234), Some("password"));
+
+        assert_eq!(result, Err(TypedConfigLayerError::TransactionError));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("parameter_name".to_string(), Some ("1234".to_string()), Some("password".to_string()))]
+        )
+    }
+
+    #[test]
+    fn set_u64_handles_absent_value() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let scl = SecureConfigLayerMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Err(SecureConfigLayerError::DatabaseError ("booga".to_string())));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.set_u64("parameter_name", None, Some("password"));
+
+        assert_eq!(result, Err(TypedConfigLayerError::DatabaseError ("booga".to_string())));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("parameter_name".to_string(), None, Some("password".to_string()))]
+        )
+    }
+
+    #[test]
+    fn set_bytes_handles_present_value() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let bytes = PlainData::new (&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let bytes_hex: String = bytes.as_slice().to_hex();
+        let scl = SecureConfigLayerMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.set_bytes("parameter_name", Some (&bytes), Some("password"));
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("parameter_name".to_string(), Some (bytes_hex), Some("password".to_string()))]
+        )
+    }
+
+    #[test]
+    fn set_bytes_handles_absent_value() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let scl = SecureConfigLayerMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Err(SecureConfigLayerError::NotPresent));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.set_bytes("parameter_name", None, Some("password"));
+
+        assert_eq!(result, Err(TypedConfigLayerError::NotPresent));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("parameter_name".to_string(), None, Some("password".to_string()))]
+        )
     }
 }
