@@ -2,7 +2,7 @@
 
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::db_config::config_dao::{
-    ConfigDao, ConfigDaoError, ConfigDaoRecord, TransactionWrapper,
+    ConfigDaoError, ConfigDaoRecord, TransactionWrapper,
 };
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::sub_lib::cryptde::PlainData;
@@ -78,7 +78,13 @@ impl TypedConfigLayer for TypedConfigLayerReal {
         name: &str,
         db_password_opt: Option<&str>,
     ) -> Result<Option<u64>, TypedConfigLayerError> {
-        unimplemented!()
+        match self.scl.get (name, db_password_opt)? {
+            Some (string) => match string.parse::<u64>() {
+                Ok(number) => Ok(Some(number)),
+                Err(_) => Err(TypedConfigLayerError::TypeError),
+            },
+            None => Ok(None),
+        }
     }
 
     fn get_bytes(
@@ -403,6 +409,43 @@ mod tests {
     }
 
     #[test]
+    fn get_u64_handles_present_good_value() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let scl = SecureConfigLayerMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(Some ("1234".to_string())));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.get_u64("parameter_name", Some("password"));
+
+        assert_eq! (result, Ok(Some (1234)));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec![("parameter_name".to_string(), Some ("password".to_string()))])
+    }
+
+    #[test]
+    fn get_u64_handles_present_bad_value() {
+        let scl = SecureConfigLayerMock::new()
+            .get_result(Ok(Some ("booga".to_string())));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.get_u64("parameter_name", Some("password"));
+
+        assert_eq! (result, Err(TypedConfigLayerError::TypeError));
+    }
+
+    #[test]
+    fn get_u64_handles_absent_value() {
+        let scl = SecureConfigLayerMock::new()
+            .get_result(Ok(None));
+        let subject = TypedConfigLayerReal::new(Box::new(scl));
+
+        let result = subject.get_u64("parameter_name", Some("password"));
+
+        assert_eq! (result, Ok(None));
+    }
+
+    #[test]
     fn transaction_passes_through() {
         let transaction = TransactionWrapperMock::new();
         let committed_arc = transaction.committed_arc();
@@ -422,243 +465,4 @@ mod tests {
             assert_eq! (*committed, Some(true));
         }
     }
-
-    /*
-    #[test]
-    fn get_bytes_e_complains_about_nonexistent_row() {
-        let home_dir = ensure_node_home_directory_exists(
-            "node",
-            "get_bytes_e_complains_about_nonexistent_row",
-        );
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-
-        let result = subject.get_bytes_e("booga", "password");
-
-        assert_eq!(
-            result,
-            Err(ConfigDaoError::DatabaseError(
-                "DatabaseError(\"Bad schema: config row for \\'booga\\' not present\")".to_string()
-            )),
-        );
-    }
-
-    #[test]
-    fn get_bytes_e_does_not_find_null_value() {
-        let home_dir =
-            ensure_node_home_directory_exists("node", "get_bytes_e_does_not_find_null_value");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-
-        let result = subject.get_bytes_e("seed", "password");
-
-        assert_eq!(result, Err(ConfigDaoError::NotPresent));
-    }
-
-    #[test]
-    fn get_bytes_e_balks_at_bad_password() {
-        let home_dir =
-            ensure_node_home_directory_exists("node", "get_bytes_e_balks_at_bad_password");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        let data = PlainData::new(&[1, 2, 3, 4]);
-        subject.set_bytes_e("seed", &data, "password").unwrap();
-
-        let result = subject.get_bytes_e("seed", "drowssap");
-
-        assert_eq!(result, Err(ConfigDaoError::PasswordError))
-    }
-
-    #[test]
-    fn get_bytes_e_passes_along_database_error() {
-        let home_dir =
-            ensure_node_home_directory_exists("node", "get_bytes_e_passes_along_database_error");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        let mut stmt = subject
-            .conn
-            .prepare("drop table config")
-            .expect("Internal error");
-        stmt.execute(NO_PARAMS).unwrap();
-
-        let result = subject.get_bytes_e("booga", "password");
-
-        assert_eq!(
-            result,
-            Err(ConfigDaoError::DatabaseError(
-                "DatabaseError(\"no such table: config\")".to_string()
-            )),
-        );
-    }
-
-    #[test]
-    fn get_bytes_e_finds_existing_data() {
-        let home_dir = ensure_node_home_directory_exists("node", "get_bytes_e_finds_existing_data");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        let data = PlainData::new(&[1, 2, 3, 4]);
-        subject.set_bytes_e("seed", &data, "password").unwrap();
-
-        let result = subject.get_bytes_e("seed", "password");
-
-        assert_eq!(result, Ok(data));
-    }
-
-    #[test]
-    fn set_bytes_e_passes_along_update_database_error() {
-        let home_dir =
-            ensure_node_home_directory_exists("node", "set_bytes_e_passes_along_database_error");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        let data = PlainData::new(&[1, 2, 3, 4]);
-        let mut stmt = subject
-            .conn
-            .prepare("drop table config")
-            .expect("Internal error");
-        stmt.execute(NO_PARAMS).unwrap();
-
-        let result = subject.set_bytes_e("version", &data, "password");
-
-        assert_eq!(
-            result,
-            Err(ConfigDaoError::DatabaseError(
-                "no such table: config".to_string()
-            )),
-        );
-    }
-
-    #[test]
-    fn set_bytes_e_complains_about_nonexistent_entry() {
-        let home_dir = ensure_node_home_directory_exists(
-            "node",
-            "set_bytes_e_complains_about_nonexistent_entry",
-        );
-        let data = PlainData::new(&[1, 2, 3, 4]);
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-
-        let result = subject.set_bytes_e("booga", &data, "password");
-
-        assert_eq!(result, Err(ConfigDaoError::NotPresent));
-    }
-
-    #[test]
-    fn set_bytes_balks_at_wrong_password() {
-        let home_dir =
-            ensure_node_home_directory_exists("node", "set_bytes_balks_at_wrong_password");
-        let data = PlainData::new(&[1, 2, 3, 4]);
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        subject.change_password(None, "password").unwrap();
-
-        let result = subject.set_bytes_e("booga", &data, "drowssap");
-
-        assert_eq!(result, Err(ConfigDaoError::PasswordError));
-    }
-
-    #[test]
-    fn set_bytes_e_updates_existing_string() {
-        let home_dir =
-            ensure_node_home_directory_exists("node", "set_bytes_e_updates_existing_string");
-        let original_data = PlainData::new(&[1, 2, 3, 4]);
-        let modified_data = PlainData::new(&[4, 3, 2, 1]);
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        subject
-            .set_bytes_e("seed", &original_data, "password")
-            .unwrap();
-
-        subject
-            .set_bytes_e("seed", &modified_data, "password")
-            .unwrap();
-
-        let result = subject.get_bytes_e("seed", "password");
-        assert_eq!(result, Ok(modified_data));
-    }
-
-    #[test]
-    fn get_u64_complains_about_string_value() {
-        let home_dir =
-            ensure_node_home_directory_exists("node", "get_u64_complains_about_string_value");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-
-        let result = subject.get_u64("schema_version");
-
-        assert_eq!(Err(ConfigDaoError::TypeError), result);
-    }
-
-    #[test]
-    fn set_u64_and_get_u64_communicate() {
-        let home_dir = ensure_node_home_directory_exists("node", "set_u64_and_get_u64_communicate");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        subject.set_u64("clandestine_port", 4096).unwrap();
-
-        let result = subject.get_u64("clandestine_port");
-
-        assert_eq!(Ok(4096), result);
-    }
-
-    #[test]
-    fn set_u64_transaction_updates_start_block() {
-        let home_dir = ensure_node_home_directory_exists("node", "rename_me");
-        let key = "start_block";
-        let value = 99u64;
-
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        {
-            let mut db = DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap();
-            let transaction = db.transaction().unwrap();
-
-            subject
-                .set_u64_transactional(&transaction, &key, value)
-                .unwrap();
-            transaction.commit().unwrap();
-        }
-
-        let result = subject.get_u64(key);
-
-        assert_eq!(Ok(99u64), result);
-    }
-     */
 }
