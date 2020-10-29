@@ -26,6 +26,10 @@ impl From<ConfigDaoError> for SecureConfigLayerError {
     }
 }
 
+pub trait SCLActor: Send {
+    fn act (&self, record: &ConfigDaoRecord, new_value: Option<&str>) -> Result<Option<String>, SecureConfigLayerError>;
+}
+
 pub trait SecureConfigLayer: Send {
     fn check_password(&self, db_password_opt: Option<&str>)
         -> Result<bool, SecureConfigLayerError>;
@@ -47,8 +51,15 @@ pub trait SecureConfigLayer: Send {
     fn set(
         &self,
         name: &str,
-        value: Option<&str>,
+        value_opt: Option<&str>,
         db_password_opt: Option<&str>,
+    ) -> Result<(), SecureConfigLayerError>;
+    fn set_informed(
+        &self,
+        name: &str,
+        value_opt: Option<&str>,
+        db_password_opt: Option<&str>,
+        act: Box<dyn SCLActor>,
     ) -> Result<(), SecureConfigLayerError>;
 }
 
@@ -131,11 +142,27 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         value_opt: Option<&str>,
         db_password_opt: Option<&str>,
     ) -> Result<(), SecureConfigLayerError> {
+        struct NeutralActor {}
+        impl SCLActor for NeutralActor {
+            fn act(&self, _: &ConfigDaoRecord, new_value_opt: Option<&str>) -> Result<Option<String>, SecureConfigLayerError> {
+                Ok(new_value_opt.map(|x| x.to_string()))
+            }
+        }
+        self.set_informed (name, value_opt, db_password_opt, Box::new (NeutralActor{}))
+    }
+
+    fn set_informed(
+        &self,
+        name: &str,
+        value_opt: Option<&str>,
+        db_password_opt: Option<&str>,
+        act: Box<dyn SCLActor>,
+    ) -> Result<(), SecureConfigLayerError> {
         if !self.check_password(db_password_opt)? {
             return Err(SecureConfigLayerError::PasswordError);
         }
         let old_record = self.dao.get(name)?;
-        let new_value_opt: Option<String> = match (old_record.encrypted, value_opt, db_password_opt)
+        let new_value_opt: Option<String> = match (old_record.encrypted, act.act(&old_record, value_opt)?, db_password_opt)
         {
             (_, None, _) => None,
             (false, Some(value), _) => Some(value.to_string()),
