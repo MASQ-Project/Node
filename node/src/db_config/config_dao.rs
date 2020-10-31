@@ -1,7 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use rusqlite::types::ToSql;
 use rusqlite::{Rows, NO_PARAMS, Row};
-use std::cell::RefCell;
 use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -31,18 +30,17 @@ impl ConfigDaoRecord {
 pub trait ConfigDao: Send {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
-    fn transaction<'a>(&'a self) -> Box<dyn TransactionWrapper<'a> + 'a>;
+    fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a>;
     fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError>;
 }
 
 pub struct ConfigDaoReal {
-    conn: RefCell<Box<dyn ConnectionWrapper>>,
+    conn: Box<dyn ConnectionWrapper>,
 }
 
 impl ConfigDao for ConfigDaoReal {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
-        let conn = self.conn.borrow();
-        let mut stmt = conn
+        let mut stmt = self.conn
             .prepare("select name, value, encrypted from config")
             .expect("Schema error: couldn't compose query for config table");
         let mut rows: Rows = stmt
@@ -61,8 +59,7 @@ impl ConfigDao for ConfigDaoReal {
     }
 
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
-        let conn = self.conn.borrow();
-        let mut stmt = match conn.prepare("select name, value, encrypted from config where name = ?") {
+        let mut stmt = match self.conn.prepare("select name, value, encrypted from config where name = ?") {
             Ok(stmt) => stmt,
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         };
@@ -74,14 +71,12 @@ impl ConfigDao for ConfigDaoReal {
         }
     }
 
-    fn transaction<'a>(&'a self) -> Box<dyn TransactionWrapper<'a> + 'a> {
-        let mut conn = self.conn.borrow_mut();
-        conn.transaction().expect("Creating transaction failed")
+    fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a> {
+        self.conn.transaction().expect("Creating transaction failed")
     }
 
     fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
-        let conn = self.conn.borrow();
-        let mut stmt = match conn
+        let mut stmt = match self.conn
             .prepare("update config set value = ? where name = ?")
         {
             Ok(stmt) => stmt,
@@ -95,7 +90,7 @@ impl ConfigDao for ConfigDaoReal {
 
 impl ConfigDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ConfigDaoReal {
-        ConfigDaoReal { conn: RefCell::new (conn) }
+        ConfigDaoReal { conn }
     }
 
     fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
@@ -170,7 +165,7 @@ mod tests {
     fn transaction_returns_wrapped_transaction() {
         let home_dir =
             ensure_node_home_directory_exists("config_dao", "transaction_returns_wrapped_transaction");
-        let subject = ConfigDaoReal::new(
+        let mut subject = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),

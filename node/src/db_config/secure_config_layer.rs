@@ -361,7 +361,7 @@ mod tests {
             self.get_results.borrow_mut().remove(0)
         }
 
-        fn transaction<'a>(&'a self) -> Box<dyn TransactionWrapper<'a> + 'a> {
+        fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a> {
             Box::new (self.transaction_results.borrow_mut().remove(0))
         }
 
