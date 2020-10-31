@@ -1,13 +1,9 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
-use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::db_config::config_dao::{
-    ConfigDaoError, ConfigDaoRecord, TransactionWrapper,
-};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::sub_lib::cryptde::PlainData;
-use rand::Rng;
 use rustc_hex::{FromHex, ToHex};
+use crate::database::connection_wrapper::TransactionWrapper;
 
 #[derive(Debug, PartialEq)]
 pub enum TypedConfigLayerError {
@@ -31,12 +27,12 @@ impl From<SecureConfigLayerError> for TypedConfigLayerError {
 
 pub trait TypedConfigLayer: Send {
     fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, TypedConfigLayerError>;
-    fn change_password(&self, old_password_opt: Option<&str>, new_password_opt: &str) -> Result<(), TypedConfigLayerError>;
+    fn change_password(&mut self, old_password_opt: Option<&str>, new_password_opt: &str) -> Result<(), TypedConfigLayerError>;
     fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, Option<String>)>, TypedConfigLayerError>;
     fn get_string(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<String>, TypedConfigLayerError>;
     fn get_u64(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<u64>, TypedConfigLayerError>;
     fn get_bytes(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<PlainData>, TypedConfigLayerError>;
-    fn transaction(&self) -> Box<dyn TransactionWrapper>;
+    fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a>;
     fn set_string(&self, name: &str, value: Option<&str>, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
     fn set_u64(&self, name: &str, value: Option<u64>, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
     fn set_bytes(&self, name: &str, value: Option<&PlainData>, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
@@ -52,7 +48,7 @@ impl TypedConfigLayer for TypedConfigLayerReal {
     }
 
     fn change_password(
-        &self,
+        &mut self,
         old_password_opt: Option<&str>,
         new_password: &str,
     ) -> Result<(), TypedConfigLayerError> {
@@ -96,13 +92,13 @@ impl TypedConfigLayer for TypedConfigLayerReal {
         match self.scl.get (name, db_password_opt)? {
             Some (string) => match string.from_hex::<Vec<u8>>() {
                 Ok(bytes) => Ok (Some (PlainData::from (bytes))),
-                Err(e) => Err (TypedConfigLayerError::TypeError),
+                Err(_) => Err (TypedConfigLayerError::TypeError),
             },
             None => Ok (None),
         }
     }
 
-    fn transaction(&self) -> Box<dyn TransactionWrapper> {
+    fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a> {
         self.scl.transaction()
     }
 
@@ -151,14 +147,13 @@ impl TypedConfigLayerReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::bip39::Bip39;
-    use crate::db_config::config_dao::{ConfigDaoError, ConfigDaoRecord};
     use crate::sub_lib::cryptde::PlainData;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
     use crate::db_config::mocks::TransactionWrapperMock;
     use crate::db_config::secure_config_layer::SCLActor;
     use rustc_hex::ToHex;
+    use crate::database::connection_wrapper::TransactionWrapper;
 
     struct SecureConfigLayerMock {
         check_password_params: Arc<Mutex<Vec<Option<String>>>>,
@@ -169,7 +164,7 @@ mod tests {
         get_all_results: RefCell<Vec<Result<Vec<(String, Option<String>)>, SecureConfigLayerError>>>,
         get_params: Arc<Mutex<Vec<(String, Option<String>)>>>,
         get_results: RefCell<Vec<Result<Option<String>, SecureConfigLayerError>>>,
-        transaction_results: RefCell<Vec<Box<dyn TransactionWrapper>>>,
+        transaction_results: RefCell<Vec<TransactionWrapperMock>>,
         set_params: Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>>,
         set_results: RefCell<Vec<Result<(), SecureConfigLayerError>>>,
     }
@@ -184,7 +179,7 @@ mod tests {
         }
 
         fn change_password(
-            &self,
+            &mut self,
             old_password_opt: Option<&str>,
             new_password: &str,
         ) -> Result<(), SecureConfigLayerError> {
@@ -209,8 +204,8 @@ mod tests {
             self.get_results.borrow_mut().remove(0)
         }
 
-        fn transaction(&self) -> Box<dyn TransactionWrapper> {
-            self.transaction_results.borrow_mut().remove(0)
+        fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a> {
+            Box::new(self.transaction_results.borrow_mut().remove(0))
         }
 
         fn set(
@@ -297,7 +292,7 @@ mod tests {
             self
         }
 
-        fn transaction_result(self, result: Box<dyn TransactionWrapper>) -> Self {
+        fn transaction_result(self, result: TransactionWrapperMock) -> Self {
             self.transaction_results.borrow_mut().push (result);
             self
         }
@@ -316,7 +311,7 @@ mod tests {
         }
 
         fn set_informed_params(
-            mut self,
+            self,
             params: &Arc<Mutex<Vec<(String, Option<String>, Option<String>, Box<dyn SCLActor>)>>>,
         ) -> Self {
             unimplemented!()
@@ -371,7 +366,7 @@ mod tests {
         let scl = SecureConfigLayerMock::new()
             .change_password_params(&change_password_params_arc)
             .change_password_result(Err(SecureConfigLayerError::TransactionError));
-        let subject = TypedConfigLayerReal::new(Box::new(scl));
+        let mut subject = TypedConfigLayerReal::new(Box::new(scl));
 
         let result = subject.change_password(None, "password");
 
@@ -503,8 +498,8 @@ mod tests {
         let transaction = TransactionWrapperMock::new();
         let committed_arc = transaction.committed_arc();
         let scl = SecureConfigLayerMock::new()
-            .transaction_result(Box::new(transaction));
-        let subject = TypedConfigLayerReal::new(Box::new(scl));
+            .transaction_result(transaction);
+        let mut subject = TypedConfigLayerReal::new(Box::new(scl));
 
         let mut result = subject.transaction();
 

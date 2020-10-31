@@ -435,8 +435,8 @@ mod tests {
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
-    use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
-    use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
+    use crate::database::db_initializer::test_utils::{ConnectionWrapperOldMock, DbInitializerMock};
+    use crate::database::db_initializer::{InitializationError};
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
@@ -489,6 +489,7 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
+    use crate::database::connection_wrapper::ConnectionWrapper;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -810,11 +811,11 @@ mod tests {
         let subject = ActorFactoryReal {};
 
         let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())));
         let data_directory = PathBuf::from_str("yeet_home").unwrap();
         let aconfig = AccountantConfig {
             payable_scan_interval: Duration::from_secs(9),
@@ -894,7 +895,7 @@ mod tests {
         config.accountant_config = aconfig;
         config.earning_wallet = make_wallet("hi");
         let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
             .initialize_result(Err(InitializationError::SqliteError(
                 rusqlite::Error::InvalidQuery,
             )));
@@ -919,8 +920,8 @@ mod tests {
         config.accountant_config = aconfig;
         config.earning_wallet = make_wallet("mine");
         let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
             .initialize_result(Err(InitializationError::SqliteError(
                 rusqlite::Error::InvalidQuery,
             )));
@@ -944,9 +945,9 @@ mod tests {
         config.accountant_config = aconfig;
         config.earning_wallet = make_wallet("mine");
         let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
+            .initialize_result(Ok(Box::new(ConnectionWrapperOldMock::default())))
             .initialize_result(Err(InitializationError::SqliteError(
                 rusqlite::Error::InvalidQuery,
             )));

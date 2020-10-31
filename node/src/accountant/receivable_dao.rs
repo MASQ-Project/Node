@@ -3,7 +3,6 @@ use crate::accountant::{jackass_unsigned_to_signed, PaymentCurves, PaymentError}
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::dao_utils;
 use crate::database::dao_utils::to_time_t;
-use crate::database::db_initializer::ConnectionWrapper;
 use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
@@ -12,6 +11,7 @@ use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
 use std::time::SystemTime;
+use crate::database::connection_wrapper::ConnectionWrapper;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceivableAccount {
@@ -286,7 +286,7 @@ impl ReceivableDaoReal {
         persistent_configuration: &dyn PersistentConfiguration,
         payments: Vec<Transaction>,
     ) -> Result<(), String> {
-        let tx = match self.conn.transaction() {
+        let mut tx = match self.conn.transaction() {
             Ok(t) => t,
             Err(e) => return Err(e.to_string()),
         };
@@ -297,7 +297,7 @@ impl ReceivableDaoReal {
             .max()
             .ok_or("no payments given")?;
 
-        persistent_configuration.set_start_block_transactionally(&tx, block_number)?;
+        persistent_configuration.set_start_block_transactionally(tx.as_ref(), block_number)?;
 
         {
             let mut stmt = tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?").expect("Internal error");
@@ -311,7 +311,8 @@ impl ReceivableDaoReal {
                 stmt.execute(params).map_err(|e| e.to_string())?;
             }
         }
-        tx.commit().map_err(|e| e.to_string())
+        tx.commit();
+        Ok(())
     }
 
     fn row_to_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
@@ -336,7 +337,7 @@ mod tests {
     use crate::config_dao_old::ConfigDaoReal;
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
+    use crate::database::db_initializer::test_utils::ConnectionWrapperOldMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::persistent_configuration::PersistentConfigurationReal;
@@ -545,7 +546,7 @@ mod tests {
         logging::init_test_logging();
 
         let conn_mock =
-            ConnectionWrapperMock::default().transaction_result(Err(Error::InvalidQuery));
+            ConnectionWrapperOldMock::default().transaction_result(Err(Error::InvalidQuery));
         let mut receivable_dao = ReceivableDaoReal::new(Box::new(conn_mock));
 
         let persistent_configuration: Box<dyn PersistentConfiguration> =

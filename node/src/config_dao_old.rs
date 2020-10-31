@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::config_dao_old::ConfigDaoError::DatabaseError;
-use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::cryptde::PlainData;
 use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::{OptionalExtension, Rows, NO_PARAMS};
+use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -41,8 +41,8 @@ pub trait ConfigDaoOld: Send {
     fn clear(&self, name: &str) -> Result<(), ConfigDaoError>;
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError>;
     fn set_u64_transactional(
-        &self,
-        transaction: &rusqlite::Transaction,
+        & self,
+        transaction: &dyn TransactionWrapper,
         name: &str,
         value: u64,
     ) -> Result<(), ConfigDaoError>;
@@ -246,7 +246,7 @@ impl ConfigDaoOld for ConfigDaoReal {
 
     fn set_u64_transactional(
         &self,
-        transaction: &rusqlite::Transaction,
+        transaction: &dyn TransactionWrapper,
         name: &str,
         value: u64,
     ) -> Result<(), ConfigDaoError> {
@@ -923,12 +923,12 @@ mod tests {
             let mut db = DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
-            let transaction = db.transaction().unwrap();
+            let mut transaction = db.transaction().unwrap();
 
             subject
-                .set_u64_transactional(&transaction, &key, value)
+                .set_u64_transactional(transaction.as_ref(), &key, value)
                 .unwrap();
-            transaction.commit().unwrap();
+            transaction.commit();
         }
 
         let result = subject.get_u64(key);

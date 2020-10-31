@@ -3,16 +3,15 @@ use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::config_dao_old::ConfigDaoError;
 use crate::config_dao_old::{ConfigDaoOld, ConfigDaoReal};
-use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use rand::Rng;
-use rusqlite::Transaction;
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
+use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -52,7 +51,7 @@ pub trait PersistentConfiguration: Send {
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> u64;
-    fn set_start_block_transactionally(&self, tx: &Transaction, value: u64) -> Result<(), String>;
+    fn set_start_block_transactionally(&self, tx: &dyn TransactionWrapper, value: u64) -> Result<(), String>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -379,7 +378,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         })
     }
 
-    fn set_start_block_transactionally(&self, tx: &Transaction, value: u64) -> Result<(), String> {
+    fn set_start_block_transactionally(&self, tx: &dyn TransactionWrapper, value: u64) -> Result<(), String> {
         self.dao
             .set_u64_transactional(tx, "start_block", value)
             .map_err(|e| match e {
@@ -813,7 +812,7 @@ mod tests {
         let transaction = conn.transaction().unwrap();
 
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-        let result = subject.set_start_block_transactionally(&transaction, 1234);
+        let result = subject.set_start_block_transactionally(transaction.as_ref(), 1234);
 
         assert!(result.is_ok());
     }
@@ -1001,7 +1000,7 @@ mod tests {
         let transaction = conn.transaction().unwrap();
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.set_start_block_transactionally(&transaction, 1234);
+        let result = subject.set_start_block_transactionally(transaction.as_ref(), 1234);
 
         assert_eq!(Err(r#"DatabaseError("nah")"#.to_string()), result);
     }
@@ -1578,7 +1577,7 @@ mod tests {
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         subject
-            .set_start_block_transactionally(&transaction, 1234)
+            .set_start_block_transactionally(transaction.as_ref(), 1234)
             .unwrap();
     }
 
@@ -1600,7 +1599,7 @@ mod tests {
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         subject
-            .set_start_block_transactionally(&transaction, 1234)
+            .set_start_block_transactionally(transaction.as_ref(), 1234)
             .unwrap();
     }
 }

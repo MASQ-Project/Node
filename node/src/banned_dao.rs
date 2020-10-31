@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::database::db_initializer::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use rusqlite::{Error, ErrorCode, ToSql, NO_PARAMS};
 use std::collections::HashSet;
 use std::sync::RwLock;
+use crate::database::connection_wrapper::ConnectionWrapper;
 
 lazy_static! {
     pub static ref BAN_CACHE: BannedCache = BannedCache::default();

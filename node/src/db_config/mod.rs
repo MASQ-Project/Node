@@ -5,4 +5,4 @@ pub mod secure_config_layer;
 mod typed_config_layer;
 
 #[cfg(test)]
-mod mocks;
+pub mod mocks;

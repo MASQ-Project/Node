@@ -1,16 +1,21 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
-use crate::db_config::config_dao::TransactionWrapper;
 use std::sync::{Arc, Mutex};
+use crate::database::connection_wrapper::TransactionWrapper;
+use rusqlite::{Statement, Error};
 
 #[derive(Debug)]
 pub struct TransactionWrapperMock {
     committed: Arc<Mutex<Option<bool>>>,
 }
 
-impl TransactionWrapper for TransactionWrapperMock {
+impl<'a> TransactionWrapper<'a> for TransactionWrapperMock {
     fn commit(&mut self) {
         let _ = self.committed.lock().unwrap().replace(true);
+    }
+
+    fn prepare(&self, query: &str) -> Result<Statement, Error> {
+        unimplemented!()
     }
 }
 

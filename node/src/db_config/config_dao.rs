@@ -1,11 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::config_dao_old::ConfigDaoError::DatabaseError;
-use crate::database::db_initializer::ConnectionWrapper;
-use crate::sub_lib::cryptde::PlainData;
-use rand::Rng;
 use rusqlite::types::ToSql;
-use rusqlite::{OptionalExtension, Rows, Transaction, NO_PARAMS, Row};
+use rusqlite::{Rows, NO_PARAMS, Row};
+use std::cell::RefCell;
+use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -31,45 +28,21 @@ impl ConfigDaoRecord {
     }
 }
 
-pub trait TransactionWrapper: Send + Drop {
-    fn commit(&mut self);
-}
-
-pub struct TransactionWrapperReal {}
-
-impl TransactionWrapper for TransactionWrapperReal {
-    fn commit(&mut self) {
-        unimplemented!()
-    }
-}
-
-impl Drop for TransactionWrapperReal {
-    fn drop(&mut self) {
-        unimplemented!()
-    }
-}
-
-impl<'a> From<Transaction<'a>> for TransactionWrapperReal {
-    fn from(input: Transaction) -> Self {
-        unimplemented!()
-    }
-}
-
 pub trait ConfigDao: Send {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
-    fn transaction(&self) -> Box<dyn TransactionWrapper>;
+    fn transaction<'a>(&'a self) -> Box<dyn TransactionWrapper<'a> + 'a>;
     fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError>;
 }
 
 pub struct ConfigDaoReal {
-    conn: Box<dyn ConnectionWrapper>,
+    conn: RefCell<Box<dyn ConnectionWrapper>>,
 }
 
 impl ConfigDao for ConfigDaoReal {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
-        let mut stmt = self
-            .conn
+        let conn = self.conn.borrow();
+        let mut stmt = conn
             .prepare("select name, value, encrypted from config")
             .expect("Schema error: couldn't compose query for config table");
         let mut rows: Rows = stmt
@@ -78,16 +51,18 @@ impl ConfigDao for ConfigDaoReal {
         let mut results = vec![];
         loop {
             match rows.next() {
-                Err(e) => unimplemented!(),
                 Ok(Some(row)) => results.push (Self::row_to_config_dao_record(row)),
                 Ok(None) => break,
+                // The following line is untested, because we don't know how to trigger it.
+                Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
             }
         }
         Ok(results)
     }
 
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
-        let mut stmt = match self.conn.prepare("select name, value, encrypted from config where name = ?") {
+        let conn = self.conn.borrow();
+        let mut stmt = match conn.prepare("select name, value, encrypted from config where name = ?") {
             Ok(stmt) => stmt,
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         };
@@ -99,17 +74,19 @@ impl ConfigDao for ConfigDaoReal {
         }
     }
 
-    fn transaction(&self) -> Box<dyn TransactionWrapper> {
-        unimplemented!()
+    fn transaction<'a>(&'a self) -> Box<dyn TransactionWrapper<'a> + 'a> {
+        let mut conn = self.conn.borrow_mut();
+        conn.transaction().expect("Creating transaction failed")
     }
 
     fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
-        let mut stmt = match self
-            .conn
+        let conn = self.conn.borrow();
+        let mut stmt = match conn
             .prepare("update config set value = ? where name = ?")
         {
             Ok(stmt) => stmt,
-            Err(e) => unimplemented!(), //return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
+            // The following line is untested, because we don't know how to trigger it.
+            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         };
         let params: &[&dyn ToSql] = &[&value, &name];
         Self::handle_update_execution(stmt.execute(params))
@@ -118,7 +95,7 @@ impl ConfigDao for ConfigDaoReal {
 
 impl ConfigDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ConfigDaoReal {
-        ConfigDaoReal { conn }
+        ConfigDaoReal { conn: RefCell::new (conn) }
     }
 
     fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
@@ -135,7 +112,8 @@ impl ConfigDaoReal {
         match result {
             Ok(0) => Err(ConfigDaoError::NotPresent),
             Ok(_) => Ok(()),
-            Err(e) => unimplemented!(), //Err(ConfigDaoError::DatabaseError(format!("{}", e))), // Don't know how to trigger this
+            // The following line is untested, because we don't know how to trigger it.
+            Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         }
     }
 }
@@ -149,7 +127,6 @@ mod tests {
     };
     use crate::test_utils::assert_contains;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use rusqlite::NO_PARAMS;
 
     #[test]
     fn get_all_returns_multiple_results() {
@@ -187,6 +164,28 @@ mod tests {
         let result = subject.get("booga");
 
         assert_eq! (result, Err(ConfigDaoError::NotPresent));
+    }
+
+    #[test]
+    fn transaction_returns_wrapped_transaction() {
+        let home_dir =
+            ensure_node_home_directory_exists("config_dao", "transaction_returns_wrapped_transaction");
+        let subject = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .unwrap(),
+        );
+        let before_value = subject.get("schema_version").unwrap();
+
+        let mut transaction = subject.transaction();
+
+        subject.set(CURRENT_SCHEMA_VERSION, Some ("Booga"));
+        let middle_value = subject.get ("schema_version").unwrap();
+        transaction.commit();
+        let final_value = subject.get ("schema_version").unwrap();
+        assert_eq! (&before_value.value_opt.unwrap(), CURRENT_SCHEMA_VERSION);
+        assert_eq! (&middle_value.value_opt.unwrap(), CURRENT_SCHEMA_VERSION);
+        assert_eq! (&final_value.value_opt.unwrap(), "Booga");
     }
 
     #[test]

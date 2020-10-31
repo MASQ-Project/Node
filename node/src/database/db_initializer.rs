@@ -8,7 +8,7 @@ use masq_lib::constants::{
 };
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
-use rusqlite::{Connection, Error, OpenFlags, Statement, Transaction, NO_PARAMS};
+use rusqlite::{Connection, Error, OpenFlags, NO_PARAMS};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
@@ -16,34 +16,10 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use tokio::net::TcpListener;
+use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: &str = "0.0.10";
-
-pub trait ConnectionWrapper: Debug + Send {
-    fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
-    fn transaction(&mut self) -> Result<Transaction, rusqlite::Error>;
-}
-
-#[derive(Debug)]
-pub struct ConnectionWrapperReal {
-    conn: Connection,
-}
-
-impl ConnectionWrapper for ConnectionWrapperReal {
-    fn prepare(&self, query: &str) -> Result<Statement, Error> {
-        self.conn.prepare(query)
-    }
-    fn transaction(&mut self) -> Result<Transaction, Error> {
-        self.conn.transaction()
-    }
-}
-
-impl ConnectionWrapperReal {
-    pub fn new(conn: Connection) -> Self {
-        Self { conn }
-    }
-}
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -356,34 +332,36 @@ impl DbInitializerReal {
 
 #[cfg(test)]
 pub mod test_utils {
-    use crate::database::db_initializer::{ConnectionWrapper, DbInitializer, InitializationError};
-    use rusqlite::{Error, Statement, Transaction};
+    use crate::database::db_initializer::{DbInitializer, InitializationError};
+    use crate::db_config::mocks::TransactionWrapperMock;
+    use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 
     #[derive(Debug, Default)]
-    pub struct ConnectionWrapperMock<'a> {
+    pub struct ConnectionWrapperOldMock<'a> {
         pub prepare_parameters: Arc<Mutex<Vec<String>>>,
         pub prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-        pub transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
+        pub transaction_results: RefCell<Vec<Result<TransactionWrapperMock, Error>>>,
     }
 
-    unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
+    unsafe impl<'a> Send for ConnectionWrapperOldMock<'a> {}
 
-    impl<'a> ConnectionWrapperMock<'a> {
+    impl<'a> ConnectionWrapperOldMock<'a> {
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
             self.prepare_results.borrow_mut().push(result);
             self
         }
 
-        pub fn transaction_result(self, result: Result<Transaction<'a>, Error>) -> Self {
+        pub fn transaction_result(self, result: Result<TransactionWrapperMock, Error>) -> Self {
             self.transaction_results.borrow_mut().push(result);
             self
         }
     }
 
-    impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
+    impl<'a> ConnectionWrapper for ConnectionWrapperOldMock<'a> {
         fn prepare(&self, query: &str) -> Result<Statement, Error> {
             self.prepare_parameters
                 .lock()
@@ -392,8 +370,11 @@ pub mod test_utils {
             self.prepare_results.borrow_mut().remove(0)
         }
 
-        fn transaction(&mut self) -> Result<Transaction, Error> {
-            self.transaction_results.borrow_mut().remove(0)
+        fn transaction<'b>(&'b mut self) -> Result<Box<dyn TransactionWrapper<'b> + 'b>, Error> {
+            match self.transaction_results.borrow_mut().remove(0) {
+                Ok(result) => Ok(Box::new (result)),
+                Err(e) =>Err (e),
+            }
         }
     }
 

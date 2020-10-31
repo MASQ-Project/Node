@@ -4,9 +4,9 @@ use crate::persistent_configuration::{PersistentConfigError, PersistentConfigura
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
-use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use crate::database::connection_wrapper::TransactionWrapper;
 
 type MnemonicSeedParam = (Vec<u8>, String);
 
@@ -167,7 +167,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
 
     fn set_start_block_transactionally(
         &self,
-        _tx: &Transaction,
+        _tx: &dyn TransactionWrapper,
         _value: u64,
     ) -> Result<(), String> {
         Self::result_from(&self.set_start_block_transactionally_results)

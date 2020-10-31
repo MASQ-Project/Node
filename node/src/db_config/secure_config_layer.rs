@@ -2,9 +2,10 @@
 
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::db_config::config_dao::{
-    ConfigDao, ConfigDaoError, ConfigDaoRecord, TransactionWrapper,
+    ConfigDao, ConfigDaoError, ConfigDaoRecord,
 };
 use rand::Rng;
+use crate::database::connection_wrapper::TransactionWrapper;
 
 pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
 
@@ -34,7 +35,7 @@ pub trait SecureConfigLayer: Send {
     fn check_password(&self, db_password_opt: Option<&str>)
         -> Result<bool, SecureConfigLayerError>;
     fn change_password(
-        &self,
+        &mut self,
         old_password_opt: Option<&str>,
         new_password_opt: &str,
     ) -> Result<(), SecureConfigLayerError>;
@@ -47,7 +48,7 @@ pub trait SecureConfigLayer: Send {
         name: &str,
         db_password_opt: Option<&str>,
     ) -> Result<Option<String>, SecureConfigLayerError>;
-    fn transaction(&self) -> Box<dyn TransactionWrapper>;
+    fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a>;
     fn set(
         &self,
         name: &str,
@@ -79,7 +80,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
     }
 
     fn change_password(
-        &self,
+        &mut self,
         old_password_opt: Option<&str>,
         new_password: &str,
     ) -> Result<(), SecureConfigLayerError> {
@@ -132,7 +133,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         Self::reduce_record(self.dao.get(name)?, db_password_opt)
     }
 
-    fn transaction(&self) -> Box<dyn TransactionWrapper> {
+    fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a> {
         self.dao.transaction()
     }
 
@@ -339,12 +340,13 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
+    use crate::database::connection_wrapper::TransactionWrapper;
 
     struct ConfigDaoMock {
         get_all_results: RefCell<Vec<Result<Vec<ConfigDaoRecord>, ConfigDaoError>>>,
         get_params: Arc<Mutex<Vec<String>>>,
         get_results: RefCell<Vec<Result<ConfigDaoRecord, ConfigDaoError>>>,
-        transaction_results: RefCell<Vec<Box<dyn TransactionWrapper>>>,
+        transaction_results: RefCell<Vec<TransactionWrapperMock>>,
         set_params: Arc<Mutex<Vec<(String, Option<String>)>>>,
         set_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
     }
@@ -359,8 +361,8 @@ mod tests {
             self.get_results.borrow_mut().remove(0)
         }
 
-        fn transaction(&self) -> Box<dyn TransactionWrapper> {
-            self.transaction_results.borrow_mut().remove(0)
+        fn transaction<'a>(&'a self) -> Box<dyn TransactionWrapper<'a> + 'a> {
+            Box::new (self.transaction_results.borrow_mut().remove(0))
         }
 
         fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
@@ -399,7 +401,7 @@ mod tests {
             self
         }
 
-        fn transaction_result(self, result: Box<dyn TransactionWrapper>) -> Self {
+        fn transaction_result(self, result: TransactionWrapperMock) -> Self {
             self.transaction_results.borrow_mut().push(result);
             self
         }
@@ -593,7 +595,7 @@ mod tests {
         let dao = ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_params(&get_params_arc)
-            .transaction_result(Box::new(transaction))
+            .transaction_result(transaction)
             .get_all_result(Ok(vec![
                 ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true),
                 ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
@@ -610,7 +612,7 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()));
-        let subject = SecureConfigLayerReal::new(Box::new(dao));
+        let mut subject = SecureConfigLayerReal::new(Box::new(dao));
 
         let result = subject.change_password(None, "password");
 
@@ -655,7 +657,7 @@ mod tests {
                 Some(&encrypted_example),
                 true,
             )))
-            .transaction_result(Box::new(transaction))
+            .transaction_result(transaction)
             .get_all_result(Ok(vec![
                 ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true),
                 ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
@@ -674,7 +676,7 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()));
-        let subject = SecureConfigLayerReal::new(Box::new(dao));
+        let mut subject = SecureConfigLayerReal::new(Box::new(dao));
 
         let result = subject.change_password(Some("old_password"), "new_password");
 
@@ -712,7 +714,7 @@ mod tests {
             Some(&encrypted_example),
             true,
         )));
-        let subject = SecureConfigLayerReal::new(Box::new(dao));
+        let mut subject = SecureConfigLayerReal::new(Box::new(dao));
 
         let result = subject.change_password(Some("bad_password"), "new_password");
 
@@ -1165,8 +1167,8 @@ mod tests {
     fn transaction_delegates_to_dao() {
         let transaction = TransactionWrapperMock::new();
         let committed_arc = transaction.committed_arc();
-        let dao = ConfigDaoMock::new().transaction_result(Box::new(transaction));
-        let subject = SecureConfigLayerReal::new(Box::new(dao));
+        let dao = ConfigDaoMock::new().transaction_result(transaction);
+        let mut subject = SecureConfigLayerReal::new(Box::new(dao));
 
         let mut result = subject.transaction();
 
