@@ -474,8 +474,8 @@ mod tests {
     #[test]
     fn check_password_works_when_no_password_is_supplied_but_a_password_exists() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
@@ -495,8 +495,8 @@ mod tests {
     #[test]
     fn check_password_works_when_passwords_match() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
@@ -516,8 +516,8 @@ mod tests {
     #[test]
     fn check_password_works_when_passwords_dont_match() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
@@ -654,10 +654,10 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction = TransactionWrapperMock::new();
         let committed_arc = transaction.committed_arc();
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "old_password").unwrap();
-        let unencrypted_value = b"These are the times that try men's souls.";
-        let old_encrypted_value = Bip39::encrypt_bytes(unencrypted_value, "old_password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
+        let unencrypted_value = "These are the times that try men's souls.".as_bytes();
+        let old_encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "old_password").unwrap();
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
@@ -715,8 +715,8 @@ mod tests {
 
     #[test]
     fn change_password_works_when_password_exists_and_old_password_doesnt_match() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "old_password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
         let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             EXAMPLE_ENCRYPTED,
             Some(&encrypted_example),
@@ -731,8 +731,8 @@ mod tests {
 
     #[test]
     fn reencrypt_records_balks_when_a_value_is_incorrectly_encrypted() {
-        let unencrypted_value = b"These are the times that try men's souls.";
-        let encrypted_value = Bip39::encrypt_bytes(unencrypted_value, "bad_password").unwrap();
+        let unencrypted_value = "These are the times that try men's souls.".as_bytes();
+        let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "bad_password").unwrap();
         let dao = ConfigDaoMock::new().get_all_result(Ok(vec![ConfigDaoRecord::new(
             "badly_encrypted",
             Some(&encrypted_value),
@@ -747,10 +747,10 @@ mod tests {
 
     #[test]
     fn reencrypt_records_balks_when_a_value_cant_be_set() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "old_password").unwrap();
-        let unencrypted_value = b"These are the times that try men's souls.";
-        let encrypted_value = Bip39::encrypt_bytes(unencrypted_value, "old_password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
+        let unencrypted_value = "These are the times that try men's souls.";
+        let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "old_password").unwrap();
         let dao = ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
@@ -817,8 +817,8 @@ mod tests {
 
     #[test]
     fn get_all_handles_matching_database_password() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let unencrypted_value = "These are the times that try men's souls.".to_string();
         let encrypted_value =
             Bip39::encrypt_bytes(&unencrypted_value.clone().into_bytes(), "password").unwrap();
@@ -855,8 +855,8 @@ mod tests {
 
     #[test]
     fn get_all_handles_mismatched_database_password() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             EXAMPLE_ENCRYPTED,
             Some(&encrypted_example),
@@ -895,8 +895,8 @@ mod tests {
 
     #[test]
     fn get_all_complains_about_badly_encrypted_value() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let unencrypted_value = "These are the times that try men's souls.".to_string();
         let encrypted_value =
             Bip39::encrypt_bytes(&unencrypted_value.clone().into_bytes(), "bad_password").unwrap();
@@ -924,8 +924,8 @@ mod tests {
 
     #[test]
     fn get_all_complains_about_encrypted_non_utf8_string() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         // UTF-8 doesn't tolerate 192 followed by 193
         let unencrypted_value: &[u8] = &[32, 32, 192, 193, 32, 32];
         let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "password").unwrap();
@@ -997,8 +997,8 @@ mod tests {
 
     #[test]
     fn get_works_when_database_is_encrypted_value_is_unencrypted() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
@@ -1027,10 +1027,10 @@ mod tests {
 
     #[test]
     fn get_works_when_database_is_encrypted_value_is_encrypted() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
-        let value = b"These are the times that try men's souls.";
-        let encrypted_value = Bip39::encrypt_bytes(value, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let value = "These are the times that try men's souls.";
+        let encrypted_value = Bip39::encrypt_bytes(&value, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
@@ -1063,8 +1063,8 @@ mod tests {
 
     #[test]
     fn get_objects_if_value_is_encrypted_and_present_but_password_is_not_supplied() {
-        let value = b"These are the times that try men's souls.";
-        let encrypted_value = Bip39::encrypt_bytes(value, "password").unwrap();
+        let value = "These are the times that try men's souls.".as_bytes();
+        let encrypted_value = Bip39::encrypt_bytes(&value, "password").unwrap();
         let dao = ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_result(Ok(ConfigDaoRecord::new(
@@ -1087,10 +1087,10 @@ mod tests {
 
     #[test]
     fn get_objects_if_password_is_wrong() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
-        let value = b"These are the times that try men's souls.";
-        let encrypted_value = Bip39::encrypt_bytes(value, "bad_password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let value = "These are the times that try men's souls.".as_bytes();
+        let encrypted_value = Bip39::encrypt_bytes(&value, "bad_password").unwrap();
         let dao = ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
@@ -1116,8 +1116,8 @@ mod tests {
 
     #[test]
     fn get_objects_if_decrypted_string_violates_utf8() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         // UTF-8 doesn't tolerate 192 followed by 193
         let unencrypted_value: &[u8] = &[32, 32, 192, 193, 32, 32];
         let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "password").unwrap();
@@ -1271,8 +1271,8 @@ mod tests {
 
     #[test]
     fn set_works_when_database_is_encrypted_and_value_is_unencrypted_and_absent() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let dao = ConfigDaoMock::new()
@@ -1301,8 +1301,8 @@ mod tests {
 
     #[test]
     fn set_works_when_database_is_encrypted_and_value_is_unencrypted_and_present() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let dao = ConfigDaoMock::new()
@@ -1345,8 +1345,8 @@ mod tests {
 
     #[test]
     fn set_works_when_database_is_encrypted_and_value_is_encrypted_and_absent() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let dao = ConfigDaoMock::new()
@@ -1377,8 +1377,8 @@ mod tests {
 
     #[test]
     fn set_works_when_database_is_encrypted_and_value_is_encrypted_and_present() {
-        let example = b"Aside from that, Mrs. Lincoln, how was the play?";
-        let encrypted_example = Bip39::encrypt_bytes(example, "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let old_encrypted_value =
             Bip39::encrypt_bytes(&b"old_attribute_value", "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
