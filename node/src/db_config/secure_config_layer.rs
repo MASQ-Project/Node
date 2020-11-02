@@ -31,7 +31,7 @@ pub trait SCLActor: Send {
     fn act (&self, record: &ConfigDaoRecord, new_value: Option<&str>) -> Result<Option<String>, SecureConfigLayerError>;
 }
 
-pub trait SecureConfigLayer: Send {
+pub trait SecureConfigLayer {
     fn check_password(&self, db_password_opt: Option<&str>)
         -> Result<bool, SecureConfigLayerError>;
     fn change_password(
@@ -87,10 +87,10 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         if !self.check_password(old_password_opt)? {
             return Err(SecureConfigLayerError::PasswordError);
         }
-        let mut transaction = self.dao.transaction();
+        // let mut transaction = self.dao.transaction();
         self.reencrypt_records(old_password_opt, new_password)?;
         self.install_example_for_password(new_password)?;
-        transaction.commit();
+        // transaction.commit();
         Ok(())
     }
 
@@ -134,7 +134,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
     }
 
     fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a> {
-        self.dao.transaction()
+        unimplemented!()
     }
 
     fn set(
@@ -361,8 +361,16 @@ mod tests {
             self.get_results.borrow_mut().remove(0)
         }
 
-        fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a> {
-            Box::new (self.transaction_results.borrow_mut().remove(0))
+        fn start_transaction(&mut self) -> Result<(), ConfigDaoError> {
+            unimplemented!()
+        }
+
+        fn rollback_transaction(&mut self) -> Result<(), ConfigDaoError> {
+            unimplemented!()
+        }
+
+        fn commit_transaction(&mut self) -> Result<(), ConfigDaoError> {
+            unimplemented!()
         }
 
         fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {

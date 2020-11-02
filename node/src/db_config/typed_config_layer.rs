@@ -25,7 +25,7 @@ impl From<SecureConfigLayerError> for TypedConfigLayerError {
     }
 }
 
-pub trait TypedConfigLayer: Send {
+pub trait TypedConfigLayer {
     fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, TypedConfigLayerError>;
     fn change_password(&mut self, old_password_opt: Option<&str>, new_password_opt: &str) -> Result<(), TypedConfigLayerError>;
     fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, Option<String>)>, TypedConfigLayerError>;
