@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use rusqlite::types::ToSql;
 use rusqlite::{Rows, NO_PARAMS, Row, Transaction};
-use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
+use crate::database::connection_wrapper::{ConnectionWrapper};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -27,21 +27,41 @@ impl ConfigDaoRecord {
     }
 }
 
-pub trait ConfigDao {
-    fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
-    fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
-    fn start_transaction(&mut self) -> Result<(), ConfigDaoError>;
-    fn rollback_transaction(&mut self) -> Result<(), ConfigDaoError>;
-    fn commit_transaction(&mut self) -> Result<(), ConfigDaoError>;
-    fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError>;
+// Anything that can read from the database implements this trait
+pub trait ConfigDaoRead {
+    fn get_all (&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
+    fn get (&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
+}
+
+// Anything that can write to the database implements this trait
+pub trait ConfigDaoWrite<'a> {
+    fn set (&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError>;
+    fn rollback (&mut self) -> Result<(), ConfigDaoError>;
+}
+
+pub trait ConfigDaoReadWrite<'a> : ConfigDaoRead + ConfigDaoWrite<'a> {}
+
+// ConfigDao can read from the database but not write to it; however, it can produce a Transaction,
+// which _can_ write to the database.
+pub trait ConfigDao: ConfigDaoRead {
+    fn start_transaction<'a>(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError>;
 }
 
 pub struct ConfigDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    transaction: Option<Transaction<'static>>
 }
 
 impl ConfigDao for ConfigDaoReal {
+    fn start_transaction<'a>(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError> {
+        let transaction: Transaction<'a> = match self.conn.transaction() {
+            Ok (t) => t,
+            Err(e) => unimplemented!("{:?}", e),
+        };
+        Ok(Box::new (ConfigDaoWriteableReal::new (transaction)))
+    }
+}
+
+impl ConfigDaoRead for ConfigDaoReal {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
         let mut stmt = self.conn
             .prepare("select name, value, encrypted from config")
@@ -73,37 +93,12 @@ impl ConfigDao for ConfigDaoReal {
             Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         }
     }
-
-    fn start_transaction(&mut self) -> Result<(), ConfigDaoError> {
-        unimplemented!()
-    }
-
-    fn rollback_transaction(&mut self) -> Result<(), ConfigDaoError> {
-        unimplemented!()
-    }
-
-    fn commit_transaction(&mut self) -> Result<(), ConfigDaoError> {
-        unimplemented!()
-    }
-
-    fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
-        let mut stmt = match self.conn
-            .prepare("update config set value = ? where name = ?")
-        {
-            Ok(stmt) => stmt,
-            // The following line is untested, because we don't know how to trigger it.
-            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
-        };
-        let params: &[&dyn ToSql] = &[&value, &name];
-        Self::handle_update_execution(stmt.execute(params))
-    }
 }
 
 impl ConfigDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ConfigDaoReal {
         ConfigDaoReal {
             conn,
-            transaction: None,
         }
     }
 
@@ -116,14 +111,60 @@ impl ConfigDaoReal {
             None => ConfigDaoRecord::new (&name, None, encrypted_int != 0),
         }
     }
+}
 
-    fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), ConfigDaoError> {
-        match result {
-            Ok(0) => Err(ConfigDaoError::NotPresent),
-            Ok(_) => Ok(()),
+// This is the real object that contains a Transaction for writing
+pub struct ConfigDaoWriteableReal<'a> {
+    transaction_opt: Option<Transaction<'a>>
+}
+
+// But the Transaction-bearing writer can also read
+impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
+    fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
+        unimplemented!()
+    }
+
+    fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
+        unimplemented!()
+    }
+}
+
+// ...and it can write too
+impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
+
+    fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
+        let mut stmt = match self.transaction_opt
+            .expect("Transaction has been destroyed")
+            .prepare("update config set value = ? where name = ?")
+        {
+            Ok(stmt) => stmt,
             // The following line is untested, because we don't know how to trigger it.
-            Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))),
-        }
+            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
+        };
+        let params: &[&dyn ToSql] = &[&value, &name];
+        handle_update_execution(stmt.execute(params))
+    }
+
+    fn rollback(&mut self) -> Result<(), ConfigDaoError> {
+        unimplemented!()
+    }
+}
+
+// Because we can't declare a parameter as "writer: Box<dyn ConfigDaoRead + dyn ConfigDaoWrite>"
+impl<'a> ConfigDaoReadWrite<'a> for ConfigDaoWriteableReal<'a> {}
+
+// This is the real version of ConfigDaoWriteable used in production
+impl<'a> ConfigDaoWriteableReal<'a> {
+    fn new (transaction: Transaction<'a>) -> Self {
+        Self { transaction_opt: Some (transaction)}
+    }
+}
+fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), ConfigDaoError> {
+    match result {
+        Ok(0) => Err(ConfigDaoError::NotPresent),
+        Ok(_) => Ok(()),
+        // The following line is untested, because we don't know how to trigger it.
+        Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))),
     }
 }
 
@@ -146,7 +187,6 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        subject.transaction = None;
 
         let result = subject.get_all().unwrap();
 
@@ -179,134 +219,82 @@ mod tests {
     #[test]
     fn set_and_get_and_committed_transactions_work() {
         let home_dir = ensure_node_home_directory_exists("config_dao", "set_and_get_and_committed_transactions_work");
-        let mut subject = ConfigDaoReal::new(
+        let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        let mut confirmer = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, false)
-                .unwrap(),
-        );
-        let initial_value = subject.get("seed").unwrap();
+        let initial_value = dao.get("seed").unwrap();
         let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
-        subject.start_transaction().unwrap();
+        let subject = dao.start_transaction().unwrap();
+        {
 
-        subject.set("seed", Some ("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
-        let subject_get_all = subject.get_all().unwrap();
-        let subject_get = subject.get ("seed").unwrap();
-        let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
+            subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
 
+            let subject_get_all = subject.get_all().unwrap();
+            let subject_get = subject.get("seed").unwrap();
+            let dao_get_all = dao.get_all().unwrap();
+            let dao_get = dao.get("seed").unwrap();
+            assert_contains(&subject_get_all, &modified_value);
+            assert_eq!(subject_get, modified_value);
+            assert_contains(&dao_get_all, &initial_value);
+            assert_eq!(dao_get, initial_value);
+            // subject should commit as it goes out of scope
+        };
+        let subject_get_all = dao.get_all().unwrap();
+        let subject_get = dao.get ("seed").unwrap();
+        let dao_get_all = dao.get_all().unwrap();
+        let dao_get = dao.get("seed").unwrap();
         assert_contains(&subject_get_all, &modified_value);
         assert_eq!(subject_get, modified_value);
-        assert_contains(&confirmer_get_all, &initial_value);
-        assert_eq!(confirmer_get, initial_value);
-
-        subject.commit_transaction().unwrap();
-
-        let subject_get_all = subject.get_all().unwrap();
-        let subject_get = subject.get ("seed").unwrap();
-        let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
-        assert_contains(&subject_get_all, &modified_value);
-        assert_eq!(subject_get, modified_value);
-        assert_contains(&confirmer_get_all, &modified_value);
-        assert_eq!(confirmer_get, modified_value);
+        assert_contains(&dao_get_all, &modified_value);
+        assert_eq!(dao_get, modified_value);
     }
 
     #[test]
     fn set_and_get_and_rolled_back_transactions_work() {
         let home_dir = ensure_node_home_directory_exists("config_dao", "set_and_get_and_rolled_back_transactions_work");
-        let mut subject = ConfigDaoReal::new(
+        let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        let mut confirmer = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, false)
-                .unwrap(),
-        );
-        let initial_value = subject.get("seed").unwrap();
+        let initial_value = dao.get("seed").unwrap();
         let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
-        subject.start_transaction().unwrap();
+        let mut subject = dao.start_transaction().unwrap();
 
         subject.set("seed", Some ("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
-        let subject_get_all = subject.get_all().unwrap();
-        let subject_get = subject.get ("seed").unwrap();
-        let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
 
+        let subject_get_all = dao.get_all().unwrap();
+        let subject_get = dao.get ("seed").unwrap();
+        let dao_get_all = dao.get_all().unwrap();
+        let dao_get = dao.get("seed").unwrap();
         assert_contains(&subject_get_all, &modified_value);
         assert_eq!(subject_get, modified_value);
-        assert_contains(&confirmer_get_all, &initial_value);
-        assert_eq!(confirmer_get, initial_value);
+        assert_contains(&dao_get_all, &initial_value);
+        assert_eq!(dao_get, initial_value);
 
-        subject.rollback_transaction().unwrap();
+        subject.rollback().unwrap();
 
-        let subject_get_all = subject.get_all().unwrap();
-        let subject_get = subject.get ("seed").unwrap();
-        let confirmer_get_all = confirmer.get_all().unwrap();
-        let confirmer_get = confirmer.get("seed").unwrap();
+        let subject_get_all = dao.get_all().unwrap();
+        let subject_get = dao.get ("seed").unwrap();
+        let dao_get_all = dao.get_all().unwrap();
+        let dao_get = dao.get("seed").unwrap();
         assert_contains(&subject_get_all, &initial_value);
         assert_eq!(subject_get, initial_value);
-        assert_contains(&confirmer_get_all, &initial_value);
-        assert_eq!(confirmer_get, initial_value);
-    }
-
-    #[test]
-    fn killing_config_dao_rolls_back_transaction() {
-        let home_dir = ensure_node_home_directory_exists("config_dao", "killing_config_dao_rolls_back_transaction");
-        let mut confirmer = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-        let initial_value = confirmer.get("seed").unwrap();
-        let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
-
-        {
-            let mut subject = ConfigDaoReal::new(
-                DbInitializerReal::new()
-                    .initialize(&home_dir, DEFAULT_CHAIN_ID, false)
-                    .unwrap(),
-            );
-            subject.start_transaction().unwrap();
-
-            subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
-        }
-
-        let confirmer_get_all = confirmer.get_all().unwrap();
-        assert_contains(&confirmer_get_all, &initial_value);
-        let confirmer_get = confirmer.get("seed").unwrap();
-        assert_eq!(confirmer_get, initial_value);
-    }
-
-    #[test]
-    fn set_complains_without_transaction() {
-        let home_dir = ensure_node_home_directory_exists("config_dao", "set_complains_without_transaction");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-
-        let result = subject.set("booga", Some ("bigglesworth"));
-
-        assert_eq!(result, Err(ConfigDaoError::TransactionError));
+        assert_contains(&dao_get_all, &initial_value);
+        assert_eq!(dao_get, initial_value);
     }
 
     #[test]
     fn setting_nonexistent_value_returns_not_present() {
         let home_dir = ensure_node_home_directory_exists("config_dao", "setting_nonexistent_value_returns_not_present");
-        let mut subject = ConfigDaoReal::new(
+        let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        subject.start_transaction().unwrap();
+        let subject = dao.start_transaction().unwrap();
 
         let result = subject.set("booga", Some ("bigglesworth"));
 
@@ -316,16 +304,18 @@ mod tests {
     #[test]
     fn setting_value_to_none_removes_value_but_not_row() {
         let home_dir = ensure_node_home_directory_exists("config_dao", "setting_value_to_none_removes_value_but_not_row");
-        let mut subject = ConfigDaoReal::new(
+        let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        subject.start_transaction().unwrap();
+        {
+            let subject = dao.start_transaction().unwrap();
 
-        let _ = subject.set("schema_version", None).unwrap();
-
-        let result = subject.get("schema_version").unwrap();
+            let _ = subject.set("schema_version", None).unwrap();
+            // subject should commit on destruction
+        }
+        let result = dao.get("schema_version").unwrap();
         assert_eq!(result, ConfigDaoRecord::new ("schema_version", None, false));
     }
 }

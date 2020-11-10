@@ -297,7 +297,7 @@ impl ReceivableDaoReal {
             .max()
             .ok_or("no payments given")?;
 
-        persistent_configuration.set_start_block_transactionally(tx.as_ref(), block_number)?;
+        persistent_configuration.set_start_block_transactionally(tx, block_number)?;
 
         {
             let mut stmt = tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?").expect("Internal error");

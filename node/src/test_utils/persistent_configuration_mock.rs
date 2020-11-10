@@ -6,7 +6,7 @@ use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use crate::database::connection_wrapper::TransactionWrapper;
+use rusqlite::Transaction;
 
 type MnemonicSeedParam = (Vec<u8>, String);
 
@@ -167,7 +167,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
 
     fn set_start_block_transactionally(
         &self,
-        _tx: &dyn TransactionWrapper,
+        _tx: Transaction,
         _value: u64,
     ) -> Result<(), String> {
         Self::result_from(&self.set_start_block_transactionally_results)

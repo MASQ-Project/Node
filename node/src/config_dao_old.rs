@@ -4,8 +4,8 @@ use crate::config_dao_old::ConfigDaoError::DatabaseError;
 use crate::sub_lib::cryptde::PlainData;
 use rand::Rng;
 use rusqlite::types::ToSql;
-use rusqlite::{OptionalExtension, Rows, NO_PARAMS};
-use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
+use rusqlite::{OptionalExtension, Rows, NO_PARAMS, Transaction};
+use crate::database::connection_wrapper::{ConnectionWrapper};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -42,7 +42,7 @@ pub trait ConfigDaoOld: Send {
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError>;
     fn set_u64_transactional(
         & self,
-        transaction: &dyn TransactionWrapper,
+        transaction: Transaction,
         name: &str,
         value: u64,
     ) -> Result<(), ConfigDaoError>;
@@ -246,7 +246,7 @@ impl ConfigDaoOld for ConfigDaoReal {
 
     fn set_u64_transactional(
         &self,
-        transaction: &dyn TransactionWrapper,
+        transaction: Transaction,
         name: &str,
         value: u64,
     ) -> Result<(), ConfigDaoError> {
@@ -926,7 +926,7 @@ mod tests {
             let mut transaction = db.transaction().unwrap();
 
             subject
-                .set_u64_transactional(transaction.as_ref(), &key, value)
+                .set_u64_transactional(transaction, &key, value)
                 .unwrap();
             transaction.commit();
         }

@@ -3,7 +3,7 @@ use crate::config_dao_old::{ConfigDaoError, ConfigDaoOld};
 use crate::sub_lib::cryptde::PlainData;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use crate::database::connection_wrapper::TransactionWrapper;
+use rusqlite::Transaction;
 
 #[derive(Default)]
 pub struct ConfigDaoMock {
@@ -103,7 +103,7 @@ impl ConfigDaoOld for ConfigDaoMock {
 
     fn set_u64_transactional(
         &self,
-        _transaction: &dyn TransactionWrapper,
+        _transaction: Transaction,
         name: &str,
         value: u64,
     ) -> Result<(), ConfigDaoError> {

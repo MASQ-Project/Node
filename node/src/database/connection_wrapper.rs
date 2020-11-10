@@ -38,7 +38,7 @@ impl<'a> From<Transaction<'a>> for TransactionWrapperReal<'a> {
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
-    fn transaction<'a>(&'a mut self) -> Result<Box<dyn TransactionWrapper<'a> + 'a>, rusqlite::Error>;
+    fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, rusqlite::Error>;
 }
 
 #[derive(Debug)]
@@ -50,8 +50,8 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.conn.prepare(query)
     }
-    fn transaction<'a>(&'a mut self) -> Result<Box<dyn TransactionWrapper<'a> + 'a>, Error> {
-        Ok(Box::new (TransactionWrapperReal::from (self.conn.transaction()?)))
+    fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, Error> {
+        Ok(self.conn.transaction()?)
     }
 }
 

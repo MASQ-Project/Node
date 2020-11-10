@@ -2,7 +2,8 @@
 use crate::blockchain::blockchain_interface::{
     chain_name_from_id, contract_creation_block_from_chain_id,
 };
-use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+// use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -333,20 +334,21 @@ impl DbInitializerReal {
 #[cfg(test)]
 pub mod test_utils {
     use crate::database::db_initializer::{DbInitializer, InitializationError};
-    use crate::db_config::mocks::TransactionWrapperMock;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
+    use crate::database::connection_wrapper::{ConnectionWrapper};
+    use rusqlite::Transaction;
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperOldMock<'a> {
         pub prepare_parameters: Arc<Mutex<Vec<String>>>,
         pub prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-        pub transaction_results: RefCell<Vec<Result<TransactionWrapperMock, Error>>>,
+        pub transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
     }
 
+    // TODO: See if we can get rid of this
     unsafe impl<'a> Send for ConnectionWrapperOldMock<'a> {}
 
     impl<'a> ConnectionWrapperOldMock<'a> {
@@ -355,7 +357,7 @@ pub mod test_utils {
             self
         }
 
-        pub fn transaction_result(self, result: Result<TransactionWrapperMock, Error>) -> Self {
+        pub fn transaction_result(self, result: Result<Transaction<'a>, Error>) -> Self {
             self.transaction_results.borrow_mut().push(result);
             self
         }
@@ -370,9 +372,9 @@ pub mod test_utils {
             self.prepare_results.borrow_mut().remove(0)
         }
 
-        fn transaction<'b>(&'b mut self) -> Result<Box<dyn TransactionWrapper<'b> + 'b>, Error> {
+        fn transaction<'x: 'y, 'y>(&'x mut self) -> Result<Transaction<'y>, Error> {
             match self.transaction_results.borrow_mut().remove(0) {
-                Ok(result) => Ok(Box::new (result)),
+                Ok(result) => Ok(result),
                 Err(e) =>Err (e),
             }
         }
