@@ -55,7 +55,8 @@ impl ConfigDao for ConfigDaoReal {
     fn start_transaction<'a>(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError> {
         let transaction: Transaction<'a> = match self.conn.transaction() {
             Ok (t) => t,
-            Err(e) => unimplemented!("{:?}", e),
+            // This line is untested, because we don't know how to pop this error in a test
+            Err(e) => return Err (ConfigDaoError::DatabaseError(format! ("{:?}", e))),
         };
         Ok(Box::new (ConfigDaoWriteableReal::new (transaction)))
     }
@@ -123,7 +124,7 @@ impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
     fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
         let transaction = match &self.transaction_opt {
             Some (t) => t,
-            None => unimplemented!(),
+            None => return Err(ConfigDaoError::Dropped),
         };
         let mut stmt = match transaction
             .prepare("update config set value = ? where name = ?")
@@ -140,9 +141,10 @@ impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
         match self.transaction_opt.take() {
             Some (transaction) => match transaction.commit() {
                 Ok (_) => Ok(()),
-                Err (e) => unimplemented! ("{:?}", e),
+                // The following line is untested, because we don't know how to trigger it.
+                Err (e) => Err (ConfigDaoError::DatabaseError (format! ("{:?}", e))),
             },
-            None => unimplemented!(),
+            None => Err (ConfigDaoError::Dropped),
         }
     }
 }
@@ -216,6 +218,7 @@ mod tests {
     };
     use crate::test_utils::assert_contains;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use std::path::PathBuf;
 
     #[test]
     fn get_all_returns_multiple_results() {
@@ -284,8 +287,11 @@ mod tests {
         assert_eq!(confirmer_get, initial_value);
         subject.commit().unwrap();
 
+        // Can't use a committed ConfigDaoWriteableReal anymore
         assert_eq!(subject.get_all(), Err(ConfigDaoError::Dropped));
         assert_eq!(subject.get("seed"), Err(ConfigDaoError::Dropped));
+        assert_eq!(subject.set("seed", Some("irrelevant")), Err(ConfigDaoError::Dropped));
+        assert_eq!(subject.commit(), Err(ConfigDaoError::Dropped));
         let confirmer_get_all = confirmer.get_all().unwrap();
         let confirmer_get = confirmer.get("seed").unwrap();
         assert_contains(&confirmer_get_all, &modified_value);
