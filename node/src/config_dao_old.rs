@@ -42,7 +42,7 @@ pub trait ConfigDaoOld: Send {
     fn set_u64(&self, name: &str, value: u64) -> Result<(), ConfigDaoError>;
     fn set_u64_transactional(
         & self,
-        transaction: Transaction,
+        transaction: &Transaction,
         name: &str,
         value: u64,
     ) -> Result<(), ConfigDaoError>;
@@ -246,7 +246,7 @@ impl ConfigDaoOld for ConfigDaoReal {
 
     fn set_u64_transactional(
         &self,
-        transaction: Transaction,
+        transaction: &Transaction,
         name: &str,
         value: u64,
     ) -> Result<(), ConfigDaoError> {
@@ -923,12 +923,11 @@ mod tests {
             let mut db = DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
-            let mut transaction = db.transaction().unwrap();
+            let transaction = db.transaction().unwrap();
 
             subject
-                .set_u64_transactional(transaction, &key, value)
+                .set_u64_transactional(&transaction, &key, value)
                 .unwrap();
-            transaction.commit();
         }
 
         let result = subject.get_u64(key);

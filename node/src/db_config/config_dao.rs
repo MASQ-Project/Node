@@ -1,11 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use rusqlite::types::ToSql;
-use rusqlite::{Rows, NO_PARAMS, Row, Transaction};
+use rusqlite::{Rows, NO_PARAMS, Row, Transaction, Statement};
 use crate::database::connection_wrapper::{ConnectionWrapper};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
     NotPresent,
+    Dropped,
     TransactionError,
     DatabaseError(String),
 }
@@ -63,35 +64,17 @@ impl ConfigDao for ConfigDaoReal {
 
 impl ConfigDaoRead for ConfigDaoReal {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
-        let mut stmt = self.conn
+        let stmt = self.conn
             .prepare("select name, value, encrypted from config")
             .expect("Schema error: couldn't compose query for config table");
-        let mut rows: Rows = stmt
-            .query(NO_PARAMS)
-            .expect("Schema error: couldn't dump config table");
-        let mut results = vec![];
-        loop {
-            match rows.next() {
-                Ok(Some(row)) => results.push (Self::row_to_config_dao_record(row)),
-                Ok(None) => break,
-                // The following line is untested, because we don't know how to trigger it.
-                Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
-            }
-        }
-        Ok(results)
+        get_all(stmt)
     }
 
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
-        let mut stmt = match self.conn.prepare("select name, value, encrypted from config where name = ?") {
-            Ok(stmt) => stmt,
-            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
-        };
-        match stmt.query_row(&[name], |row| Ok(Self::row_to_config_dao_record(row))) {
-            Ok(record) => Ok(record),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Err(ConfigDaoError::NotPresent),
-            // The following line is untested, because we don't know how to trigger it.
-            Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))),
-        }
+        let mut stmt = self.conn
+            .prepare("select name, value, encrypted from config where name = ?")
+            .expect("Schema error: couldn't compose query for config table");
+        get (stmt, name)
     }
 }
 
@@ -99,16 +82,6 @@ impl ConfigDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ConfigDaoReal {
         ConfigDaoReal {
             conn,
-        }
-    }
-
-    fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
-        let name: String = row.get(0).expect("Schema error: no name column");
-        let value_opt: Option<String> = row.get(1).expect("Schema error: no value column");
-        let encrypted_int: i32 = row.get(2).expect("Schema error: no encrypted column");
-        match value_opt {
-            Some (value) => ConfigDaoRecord::new(&name, Some (&value), encrypted_int != 0),
-            None => ConfigDaoRecord::new (&name, None, encrypted_int != 0),
         }
     }
 }
@@ -121,11 +94,27 @@ pub struct ConfigDaoWriteableReal<'a> {
 // But the Transaction-bearing writer can also read
 impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
-        unimplemented!()
+        if let Some(transaction) = &self.transaction_opt {
+            let stmt = transaction
+                .prepare("select name, value, encrypted from config")
+                .expect("Schema error: couldn't compose query for config table");
+            get_all(stmt)
+        }
+        else {
+            Err(ConfigDaoError::Dropped)
+        }
     }
 
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
-        unimplemented!()
+        if let Some(transaction) = &self.transaction_opt {
+            let stmt = transaction
+                .prepare("select name, value, encrypted from config where name = ?")
+                .expect("Schema error: couldn't compose query for config table");
+            get (stmt, name)
+        }
+        else {
+            Err(ConfigDaoError::Dropped)
+        }
     }
 }
 
@@ -133,8 +122,11 @@ impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
 impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
 
     fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
-        let mut stmt = match self.transaction_opt
-            .expect("Transaction has been destroyed")
+        let transaction = match &self.transaction_opt {
+            Some (t) => t,
+            None => unimplemented!(),
+        };
+        let mut stmt = match transaction
             .prepare("update config set value = ? where name = ?")
         {
             Ok(stmt) => stmt,
@@ -146,7 +138,21 @@ impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
     }
 
     fn rollback(&mut self) -> Result<(), ConfigDaoError> {
-        unimplemented!()
+        match self.transaction_opt.take() {
+            Some (transaction) => match transaction.rollback() {
+                Ok (_) => Ok(()),
+                Err (e) => unimplemented! ("{:?}", e),
+            },
+            None => unimplemented!(),
+        }
+    }
+}
+
+impl<'a> Drop for ConfigDaoWriteableReal<'a> {
+    fn drop(&mut self) {
+        if self.transaction_opt.is_some() {
+            let _ = self.transaction_opt.take();
+        }
     }
 }
 
@@ -168,6 +174,48 @@ fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), Config
     }
 }
 
+fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>{
+    let mut rows: Rows = stmt
+        .query(NO_PARAMS)
+        .expect("Schema error: couldn't dump config table");
+    let mut results = Vec::new();
+    loop {
+        match rows.next() {
+            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
+            Ok(Some(row)) => {
+                let name: String = row.get(0).expect("Schema error: no name column");
+                let value_opt: Option<String> = row.get(1).expect("Schema error: no value column");
+                let encrypted: i32 = row.get(2).expect("Schema error: no encrypted column");
+                match value_opt {
+                    Some (s) => results.push (ConfigDaoRecord::new (&name, Some (s.as_str()), encrypted != 0)),
+                    None => results.push (ConfigDaoRecord::new (&name, None, encrypted != 0)),
+                }
+            }
+            Ok(None) => break,
+        }
+    }
+    Ok(results)
+}
+
+fn get (mut stmt: Statement, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
+    match stmt.query_row(&[name], |row| Ok(row_to_config_dao_record(row))) {
+        Ok(record) => Ok(record),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err(ConfigDaoError::NotPresent),
+        // The following line is untested, because we don't know how to trigger it.
+        Err(e) => Err(ConfigDaoError::DatabaseError(format!("{}", e))),
+    }
+}
+
+fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
+    let name: String = row.get(0).expect("Schema error: no name column");
+    let value_opt: Option<String> = row.get(1).expect("Schema error: no value column");
+    let encrypted_int: i32 = row.get(2).expect("Schema error: no encrypted column");
+    match value_opt {
+        Some (value) => ConfigDaoRecord::new(&name, Some (&value), encrypted_int != 0),
+        None => ConfigDaoRecord::new (&name, None, encrypted_int != 0),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,7 +230,7 @@ mod tests {
     fn get_all_returns_multiple_results() {
         let home_dir =
             ensure_node_home_directory_exists("config_dao", "get_all_returns_multiple_results");
-        let mut subject = ConfigDaoReal::new(
+        let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
@@ -224,6 +272,11 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
+        let confirmer = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .unwrap(),
+        );
         let initial_value = dao.get("seed").unwrap();
         let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
         let subject = dao.start_transaction().unwrap();
@@ -233,20 +286,16 @@ mod tests {
 
             let subject_get_all = subject.get_all().unwrap();
             let subject_get = subject.get("seed").unwrap();
-            let dao_get_all = dao.get_all().unwrap();
-            let dao_get = dao.get("seed").unwrap();
+            let dao_get_all = confirmer.get_all().unwrap();
+            let dao_get = confirmer.get("seed").unwrap();
             assert_contains(&subject_get_all, &modified_value);
             assert_eq!(subject_get, modified_value);
             assert_contains(&dao_get_all, &initial_value);
             assert_eq!(dao_get, initial_value);
             // subject should commit as it goes out of scope
         };
-        let subject_get_all = dao.get_all().unwrap();
-        let subject_get = dao.get ("seed").unwrap();
-        let dao_get_all = dao.get_all().unwrap();
-        let dao_get = dao.get("seed").unwrap();
-        assert_contains(&subject_get_all, &modified_value);
-        assert_eq!(subject_get, modified_value);
+        let dao_get_all = confirmer.get_all().unwrap();
+        let dao_get = confirmer.get("seed").unwrap();
         assert_contains(&dao_get_all, &modified_value);
         assert_eq!(dao_get, modified_value);
     }
@@ -259,16 +308,21 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
+        let confirmer = ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, false)
+                .unwrap(),
+        );
         let initial_value = dao.get("seed").unwrap();
         let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
         let mut subject = dao.start_transaction().unwrap();
 
         subject.set("seed", Some ("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
 
-        let subject_get_all = dao.get_all().unwrap();
-        let subject_get = dao.get ("seed").unwrap();
-        let dao_get_all = dao.get_all().unwrap();
-        let dao_get = dao.get("seed").unwrap();
+        let subject_get_all = subject.get_all().unwrap();
+        let subject_get = subject.get ("seed").unwrap();
+        let dao_get_all = confirmer.get_all().unwrap();
+        let dao_get = confirmer.get("seed").unwrap();
         assert_contains(&subject_get_all, &modified_value);
         assert_eq!(subject_get, modified_value);
         assert_contains(&dao_get_all, &initial_value);
@@ -276,12 +330,10 @@ mod tests {
 
         subject.rollback().unwrap();
 
-        let subject_get_all = dao.get_all().unwrap();
-        let subject_get = dao.get ("seed").unwrap();
-        let dao_get_all = dao.get_all().unwrap();
-        let dao_get = dao.get("seed").unwrap();
-        assert_contains(&subject_get_all, &initial_value);
-        assert_eq!(subject_get, initial_value);
+        assert_eq! (subject.get_all(), Err(ConfigDaoError::Dropped));
+        assert_eq! (subject.get ("seed"), Err(ConfigDaoError::Dropped));
+        let dao_get_all = confirmer.get_all().unwrap();
+        let dao_get = confirmer.get("seed").unwrap();
         assert_contains(&dao_get_all, &initial_value);
         assert_eq!(dao_get, initial_value);
     }

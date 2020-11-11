@@ -167,7 +167,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
 
     fn set_start_block_transactionally(
         &self,
-        _tx: Transaction,
+        _tx: &Transaction,
         _value: u64,
     ) -> Result<(), String> {
         Self::result_from(&self.set_start_block_transactionally_results)

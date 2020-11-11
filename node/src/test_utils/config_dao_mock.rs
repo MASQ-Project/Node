@@ -103,7 +103,7 @@ impl ConfigDaoOld for ConfigDaoMock {
 
     fn set_u64_transactional(
         &self,
-        _transaction: Transaction,
+        _transaction: &Transaction,
         name: &str,
         value: u64,
     ) -> Result<(), ConfigDaoError> {
