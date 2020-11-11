@@ -276,20 +276,20 @@ mod tests {
 
         let subject_get_all = subject.get_all().unwrap();
         let subject_get = subject.get("seed").unwrap();
-        let dao_get_all = confirmer.get_all().unwrap();
-        let dao_get = confirmer.get("seed").unwrap();
+        let confirmer_get_all = confirmer.get_all().unwrap();
+        let confirmer_get = confirmer.get("seed").unwrap();
         assert_contains(&subject_get_all, &modified_value);
         assert_eq!(subject_get, modified_value);
-        assert_contains(&dao_get_all, &initial_value);
-        assert_eq!(dao_get, initial_value);
+        assert_contains(&confirmer_get_all, &initial_value);
+        assert_eq!(confirmer_get, initial_value);
         subject.commit().unwrap();
 
         assert_eq!(subject.get_all(), Err(ConfigDaoError::Dropped));
         assert_eq!(subject.get("seed"), Err(ConfigDaoError::Dropped));
-        let dao_get_all = confirmer.get_all().unwrap();
-        let dao_get = confirmer.get("seed").unwrap();
-        assert_contains(&dao_get_all, &modified_value);
-        assert_eq!(dao_get, modified_value);
+        let confirmer_get_all = confirmer.get_all().unwrap();
+        let confirmer_get = confirmer.get("seed").unwrap();
+        assert_contains(&confirmer_get_all, &modified_value);
+        assert_eq!(confirmer_get, modified_value);
     }
 
     #[test]
