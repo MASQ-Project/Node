@@ -7,7 +7,6 @@ use crate::database::connection_wrapper::{ConnectionWrapper};
 pub enum ConfigDaoError {
     NotPresent,
     Dropped,
-    TransactionError,
     DatabaseError(String),
 }
 
@@ -37,7 +36,7 @@ pub trait ConfigDaoRead {
 // Anything that can write to the database implements this trait
 pub trait ConfigDaoWrite<'a> {
     fn set (&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError>;
-    fn rollback (&mut self) -> Result<(), ConfigDaoError>;
+    fn commit (&mut self) -> Result<(), ConfigDaoError>;
 }
 
 pub trait ConfigDaoReadWrite<'a> : ConfigDaoRead + ConfigDaoWrite<'a> {}
@@ -71,7 +70,7 @@ impl ConfigDaoRead for ConfigDaoReal {
     }
 
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
-        let mut stmt = self.conn
+        let stmt = self.conn
             .prepare("select name, value, encrypted from config where name = ?")
             .expect("Schema error: couldn't compose query for config table");
         get (stmt, name)
@@ -137,21 +136,13 @@ impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
         handle_update_execution(stmt.execute(params))
     }
 
-    fn rollback(&mut self) -> Result<(), ConfigDaoError> {
+    fn commit(&mut self) -> Result<(), ConfigDaoError> {
         match self.transaction_opt.take() {
-            Some (transaction) => match transaction.rollback() {
+            Some (transaction) => match transaction.commit() {
                 Ok (_) => Ok(()),
                 Err (e) => unimplemented! ("{:?}", e),
             },
             None => unimplemented!(),
-        }
-    }
-}
-
-impl<'a> Drop for ConfigDaoWriteableReal<'a> {
-    fn drop(&mut self) {
-        if self.transaction_opt.is_some() {
-            let _ = self.transaction_opt.take();
         }
     }
 }
@@ -279,21 +270,22 @@ mod tests {
         );
         let initial_value = dao.get("seed").unwrap();
         let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
-        let subject = dao.start_transaction().unwrap();
-        {
+        let mut subject = dao.start_transaction().unwrap();
 
-            subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
+        subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
 
-            let subject_get_all = subject.get_all().unwrap();
-            let subject_get = subject.get("seed").unwrap();
-            let dao_get_all = confirmer.get_all().unwrap();
-            let dao_get = confirmer.get("seed").unwrap();
-            assert_contains(&subject_get_all, &modified_value);
-            assert_eq!(subject_get, modified_value);
-            assert_contains(&dao_get_all, &initial_value);
-            assert_eq!(dao_get, initial_value);
-            // subject should commit as it goes out of scope
-        };
+        let subject_get_all = subject.get_all().unwrap();
+        let subject_get = subject.get("seed").unwrap();
+        let dao_get_all = confirmer.get_all().unwrap();
+        let dao_get = confirmer.get("seed").unwrap();
+        assert_contains(&subject_get_all, &modified_value);
+        assert_eq!(subject_get, modified_value);
+        assert_contains(&dao_get_all, &initial_value);
+        assert_eq!(dao_get, initial_value);
+        subject.commit().unwrap();
+
+        assert_eq!(subject.get_all(), Err(ConfigDaoError::Dropped));
+        assert_eq!(subject.get("seed"), Err(ConfigDaoError::Dropped));
         let dao_get_all = confirmer.get_all().unwrap();
         let dao_get = confirmer.get("seed").unwrap();
         assert_contains(&dao_get_all, &modified_value);
@@ -315,27 +307,26 @@ mod tests {
         );
         let initial_value = dao.get("seed").unwrap();
         let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
-        let mut subject = dao.start_transaction().unwrap();
+        {
+            let subject = dao.start_transaction().unwrap();
 
-        subject.set("seed", Some ("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
+            subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
 
-        let subject_get_all = subject.get_all().unwrap();
-        let subject_get = subject.get ("seed").unwrap();
-        let dao_get_all = confirmer.get_all().unwrap();
-        let dao_get = confirmer.get("seed").unwrap();
-        assert_contains(&subject_get_all, &modified_value);
-        assert_eq!(subject_get, modified_value);
-        assert_contains(&dao_get_all, &initial_value);
-        assert_eq!(dao_get, initial_value);
+            let subject_get_all = subject.get_all().unwrap();
+            let subject_get = subject.get("seed").unwrap();
+            let confirmer_get_all = confirmer.get_all().unwrap();
+            let confirmer_get = confirmer.get("seed").unwrap();
+            assert_contains(&subject_get_all, &modified_value);
+            assert_eq!(subject_get, modified_value);
+            assert_contains(&confirmer_get_all, &initial_value);
+            assert_eq!(confirmer_get, initial_value);
+            // Subject should roll back when dropped
+        }
 
-        subject.rollback().unwrap();
-
-        assert_eq! (subject.get_all(), Err(ConfigDaoError::Dropped));
-        assert_eq! (subject.get ("seed"), Err(ConfigDaoError::Dropped));
-        let dao_get_all = confirmer.get_all().unwrap();
-        let dao_get = confirmer.get("seed").unwrap();
-        assert_contains(&dao_get_all, &initial_value);
-        assert_eq!(dao_get, initial_value);
+        let confirmer_get_all = confirmer.get_all().unwrap();
+        let confirmer_get = confirmer.get("seed").unwrap();
+        assert_contains(&confirmer_get_all, &initial_value);
+        assert_eq!(confirmer_get, initial_value);
     }
 
     #[test]
@@ -362,10 +353,10 @@ mod tests {
                 .unwrap(),
         );
         {
-            let subject = dao.start_transaction().unwrap();
+            let mut subject = dao.start_transaction().unwrap();
 
             let _ = subject.set("schema_version", None).unwrap();
-            // subject should commit on destruction
+            subject.commit().unwrap();
         }
         let result = dao.get("schema_version").unwrap();
         assert_eq!(result, ConfigDaoRecord::new ("schema_version", None, false));
