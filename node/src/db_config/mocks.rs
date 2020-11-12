@@ -42,14 +42,14 @@ impl TransactionWrapperMock {
     }
 }
 
-pub struct ConfigDaoMock {
+pub struct ConfigDaoMock<'a> {
     get_all_results: RefCell<Vec<Result<Vec<ConfigDaoRecord>, ConfigDaoError>>>,
     get_params: Arc<Mutex<Vec<String>>>,
     get_results: RefCell<Vec<Result<ConfigDaoRecord, ConfigDaoError>>>,
-    start_transaction_results: RefCell<Vec<Result<Box<dyn ConfigDaoReadWrite<'_>>, ConfigDaoError>>>,
+    start_transaction_results: RefCell<Vec<Result<Box<dyn ConfigDaoReadWrite<'a>+'a>, ConfigDaoError>>>,
 }
 
-impl ConfigDaoRead for ConfigDaoMock {
+impl ConfigDaoRead for ConfigDaoMock<'_> {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
         self.get_all_results.borrow_mut().remove(0)
     }
@@ -60,13 +60,13 @@ impl ConfigDaoRead for ConfigDaoMock {
     }
 }
 
-impl ConfigDao for ConfigDaoMock {
-    fn start_transaction<'a>(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError> {
+impl<'a> ConfigDao<'a> for ConfigDaoMock<'a> {
+    fn start_transaction<'b:'a>(&'b mut self) -> Result<Box<dyn ConfigDaoReadWrite<'b> + 'b>, ConfigDaoError> {
         self.start_transaction_results.borrow_mut().remove(0)
     }
 }
 
-impl ConfigDaoMock {
+impl <'a>ConfigDaoMock<'a> {
     pub fn new() -> Self {
         Self {
             get_all_results: RefCell::new(vec![]),
@@ -91,12 +91,13 @@ impl ConfigDaoMock {
         self
     }
 
-    pub fn start_transaction_result(self, result: Result<Box<dyn ConfigDaoReadWrite<'static>>, ConfigDaoError>) -> Self {
+    pub fn start_transaction_result(self, result: Result<Box<dyn ConfigDaoReadWrite<'a>+'a>, ConfigDaoError>) -> Self {
         self.start_transaction_results.borrow_mut().push(result);
         self
     }
 }
 
+#[derive(Clone)]
 pub struct ConfigDaoWriteableMock {
     get_all_results: RefCell<Vec<Result<Vec<ConfigDaoRecord>, ConfigDaoError>>>,
     get_params: Arc<Mutex<Vec<String>>>,
@@ -106,6 +107,8 @@ pub struct ConfigDaoWriteableMock {
     commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
 }
+
+
 
 impl ConfigDaoRead for ConfigDaoWriteableMock {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
@@ -183,3 +186,32 @@ impl ConfigDaoWriteableMock {
         self
     }
 }
+
+
+/*struct SecureConfigLayerMock {}
+
+impl SecureConfigLayer for SecureConfigLayerMock {
+    fn check_password<T: ConfigDaoRead + ?Sized>(
+        &self,
+        db_password_opt: Option<&str>,
+        dao: &Box<T>,
+    ) -> Result<bool, SecureConfigLayerError> {
+        match dao.get(EXAMPLE_ENCRYPTED) {
+            Ok(example_record) => self.password_matches_example(db_password_opt, example_record),
+            Err(e) => Err(SecureConfigLayerError::from(e)),
+        }
+    }
+
+    fn change_password<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
+        &mut self,
+        old_password_opt: Option<&str>,
+        new_password: &str,
+        dao: &'a Box<T>,
+    ) -> Result<(), SecureConfigLayerError> {
+        if !self.check_password(old_password_opt, dao)? {
+            return Err(SecureConfigLayerError::PasswordError);
+        }
+        self.reencrypt_records(old_password_opt, new_password, dao)?;
+        self.install_example_for_password(new_password, dao)?;
+        Ok(())
+    }*/

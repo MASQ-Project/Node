@@ -21,6 +21,9 @@ impl From<ConfigDaoError> for SecureConfigLayerError {
             ConfigDaoError::NotPresent => SecureConfigLayerError::NotPresent,
             ConfigDaoError::TransactionError => SecureConfigLayerError::TransactionError,
             ConfigDaoError::DatabaseError(msg) => SecureConfigLayerError::DatabaseError(msg),
+            ConfigDaoError::Dropped => {
+                SecureConfigLayerError::NotPresent   //probably a wrong assumption TODO review with Dan
+            }
         }
     }
 }
@@ -322,6 +325,9 @@ mod tests {
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
     use std::sync::{Arc, Mutex};
+    use std::borrow::Borrow;
+
+
 
     #[test]
     fn secure_config_layer_error_from_config_dao_error() {
@@ -517,11 +523,13 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .commit_params (&commit_params_arc));
+        let writeable_as_clone = writeable.clone();
         let dao = ConfigDaoMock::new ()
             .start_transaction_result(Ok(writeable));
         let mut subject = SecureConfigLayerReal::new();
 
-        let result = subject.change_password(None, "password", &Box::new (writeable));
+        let result = subject.change_password(None,
+                                             "password", &writeable_as_clone);
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -582,11 +590,13 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(())));
+        let writeable_as_clone = writeable.clone();
         let dao = ConfigDaoMock::new()
             .start_transaction_result(Ok(writeable));
         let mut subject = SecureConfigLayerReal::new();
 
-        let result = subject.change_password(Some("old_password"), "new_password", &writeable);
+        let result = subject.change_password(Some("old_password")
+                                             , "new_password", &writeable_as_clone);
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
