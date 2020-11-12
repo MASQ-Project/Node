@@ -187,31 +187,3 @@ impl ConfigDaoWriteableMock {
     }
 }
 
-
-/*struct SecureConfigLayerMock {}
-
-impl SecureConfigLayer for SecureConfigLayerMock {
-    fn check_password<T: ConfigDaoRead + ?Sized>(
-        &self,
-        db_password_opt: Option<&str>,
-        dao: &Box<T>,
-    ) -> Result<bool, SecureConfigLayerError> {
-        match dao.get(EXAMPLE_ENCRYPTED) {
-            Ok(example_record) => self.password_matches_example(db_password_opt, example_record),
-            Err(e) => Err(SecureConfigLayerError::from(e)),
-        }
-    }
-
-    fn change_password<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
-        &mut self,
-        old_password_opt: Option<&str>,
-        new_password: &str,
-        dao: &'a Box<T>,
-    ) -> Result<(), SecureConfigLayerError> {
-        if !self.check_password(old_password_opt, dao)? {
-            return Err(SecureConfigLayerError::PasswordError);
-        }
-        self.reencrypt_records(old_password_opt, new_password, dao)?;
-        self.install_example_for_password(new_password, dao)?;
-        Ok(())
-    }*/
