@@ -199,7 +199,7 @@ impl SecureConfigLayerReal {
         new_password: &str,
         dao: &Box<T>,
     ) -> Result<(), SecureConfigLayerError> {
-        let existing_records = self.dao.get_all()?;
+        let existing_records = dao.get_all()?;
         let init: Result<Vec<ConfigDaoRecord>, SecureConfigLayerError> = Ok(vec![]);
         match existing_records
             .into_iter()
@@ -226,7 +226,7 @@ impl SecureConfigLayerReal {
         reencrypted_records.into_iter()
             .fold(init, |so_far, record| {
                 if so_far.is_ok() {
-                    let setter = |value_opt: Option<&str>| self.dao.set(&record.name, value_opt);
+                    let setter = |value_opt: Option<&str>| dao.set(&record.name, value_opt);
                     let result = match &record.value_opt {
                         Some (value) => setter (Some (value)),
                         None => setter (None),
@@ -318,10 +318,9 @@ mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
     use crate::db_config::config_dao::{ConfigDaoError, ConfigDaoRecord, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoWrite};
-    use crate::db_config::mocks::{TransactionWrapperMock, ConfigDaoWriteableMock, ConfigDaoMock};
+    use crate::db_config::mocks::{ConfigDaoWriteableMock, ConfigDaoMock};
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
-    use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -497,12 +496,10 @@ mod tests {
     fn change_password_works_when_no_password_exists() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let transaction = TransactionWrapperMock::new();
-        let committed_arc = transaction.committed_arc();
-        let dao = ConfigDaoWriteableMock::new()
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let writeable = Box::new (ConfigDaoWriteableMock::new()
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_params(&get_params_arc)
-            .start_transaction_result(transaction)
             .get_all_result(Ok(vec![
                 ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true),
                 ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
@@ -518,10 +515,13 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()))
-            .set_result(Ok(()));
+            .set_result(Ok(()))
+            .commit_params (&commit_params_arc));
+        let dao = ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writeable));
         let mut subject = SecureConfigLayerReal::new();
 
-        let result = subject.change_password(None, "password", &Box::new (dao));
+        let result = subject.change_password(None, "password", &Box::new (writeable));
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -543,28 +543,26 @@ mod tests {
             Ok(_) => (),
             x => panic!("Expected Ok(_), got {:?}", x),
         };
-        let committed = committed_arc.lock().unwrap();
-        assert_eq!(*committed, Some(true))
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq! (*commit_params, vec![()]);
     }
 
     #[test]
     fn change_password_works_when_password_exists_and_old_password_matches() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let transaction = TransactionWrapperMock::new();
-        let committed_arc = transaction.committed_arc();
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
         let unencrypted_value = "These are the times that try men's souls.".as_bytes();
         let old_encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "old_password").unwrap();
-        let dao = ConfigDaoWriteableMock::new()
+        let commit_params_arc = Arc::new(Mutex::new (vec![]));
+        let writeable = Box::new (ConfigDaoWriteableMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
                 Some(&encrypted_example),
                 true,
             )))
-            .start_transaction_result(transaction)
             .get_all_result(Ok(vec![
                 ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true),
                 ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
@@ -577,15 +575,18 @@ mod tests {
                 Some("unencrypted_value"),
                 false,
             )))
+            .commit_params(&commit_params_arc)
             .set_params(&set_params_arc)
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()))
-            .set_result(Ok(()));
+            .set_result(Ok(())));
+        let dao = ConfigDaoMock::new()
+            .start_transaction_result(Ok(writeable));
         let mut subject = SecureConfigLayerReal::new();
 
-        let result = subject.change_password(Some("old_password"), "new_password", &Box::new (dao));
+        let result = subject.change_password(Some("old_password"), "new_password", &writeable);
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -608,8 +609,8 @@ mod tests {
         assert_eq!(set_params[3], ("missing_unencrypted_key".to_string(), None));
         assert_eq!(set_params[4].0, EXAMPLE_ENCRYPTED.to_string());
         let _ = Bip39::decrypt_bytes(&set_params[4].1.as_ref().unwrap(), "new_password").unwrap();
-        let committed = committed_arc.lock().unwrap();
-        assert_eq!(*committed, Some(true))
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq! (*commit_params, vec![()])
     }
 
     #[test]

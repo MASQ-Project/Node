@@ -5,7 +5,6 @@ use crate::database::connection_wrapper::TransactionWrapper;
 use rusqlite::{Statement, Error};
 use std::cell::RefCell;
 use crate::db_config::config_dao::{ConfigDaoRecord, ConfigDaoError, ConfigDaoRead, ConfigDao, ConfigDaoReadWrite, ConfigDaoWrite};
-use std::borrow::BorrowMut;
 
 #[derive(Debug)]
 pub struct TransactionWrapperMock {
@@ -47,7 +46,7 @@ pub struct ConfigDaoMock {
     get_all_results: RefCell<Vec<Result<Vec<ConfigDaoRecord>, ConfigDaoError>>>,
     get_params: Arc<Mutex<Vec<String>>>,
     get_results: RefCell<Vec<Result<ConfigDaoRecord, ConfigDaoError>>>,
-    start_transaction_results: RefCell<Vec<Result<ConfigDaoWriteableMock, ConfigDaoError>>>,
+    start_transaction_results: RefCell<Vec<Result<Box<dyn ConfigDaoReadWrite<'_>>, ConfigDaoError>>>,
 }
 
 impl ConfigDaoRead for ConfigDaoMock {
@@ -62,8 +61,8 @@ impl ConfigDaoRead for ConfigDaoMock {
 }
 
 impl ConfigDao for ConfigDaoMock {
-    fn start_transaction<'a>(&mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError> {
-        self.start_transaction_results.borrow_mut().remove(0).map (|r| Box::new(r))
+    fn start_transaction<'a>(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError> {
+        self.start_transaction_results.borrow_mut().remove(0)
     }
 }
 
@@ -92,7 +91,7 @@ impl ConfigDaoMock {
         self
     }
 
-    pub fn start_transaction_result(self, result: Result<ConfigDaoWriteableMock, ConfigDaoError>) -> Self {
+    pub fn start_transaction_result(self, result: Result<Box<dyn ConfigDaoReadWrite<'static>>, ConfigDaoError>) -> Self {
         self.start_transaction_results.borrow_mut().push(result);
         self
     }
@@ -119,7 +118,7 @@ impl ConfigDaoRead for ConfigDaoWriteableMock {
     }
 }
 
-impl ConfigDaoWrite for ConfigDaoWriteableMock {
+impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableMock {
     fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
         self.set_params
             .lock()
@@ -133,6 +132,8 @@ impl ConfigDaoWrite for ConfigDaoWriteableMock {
         self.commit_results.borrow_mut().remove(0)
     }
 }
+
+impl<'a> ConfigDaoReadWrite<'a> for ConfigDaoWriteableMock {}
 
 impl ConfigDaoWriteableMock {
     pub fn new() -> Self {
@@ -172,7 +173,7 @@ impl ConfigDaoWriteableMock {
         self
     }
 
-    pub fn commit_params(mut self, params: &Arc<Mutex<Vec<(())>>>) -> Self {
+    pub fn commit_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
         self.commit_params = params.clone();
         self
     }

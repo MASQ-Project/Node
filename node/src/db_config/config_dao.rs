@@ -6,6 +6,7 @@ use crate::database::connection_wrapper::{ConnectionWrapper};
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
     NotPresent,
+    TransactionError,
     Dropped,
     DatabaseError(String),
 }
