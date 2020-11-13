@@ -32,7 +32,7 @@ pub trait SecureConfigLayer {
         &mut self,
         old_password_opt: Option<&str>,
         new_password_opt: &str,
-        dao: &'a Box<T>,
+        dao: &'a mut Box<T>,
     ) -> Result<(), SecureConfigLayerError>;
     fn encrypt<T: ConfigDaoRead + ?Sized> (&self, name: &str, plain_value: Option<&str>, password: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
     fn decrypt<T: ConfigDaoRead + ?Sized> (&self, name: &str, crypt_value: Option<&str>, password: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
@@ -56,13 +56,14 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         &mut self,
         old_password_opt: Option<&str>,
         new_password: &str,
-        dao: &'a Box<T>,
+        dao: &'a mut Box<T>,
     ) -> Result<(), SecureConfigLayerError> {
         if !self.check_password(old_password_opt, dao)? {
             return Err(SecureConfigLayerError::PasswordError);
         }
         self.reencrypt_records(old_password_opt, new_password, dao)?;
         self.install_example_for_password(new_password, dao)?;
+        dao.commit();
         Ok(())
     }
 
@@ -71,7 +72,11 @@ impl SecureConfigLayer for SecureConfigLayerReal {
     }
 
     fn decrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, crypt_value: Option<&str>, password: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
-        unimplemented!()
+        if !self.check_password(password, dao)? {
+            unimplemented!()
+        }
+        let _ = dao.get (name);
+        Ok(crypt_value.map(|x| x.to_string()))
     }
 
     // fn get_all(
@@ -500,7 +505,7 @@ mod tests {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
-        let writeable = Box::new (ConfigDaoWriteableMock::new()
+        let mut writeable = Box::new (ConfigDaoWriteableMock::new()
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_params(&get_params_arc)
             .get_all_result(Ok(vec![
@@ -519,14 +524,12 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()))
-            .commit_params (&commit_params_arc));
-        let writeable_as_clone = writeable.clone();
-        let dao = ConfigDaoMock::new ()
-            .start_transaction_result(Ok(writeable));
+            .commit_params (&commit_params_arc)
+            .commit_result (Ok(())));
         let mut subject = SecureConfigLayerReal::new();
 
         let result = subject.change_password(None,
-                                             "password", &writeable_as_clone);
+                                             "password", &mut writeable);
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -561,7 +564,7 @@ mod tests {
         let unencrypted_value = "These are the times that try men's souls.".as_bytes();
         let old_encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "old_password").unwrap();
         let commit_params_arc = Arc::new(Mutex::new (vec![]));
-        let writeable = Box::new (ConfigDaoWriteableMock::new()
+        let mut writeable = Box::new (ConfigDaoWriteableMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
@@ -580,20 +583,18 @@ mod tests {
                 Some("unencrypted_value"),
                 false,
             )))
-            .commit_params(&commit_params_arc)
             .set_params(&set_params_arc)
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()))
-            .set_result(Ok(())));
-        let writeable_as_clone = writeable.clone();
-        let dao = ConfigDaoMock::new()
-            .start_transaction_result(Ok(writeable));
+            .set_result(Ok(()))
+            .commit_params(&commit_params_arc)
+            .commit_result(Ok(())));
         let mut subject = SecureConfigLayerReal::new();
 
         let result = subject.change_password(Some("old_password")
-                                             , "new_password", &writeable_as_clone);
+                                             , "new_password", &mut writeable);
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -624,14 +625,14 @@ mod tests {
     fn change_password_works_when_password_exists_and_old_password_doesnt_match() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
-        let dao = ConfigDaoWriteableMock::new().get_result(Ok(ConfigDaoRecord::new(
+        let mut dao = ConfigDaoWriteableMock::new().get_result(Ok(ConfigDaoRecord::new(
             EXAMPLE_ENCRYPTED,
             Some(&encrypted_example),
             true,
         )));
         let mut subject = SecureConfigLayerReal::new();
 
-        let result = subject.change_password(Some("bad_password"), "new_password", &Box::new (dao));
+        let result = subject.change_password(Some("bad_password"), "new_password", &mut Box::new (dao));
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
