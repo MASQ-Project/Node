@@ -148,6 +148,7 @@ impl DbInitializerReal {
         conn: &Connection,
         chain_id: u8,
     ) -> Result<(), InitializationError> {
+        //TODO Should this value be encrypted?
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, false, "example_encrypted");
         Self::set_config_value(
             conn,

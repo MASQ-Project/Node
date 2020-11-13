@@ -7,7 +7,6 @@ use crate::database::connection_wrapper::{ConnectionWrapper};
 pub enum ConfigDaoError {
     NotPresent,
     TransactionError,
-    Dropped,
     DatabaseError(String),
 }
 
@@ -102,7 +101,7 @@ impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
             get_all(stmt)
         }
         else {
-            Err(ConfigDaoError::Dropped)
+            Err(ConfigDaoError::TransactionError)
         }
     }
 
@@ -114,7 +113,7 @@ impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
             get (stmt, name)
         }
         else {
-            Err(ConfigDaoError::Dropped)
+            Err(ConfigDaoError::TransactionError)
         }
     }
 }
@@ -125,7 +124,7 @@ impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
     fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
         let transaction = match &self.transaction_opt {
             Some (t) => t,
-            None => return Err(ConfigDaoError::Dropped),
+            None => return Err(ConfigDaoError::TransactionError),
         };
         let mut stmt = match transaction
             .prepare("update config set value = ? where name = ?")
@@ -145,7 +144,7 @@ impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
                 // The following line is untested, because we don't know how to trigger it.
                 Err (e) => Err (ConfigDaoError::DatabaseError (format! ("{:?}", e))),
             },
-            None => Err (ConfigDaoError::Dropped),
+            None => Err (ConfigDaoError::TransactionError),
         }
     }
 }
@@ -289,10 +288,10 @@ mod tests {
         subject.commit().unwrap();
 
         // Can't use a committed ConfigDaoWriteableReal anymore
-        assert_eq!(subject.get_all(), Err(ConfigDaoError::Dropped));
-        assert_eq!(subject.get("seed"), Err(ConfigDaoError::Dropped));
-        assert_eq!(subject.set("seed", Some("irrelevant")), Err(ConfigDaoError::Dropped));
-        assert_eq!(subject.commit(), Err(ConfigDaoError::Dropped));
+        assert_eq!(subject.get_all(), Err(ConfigDaoError::TransactionError));
+        assert_eq!(subject.get("seed"), Err(ConfigDaoError::TransactionError));
+        assert_eq!(subject.set("seed", Some("irrelevant")), Err(ConfigDaoError::TransactionError));
+        assert_eq!(subject.commit(), Err(ConfigDaoError::TransactionError));
         let confirmer_get_all = confirmer.get_all().unwrap();
         let confirmer_get = confirmer.get("seed").unwrap();
         assert_contains(&confirmer_get_all, &modified_value);
