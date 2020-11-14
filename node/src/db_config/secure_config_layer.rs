@@ -72,106 +72,21 @@ impl SecureConfigLayer for SecureConfigLayerReal {
 
     fn decrypt<T: ConfigDaoRead + ?Sized>(&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
         if !self.check_password(password_opt, dao)? {
-            unimplemented!()
+            return Err(SecureConfigLayerError::PasswordError)
         }
         match (record.encrypted, record.value_opt, password_opt) {
             (false, value_opt, _) => Ok(value_opt.map(|x| x.to_string())),
             (true, Some (value), Some (password)) => match Bip39::decrypt_bytes(&value, password) {
-                Err(e) => unimplemented! ("{:?}", e),
+                Err(e) => Err(SecureConfigLayerError::DatabaseError(format!("Password for '{}' does not match database password", record.name))),
                 Ok(plain_data) => match String::from_utf8(plain_data.into()) {
-                    Err(e) => unimplemented! ("{:?}", e),
+                    Err(e) => Err (SecureConfigLayerError::DatabaseError(format!("Database contains a non-UTF-8 value for '{}'", record.name))),
                     Ok(plain_text) => Ok (Some (plain_text)),
                 }
             },
+            (true, Some (value), None) => Err(SecureConfigLayerError::PasswordError),
             (true, None, _) => Ok(None),
-            _ => unimplemented! (),
         }
     }
-
-    // fn get_all(
-    //     &self,
-    //     db_password_opt: Option<&str>,
-    // ) -> Result<Vec<(String, Option<String>)>, SecureConfigLayerError> {
-    //     if !self.check_password(db_password_opt)? {
-    //         return Err(SecureConfigLayerError::PasswordError);
-    //     }
-    //     let init: Result<Vec<(String, Option<String>)>, SecureConfigLayerError> = Ok(vec![]);
-    //     let records = self.dao.get_all()?;
-    //     records
-    //         .into_iter()
-    //         .filter(|record| record.name != EXAMPLE_ENCRYPTED)
-    //         .map(|record| {
-    //             let record_name = record.name.clone();
-    //             match Self::reduce_record(record, db_password_opt) {
-    //                 Ok(decrypted_value_opt) => Ok((record_name, decrypted_value_opt)),
-    //                 Err(e) => Err(e),
-    //             }
-    //         })
-    //         .fold(init, |so_far_result, pair_result| {
-    //             match (so_far_result, pair_result) {
-    //                 (Err(e), _) => Err(e),
-    //                 (Ok(so_far), Ok(pair)) => Ok(append(so_far, pair)),
-    //                 (Ok(_), Err(e)) => Err(e),
-    //             }
-    //         })
-    // }
-    //
-    // fn get(
-    //     &self,
-    //     name: &str,
-    //     db_password_opt: Option<&str>,
-    // ) -> Result<Option<String>, SecureConfigLayerError> {
-    //     if !self.check_password(db_password_opt)? {
-    //         return Err(SecureConfigLayerError::PasswordError);
-    //     }
-    //     Self::reduce_record(self.dao.get(name)?, db_password_opt)
-    // }
-    //
-    // fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a> {
-    //     unimplemented!()
-    // }
-    //
-    // fn set(
-    //     &self,
-    //     name: &str,
-    //     value_opt: Option<&str>,
-    //     db_password_opt: Option<&str>,
-    // ) -> Result<(), SecureConfigLayerError> {
-    //     struct NeutralActor {}
-    //     impl SCLActor for NeutralActor {
-    //         fn act(&self, _: &ConfigDaoRecord, new_value_opt: Option<&str>) -> Result<Option<String>, SecureConfigLayerError> {
-    //             Ok(new_value_opt.map(|x| x.to_string()))
-    //         }
-    //     }
-    //     self.set_informed (name, value_opt, db_password_opt, Box::new (NeutralActor{}))
-    // }
-    //
-    // fn set_informed(
-    //     &self,
-    //     name: &str,
-    //     value_opt: Option<&str>,
-    //     db_password_opt: Option<&str>,
-    //     act: Box<dyn SCLActor>,
-    // ) -> Result<(), SecureConfigLayerError> {
-    //     if !self.check_password(db_password_opt)? {
-    //         return Err(SecureConfigLayerError::PasswordError);
-    //     }
-    //     let old_record = self.dao.get(name)?;
-    //     let new_value_opt: Option<String> = match (old_record.encrypted, act.act(&old_record, value_opt)?, db_password_opt)
-    //     {
-    //         (_, None, _) => None,
-    //         (false, Some(value), _) => Some(value.to_string()),
-    //         (true, Some(_), None) => return Err(SecureConfigLayerError::PasswordError),
-    //         (true, Some(value), Some(db_password)) => Some(
-    //             Bip39::encrypt_bytes(&value.as_bytes(), db_password).expect("Encryption failed"),
-    //         ),
-    //     };
-    //     let _ = match new_value_opt {
-    //         None => self.dao.set(name, None),
-    //         Some(new_value) => self.dao.set(name, Some(&new_value)),
-    //     };
-    //     Ok(())
-    // }
 }
 
 impl SecureConfigLayerReal {
@@ -701,170 +616,7 @@ mod tests {
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change: configuration value 'name' is encrypted, but database has no password".to_string())))
     }
-    //
-    // #[test]
-    // fn get_all_handles_no_database_password() {
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-    //         .get_all_result(Ok(vec![
-    //             ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true),
-    //             ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
-    //             ConfigDaoRecord::new("encrypted_value_key", None, true),
-    //             ConfigDaoRecord::new("missing_value_key", None, false),
-    //         ]));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get_all(None);
-    //
-    //     assert_eq!(
-    //         result,
-    //         Ok(vec![
-    //             (
-    //                 "unencrypted_value_key".to_string(),
-    //                 Some("unencrypted_value".to_string())
-    //             ),
-    //             ("encrypted_value_key".to_string(), None),
-    //             ("missing_value_key".to_string(), None),
-    //         ])
-    //     );
-    // }
-    //
-    // #[test]
-    // fn get_all_handles_matching_database_password() {
-    //     let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-    //     let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
-    //     let unencrypted_value = "These are the times that try men's souls.".to_string();
-    //     let encrypted_value =
-    //         Bip39::encrypt_bytes(&unencrypted_value.clone().into_bytes(), "password").unwrap();
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(
-    //             EXAMPLE_ENCRYPTED,
-    //             Some(&encrypted_example),
-    //             true,
-    //         )))
-    //         .get_all_result(Ok(vec![
-    //             ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_value), true),
-    //             ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
-    //             ConfigDaoRecord::new("encrypted_value_key", Some(&encrypted_value), true),
-    //             ConfigDaoRecord::new("missing_value_key", None, false),
-    //             ConfigDaoRecord::new("missing_encrypted_key", None, true),
-    //         ]));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get_all(Some("password"));
-    //
-    //     assert_eq!(
-    //         result,
-    //         Ok(vec![
-    //             (
-    //                 "unencrypted_value_key".to_string(),
-    //                 Some("unencrypted_value".to_string())
-    //             ),
-    //             ("encrypted_value_key".to_string(), Some(unencrypted_value)),
-    //             ("missing_value_key".to_string(), None),
-    //             ("missing_encrypted_key".to_string(), None),
-    //         ])
-    //     );
-    // }
-    //
-    // #[test]
-    // fn get_all_handles_mismatched_database_password() {
-    //     let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-    //     let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
-    //     let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
-    //         EXAMPLE_ENCRYPTED,
-    //         Some(&encrypted_example),
-    //         true,
-    //     )));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get_all(Some("bad_password"));
-    //
-    //     assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
-    // }
-    //
-    // #[test]
-    // fn get_all_complains_about_encrypted_existing_value_in_database_with_no_password() {
-    //     let unencrypted_value = "These are the times that try men's souls.".to_string();
-    //     let encrypted_value =
-    //         Bip39::encrypt_bytes(&unencrypted_value.clone().into_bytes(), "password").unwrap();
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-    //         .get_all_result(Ok(vec![
-    //             ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true),
-    //             ConfigDaoRecord::new("encrypted_value_key", Some(&encrypted_value), true),
-    //         ]));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get_all(None);
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(SecureConfigLayerError::DatabaseError(
-    //             "Database without password contains encrypted value for 'encrypted_value_key'"
-    //                 .to_string()
-    //         ))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn get_all_complains_about_badly_encrypted_value() {
-    //     let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-    //     let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
-    //     let unencrypted_value = "These are the times that try men's souls.".to_string();
-    //     let encrypted_value =
-    //         Bip39::encrypt_bytes(&unencrypted_value.clone().into_bytes(), "bad_password").unwrap();
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(
-    //             EXAMPLE_ENCRYPTED,
-    //             Some(&encrypted_example),
-    //             true,
-    //         )))
-    //         .get_all_result(Ok(vec![
-    //             ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true),
-    //             ConfigDaoRecord::new("encrypted_value_key", Some(&encrypted_value), true),
-    //         ]));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get_all(Some("password"));
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(SecureConfigLayerError::DatabaseError(
-    //             "Password for 'encrypted_value_key' does not match database password".to_string()
-    //         ))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn get_all_complains_about_encrypted_non_utf8_string() {
-    //     let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-    //     let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
-    //     // UTF-8 doesn't tolerate 192 followed by 193
-    //     let unencrypted_value: &[u8] = &[32, 32, 192, 193, 32, 32];
-    //     let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "password").unwrap();
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(
-    //             EXAMPLE_ENCRYPTED,
-    //             Some(&encrypted_example),
-    //             true,
-    //         )))
-    //         .get_all_result(Ok(vec![
-    //             ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true),
-    //             ConfigDaoRecord::new("encrypted_value_key", Some(&encrypted_value), true),
-    //         ]));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get_all(Some("password"));
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(SecureConfigLayerError::DatabaseError(
-    //             "Database contains a non-UTF-8 value for 'encrypted_value_key'".to_string()
-    //         ))
-    //     );
-    // }
-    //
+
     #[test]
     fn decrypt_works_when_database_is_unencrypted_value_is_unencrypted() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
@@ -960,115 +712,93 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn get_objects_if_value_is_encrypted_and_present_but_password_is_not_supplied() {
-    //     let value = "These are the times that try men's souls.".as_bytes();
-    //     let encrypted_value = Bip39::encrypt_bytes(&value, "password").unwrap();
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-    //         .get_result(Ok(ConfigDaoRecord::new(
-    //             "attribute_name",
-    //             Some(&encrypted_value),
-    //             true,
-    //         )));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get("attribute_name", None);
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(SecureConfigLayerError::DatabaseError(
-    //             "Database without password contains encrypted value for 'attribute_name'"
-    //                 .to_string()
-    //         ))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn get_objects_if_password_is_wrong() {
-    //     let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-    //     let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
-    //     let value = "These are the times that try men's souls.".as_bytes();
-    //     let encrypted_value = Bip39::encrypt_bytes(&value, "bad_password").unwrap();
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(
-    //             EXAMPLE_ENCRYPTED,
-    //             Some(&encrypted_example),
-    //             true,
-    //         )))
-    //         .get_result(Ok(ConfigDaoRecord::new(
-    //             "attribute_name",
-    //             Some(&encrypted_value),
-    //             true,
-    //         )));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get("attribute_name", Some("password"));
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(SecureConfigLayerError::DatabaseError(
-    //             "Password for 'attribute_name' does not match database password".to_string()
-    //         ))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn get_objects_if_decrypted_string_violates_utf8() {
-    //     let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-    //     let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
-    //     // UTF-8 doesn't tolerate 192 followed by 193
-    //     let unencrypted_value: &[u8] = &[32, 32, 192, 193, 32, 32];
-    //     let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "password").unwrap();
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(
-    //             EXAMPLE_ENCRYPTED,
-    //             Some(&encrypted_example),
-    //             true,
-    //         )))
-    //         .get_result(Ok(ConfigDaoRecord::new(
-    //             "attribute_name",
-    //             Some(&encrypted_value),
-    //             true,
-    //         )));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get("attribute_name", Some("password"));
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(SecureConfigLayerError::DatabaseError(
-    //             "Database contains a non-UTF-8 value for 'attribute_name'".to_string()
-    //         ))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn get_objects_if_value_is_unrecognized() {
-    //     let dao = ConfigDaoMock::new()
-    //         .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-    //         .get_result(Err(ConfigDaoError::NotPresent));
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get("unrecognized_name", None);
-    //
-    //     assert_eq!(result, Err(SecureConfigLayerError::NotPresent));
-    // }
-    //
-    // #[test]
-    // fn get_objects_if_passwords_dont_match() {
-    //     let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
-    //         EXAMPLE_ENCRYPTED,
-    //         None,
-    //         true,
-    //     )));
-    //
-    //     let subject = SecureConfigLayerReal::new(Box::new(dao));
-    //
-    //     let result = subject.get("attribute_name", Some("password"));
-    //
-    //     assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
-    // }
+    #[test]
+    fn decrypt_objects_if_value_is_incorrectly_encrypted() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let value = "These are the times that try men's souls.".as_bytes();
+        let encrypted_value = Bip39::encrypt_bytes(&value, "bad_password").unwrap();
+        let record = ConfigDaoRecord::new ("attribute_name", Some(&encrypted_value), true);
+        let dao = Box::new (ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&encrypted_example),
+                true,
+            ))));
+        let subject = SecureConfigLayerReal::new();
+
+        let result = subject.decrypt(record, Some("password"), &dao);
+
+        assert_eq!(
+            result,
+            Err(SecureConfigLayerError::DatabaseError(
+                "Password for 'attribute_name' does not match database password".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn decrypt_objects_to_decrypting_an_encrypted_value_without_a_password() {
+        let value = "These are the times that try men's souls.".as_bytes();
+        let encrypted_value = Bip39::encrypt_bytes(&value, "password").unwrap();
+        let record = ConfigDaoRecord::new ("attribute_name", Some(&encrypted_value), true);
+        let dao = Box::new (ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                None,
+                true,
+            ))));
+        let subject = SecureConfigLayerReal::new();
+
+        let result = subject.decrypt(record, None, &dao);
+
+        assert_eq!(
+            result,
+            Err(SecureConfigLayerError::PasswordError)
+        );
+    }
+
+    #[test]
+    fn decrypt_objects_if_decrypted_string_violates_utf8() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
+        // UTF-8 doesn't tolerate 192 followed by 193
+        let unencrypted_value: &[u8] = &[32, 32, 192, 193, 32, 32];
+        let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "password").unwrap();
+        let record = ConfigDaoRecord::new ("attribute_name", Some(&encrypted_value), true);
+        let dao = Box::new (ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&encrypted_example),
+                true,
+            ))));
+        let subject = SecureConfigLayerReal::new();
+
+        let result = subject.decrypt(record, Some("password"), &dao);
+
+        assert_eq!(
+            result,
+            Err(SecureConfigLayerError::DatabaseError(
+                "Database contains a non-UTF-8 value for 'attribute_name'".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn decrypt_objects_if_passwords_dont_match() {
+        let dao = Box::new (ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                None,
+                true,
+            ))));
+        let record = ConfigDaoRecord::new ("attribute_name", Some("attribute_value"), true);
+        let subject = SecureConfigLayerReal::new();
+
+        let result = subject.decrypt(record, Some("password"), &dao);
+
+        assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
+    }
 
 
     // #[test]
