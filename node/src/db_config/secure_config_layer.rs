@@ -63,7 +63,6 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         }
         self.reencrypt_records(old_password_opt, new_password, dao)?;
         self.install_example_for_password(new_password, dao)?;
-        dao.commit();
         Ok(())
     }
 
@@ -524,8 +523,7 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()))
-            .commit_params (&commit_params_arc)
-            .commit_result (Ok(())));
+            .commit_params (&commit_params_arc));
         let mut subject = SecureConfigLayerReal::new();
 
         let result = subject.change_password(None,
@@ -552,7 +550,7 @@ mod tests {
             x => panic!("Expected Ok(_), got {:?}", x),
         };
         let commit_params = commit_params_arc.lock().unwrap();
-        assert_eq! (*commit_params, vec![()]);
+        assert_eq! (*commit_params, vec![]);
     }
 
     #[test]
@@ -589,12 +587,10 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .set_result(Ok(()))
-            .commit_params(&commit_params_arc)
-            .commit_result(Ok(())));
+            .commit_params(&commit_params_arc));
         let mut subject = SecureConfigLayerReal::new();
 
-        let result = subject.change_password(Some("old_password")
-                                             , "new_password", &mut writeable);
+        let result = subject.change_password(Some("old_password"), "new_password", &mut writeable);
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -618,7 +614,7 @@ mod tests {
         assert_eq!(set_params[4].0, EXAMPLE_ENCRYPTED.to_string());
         let _ = Bip39::decrypt_bytes(&set_params[4].1.as_ref().unwrap(), "new_password").unwrap();
         let commit_params = commit_params_arc.lock().unwrap();
-        assert_eq! (*commit_params, vec![()])
+        assert_eq! (*commit_params, vec![])
     }
 
     #[test]
