@@ -121,7 +121,7 @@ impl ConfigDaoRead for ConfigDaoWriteableMock {
 }
 
 impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableMock {
-    fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
+    fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError> {
         self.set_params
             .lock()
             .unwrap()

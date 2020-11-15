@@ -43,7 +43,7 @@ pub fn encode_u64(
 }
 
 pub fn encode_bytes(
-    value_opt: Option<&PlainData>,
+    value_opt: Option<PlainData>,
 ) -> Result<Option<String>, TypedConfigLayerError> {
     match value_opt {
         Some (bytes) => Ok (Some (bytes.as_slice().to_hex::<String>())),
@@ -128,7 +128,7 @@ mod tests {
         let bytes = PlainData::new (&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let bytes_hex: String = bytes.as_slice().to_hex();
 
-        let result = encode_bytes(Some (&bytes));
+        let result = encode_bytes(Some (bytes));
 
         assert_eq!(result, Ok(Some (bytes_hex)));
     }

@@ -166,7 +166,7 @@ impl SecureConfigLayerReal {
         reencrypted_records.into_iter()
             .fold(init, |so_far, record| {
                 if so_far.is_ok() {
-                    let setter = |value_opt: Option<&str>| dao.set(&record.name, value_opt);
+                    let setter = |value_opt: Option<&str>| dao.set(&record.name, value_opt.map(|s| s.to_string()));
                     let result = match &record.value_opt {
                         Some(value) => setter(Some(value)),
                         None => setter(None),
@@ -212,7 +212,7 @@ impl SecureConfigLayerReal {
         let example_encrypted =
             Bip39::encrypt_bytes(&example_data, new_password).expect("Encryption failed");
         dao
-            .set(EXAMPLE_ENCRYPTED, Some(&example_encrypted))
+            .set(EXAMPLE_ENCRYPTED, Some(example_encrypted))
             .map_err(|e| SecureConfigLayerError::from(e))
     }
 }

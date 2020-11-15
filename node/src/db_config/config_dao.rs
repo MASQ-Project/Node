@@ -35,7 +35,7 @@ pub trait ConfigDaoRead {
 
 // Anything that can write to the database implements this trait
 pub trait ConfigDaoWrite<'a> {
-    fn set (&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError>;
+    fn set (&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
     fn commit (&mut self) -> Result<(), ConfigDaoError>;
 }
 
@@ -121,7 +121,7 @@ impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
 // ...and it can write too
 impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
 
-    fn set(&self, name: &str, value: Option<&str>) -> Result<(), ConfigDaoError> {
+    fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError> {
         let transaction = match &self.transaction_opt {
             Some (t) => t,
             None => return Err(ConfigDaoError::TransactionError),
@@ -274,7 +274,7 @@ mod tests {
         let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
         let mut subject = dao.start_transaction().unwrap();
 
-        subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
+        subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane".to_string())).unwrap();
 
         let subject_get_all = subject.get_all().unwrap();
         let subject_get = subject.get("seed").unwrap();
@@ -289,7 +289,7 @@ mod tests {
         // Can't use a committed ConfigDaoWriteableReal anymore
         assert_eq!(subject.get_all(), Err(ConfigDaoError::TransactionError));
         assert_eq!(subject.get("seed"), Err(ConfigDaoError::TransactionError));
-        assert_eq!(subject.set("seed", Some("irrelevant")), Err(ConfigDaoError::TransactionError));
+        assert_eq!(subject.set("seed", Some("irrelevant".to_string())), Err(ConfigDaoError::TransactionError));
         assert_eq!(subject.commit(), Err(ConfigDaoError::TransactionError));
         let confirmer_get_all = confirmer.get_all().unwrap();
         let confirmer_get = confirmer.get("seed").unwrap();
@@ -315,7 +315,7 @@ mod tests {
         {
             let subject = dao.start_transaction().unwrap();
 
-            subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane")).unwrap();
+            subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane".to_string())).unwrap();
 
             let subject_get_all = subject.get_all().unwrap();
             let subject_get = subject.get("seed").unwrap();
@@ -344,7 +344,7 @@ mod tests {
         );
         let subject = dao.start_transaction().unwrap();
 
-        let result = subject.set("booga", Some ("bigglesworth"));
+        let result = subject.set("booga", Some ("bigglesworth".to_string()));
 
         assert_eq!(result, Err(ConfigDaoError::NotPresent));
     }
