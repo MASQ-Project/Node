@@ -186,7 +186,7 @@ impl ConfigDaoWriteableMock {
     }
 }
 
-struct SecureConfigLayerMock {
+pub struct SecureConfigLayerMock {
     check_password_params: Arc<Mutex<Vec<Option<String>>>>,
     check_password_results: RefCell<Vec<Result<bool, SecureConfigLayerError>>>,
     change_password_params: Arc<Mutex<Vec<(Option<String>, String)>>>,
@@ -198,14 +198,14 @@ struct SecureConfigLayerMock {
 }
 
 impl SecureConfigLayer for SecureConfigLayerMock {
-    fn check_password<T: ConfigDaoRead + ?Sized>(&self, db_password_opt: Option<&str>, dao: &Box<T>) -> Result<bool, SecureConfigLayerError> {
+    fn check_password<T: ConfigDaoRead + ?Sized>(&self, db_password_opt: Option<&str>, _dao: &Box<T>) -> Result<bool, SecureConfigLayerError> {
         self.check_password_params.lock().unwrap().push (
             db_password_opt.map (|s| s.to_string())
         );
         self.check_password_results.borrow_mut().remove(0)
     }
 
-    fn change_password<'a, T: ConfigDaoReadWrite<'a>>(&mut self, old_password_opt: Option<&str>, new_password: &str, dao: &'a mut Box<T>) -> Result<(), SecureConfigLayerError> {
+    fn change_password<'a, T: ConfigDaoReadWrite<'a>>(&mut self, old_password_opt: Option<&str>, new_password: &str, _dao: &'a mut Box<T>) -> Result<(), SecureConfigLayerError> {
         self.change_password_params.lock().unwrap().push ((
             old_password_opt.map (|s| s.to_string()),
             new_password.to_string(),
@@ -213,7 +213,7 @@ impl SecureConfigLayer for SecureConfigLayerMock {
         self.change_password_results.borrow_mut().remove(0)
     }
 
-    fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<&str>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
+    fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<&str>, password_opt: Option<&str>, _dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
         self.encrypt_params.lock().unwrap().push ((
             name.to_string(),
             plain_value_opt.map (|s| s.to_string()),
@@ -222,7 +222,7 @@ impl SecureConfigLayer for SecureConfigLayerMock {
         self.encrypt_results.borrow_mut().remove(0)
     }
 
-    fn decrypt<T: ConfigDaoRead + ?Sized>(&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
+    fn decrypt<T: ConfigDaoRead + ?Sized>(&self, record: ConfigDaoRecord, password_opt: Option<&str>, _dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
         self.decrypt_params.lock().unwrap().push ((
             record.clone(),
             password_opt.map (|s| s.to_string()),
@@ -232,7 +232,7 @@ impl SecureConfigLayer for SecureConfigLayerMock {
 }
 
 impl SecureConfigLayerMock {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             check_password_params: Arc::new(Mutex::new(vec![])),
             check_password_results: RefCell::new(vec![]),
@@ -245,17 +245,17 @@ impl SecureConfigLayerMock {
         }
     }
 
-    fn check_password_params(mut self, params: &Arc<Mutex<Vec<Option<String>>>>) -> Self {
+    pub fn check_password_params(mut self, params: &Arc<Mutex<Vec<Option<String>>>>) -> Self {
         self.check_password_params = params.clone();
         self
     }
 
-    fn check_password_result(self, result: Result<bool, SecureConfigLayerError>) -> Self {
+    pub fn check_password_result(self, result: Result<bool, SecureConfigLayerError>) -> Self {
         self.check_password_results.borrow_mut().push (result);
         self
     }
 
-    fn change_password_params(
+    pub fn change_password_params(
         mut self,
         params: &Arc<Mutex<Vec<(Option<String>, String)>>>,
     ) -> Self {
@@ -263,27 +263,27 @@ impl SecureConfigLayerMock {
         self
     }
 
-    fn change_password_result(self, result: Result<(), SecureConfigLayerError>) -> Self {
+    pub fn change_password_result(self, result: Result<(), SecureConfigLayerError>) -> Self {
         self.change_password_results.borrow_mut().push (result);
         self
     }
 
-    fn encrypt_params(mut self, params: &Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>>) -> Self {
+    pub fn encrypt_params(mut self, params: &Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>>) -> Self {
         self.encrypt_params = params.clone();
         self
     }
 
-    fn encrypt_result(self, result: Result<Option<String>, SecureConfigLayerError>) -> Self {
+    pub fn encrypt_result(self, result: Result<Option<String>, SecureConfigLayerError>) -> Self {
         self.encrypt_results.borrow_mut().push (result);
         self
     }
 
-    fn decrypt_params(mut self, params: &Arc<Mutex<Vec<(ConfigDaoRecord, Option<String>)>>>) -> Self {
+    pub fn decrypt_params(mut self, params: &Arc<Mutex<Vec<(ConfigDaoRecord, Option<String>)>>>) -> Self {
         self.decrypt_params = params.clone();
         self
     }
 
-    fn decrypt_result(self, result: Result<Option<String>, SecureConfigLayerError>) -> Self {
+    pub fn decrypt_result(self, result: Result<Option<String>, SecureConfigLayerError>) -> Self {
         self.decrypt_results.borrow_mut().push (result);
         self
     }

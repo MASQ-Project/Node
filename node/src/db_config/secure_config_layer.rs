@@ -73,7 +73,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         match (record.encrypted, plain_value_opt, password_opt) {
             (false, value_opt, _) => Ok(value_opt.map(|x| x.to_string())),
             (true, Some (plain_value), Some (password)) => match Bip39::encrypt_bytes(&plain_value.as_bytes(), password) {
-                Err(e) => panic! ("Encryption of '{}' failed", plain_value),
+                Err(_) => panic! ("Encryption of '{}' failed", plain_value),
                 Ok(crypt_data) => Ok(Some(crypt_data)),
             },
             (true, Some (_), None) => Err(SecureConfigLayerError::PasswordError),
