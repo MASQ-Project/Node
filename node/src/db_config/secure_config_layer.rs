@@ -30,10 +30,10 @@ pub trait SecureConfigLayer {
     fn change_password<'a, T: ConfigDaoReadWrite<'a>>(
         &mut self,
         old_password_opt: Option<&str>,
-        new_password_opt: &str,
+        new_password: &str,
         dao: &'a mut Box<T>,
     ) -> Result<(), SecureConfigLayerError>;
-    fn encrypt<T: ConfigDaoRead + ?Sized> (&self, name: &str, plain_value: Option<&str>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
+    fn encrypt<T: ConfigDaoRead + ?Sized> (&self, name: &str, plain_value_opt: Option<&str>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
     fn decrypt<T: ConfigDaoRead + ?Sized> (&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
 }
 
@@ -168,12 +168,11 @@ impl SecureConfigLayerReal {
                 if so_far.is_ok() {
                     let setter = |value_opt: Option<&str>| dao.set(&record.name, value_opt);
                     let result = match &record.value_opt {
-                        Some (value) => setter (Some (value)),
-                        None => setter (None),
+                        Some(value) => setter(Some(value)),
+                        None => setter(None),
                     };
-                    result.map_err (|e| SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' could not be set: {:?}", record.name, e)))
-                }
-                else {
+                    result.map_err(|e| SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' could not be set: {:?}", record.name, e)))
+                } else {
                     so_far
                 }
             })
@@ -187,16 +186,16 @@ impl SecureConfigLayerReal {
         match (old_record.encrypted, &old_record.value_opt, old_password_opt) {
             (false, _, _) => Ok(old_record),
             (true, None, _) => Ok(old_record),
-            (true, Some (_), None) => Err(SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' is encrypted, but database has no password", old_record.name))),
-            (true, Some (value), Some(old_password)) => {
+            (true, Some(_), None) => Err(SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' is encrypted, but database has no password", old_record.name))),
+            (true, Some(value), Some(old_password)) => {
                 let decrypted_value = match Bip39::decrypt_bytes(value, old_password) {
                     Ok(plain_data) => plain_data,
                     Err(_) => {
                         return Err(SecureConfigLayerError::DatabaseError(format!("Aborting password change due to database corruption: configuration value '{}' cannot be decrypted", old_record.name)));
                     }
                 };
-                let reencrypted_value = Bip39::encrypt_bytes(&decrypted_value, new_password).expect ("Encryption failed");
-                Ok(ConfigDaoRecord::new (&old_record.name, Some (&reencrypted_value), old_record.encrypted))
+                let reencrypted_value = Bip39::encrypt_bytes(&decrypted_value, new_password).expect("Encryption failed");
+                Ok(ConfigDaoRecord::new(&old_record.name, Some(&reencrypted_value), old_record.encrypted))
             },
         }
     }
@@ -216,6 +215,13 @@ impl SecureConfigLayerReal {
             .set(EXAMPLE_ENCRYPTED, Some(&example_encrypted))
             .map_err(|e| SecureConfigLayerError::from(e))
     }
+}
+
+fn append<T: Clone>(records: Vec<T>, record: T) -> Vec<T> {
+    let mut result = records.clone();
+    result.push(record);
+    result
+}
 
 #[cfg(test)]
 mod tests {
@@ -226,8 +232,6 @@ mod tests {
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
     use std::sync::{Arc, Mutex};
-
-
 
     #[test]
     fn secure_config_layer_error_from_config_dao_error() {
