@@ -218,7 +218,6 @@ mod tests {
     };
     use crate::test_utils::assert_contains;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use std::path::PathBuf;
 
     #[test]
     fn get_all_returns_multiple_results() {
