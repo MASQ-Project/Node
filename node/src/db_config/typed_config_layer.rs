@@ -26,14 +26,8 @@ impl From<SecureConfigLayerError> for TypedConfigLayerError {
 }
 
 pub trait TypedConfigLayer {
-    fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, TypedConfigLayerError>;
-    fn change_password(&mut self, old_password_opt: Option<&str>, new_password_opt: &str) -> Result<(), TypedConfigLayerError>;
-    fn get_all(&self, db_password_opt: Option<&str>) -> Result<Vec<(String, Option<String>)>, TypedConfigLayerError>;
-    fn get_string(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<String>, TypedConfigLayerError>;
     fn get_u64(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<u64>, TypedConfigLayerError>;
     fn get_bytes(&self, name: &str, db_password_opt: Option<&str>) -> Result<Option<PlainData>, TypedConfigLayerError>;
-    fn transaction<'a>(&'a mut self) -> Box<dyn TransactionWrapper<'a> + 'a>;
-    fn set_string(&self, name: &str, value: Option<&str>, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
     fn set_u64(&self, name: &str, value: Option<u64>, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
     fn set_bytes(&self, name: &str, value: Option<&PlainData>, db_password_opt: Option<&str>) -> Result<(), TypedConfigLayerError>;
 }
