@@ -24,19 +24,6 @@ impl From<ConfigDaoError> for SecureConfigLayerError {
     }
 }
 
-pub trait SecureConfigLayerTrait {
-    fn check_password<T: ConfigDaoRead + ?Sized>(&self, db_password_opt: Option<&str>, dao: &Box<T>)
-        -> Result<bool, SecureConfigLayerError>;
-    fn change_password<'a, T: ConfigDaoReadWrite<'a>>(
-        &mut self,
-        old_password_opt: Option<&str>,
-        new_password: &str,
-        dao: &'a mut Box<T>,
-    ) -> Result<(), SecureConfigLayerError>;
-    fn encrypt<T: ConfigDaoRead + ?Sized> (&self, name: &str, plain_value_opt: Option<String>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
-    fn decrypt<T: ConfigDaoRead + ?Sized> (&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
-}
-
 pub struct SecureConfigLayer {}
 
 impl SecureConfigLayer {
