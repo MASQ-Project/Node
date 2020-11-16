@@ -157,8 +157,8 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
-        let encoded_seed = encode_bytes(Some (&PlainData::from (seed)))?.expect ("Value disappeared");
-        writer.set ("seed", self.scl.encrypt ("seed", Some (&encoded_seed), Some (db_password), &self.dao)?)?;
+        let encoded_seed = encode_bytes(Some (PlainData::from (seed)))?.expect ("Value disappeared");
+        writer.set ("seed", self.scl.encrypt ("seed", Some (encoded_seed), Some (db_password), &self.dao)?)?;
         Ok(writer.commit()?)
     }
 
@@ -244,6 +244,9 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
                 }
             },
             (None, Some(path)) => panic!("Cannot set consuming wallet public key: consuming derivation path is already set to {}", path),
+            (Some (_), Some (_)) => panic!(
+                "Database is corrupt: both consuming wallet public key and wallet are set",
+            ),
         }
     }
 
@@ -302,7 +305,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
             PlainData::new (&serde_cbor::ser::to_vec(&node_descriptors).expect ("Serialization failed"))
         });
         let mut writer = self.dao.start_transaction()?;
-        writer.set ("past_neighbors", self.scl.encrypt ("past_neighbors", encode_bytes (plain_data_opt)?, Some (db_password), &writer));
+        writer.set ("past_neighbors", self.scl.encrypt ("past_neighbors", encode_bytes (plain_data_opt)?, Some (db_password), &writer)?);
         Ok (writer.commit()?)
     }
 
@@ -319,7 +322,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
 
 impl<'a> From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal<'a> {
     fn from(conn: Box<dyn ConnectionWrapper>) -> Self {
-        let config_dao: Box<dyn ConfigDao<'a>> = Box::new(ConfigDaoReal::from(conn));
+        let config_dao: Box<dyn ConfigDao<'a>> = Box::new(ConfigDaoReal::new(conn));
         Self::from(config_dao)
     }
 }
@@ -333,32 +336,6 @@ impl<'a> From<Box<dyn ConfigDao<'a>>> for PersistentConfigurationReal<'a> {
 impl<'a> PersistentConfigurationReal<'a> {
     pub fn new(config_dao: Box<dyn ConfigDao>) -> PersistentConfigurationReal<'a> {
         PersistentConfigurationReal { dao: config_dao, scl: Box::new(SecureConfigLayerReal::new()) }
-    }
-
-    fn handle_config_pair_result(
-        one: String,
-        another: String,
-        one_msg: &str,
-        another_msg: &str,
-    ) -> ! {
-        match (one, another) {
-            (Ok(_), Ok(_)) => panic!(
-                "Database is corrupt: both {} and {} are set",
-                one_msg, another_msg
-            ),
-            (Err(one_err), Err(another_err)) => panic!(
-                "Database is corrupt: error retrieving both {} ({:?}) and {} ({:?})",
-                one_msg, one_err, another_msg, another_err
-            ),
-            (Err(one_err), _) => panic!(
-                "Database is corrupt: error retrieving {}: {:?}",
-                one_msg, one_err
-            ),
-            (_, Err(another_err)) => panic!(
-                "Database is corrupt: error retrieving {}: {:?}",
-                another_msg, another_err
-            ),
-        }
     }
 }
 

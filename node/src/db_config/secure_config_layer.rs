@@ -806,7 +806,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some("irrelevant"), false))));
         let subject = SecureConfigLayerReal::new();
 
-        let result = subject.encrypt("attribute_name", Some("attribute_value"), None, &dao);
+        let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), None, &dao);
 
         assert_eq!(result, Ok(Some("attribute_value".to_string())));
         let get_params = get_params_arc.lock().unwrap();
@@ -881,7 +881,7 @@ mod tests {
 
         let result = subject.encrypt(
             "attribute_name",
-            Some("attribute_value"),
+            Some("attribute_value".to_string()),
             Some("password"),
             &dao
         );
@@ -940,7 +940,7 @@ mod tests {
 
         let result = subject.encrypt(
             "attribute_name",
-            Some("attribute_value"),
+            Some("attribute_value".to_string()),
             Some("password"),
             &dao
         ).unwrap().unwrap();
@@ -973,7 +973,7 @@ mod tests {
             ))));
         let subject = SecureConfigLayerReal::new();
 
-        let result = subject.encrypt("attribute_name", Some("attribute_value"), None, &dao);
+        let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), None, &dao);
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
@@ -987,7 +987,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, false))));
         let subject = SecureConfigLayerReal::new();
 
-        let result = subject.encrypt("attribute_name", Some("attribute_value"), Some("password"), &dao);
+        let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), Some("password"), &dao);
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
         let get_params = get_params_arc.lock().unwrap();
@@ -1003,7 +1003,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))));
         let subject = SecureConfigLayerReal::new();
 
-        let result = subject.encrypt("attribute_name", Some("attribute_value"), Some("password"), &dao);
+        let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), Some("password"), &dao);
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
         let get_params = get_params_arc.lock().unwrap();
