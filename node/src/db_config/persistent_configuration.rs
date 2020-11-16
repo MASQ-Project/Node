@@ -10,7 +10,7 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use crate::database::connection_wrapper::{ConnectionWrapper};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal};
-use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError, SecureConfigLayerReal};
+use crate::db_config::secure_config_layer::{SecureConfigLayerTrait, SecureConfigLayerError, SecureConfigLayer};
 use crate::db_config::typed_config_layer::{decode_u64, TypedConfigLayerError, encode_u64, decode_bytes, encode_bytes};
 
 #[derive(Clone, PartialEq, Debug)]
@@ -82,7 +82,7 @@ pub trait PersistentConfiguration {
 
 pub struct PersistentConfigurationReal<'a> {
     dao: Box<dyn ConfigDao<'a>>,
-    scl: Box<dyn SecureConfigLayer>,
+    scl: Box<dyn SecureConfigLayerTrait>,
 }
 
 impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
@@ -335,7 +335,7 @@ impl<'a> From<Box<dyn ConfigDao<'a>>> for PersistentConfigurationReal<'a> {
 
 impl<'a> PersistentConfigurationReal<'a> {
     pub fn new(config_dao: Box<dyn ConfigDao>) -> PersistentConfigurationReal<'a> {
-        PersistentConfigurationReal { dao: config_dao, scl: Box::new(SecureConfigLayerReal::new()) }
+        PersistentConfigurationReal { dao: config_dao, scl: Box::new(SecureConfigLayer::new()) }
     }
 }
 

@@ -24,7 +24,7 @@ impl From<ConfigDaoError> for SecureConfigLayerError {
     }
 }
 
-pub trait SecureConfigLayer {
+pub trait SecureConfigLayerTrait {
     fn check_password<T: ConfigDaoRead + ?Sized>(&self, db_password_opt: Option<&str>, dao: &Box<T>)
         -> Result<bool, SecureConfigLayerError>;
     fn change_password<'a, T: ConfigDaoReadWrite<'a>>(
@@ -37,10 +37,14 @@ pub trait SecureConfigLayer {
     fn decrypt<T: ConfigDaoRead + ?Sized> (&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
 }
 
-pub struct SecureConfigLayerReal {}
+pub struct SecureConfigLayer {}
 
-impl SecureConfigLayer for SecureConfigLayerReal {
-    fn check_password<T: ConfigDaoRead + ?Sized>(
+impl SecureConfigLayer {
+    pub fn new() -> SecureConfigLayer {
+        Self {}
+    }
+
+    pub fn check_password<T: ConfigDaoRead + ?Sized>(
         &self,
         db_password_opt: Option<&str>,
         dao: &Box<T>,
@@ -51,7 +55,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         }
     }
 
-    fn change_password<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
+    pub fn change_password<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
         &mut self,
         old_password_opt: Option<&str>,
         new_password: &str,
@@ -65,7 +69,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         Ok(())
     }
 
-    fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<String>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
+    pub fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<String>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
         if !self.check_password(password_opt, dao)? {
             return Err(SecureConfigLayerError::PasswordError)
         }
@@ -81,7 +85,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         }
     }
 
-    fn decrypt<T: ConfigDaoRead + ?Sized>(&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
+    pub fn decrypt<T: ConfigDaoRead + ?Sized>(&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
         if !self.check_password(password_opt, dao)? {
             return Err(SecureConfigLayerError::PasswordError)
         }
@@ -97,12 +101,6 @@ impl SecureConfigLayer for SecureConfigLayerReal {
             (true, Some (_), None) => Err(SecureConfigLayerError::PasswordError),
             (true, None, _) => Ok(None),
         }
-    }
-}
-
-impl SecureConfigLayerReal {
-    pub fn new() -> SecureConfigLayerReal {
-        Self {}
     }
 
     fn password_matches_example(
@@ -255,7 +253,7 @@ mod tests {
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.check_password(None, &Box::new (dao));
 
@@ -270,7 +268,7 @@ mod tests {
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.check_password(Some("password"), &Box::new (dao));
 
@@ -291,7 +289,7 @@ mod tests {
                 Some(&encrypted_example),
                 true,
             )));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.check_password(None, &Box::new (dao));
 
@@ -312,7 +310,7 @@ mod tests {
                 Some(&encrypted_example),
                 true,
             )));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.check_password(Some("password"), &Box::new (dao));
 
@@ -333,7 +331,7 @@ mod tests {
                 Some(&encrypted_example),
                 true,
             )));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.check_password(Some("bad password"), &Box::new (dao));
 
@@ -352,7 +350,7 @@ mod tests {
                 Some("booga"),
                 false,
             )));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.check_password(Some("bad password"), &Box::new (dao));
 
@@ -378,7 +376,7 @@ mod tests {
                 Some(bad_encrypted_example),
                 true,
             )));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.check_password(Some("password"), &Box::new (dao));
 
@@ -393,7 +391,7 @@ mod tests {
         let dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.check_password(Some("irrelevant"), &Box::new (dao));
 
@@ -427,7 +425,7 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .commit_params (&commit_params_arc));
-        let mut subject = SecureConfigLayerReal::new();
+        let mut subject = SecureConfigLayer::new();
 
         let result = subject.change_password(None,
                                              "password", &mut writeable);
@@ -491,7 +489,7 @@ mod tests {
             .set_result(Ok(()))
             .set_result(Ok(()))
             .commit_params(&commit_params_arc));
-        let mut subject = SecureConfigLayerReal::new();
+        let mut subject = SecureConfigLayer::new();
 
         let result = subject.change_password(Some("old_password"), "new_password", &mut writeable);
 
@@ -529,7 +527,7 @@ mod tests {
             Some(&encrypted_example),
             true,
         )));
-        let mut subject = SecureConfigLayerReal::new();
+        let mut subject = SecureConfigLayer::new();
 
         let result = subject.change_password(Some("bad_password"), "new_password", &mut Box::new (dao));
 
@@ -545,7 +543,7 @@ mod tests {
             Some(&encrypted_value),
             true,
         )]));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.reencrypt_records(Some("old_password"), "new_password", &Box::new (dao));
 
@@ -576,7 +574,7 @@ mod tests {
             )))
             .set_result(Err(ConfigDaoError::DatabaseError("booga".to_string())))
             .set_result(Ok(()));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.reencrypt_records(Some("old_password"), "new_password", &Box::new (dao));
 
@@ -590,7 +588,7 @@ mod tests {
         let new_password = "irrelevant";
 
         let result =
-            SecureConfigLayerReal::reencrypt_record(record, old_password_opt, new_password);
+            SecureConfigLayer::reencrypt_record(record, old_password_opt, new_password);
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change: configuration value 'name' is encrypted, but database has no password".to_string())))
     }
@@ -602,7 +600,7 @@ mod tests {
         let dao = Box::new(ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, None, &dao);
 
@@ -621,7 +619,7 @@ mod tests {
         let dao = Box::new (ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, None, &dao);
 
@@ -646,7 +644,7 @@ mod tests {
                 Some(&encrypted_example),
                 true,
             ))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
 
@@ -673,7 +671,7 @@ mod tests {
                 Some(&encrypted_example),
                 true,
             ))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
 
@@ -703,7 +701,7 @@ mod tests {
                 Some(&encrypted_example),
                 true,
             ))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
 
@@ -726,7 +724,7 @@ mod tests {
                 None,
                 true,
             ))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, None, &dao);
 
@@ -750,7 +748,7 @@ mod tests {
                 Some(&encrypted_example),
                 true,
             ))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
 
@@ -771,7 +769,7 @@ mod tests {
                 true,
             ))));
         let record = ConfigDaoRecord::new ("attribute_name", Some("attribute_value"), true);
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
 
@@ -785,7 +783,7 @@ mod tests {
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some("irrelevant"), false))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, None, &dao);
 
@@ -804,7 +802,7 @@ mod tests {
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some("irrelevant"), false))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), None, &dao);
 
@@ -823,7 +821,7 @@ mod tests {
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, None, &dao);
 
@@ -848,7 +846,7 @@ mod tests {
                 true,
             )))
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, false))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, Some("password"), &dao);
 
@@ -877,7 +875,7 @@ mod tests {
                 Some("irrelevant"),
                 false,
             ))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt(
             "attribute_name",
@@ -907,7 +905,7 @@ mod tests {
                 true,
             )))
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, Some("password"), &dao);
 
@@ -936,7 +934,7 @@ mod tests {
                 Some("irrelevant"),
                 true,
             ))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt(
             "attribute_name",
@@ -971,7 +969,7 @@ mod tests {
                 Some("irrelevant"),
                 true,
             ))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), None, &dao);
 
@@ -985,7 +983,7 @@ mod tests {
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, false))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), Some("password"), &dao);
 
@@ -1001,7 +999,7 @@ mod tests {
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), Some("password"), &dao);
 
@@ -1015,7 +1013,7 @@ mod tests {
         let dao = Box::new (ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
             .get_result(Err(ConfigDaoError::NotPresent)));
-        let subject = SecureConfigLayerReal::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, None, &dao);
 

@@ -5,7 +5,7 @@ use crate::database::connection_wrapper::TransactionWrapper;
 use rusqlite::{Statement, Error};
 use std::cell::RefCell;
 use crate::db_config::config_dao::{ConfigDaoRecord, ConfigDaoError, ConfigDaoRead, ConfigDao, ConfigDaoReadWrite, ConfigDaoWrite};
-use crate::db_config::secure_config_layer::{SecureConfigLayerError, SecureConfigLayer};
+use crate::db_config::secure_config_layer::{SecureConfigLayerError, SecureConfigLayerTrait};
 
 #[derive(Debug)]
 pub struct TransactionWrapperMock {
@@ -197,7 +197,7 @@ pub struct SecureConfigLayerMock {
     decrypt_results: RefCell<Vec<Result<Option<String>, SecureConfigLayerError>>>,
 }
 
-impl SecureConfigLayer for SecureConfigLayerMock {
+impl SecureConfigLayerTrait for SecureConfigLayerMock {
     fn check_password<T: ConfigDaoRead + ?Sized>(&self, db_password_opt: Option<&str>, _dao: &Box<T>) -> Result<bool, SecureConfigLayerError> {
         self.check_password_params.lock().unwrap().push (
             db_password_opt.map (|s| s.to_string())

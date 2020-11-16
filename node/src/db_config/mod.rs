@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 mod config_dao;
-pub mod persistent_configuration;
+// pub mod persistent_configuration;
 pub mod secure_config_layer;
 mod typed_config_layer;
 
