@@ -80,12 +80,12 @@ pub trait PersistentConfiguration {
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
 }
 
-pub struct PersistentConfigurationReal {
-    dao: Box<dyn ConfigDao>,
+pub struct PersistentConfigurationReal<'a> {
+    dao: Box<dyn ConfigDao<'a>>,
     scl: Box<dyn SecureConfigLayer>,
 }
 
-impl PersistentConfiguration for PersistentConfigurationReal {
+impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
     fn current_schema_version(&self) -> String {
         match self.dao.get_string("schema_version") {
             Ok(s) => s,
@@ -317,21 +317,21 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 }
 
-impl From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal {
+impl<'a> From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal<'a> {
     fn from(conn: Box<dyn ConnectionWrapper>) -> Self {
-        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::from(conn));
+        let config_dao: Box<dyn ConfigDao<'a>> = Box::new(ConfigDaoReal::from(conn));
         Self::from(config_dao)
     }
 }
 
-impl From<Box<dyn ConfigDao>> for PersistentConfigurationReal {
-    fn from(config_dao: Box<dyn ConfigDao>) -> Self {
+impl<'a> From<Box<dyn ConfigDao<'a>>> for PersistentConfigurationReal<'a> {
+    fn from(config_dao: Box<dyn ConfigDao<'a>>) -> Self {
         Self::new(config_dao)
     }
 }
 
-impl PersistentConfigurationReal {
-    pub fn new(config_dao: Box<dyn ConfigDao>) -> PersistentConfigurationReal {
+impl<'a> PersistentConfigurationReal<'a> {
+    pub fn new(config_dao: Box<dyn ConfigDao>) -> PersistentConfigurationReal<'a> {
         PersistentConfigurationReal { dao: config_dao, scl: Box::new(SecureConfigLayerReal::new()) }
     }
 
