@@ -33,11 +33,11 @@ pub trait SecureConfigLayer {
         new_password: &str,
         dao: &'a mut Box<T>,
     ) -> Result<(), SecureConfigLayerError>;
-    fn encrypt<T: ConfigDaoRead + ?Sized> (&self, name: &str, plain_value_opt: Option<&str>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
+    fn encrypt<T: ConfigDaoRead + ?Sized> (&self, name: &str, plain_value_opt: Option<String>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
     fn decrypt<T: ConfigDaoRead + ?Sized> (&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError>;
 }
 
-struct SecureConfigLayerReal {}
+pub struct SecureConfigLayerReal {}
 
 impl SecureConfigLayer for SecureConfigLayerReal {
     fn check_password<T: ConfigDaoRead + ?Sized>(
@@ -65,7 +65,7 @@ impl SecureConfigLayer for SecureConfigLayerReal {
         Ok(())
     }
 
-    fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<&str>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
+    fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<String>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
         if !self.check_password(password_opt, dao)? {
             return Err(SecureConfigLayerError::PasswordError)
         }

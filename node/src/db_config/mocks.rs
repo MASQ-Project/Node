@@ -213,10 +213,10 @@ impl SecureConfigLayer for SecureConfigLayerMock {
         self.change_password_results.borrow_mut().remove(0)
     }
 
-    fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<&str>, password_opt: Option<&str>, _dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
+    fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<String>, password_opt: Option<&str>, _dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
         self.encrypt_params.lock().unwrap().push ((
             name.to_string(),
-            plain_value_opt.map (|s| s.to_string()),
+            plain_value_opt,
             password_opt.map (|s| s.to_string()),
         ));
         self.encrypt_results.borrow_mut().remove(0)

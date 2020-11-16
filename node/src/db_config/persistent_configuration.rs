@@ -9,9 +9,8 @@ use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use crate::database::connection_wrapper::{ConnectionWrapper};
-use rusqlite::Transaction;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal};
-use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
+use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError, SecureConfigLayerReal};
 use crate::db_config::typed_config_layer::{decode_u64, TypedConfigLayerError, encode_u64, decode_bytes, encode_bytes};
 
 #[derive(Clone, PartialEq, Debug)]
@@ -78,7 +77,7 @@ pub trait PersistentConfiguration {
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<Option<u64>, PersistentConfigError>;
-    fn set_start_block_transactionally(&mut self, tx: &Transaction, value: u64) -> Result<(), PersistentConfigError>;
+    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -223,6 +222,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                     )
                 }
             }
+            (Some (_), Some (_)) => panic!(
+                "Database is corrupt: both consuming wallet public key and wallet are set",
+            ),
         }
     }
 
@@ -308,17 +310,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(decode_u64(self.dao.get ("start_block")?.value_opt)?)
     }
 
-    fn set_start_block_transactionally(&self, tx: &Transaction, value: u64) -> Result<(), String> {
-        unimplemented! ("This may require another architectural change");
-        // self.dao
-        //     .set_u64_transactional(tx, "start_block", value)
-        //     .map_err(|e| match e {
-        //         ConfigDaoError::DatabaseError(_) => format!("{:?}", e),
-        //         ConfigDaoError::NotPresent => {
-        //             panic!("Unable to update start_block, maybe missing from the database")
-        //         }
-        //         e => panic!("{:?}", e),
-        //     })
+    fn set_start_block(&mut self, value: u64) -> Result<(), String> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set ("start_block", encode_u64 (Some (value))?)?;
+        Ok (writer.commit()?)
     }
 }
 
@@ -337,7 +332,7 @@ impl From<Box<dyn ConfigDao>> for PersistentConfigurationReal {
 
 impl PersistentConfigurationReal {
     pub fn new(config_dao: Box<dyn ConfigDao>) -> PersistentConfigurationReal {
-        PersistentConfigurationReal { dao: config_dao }
+        PersistentConfigurationReal { dao: config_dao, scl: Box::new(SecureConfigLayerReal::new()) }
     }
 
     fn handle_config_pair_result(
