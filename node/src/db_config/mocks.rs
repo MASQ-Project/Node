@@ -61,7 +61,7 @@ impl ConfigDaoRead for ConfigDaoMock<'_> {
 }
 
 impl<'a> ConfigDao<'a> for ConfigDaoMock<'a> {
-    fn start_transaction<'b:'a>(&'b mut self) -> Result<Box<dyn ConfigDaoReadWrite<'b> + 'b>, ConfigDaoError> {
+    fn start_transaction(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError> {
         self.start_transaction_results.borrow_mut().remove(0)
     }
 }

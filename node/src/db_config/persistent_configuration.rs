@@ -9,7 +9,7 @@ use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use crate::database::connection_wrapper::{ConnectionWrapper};
-use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoReadWrite};
 use crate::db_config::secure_config_layer::{SecureConfigLayerError, SecureConfigLayer};
 use crate::db_config::typed_config_layer::{decode_u64, TypedConfigLayerError, encode_u64, decode_bytes, encode_bytes};
 
@@ -46,38 +46,38 @@ impl From<ConfigDaoError> for PersistentConfigError {
     }
 }
 
-pub trait PersistentConfiguration {
+pub trait PersistentConfiguration<'a> {
     fn current_schema_version(&self) -> String;
     fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, PersistentConfigError>;
-    fn change_password(&mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError>;
+    fn change_password(&'a mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError>;
     fn clandestine_port(&self) -> Result<Option<u16>, PersistentConfigError>;
-    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
+    fn set_clandestine_port(&'a mut self, port: u16) -> Result<(), PersistentConfigError>;
     fn gas_price(&self) -> Result<Option<u64>, PersistentConfigError>;
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
+    fn set_gas_price(&'a mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
     fn set_mnemonic_seed(
-        &mut self,
+        &'a mut self,
         seed: &dyn AsRef<[u8]>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
     fn consuming_wallet_public_key(&self) -> Result<Option<String>, PersistentConfigError>;
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_consuming_wallet_derivation_path(&mut self, derivation_path: &str, db_password: &str) -> Result<(), PersistentConfigError>;
-    fn set_consuming_wallet_public_key(&mut self, public_key: &PlainData) -> Result<(), PersistentConfigError>;
+    fn set_consuming_wallet_public_key(&'a mut self, public_key: &PlainData) -> Result<(), PersistentConfigError>;
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError>;
+    fn set_earning_wallet_address(&'a mut self, address: &str) -> Result<(), PersistentConfigError>;
     fn past_neighbors(
         &self,
         db_password: &str,
     ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>;
     fn set_past_neighbors(
-        &mut self,
+        &'a mut self,
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<Option<u64>, PersistentConfigError>;
-    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn set_start_block(&'a mut self, value: u64) -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal<'a> {
@@ -85,7 +85,7 @@ pub struct PersistentConfigurationReal<'a> {
     scl: SecureConfigLayer,
 }
 
-impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
+impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
     fn current_schema_version(&self) -> String {
         match self.dao.get("schema_version") {
             Ok(record) => match record.value_opt {
@@ -103,7 +103,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
         Ok(self.scl.check_password (db_password_opt, &self.dao)?)
     }
 
-    fn change_password (&mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError> {
+    fn change_password (&'a mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         self.scl.change_password (old_password_opt, new_password, &mut writer)?;
         Ok (writer.commit()?)
@@ -135,7 +135,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
         }
     }
 
-    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
+    fn set_clandestine_port(&'a mut self, port: u16) -> Result<(), PersistentConfigError> {
         if port < LOWEST_USABLE_INSECURE_PORT {
             panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                     LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, port);
@@ -149,7 +149,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
         Ok(decode_u64(self.dao.get ("gas_price")?.value_opt)?)
     }
 
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
+    fn set_gas_price(&'a mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set ("gas_price", encode_u64 (Some (gas_price))?)?;
         Ok(writer.commit()?)
@@ -196,7 +196,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
         }
     }
 
-    fn set_consuming_wallet_derivation_path(&mut self, derivation_path: &str, db_password: &str) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_derivation_path(&'a mut self, derivation_path: &str, db_password: &str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         let key_rec = self.dao.get ("consuming_wallet_public_key")?;
         let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
@@ -240,7 +240,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
         }
     }
 
-    fn set_consuming_wallet_public_key(&mut self, public_key: &PlainData) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_public_key(&'a mut self, public_key: &PlainData) -> Result<(), PersistentConfigError> {
         let public_key_text: String = public_key.as_slice().to_hex();
         let mut writer = self.dao.start_transaction()?;
         let key_rec = self.dao.get ("consuming_wallet_public_key")?;
@@ -309,7 +309,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
     }
 
     fn set_past_neighbors(
-        &mut self,
+        &'a mut self,
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
@@ -325,7 +325,7 @@ impl<'a> PersistentConfiguration for PersistentConfigurationReal<'a> {
         Ok(decode_u64(self.dao.get ("start_block")?.value_opt)?)
     }
 
-    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
+    fn set_start_block(&'a mut self, value: u64) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set ("start_block", encode_u64 (Some (value))?)?;
         Ok (writer.commit()?)
