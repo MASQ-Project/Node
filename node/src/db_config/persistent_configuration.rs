@@ -49,7 +49,7 @@ impl From<ConfigDaoError> for PersistentConfigError {
 pub trait PersistentConfiguration<'a> {
     fn current_schema_version(&self) -> String;
     fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, PersistentConfigError>;
-    fn change_password(&'a mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError>;
+    fn change_password<'b, 'c>(&'a mut self, old_password_opt: Option<&'b str>, new_password: &'c str) -> Result<(), PersistentConfigError>;
     fn clandestine_port(&self) -> Result<Option<u16>, PersistentConfigError>;
     fn set_clandestine_port(&'a mut self, port: u16) -> Result<(), PersistentConfigError>;
     fn gas_price(&self) -> Result<Option<u64>, PersistentConfigError>;
@@ -62,8 +62,8 @@ pub trait PersistentConfiguration<'a> {
     ) -> Result<(), PersistentConfigError>;
     fn consuming_wallet_public_key(&self) -> Result<Option<String>, PersistentConfigError>;
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn set_consuming_wallet_derivation_path(&mut self, derivation_path: &str, db_password: &str) -> Result<(), PersistentConfigError>;
-    fn set_consuming_wallet_public_key(&'a mut self, public_key: &PlainData) -> Result<(), PersistentConfigError>;
+    fn set_consuming_wallet_derivation_path<'b, 'c>(&'a mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError>;
+    fn set_consuming_wallet_public_key<'b>(&'a mut self, public_key: &'b PlainData) -> Result<(), PersistentConfigError>;
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_earning_wallet_address(&'a mut self, address: &str) -> Result<(), PersistentConfigError>;
@@ -103,7 +103,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(self.scl.check_password (db_password_opt, &self.dao)?)
     }
 
-    fn change_password (&'a mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError> {
+    fn change_password<'b, 'c>(&'a mut self, old_password_opt: Option<&'b str>, new_password: &'c str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         self.scl.change_password (old_password_opt, new_password, &mut writer)?;
         Ok (writer.commit()?)
@@ -159,14 +159,10 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(decode_bytes (self.scl.decrypt (self.dao.get ("seed")?, Some (db_password), &self.dao)?)?)
     }
 
-    fn set_mnemonic_seed(
-        &mut self,
-        seed: &dyn AsRef<[u8]>,
-        db_password: &str,
-    ) -> Result<(), PersistentConfigError> {
+    fn set_mnemonic_seed<'b, 'c>(&'a mut self, seed: &'b dyn AsRef<[u8]>, db_password: &'c str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
-        let encoded_seed = encode_bytes(Some (PlainData::from (seed)))?.expect ("Value disappeared");
-        writer.set ("seed", self.scl.encrypt ("seed", Some (encoded_seed), Some (db_password), &self.dao)?)?;
+        let encoded_seed = encode_bytes(Some (PlainData::new (seed.as_ref())))?.expect ("Value disappeared");
+        writer.set ("seed", self.scl.encrypt ("seed", Some (encoded_seed), Some (db_password), &writer)?)?;
         Ok(writer.commit()?)
     }
 
@@ -196,15 +192,16 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         }
     }
 
-    fn set_consuming_wallet_derivation_path(&'a mut self, derivation_path: &str, db_password: &str) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_derivation_path<'b, 'c>(&'a mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
-        let key_rec = self.dao.get ("consuming_wallet_public_key")?;
-        let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
+        let key_rec = writer.get ("consuming_wallet_public_key")?;
+        let path_rec = writer.get ("consuming_wallet_derivation_path")?;
         match (key_rec.value_opt, path_rec.value_opt) {
-            (None, None) => Ok (writer
-                .set("consuming_wallet_derivation_path", Some (derivation_path.to_string()))?),
+            (None, None) => {
+                writer.set("consuming_wallet_derivation_path", Some (derivation_path.to_string()))?;
+            },
             (Some (key), None) => {
-                let seed = match self.mnemonic_seed(db_password)? {
+                let seed = match decode_bytes (self.scl.decrypt (writer.get ("seed")?, Some (db_password), &writer)?)? {
                     Some(seed) => seed,
                     None => {
                         panic!("Can't set consuming wallet derivation path without a mnemonic seed")
@@ -215,12 +212,11 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
                         panic!("Bad consuming derivation path: {}", derivation_path)
                     });
                 let existing_public_key = keypair.secret().public().bytes().to_hex::<String>();
-                if key == existing_public_key {
-                    return Ok(());
+                if key != existing_public_key {
+                    panic!(
+                        "Cannot set consuming wallet derivation path: consuming private key is already set"
+                    )
                 }
-                panic!(
-                    "Cannot set consuming wallet derivation path: consuming private key is already set"
-                )
             }
             (None, Some(existing_path)) => {
                 if derivation_path != existing_path {
@@ -230,36 +226,34 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
                     )
                 }
                 else {
-                    Ok(writer
-                        .set("consuming_wallet_derivation_path", Some(derivation_path.to_string()))?)
+                    writer.set("consuming_wallet_derivation_path", Some(derivation_path.to_string()))?
                 }
             }
             (Some (_), Some (_)) => panic!(
                 "Database is corrupt: both consuming wallet public key and wallet are set",
             ),
-        }
+        };
+        Ok (writer.commit()?)
     }
 
-    fn set_consuming_wallet_public_key(&'a mut self, public_key: &PlainData) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_public_key<'b>(&'a mut self, public_key: &'b PlainData) -> Result<(), PersistentConfigError> {
         let public_key_text: String = public_key.as_slice().to_hex();
         let mut writer = self.dao.start_transaction()?;
-        let key_rec = self.dao.get ("consuming_wallet_public_key")?;
-        let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
+        let key_rec = writer.get ("consuming_wallet_public_key")?;
+        let path_rec = writer.get ("consuming_wallet_derivation_path")?;
         match (key_rec.value_opt, path_rec.value_opt) {
-            (None, None) => Ok(writer.set("consuming_wallet_public_key", Some (public_key_text))?),
+            (None, None) => writer.set("consuming_wallet_public_key", Some (public_key_text))?,
             (Some(existing_public_key_text), None) =>  {
                 if public_key_text != existing_public_key_text {
                     panic!("Cannot set consuming wallet public key: already set")
-                }
-                else {
-                    Ok(())
                 }
             },
             (None, Some(path)) => panic!("Cannot set consuming wallet public key: consuming derivation path is already set to {}", path),
             (Some (_), Some (_)) => panic!(
                 "Database is corrupt: both consuming wallet public key and wallet are set",
             ),
-        }
+        };
+        Ok(writer.commit()?)
     }
 
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError> {
@@ -276,12 +270,12 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(self.dao.get ("earning_wallet_address")?.value_opt)
     }
 
-    fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError> {
+    fn set_earning_wallet_address<'b>(&'a mut self, address: &'b str) -> Result<(), PersistentConfigError> {
         match Wallet::from_str(address) {
             Ok(_) => (),
             Err(e) => panic!("Invalid earning wallet address '{}': {:?}", address, e),
         }
-        if let Ok(existing_address) = self.dao.get("earning_wallet_address")?.value_opt {
+        if let Some(existing_address) = self.dao.get("earning_wallet_address")?.value_opt {
             if address.to_lowercase() != existing_address.to_lowercase() {
                 panic!(
                     "Can't overwrite existing earning wallet address '{}'",
