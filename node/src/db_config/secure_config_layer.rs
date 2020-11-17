@@ -3,6 +3,7 @@
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::db_config::config_dao::{ConfigDaoError, ConfigDaoRecord, ConfigDaoRead, ConfigDaoReadWrite};
 use rand::Rng;
+use serde::export::PhantomData;
 
 pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
 
@@ -24,15 +25,17 @@ impl From<ConfigDaoError> for SecureConfigLayerError {
     }
 }
 
-pub struct SecureConfigLayer {}
+pub struct SecureConfigLayer<'a> {
+    phantom:PhantomData<&'a()>
+}
 
-impl SecureConfigLayer {
-    pub fn new() -> SecureConfigLayer {
-        Self {}
+impl<'a>SecureConfigLayer<'a> {
+    pub fn new() -> SecureConfigLayer<'a>{
+        Self {phantom:PhantomData}
     }
 
     pub fn check_password<T: ConfigDaoRead + ?Sized>(
-        &self,
+        &'a self,
         db_password_opt: Option<&str>,
         dao: &Box<T>,
     ) -> Result<bool, SecureConfigLayerError> {
@@ -42,8 +45,8 @@ impl SecureConfigLayer {
         }
     }
 
-    pub fn change_password<'a, 'b, T: ConfigDaoReadWrite<'a> + ?Sized>(
-        &mut self,
+    pub fn change_password<'b, T: ConfigDaoReadWrite<'a> + ?Sized>(
+        &'a self,
         old_password_opt: Option<&str>,
         new_password: &str,
         dao: &'b mut Box<T>,
@@ -118,8 +121,8 @@ impl SecureConfigLayer {
         }
     }
 
-    fn reencrypt_records<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
-        &self,
+    fn reencrypt_records<T: ConfigDaoReadWrite<'a> + ?Sized>(
+        &'a self,
         old_password_opt: Option<&str>,
         new_password: &str,
         dao: &Box<T>,
@@ -142,7 +145,7 @@ impl SecureConfigLayer {
         }
     }
 
-    fn update_records<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
+    fn update_records<T: ConfigDaoReadWrite<'a> + ?Sized>(
         &self,
         reencrypted_records: Vec<ConfigDaoRecord>,
         dao: &Box<T>,
@@ -185,8 +188,8 @@ impl SecureConfigLayer {
         }
     }
 
-    fn install_example_for_password<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
-        &self,
+    fn install_example_for_password<T: ConfigDaoReadWrite<'a> + ?Sized>(
+        &'a self,
         new_password: &str,
         dao: &Box<T>,
     ) -> Result<(), SecureConfigLayerError> {

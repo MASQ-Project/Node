@@ -81,8 +81,8 @@ pub trait PersistentConfiguration<'a> {
 }
 
 pub struct PersistentConfigurationReal<'a> {
-    dao: Box<dyn ConfigDao<'a>>,
-    scl: SecureConfigLayer,
+    dao: Box<dyn ConfigDao<'a>+'a>,
+    scl: SecureConfigLayer<'a>,
 }
 
 impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
@@ -104,9 +104,10 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
     }
 
     fn change_password<'b, 'c>(&'a mut self, old_password_opt: Option<&'b str>, new_password: &'c str) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        self.scl.change_password (old_password_opt, new_password, &mut writer)?;
-        Ok (writer.commit()?)
+       // let mut writer = self.dao.start_transaction()?;
+        //self.scl.change_password (old_password_opt, new_password, &mut writer)?;
+        //Ok (writer.commit()?)
+        Ok(())
     }
 
     fn clandestine_port(&self) -> Result<Option<u16>, PersistentConfigError> {
@@ -340,7 +341,7 @@ impl<'a> From<Box<dyn ConfigDao<'a>>> for PersistentConfigurationReal<'a> {
 }
 
 impl<'a> PersistentConfigurationReal<'a> {
-    pub fn new(config_dao: Box<dyn ConfigDao<'a>>) -> PersistentConfigurationReal<'a> {
+    pub fn new(config_dao: Box<dyn ConfigDao<'a>+'a>) -> PersistentConfigurationReal<'a> {
         PersistentConfigurationReal { dao: config_dao, scl: SecureConfigLayer::new() }
     }
 }
@@ -429,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn set_password_is_passed_through_to_secure_config_layer() {
+    fn set_password_is_passed_through_to_secure_config_layer<'a>() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let dao = Box::new (ConfigDaoMock::new()
             .get_params (&get_params_arc)

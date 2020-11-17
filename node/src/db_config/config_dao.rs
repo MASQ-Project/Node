@@ -36,7 +36,7 @@ pub trait ConfigDaoRead {
 // Anything that can write to the database implements this trait
 pub trait ConfigDaoWrite<'a> {
     fn set (&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
-    fn commit (&mut self) -> Result<(), ConfigDaoError>;
+    fn commit (& mut self) -> Result<(), ConfigDaoError>;
 }
 
 pub trait ConfigDaoReadWrite<'a> : ConfigDaoRead + ConfigDaoWrite<'a> {}
