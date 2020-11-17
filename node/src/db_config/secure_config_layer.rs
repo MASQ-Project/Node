@@ -42,11 +42,11 @@ impl SecureConfigLayer {
         }
     }
 
-    pub fn change_password<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
+    pub fn change_password<'a, 'b, T: ConfigDaoReadWrite<'a> + ?Sized>(
         &mut self,
         old_password_opt: Option<&str>,
         new_password: &str,
-        dao: &'a mut Box<T>,
+        dao: &'b mut Box<T>,
     ) -> Result<(), SecureConfigLayerError> {
         if !self.check_password(old_password_opt, dao)? {
             return Err(SecureConfigLayerError::PasswordError);
