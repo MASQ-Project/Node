@@ -42,14 +42,14 @@ impl TransactionWrapperMock {
     }
 }
 
-pub struct ConfigDaoMock<'a> {
+pub struct ConfigDaoMock {
     get_all_results: RefCell<Vec<Result<Vec<ConfigDaoRecord>, ConfigDaoError>>>,
     get_params: Arc<Mutex<Vec<String>>>,
     get_results: RefCell<Vec<Result<ConfigDaoRecord, ConfigDaoError>>>,
     start_transaction_results: RefCell<Vec<Result<Box<dyn ConfigDaoReadWrite>, ConfigDaoError>>>,
 }
 
-impl ConfigDaoRead for ConfigDaoMock<'_> {
+impl ConfigDaoRead for ConfigDaoMock {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
         self.get_all_results.borrow_mut().remove(0)
     }
@@ -60,13 +60,13 @@ impl ConfigDaoRead for ConfigDaoMock<'_> {
     }
 }
 
-impl<'z> ConfigDao for ConfigDaoMock<'z> {
-    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite<'b> + 'b>, ConfigDaoError> {
+impl ConfigDao for ConfigDaoMock {
+    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
         self.start_transaction_results.borrow_mut().remove(0)
     }
 }
 
-impl<'a> ConfigDaoMock<'a> {
+impl ConfigDaoMock {
     pub fn new() -> Self {
         Self {
             get_all_results: RefCell::new(vec![]),
@@ -91,7 +91,7 @@ impl<'a> ConfigDaoMock<'a> {
         self
     }
 
-    pub fn start_transaction_result(self, result: Result<Box<dyn ConfigDaoReadWrite<'a>>, ConfigDaoError>) -> Self {
+    pub fn start_transaction_result(self, result: Result<Box<dyn ConfigDaoReadWrite>, ConfigDaoError>) -> Self {
         self.start_transaction_results.borrow_mut().push(result);
         self
     }
@@ -119,7 +119,7 @@ impl ConfigDaoRead for ConfigDaoWriteableMock {
     }
 }
 
-impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableMock {
+impl ConfigDaoWrite for ConfigDaoWriteableMock {
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError> {
         self.set_params
             .lock()
@@ -134,7 +134,7 @@ impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableMock {
     }
 }
 
-impl<'a> ConfigDaoReadWrite<'a> for ConfigDaoWriteableMock {}
+impl ConfigDaoReadWrite for ConfigDaoWriteableMock {}
 
 impl ConfigDaoWriteableMock {
     pub fn new() -> Self {

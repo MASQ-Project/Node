@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::bip39::{Bip39};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
@@ -9,7 +8,7 @@ use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use crate::database::connection_wrapper::{ConnectionWrapper};
-use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoReadWrite};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal};
 use crate::db_config::secure_config_layer::{SecureConfigLayerError, SecureConfigLayer};
 use crate::db_config::typed_config_layer::{decode_u64, TypedConfigLayerError, encode_u64, decode_bytes, encode_bytes};
 
@@ -311,7 +310,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
             PlainData::new (&serde_cbor::ser::to_vec(&node_descriptors).expect ("Serialization failed"))
         });
         let mut writer = self.dao.start_transaction()?;
-        writer.set ("past_neighbors", self.scl.encrypt ("past_neighbors", encode_bytes (plain_data_opt)?, Some (db_password), &writer)?);
+        writer.set ("past_neighbors", self.scl.encrypt ("past_neighbors", encode_bytes (plain_data_opt)?, Some (db_password), &writer)?)?;
         Ok (writer.commit()?)
     }
 
@@ -348,16 +347,6 @@ impl PersistentConfigurationReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::test_utils::make_meaningless_seed;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::test_utils::main_cryptde;
-    use bip39::{Language, Mnemonic, MnemonicType, Seed};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use masq_lib::utils::find_free_port;
-    use rustc_hex::FromHex;
-    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
-    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::config_dao::ConfigDaoRecord;

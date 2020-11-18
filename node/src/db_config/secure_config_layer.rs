@@ -42,7 +42,7 @@ impl SecureConfigLayer {
         }
     }
 
-    pub fn change_password<'a, 'b, T: ConfigDaoReadWrite<'a> + ?Sized>(
+    pub fn change_password<'b, T: ConfigDaoReadWrite + ?Sized>(
         &mut self,
         old_password_opt: Option<&str>,
         new_password: &str,
@@ -118,7 +118,7 @@ impl SecureConfigLayer {
         }
     }
 
-    fn reencrypt_records<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
+    fn reencrypt_records<T: ConfigDaoReadWrite + ?Sized>(
         &self,
         old_password_opt: Option<&str>,
         new_password: &str,
@@ -142,7 +142,7 @@ impl SecureConfigLayer {
         }
     }
 
-    fn update_records<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
+    fn update_records<T: ConfigDaoReadWrite + ?Sized>(
         &self,
         reencrypted_records: Vec<ConfigDaoRecord>,
         dao: &Box<T>,
@@ -185,7 +185,7 @@ impl SecureConfigLayer {
         }
     }
 
-    fn install_example_for_password<'a, T: ConfigDaoReadWrite<'a> + ?Sized>(
+    fn install_example_for_password<T: ConfigDaoReadWrite + ?Sized>(
         &self,
         new_password: &str,
         dao: &Box<T>,

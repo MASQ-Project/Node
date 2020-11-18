@@ -34,17 +34,17 @@ pub trait ConfigDaoRead {
 }
 
 // Anything that can write to the database implements this trait
-pub trait ConfigDaoWrite<'a> {
+pub trait ConfigDaoWrite {
     fn set (&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
     fn commit (&mut self) -> Result<(), ConfigDaoError>;
 }
 
-pub trait ConfigDaoReadWrite<'a> : ConfigDaoRead + ConfigDaoWrite<'a> {}
+pub trait ConfigDaoReadWrite: ConfigDaoRead + ConfigDaoWrite {}
 
 // ConfigDao can read from the database but not write to it; however, it can produce a Transaction,
 // which _can_ write to the database.
 pub trait ConfigDao: ConfigDaoRead {
-    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite<'b> + 'b>, ConfigDaoError>;
+    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError>;
 }
 
 pub struct ConfigDaoReal {
@@ -52,7 +52,7 @@ pub struct ConfigDaoReal {
 }
 
 impl ConfigDao for ConfigDaoReal {
-    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite<'b> + 'b>, ConfigDaoError> {
+    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
         let transaction: Transaction<'b> = match self.conn.transaction() {
             Ok (t) => t,
             // This line is untested, because we don't know how to pop this error in a test
@@ -119,7 +119,7 @@ impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
 }
 
 // ...and it can write too
-impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
+impl<'a> ConfigDaoWrite for ConfigDaoWriteableReal<'a> {
 
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError> {
         let transaction = match &self.transaction_opt {
@@ -150,7 +150,7 @@ impl<'a> ConfigDaoWrite<'a> for ConfigDaoWriteableReal<'a> {
 }
 
 // Because we can't declare a parameter as "writer: Box<dyn ConfigDaoRead + dyn ConfigDaoWrite>"
-impl<'a> ConfigDaoReadWrite<'a> for ConfigDaoWriteableReal<'a> {}
+impl<'a> ConfigDaoReadWrite for ConfigDaoWriteableReal<'a> {}
 
 // This is the real version of ConfigDaoWriteable used in production
 impl<'a> ConfigDaoWriteableReal<'a> {
