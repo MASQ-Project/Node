@@ -25,17 +25,15 @@ impl From<ConfigDaoError> for SecureConfigLayerError {
     }
 }
 
-pub struct SecureConfigLayer<'a> {
-    phantom:PhantomData<&'a()>
-}
+pub struct SecureConfigLayer {}
 
-impl<'a>SecureConfigLayer<'a> {
-    pub fn new() -> SecureConfigLayer<'a>{
-        Self {phantom:PhantomData}
+impl SecureConfigLayer {
+    pub fn new() -> SecureConfigLayer {
+        Self {}
     }
 
     pub fn check_password<T: ConfigDaoRead + ?Sized>(
-        &'a self,
+        &self,
         db_password_opt: Option<&str>,
         dao: &Box<T>,
     ) -> Result<bool, SecureConfigLayerError> {
@@ -46,7 +44,7 @@ impl<'a>SecureConfigLayer<'a> {
     }
 
     pub fn change_password<'b, T: ConfigDaoReadWrite + ?Sized>(
-        &'a self,
+        &self,
         old_password_opt: Option<&str>,
         new_password: &str,
         dao: &'b mut Box<T>,
@@ -122,7 +120,7 @@ impl<'a>SecureConfigLayer<'a> {
     }
 
     fn reencrypt_records<T: ConfigDaoReadWrite + ?Sized>(
-        &'a self,
+        &self,
         old_password_opt: Option<&str>,
         new_password: &str,
         dao: &Box<T>,
@@ -189,7 +187,7 @@ impl<'a>SecureConfigLayer<'a> {
     }
 
     fn install_example_for_password<T: ConfigDaoReadWrite + ?Sized>(
-        &'a self,
+        &self,
         new_password: &str,
         dao: &Box<T>,
     ) -> Result<(), SecureConfigLayerError> {

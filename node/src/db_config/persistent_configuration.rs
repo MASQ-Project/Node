@@ -357,6 +357,8 @@ mod tests {
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
     use masq_lib::utils::find_free_port;
     use std::net::SocketAddr;
+    use crate::blockchain::bip39::Bip39;
+    use nix::errno::Errno::ENAMETOOLONG;
 
     #[test]
     fn from_config_dao_error() {
@@ -540,25 +542,32 @@ mod tests {
         assert_eq!(*set_params, vec![("clandestine_port".to_string(), Some ("4747".to_string()))]);
     }
 
-    // #[test]
-    // fn mnemonic_seed_success() {
-    //     let seed = PlainData::new(b"example seed");
-    //     let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_bytes_e_params(&get_bytes_e_params_arc)
-    //         .get_bytes_e_result(Ok(seed.clone()));
-    //
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //     let possible_seed = subject.mnemonic_seed("booga");
-    //
-    //     assert_eq!(possible_seed, Ok(Some(seed)));
-    //     let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_bytes_e_params,
-    //         vec![("seed".to_string(), "booga".to_string())]
-    //     )
-    // }
-    //
+    #[test]
+    fn mnemonic_seed_success() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let seed = PlainData::new(b"example seed");
+        let encrypted_seed = Bip39::encrypt_bytes (&seed, "password").unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some (&example_encrypted), true)))
+            .get_result(Ok(ConfigDaoRecord::new ("seed", Some (&encrypted_seed), true))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.mnemonic_seed("password").unwrap();
+
+        assert_eq!(result, Some(seed));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec![
+                EXAMPLE_ENCRYPTED.to_string(),
+                "seed".to_string()
+            ]
+        )
+    }
+
     // #[test]
     // fn mnemonic_seed_none_when_not_present() {
     //     let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
