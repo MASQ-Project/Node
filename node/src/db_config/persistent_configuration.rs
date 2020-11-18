@@ -24,7 +24,10 @@ pub enum PersistentConfigError {
 
 impl From<TypedConfigLayerError> for PersistentConfigError {
     fn from(input: TypedConfigLayerError) -> Self {
-        unimplemented!()
+        match input {
+            TypedConfigLayerError::BadHexFormat(msg) => PersistentConfigError::BadHexFormat(msg),
+            TypedConfigLayerError::BadNumberFormat(msg) => PersistentConfigError::BadNumberFormat(msg),
+        }
     }
 }
 
@@ -88,7 +91,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     fn current_schema_version(&self) -> String {
         match self.dao.get("schema_version") {
             Ok(record) => match record.value_opt {
-                None => unimplemented!(),
+                None => panic!("Can't continue; current schema version is missing"),
                 Some (csv) => csv,
             },
             Err(e) => panic!(
@@ -348,8 +351,9 @@ impl PersistentConfigurationReal {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
-    use crate::db_config::mocks::ConfigDaoMock;
+    use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::config_dao::ConfigDaoRecord;
+    use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 
     #[test]
     fn from_config_dao_error() {
@@ -420,16 +424,18 @@ mod tests {
     #[test]
     fn set_password_is_passed_through_to_secure_config_layer() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new (ConfigDaoMock::new()
+        let writer = Box::new (ConfigDaoWriteableMock::new()
             .get_params (&get_params_arc)
             .get_result (Err(ConfigDaoError::NotPresent)));
+        let dao = Box::new (ConfigDaoMock::new()
+            .start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new (dao);
 
         let result = subject.change_password(None, "password");
 
         assert_eq! (result, Err(PersistentConfigError::NotPresent));
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq! (*get_params, vec!["encrypted_example".to_string()])
+        assert_eq! (*get_params, vec![EXAMPLE_ENCRYPTED.to_string()])
     }
 
     // #[test]
@@ -444,7 +450,7 @@ mod tests {
     //
     //     assert_eq!(result, None);
     //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(get_string_params[0], "example_encrypted".to_string());
+    //     assert_eq!(get_string_params[0], EXAMPLE_ENCRYPTED.to_string());
     //     assert_eq!(1, get_string_params.len());
     // }
     //
@@ -462,7 +468,7 @@ mod tests {
     //
     //     assert_eq!(result, Some(false));
     //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(get_string_params[0], "example_encrypted".to_string());
+    //     assert_eq!(get_string_params[0], EXAMPLE_ENCRYPTED.to_string());
     //     assert_eq!(1, get_string_params.len());
     // }
     //
@@ -480,7 +486,7 @@ mod tests {
     //
     //     assert_eq!(result, Some(true));
     //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(get_string_params[0], "example_encrypted".to_string());
+    //     assert_eq!(get_string_params[0], EXAMPLE_ENCRYPTED.to_string());
     //     assert_eq!(1, get_string_params.len());
     // }
     //

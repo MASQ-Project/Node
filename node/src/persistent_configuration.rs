@@ -13,6 +13,7 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use crate::database::connection_wrapper::{ConnectionWrapper};
 use rusqlite::Transaction;
+use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -78,12 +79,12 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         let example_encrypted =
             Bip39::encrypt_bytes(&example_data, db_password).expect("Encryption failed");
         self.dao
-            .set_string("example_encrypted", &example_encrypted)
+            .set_string(EXAMPLE_ENCRYPTED, &example_encrypted)
             .expect("Can't continue; example_encrypted could not be set");
     }
 
     fn check_password(&self, db_password: &str) -> Option<bool> {
-        match self.dao.get_string("example_encrypted") {
+        match self.dao.get_string(EXAMPLE_ENCRYPTED) {
             Ok(value) => match Bip39::decrypt_bytes(&value, db_password) {
                 Ok(_) => Some(true),
                 Err(Bip39Error::DecryptionFailure(_)) => Some(false),
@@ -489,7 +490,7 @@ mod tests {
         subject.set_password("password");
 
         let set_string_params = set_string_params_arc.lock().unwrap();
-        assert_eq!(set_string_params[0].0, "example_encrypted".to_string());
+        assert_eq!(set_string_params[0].0, EXAMPLE_ENCRYPTED.to_string());
         let encrypted_string = set_string_params[0].1.clone();
         // If this doesn't panic, the test passes
         Bip39::decrypt_bytes(&encrypted_string, "password").unwrap();
@@ -519,7 +520,7 @@ mod tests {
 
         assert_eq!(result, None);
         let get_string_params = get_string_params_arc.lock().unwrap();
-        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(get_string_params[0], EXAMPLE_ENCRYPTED.to_string());
         assert_eq!(1, get_string_params.len());
     }
 
@@ -537,7 +538,7 @@ mod tests {
 
         assert_eq!(result, Some(false));
         let get_string_params = get_string_params_arc.lock().unwrap();
-        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(get_string_params[0], EXAMPLE_ENCRYPTED.to_string());
         assert_eq!(1, get_string_params.len());
     }
 
@@ -555,7 +556,7 @@ mod tests {
 
         assert_eq!(result, Some(true));
         let get_string_params = get_string_params_arc.lock().unwrap();
-        assert_eq!(get_string_params[0], "example_encrypted".to_string());
+        assert_eq!(get_string_params[0], EXAMPLE_ENCRYPTED.to_string());
         assert_eq!(1, get_string_params.len());
     }
 

@@ -2,8 +2,7 @@
 use crate::blockchain::blockchain_interface::{
     chain_name_from_id, contract_creation_block_from_chain_id,
 };
-// use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
-const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
+use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -598,7 +597,7 @@ mod tests {
         verify(&mut config_vec, "consuming_wallet_derivation_path", None);
         verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
-        verify(&mut config_vec, "example_encrypted", None);
+        verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
         verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
         verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database

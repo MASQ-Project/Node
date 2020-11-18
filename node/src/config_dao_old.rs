@@ -6,6 +6,7 @@ use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::{OptionalExtension, Rows, NO_PARAMS, Transaction};
 use crate::database::connection_wrapper::{ConnectionWrapper};
+use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -80,7 +81,7 @@ impl ConfigDaoOld for ConfigDaoReal {
     }
 
     fn check_password(&self, db_password: &str) -> Result<bool, ConfigDaoError> {
-        let encrypted_string = self.get_string("example_encrypted")?;
+        let encrypted_string = self.get_string(EXAMPLE_ENCRYPTED)?;
         match Bip39::decrypt_bytes(&encrypted_string, db_password) {
             Ok(_) => Ok(true),
             Err(Bip39Error::DecryptionFailure(_)) => Ok(false),
@@ -111,7 +112,7 @@ impl ConfigDaoOld for ConfigDaoReal {
             Ok(bytes) => bytes,
             Err(e) => return Err(ConfigDaoError::CryptoError(format!("{:?}", e))),
         };
-        self.set_string("example_encrypted", &example_encrypted)?;
+        self.set_string(EXAMPLE_ENCRYPTED, &example_encrypted)?;
         if old_password_opt == None {
             return Ok(());
         }
