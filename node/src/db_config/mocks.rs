@@ -46,7 +46,7 @@ pub struct ConfigDaoMock<'a> {
     get_all_results: RefCell<Vec<Result<Vec<ConfigDaoRecord>, ConfigDaoError>>>,
     get_params: Arc<Mutex<Vec<String>>>,
     get_results: RefCell<Vec<Result<ConfigDaoRecord, ConfigDaoError>>>,
-    start_transaction_results: RefCell<Vec<Result<Box<dyn ConfigDaoReadWrite<'a>+'a>, ConfigDaoError>>>,
+    start_transaction_results: RefCell<Vec<Result<Box<dyn ConfigDaoReadWrite>, ConfigDaoError>>>,
 }
 
 impl ConfigDaoRead for ConfigDaoMock<'_> {
@@ -60,13 +60,13 @@ impl ConfigDaoRead for ConfigDaoMock<'_> {
     }
 }
 
-impl<'a> ConfigDao<'a> for ConfigDaoMock<'a> {
-    fn start_transaction(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError> {
+impl<'z> ConfigDao for ConfigDaoMock<'z> {
+    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite<'b> + 'b>, ConfigDaoError> {
         self.start_transaction_results.borrow_mut().remove(0)
     }
 }
 
-impl <'a>ConfigDaoMock<'a> {
+impl<'a> ConfigDaoMock<'a> {
     pub fn new() -> Self {
         Self {
             get_all_results: RefCell::new(vec![]),
@@ -91,7 +91,7 @@ impl <'a>ConfigDaoMock<'a> {
         self
     }
 
-    pub fn start_transaction_result(self, result: Result<Box<dyn ConfigDaoReadWrite<'a>+'a>, ConfigDaoError>) -> Self {
+    pub fn start_transaction_result(self, result: Result<Box<dyn ConfigDaoReadWrite<'a>>, ConfigDaoError>) -> Self {
         self.start_transaction_results.borrow_mut().push(result);
         self
     }

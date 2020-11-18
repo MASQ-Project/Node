@@ -80,12 +80,12 @@ pub trait PersistentConfiguration<'a> {
     fn set_start_block(&'a mut self, value: u64) -> Result<(), PersistentConfigError>;
 }
 
-pub struct PersistentConfigurationReal<'a> {
-    dao: Box<dyn ConfigDao<'a>>,
+pub struct PersistentConfigurationReal {
+    dao: Box<dyn ConfigDao>,
     scl: SecureConfigLayer,
 }
 
-impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
+impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     fn current_schema_version(&self) -> String {
         match self.dao.get("schema_version") {
             Ok(record) => match record.value_opt {
@@ -103,7 +103,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(self.scl.check_password (db_password_opt, &self.dao)?)
     }
 
-    fn change_password<'b, 'c>(&'a mut self, old_password_opt: Option<&'b str>, new_password: &'c str) -> Result<(), PersistentConfigError> {
+    fn change_password(&mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         self.scl.change_password (old_password_opt, new_password, &mut writer)?;
         Ok (writer.commit()?)
@@ -135,7 +135,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         }
     }
 
-    fn set_clandestine_port(&'a mut self, port: u16) -> Result<(), PersistentConfigError> {
+    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
         if port < LOWEST_USABLE_INSECURE_PORT {
             panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                     LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, port);
@@ -149,7 +149,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(decode_u64(self.dao.get ("gas_price")?.value_opt)?)
     }
 
-    fn set_gas_price(&'a mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
+    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set ("gas_price", encode_u64 (Some (gas_price))?)?;
         Ok(writer.commit()?)
@@ -159,7 +159,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(decode_bytes (self.scl.decrypt (self.dao.get ("seed")?, Some (db_password), &self.dao)?)?)
     }
 
-    fn set_mnemonic_seed<'b, 'c>(&'a mut self, seed: &'b dyn AsRef<[u8]>, db_password: &'c str) -> Result<(), PersistentConfigError> {
+    fn set_mnemonic_seed<'b, 'c>(&mut self, seed: &'b dyn AsRef<[u8]>, db_password: &'c str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         let encoded_seed = encode_bytes(Some (PlainData::new (seed.as_ref())))?.expect ("Value disappeared");
         writer.set ("seed", self.scl.encrypt ("seed", Some (encoded_seed), Some (db_password), &writer)?)?;
@@ -192,7 +192,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         }
     }
 
-    fn set_consuming_wallet_derivation_path<'b, 'c>(&'a mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_derivation_path<'b, 'c>(&mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         let key_rec = writer.get ("consuming_wallet_public_key")?;
         let path_rec = writer.get ("consuming_wallet_derivation_path")?;
@@ -236,7 +236,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok (writer.commit()?)
     }
 
-    fn set_consuming_wallet_public_key<'b>(&'a mut self, public_key: &'b PlainData) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_public_key<'b>(&mut self, public_key: &'b PlainData) -> Result<(), PersistentConfigError> {
         let public_key_text: String = public_key.as_slice().to_hex();
         let mut writer = self.dao.start_transaction()?;
         let key_rec = writer.get ("consuming_wallet_public_key")?;
@@ -270,7 +270,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(self.dao.get ("earning_wallet_address")?.value_opt)
     }
 
-    fn set_earning_wallet_address<'b>(&'a mut self, address: &'b str) -> Result<(), PersistentConfigError> {
+    fn set_earning_wallet_address<'b>(&mut self, address: &'b str) -> Result<(), PersistentConfigError> {
         match Wallet::from_str(address) {
             Ok(_) => (),
             Err(e) => panic!("Invalid earning wallet address '{}': {:?}", address, e),
@@ -303,7 +303,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
     }
 
     fn set_past_neighbors(
-        &'a mut self,
+        &mut self,
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
@@ -319,28 +319,28 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(decode_u64(self.dao.get ("start_block")?.value_opt)?)
     }
 
-    fn set_start_block(&'a mut self, value: u64) -> Result<(), PersistentConfigError> {
+    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set ("start_block", encode_u64 (Some (value))?)?;
         Ok (writer.commit()?)
     }
 }
 
-impl<'a> From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal<'a> {
+impl From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal {
     fn from(conn: Box<dyn ConnectionWrapper>) -> Self {
-        let config_dao: Box<dyn ConfigDao<'a>> = Box::new(ConfigDaoReal::new(conn));
+        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(conn));
         Self::from(config_dao)
     }
 }
 
-impl<'a> From<Box<dyn ConfigDao<'a>>> for PersistentConfigurationReal<'a> {
-    fn from(config_dao: Box<dyn ConfigDao<'a>>) -> Self {
+impl From<Box<dyn ConfigDao>> for PersistentConfigurationReal {
+    fn from(config_dao: Box<dyn ConfigDao>) -> Self {
         Self::new(config_dao)
     }
 }
 
-impl<'a> PersistentConfigurationReal<'a> {
-    pub fn new(config_dao: Box<dyn ConfigDao<'a>>) -> PersistentConfigurationReal<'a> {
+impl PersistentConfigurationReal {
+    pub fn new(config_dao: Box<dyn ConfigDao>) -> PersistentConfigurationReal {
         PersistentConfigurationReal { dao: config_dao, scl: SecureConfigLayer::new() }
     }
 }

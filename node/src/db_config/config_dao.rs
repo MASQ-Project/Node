@@ -43,17 +43,17 @@ pub trait ConfigDaoReadWrite<'a> : ConfigDaoRead + ConfigDaoWrite<'a> {}
 
 // ConfigDao can read from the database but not write to it; however, it can produce a Transaction,
 // which _can_ write to the database.
-pub trait ConfigDao<'a>: ConfigDaoRead {
-    fn start_transaction(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError>;
+pub trait ConfigDao: ConfigDaoRead {
+    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite<'b> + 'b>, ConfigDaoError>;
 }
 
 pub struct ConfigDaoReal {
     conn: Box<dyn ConnectionWrapper>,
 }
 
-impl<'a> ConfigDao<'a> for ConfigDaoReal {
-    fn start_transaction(&'a mut self) -> Result<Box<dyn ConfigDaoReadWrite<'a> + 'a>, ConfigDaoError> {
-        let transaction: Transaction<'a> = match self.conn.transaction() {
+impl ConfigDao for ConfigDaoReal {
+    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite<'b> + 'b>, ConfigDaoError> {
+        let transaction: Transaction<'b> = match self.conn.transaction() {
             Ok (t) => t,
             // This line is untested, because we don't know how to pop this error in a test
             Err(e) => return Err (ConfigDaoError::DatabaseError(format! ("{:?}", e))),
