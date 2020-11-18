@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::bip32::Bip32ECKeyPair;
-use crate::blockchain::bip39::{Bip39};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
@@ -9,7 +8,7 @@ use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use crate::database::connection_wrapper::{ConnectionWrapper};
-use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoReadWrite};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal};
 use crate::db_config::secure_config_layer::{SecureConfigLayerError, SecureConfigLayer};
 use crate::db_config::typed_config_layer::{decode_u64, TypedConfigLayerError, encode_u64, decode_bytes, encode_bytes};
 
@@ -25,7 +24,10 @@ pub enum PersistentConfigError {
 
 impl From<TypedConfigLayerError> for PersistentConfigError {
     fn from(input: TypedConfigLayerError) -> Self {
-        unimplemented!()
+        match input {
+            TypedConfigLayerError::BadHexFormat(msg) => PersistentConfigError::BadHexFormat(msg),
+            TypedConfigLayerError::BadNumberFormat(msg) => PersistentConfigError::BadNumberFormat(msg),
+        }
     }
 }
 
@@ -80,16 +82,16 @@ pub trait PersistentConfiguration<'a> {
     fn set_start_block(&'a mut self, value: u64) -> Result<(), PersistentConfigError>;
 }
 
-pub struct PersistentConfigurationReal<'a> {
-    dao: Box<dyn ConfigDao<'a>+'a>,
-    scl: SecureConfigLayer<'a>,
+pub struct PersistentConfigurationReal {
+    dao: Box<dyn ConfigDao>,
+    scl: SecureConfigLayer,
 }
 
-impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
+impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     fn current_schema_version(&self) -> String {
         match self.dao.get("schema_version") {
             Ok(record) => match record.value_opt {
-                None => unimplemented!(),
+                None => panic!("Can't continue; current schema version is missing"),
                 Some (csv) => csv,
             },
             Err(e) => panic!(
@@ -103,7 +105,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(self.scl.check_password (db_password_opt, &self.dao)?)
     }
 
-    fn change_password<'b, 'c>(&'a mut self, old_password_opt: Option<&'b str>, new_password: &'c str) -> Result<(), PersistentConfigError> {
+    fn change_password(&mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError> {
        // let mut writer = self.dao.start_transaction()?;
         //self.scl.change_password (old_password_opt, new_password, &mut writer)?;
         //Ok (writer.commit()?)
@@ -136,7 +138,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         }
     }
 
-    fn set_clandestine_port(&'a mut self, port: u16) -> Result<(), PersistentConfigError> {
+    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
         if port < LOWEST_USABLE_INSECURE_PORT {
             panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
                     LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, port);
@@ -150,7 +152,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(decode_u64(self.dao.get ("gas_price")?.value_opt)?)
     }
 
-    fn set_gas_price(&'a mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
+    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set ("gas_price", encode_u64 (Some (gas_price))?)?;
         Ok(writer.commit()?)
@@ -160,7 +162,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(decode_bytes (self.scl.decrypt (self.dao.get ("seed")?, Some (db_password), &self.dao)?)?)
     }
 
-    fn set_mnemonic_seed<'b, 'c>(&'a mut self, seed: &'b dyn AsRef<[u8]>, db_password: &'c str) -> Result<(), PersistentConfigError> {
+    fn set_mnemonic_seed<'b, 'c>(&mut self, seed: &'b dyn AsRef<[u8]>, db_password: &'c str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         let encoded_seed = encode_bytes(Some (PlainData::new (seed.as_ref())))?.expect ("Value disappeared");
         writer.set ("seed", self.scl.encrypt ("seed", Some (encoded_seed), Some (db_password), &writer)?)?;
@@ -193,7 +195,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         }
     }
 
-    fn set_consuming_wallet_derivation_path<'b, 'c>(&'a mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_derivation_path<'b, 'c>(&mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         let key_rec = writer.get ("consuming_wallet_public_key")?;
         let path_rec = writer.get ("consuming_wallet_derivation_path")?;
@@ -237,7 +239,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok (writer.commit()?)
     }
 
-    fn set_consuming_wallet_public_key<'b>(&'a mut self, public_key: &'b PlainData) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_public_key<'b>(&mut self, public_key: &'b PlainData) -> Result<(), PersistentConfigError> {
         let public_key_text: String = public_key.as_slice().to_hex();
         let mut writer = self.dao.start_transaction()?;
         let key_rec = writer.get ("consuming_wallet_public_key")?;
@@ -271,7 +273,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(self.dao.get ("earning_wallet_address")?.value_opt)
     }
 
-    fn set_earning_wallet_address<'b>(&'a mut self, address: &'b str) -> Result<(), PersistentConfigError> {
+    fn set_earning_wallet_address<'b>(&mut self, address: &'b str) -> Result<(), PersistentConfigError> {
         match Wallet::from_str(address) {
             Ok(_) => (),
             Err(e) => panic!("Invalid earning wallet address '{}': {:?}", address, e),
@@ -304,7 +306,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
     }
 
     fn set_past_neighbors(
-        &'a mut self,
+        &mut self,
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
@@ -312,7 +314,7 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
             PlainData::new (&serde_cbor::ser::to_vec(&node_descriptors).expect ("Serialization failed"))
         });
         let mut writer = self.dao.start_transaction()?;
-        writer.set ("past_neighbors", self.scl.encrypt ("past_neighbors", encode_bytes (plain_data_opt)?, Some (db_password), &writer)?);
+        writer.set ("past_neighbors", self.scl.encrypt ("past_neighbors", encode_bytes (plain_data_opt)?, Some (db_password), &writer)?)?;
         Ok (writer.commit()?)
     }
 
@@ -320,28 +322,28 @@ impl<'a> PersistentConfiguration<'a> for PersistentConfigurationReal<'a> {
         Ok(decode_u64(self.dao.get ("start_block")?.value_opt)?)
     }
 
-    fn set_start_block(&'a mut self, value: u64) -> Result<(), PersistentConfigError> {
+    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         writer.set ("start_block", encode_u64 (Some (value))?)?;
         Ok (writer.commit()?)
     }
 }
 
-impl<'a> From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal<'a> {
+impl From<Box<dyn ConnectionWrapper>> for PersistentConfigurationReal {
     fn from(conn: Box<dyn ConnectionWrapper>) -> Self {
-        let config_dao: Box<dyn ConfigDao<'a>> = Box::new(ConfigDaoReal::new(conn));
+        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(conn));
         Self::from(config_dao)
     }
 }
 
-impl<'a> From<Box<dyn ConfigDao<'a>>> for PersistentConfigurationReal<'a> {
-    fn from(config_dao: Box<dyn ConfigDao<'a>>) -> Self {
+impl From<Box<dyn ConfigDao>> for PersistentConfigurationReal {
+    fn from(config_dao: Box<dyn ConfigDao>) -> Self {
         Self::new(config_dao)
     }
 }
 
-impl<'a> PersistentConfigurationReal<'a> {
-    pub fn new(config_dao: Box<dyn ConfigDao<'a>+'a>) -> PersistentConfigurationReal<'a> {
+impl PersistentConfigurationReal {
+    pub fn new(config_dao: Box<dyn ConfigDao>) -> PersistentConfigurationReal {
         PersistentConfigurationReal { dao: config_dao, scl: SecureConfigLayer::new() }
     }
 }
@@ -349,19 +351,12 @@ impl<'a> PersistentConfigurationReal<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::test_utils::make_meaningless_seed;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::test_utils::main_cryptde;
-    use bip39::{Language, Mnemonic, MnemonicType, Seed};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use masq_lib::utils::find_free_port;
-    use rustc_hex::FromHex;
-    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
-    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crate::db_config::mocks::ConfigDaoMock;
+    use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::config_dao::ConfigDaoRecord;
+    use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+    use masq_lib::utils::find_free_port;
+    use std::net::SocketAddr;
 
     #[test]
     fn from_config_dao_error() {
@@ -432,180 +427,119 @@ mod tests {
     #[test]
     fn set_password_is_passed_through_to_secure_config_layer<'a>() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new (ConfigDaoMock::new()
+        let writer = Box::new (ConfigDaoWriteableMock::new()
             .get_params (&get_params_arc)
             .get_result (Err(ConfigDaoError::NotPresent)));
+        let dao = Box::new (ConfigDaoMock::new()
+            .start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new (dao);
 
         let result = subject.change_password(None, "password");
 
         assert_eq! (result, Err(PersistentConfigError::NotPresent));
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq! (*get_params, vec!["encrypted_example".to_string()])
+        assert_eq! (*get_params, vec![EXAMPLE_ENCRYPTED.to_string()])
     }
 
-    // #[test]
-    // fn check_password_works_if_there_is_none() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Err(ConfigDaoError::NotPresent));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.check_password(Some ("password"));
-    //
-    //     assert_eq!(result, None);
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(get_string_params[0], "example_encrypted".to_string());
-    //     assert_eq!(1, get_string_params.len());
-    // }
-    //
-    // #[test]
-    // fn check_password_works_if_password_is_wrong() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let data = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-    //     let encrypted_data = Bip39::encrypt_bytes(&data, "password").unwrap();
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Ok(encrypted_data));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.check_password(Some ("drowssap"));
-    //
-    //     assert_eq!(result, Some(false));
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(get_string_params[0], "example_encrypted".to_string());
-    //     assert_eq!(1, get_string_params.len());
-    // }
-    //
-    // #[test]
-    // fn check_password_works_if_password_is_right() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let data = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-    //     let encrypted_data = Bip39::encrypt_bytes(&data, "password").unwrap();
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Ok(encrypted_data));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.check_password(Some ("password"));
-    //
-    //     assert_eq!(result, Some(true));
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(get_string_params[0], "example_encrypted".to_string());
-    //     assert_eq!(1, get_string_params.len());
-    // }
-    //
-    // #[test]
-    // #[should_panic(expected = "Can't continue; example_encrypted could not be read")]
-    // fn check_password_panics_if_get_string_fails() {
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.check_password(Some ("password"));
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Can't continue; clandestine port configuration is inaccessible: NotPresent"
-    // )]
-    // fn clandestine_port_panics_if_dao_error() {
-    //     let config_dao = ConfigDaoMock::new().get_u64_result(Err(ConfigDaoError::NotPresent));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.clandestine_port();
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 65536. Specify --clandestine-port <p> where <p> is an unused port."
-    // )]
-    // fn clandestine_port_panics_if_configured_port_is_too_high() {
-    //     let config_dao = ConfigDaoMock::new().get_u64_result(Ok(65536));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.clandestine_port();
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine-port <p> where <p> is an unused port."
-    // )]
-    // fn clandestine_port_panics_if_configured_port_is_too_low() {
-    //     let config_dao = ConfigDaoMock::new().get_u64_result(Ok(1024));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.clandestine_port();
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
-    // )]
-    // fn clandestine_port_panics_if_configured_port_is_in_use() {
-    //     let port = find_free_port();
-    //     let config_dao = ConfigDaoMock::new().get_u64_result(Ok(port as u64));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //     let _listener =
-    //         TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port))).unwrap();
-    //
-    //     subject.clandestine_port();
-    // }
-    //
-    // #[test]
-    // fn clandestine_port_success() {
-    //     let get_u64_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_u64_params(&get_u64_params_arc)
-    //         .get_u64_result(Ok(4747));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.clandestine_port();
-    //
-    //     assert_eq!(4747, result);
-    //     let get_u64_params = get_u64_params_arc.lock().unwrap();
-    //     assert_eq!("clandestine_port".to_string(), get_u64_params[0]);
-    //     assert_eq!(1, get_u64_params.len());
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Can't continue; clandestine port configuration is inaccessible: NotPresent"
-    // )]
-    // fn set_clandestine_port_panics_if_dao_error() {
-    //     let config_dao = ConfigDaoMock::new().set_u64_result(Err(ConfigDaoError::NotPresent));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.set_clandestine_port(1234);
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine-port <p> where <p> is an unused port."
-    // )]
-    // fn set_clandestine_port_panics_if_configured_port_is_too_low() {
-    //     let config_dao = ConfigDaoMock::new().set_u64_result(Ok(()));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.set_clandestine_port(1024);
-    // }
-    //
-    // #[test]
-    // fn set_clandestine_port_success() {
-    //     let set_u64_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .set_u64_params(&set_u64_params_arc)
-    //         .set_u64_result(Ok(()));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.set_clandestine_port(4747);
-    //
-    //     let set_u64_params = set_u64_params_arc.lock().unwrap();
-    //     assert_eq!(("clandestine_port".to_string(), 4747), set_u64_params[0]);
-    //     assert_eq!(1, set_u64_params.len());
-    // }
-    //
+    #[test]
+    fn check_password_delegates_properly() {
+        let get_string_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_string_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, None, true)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.check_password(None).unwrap();
+
+        assert_eq!(result, true);
+        let get_string_params = get_string_params_arc.lock().unwrap();
+        assert_eq!(*get_string_params, [EXAMPLE_ENCRYPTED.to_string()]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 65536. Specify --clandestine-port <p> where <p> is an unused port."
+    )]
+    fn clandestine_port_panics_if_configured_port_is_too_high() {
+        let config_dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new("clandestine_port", Some ("65536"), false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.clandestine_port();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine-port <p> where <p> is an unused port."
+    )]
+    fn clandestine_port_panics_if_configured_port_is_too_low() {
+        let config_dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new("clandestine_port", Some ("1024"), false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.clandestine_port();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
+    )]
+    fn clandestine_port_panics_if_configured_port_is_in_use() {
+        let port = find_free_port();
+        let config_dao = ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new("clandestine_port", Some (&format!("{}", port)), false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+        let _listener =
+            TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port))).unwrap();
+
+        subject.clandestine_port();
+    }
+
+    #[test]
+    fn clandestine_port_success() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new ("clandestine_port", Some ("4747"), false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.clandestine_port().unwrap();
+
+        assert_eq!(Some (4747), result);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq! (*get_params, vec!["clandestine_port".to_string()]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine-port <p> where <p> is an unused port."
+    )]
+    fn set_clandestine_port_panics_if_configured_port_is_too_low() {
+        let config_dao = ConfigDaoMock::new();
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_clandestine_port(1024).unwrap();
+    }
+
+    #[test]
+    fn set_clandestine_port_success() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new (ConfigDaoWriteableMock::new()
+            .get_result(Ok(ConfigDaoRecord::new ("clandestine_port", Some ("1234"), false)))
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result(Ok(())));
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_clandestine_port(4747);
+
+        assert_eq! (result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![("clandestine_port".to_string(), Some ("4747".to_string()))]);
+    }
+
     // #[test]
     // fn mnemonic_seed_success() {
     //     let seed = PlainData::new(b"example seed");
