@@ -357,7 +357,6 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::net::SocketAddr;
     use crate::blockchain::bip39::Bip39;
-    use nix::errno::Errno::ENAMETOOLONG;
 
     #[test]
     fn from_config_dao_error() {
@@ -568,49 +567,35 @@ mod tests {
         )
     }
 
-    // #[test]
-    // fn start_block_success() {
-    //     let config_dao = ConfigDaoMock::new().get_u64_result(Ok(6u64));
-    //
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //     let start_block = subject.start_block();
-    //
-    //     assert_eq!(6u64, start_block);
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = r#"Can't continue; start_block configuration is inaccessible: DatabaseError("Here\'s your problem")"#
-    // )]
-    // fn start_block_panics_when_not_set() {
-    //     let config_dao = ConfigDaoMock::new().get_u64_result(Err(ConfigDaoError::DatabaseError(
-    //         "Here's your problem".to_string(),
-    //     )));
-    //
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.start_block();
-    // }
-    //
-    // #[test]
-    // fn set_start_block_transactionally_success() {
-    //     let config_dao = ConfigDaoMock::new().set_u64_transactional_result(Ok(()));
-    //
-    //     let home_dir = ensure_node_home_directory_exists(
-    //         "persistent_configuration",
-    //         "set_start_block_transactionally_success",
-    //     );
-    //     let mut conn = DbInitializerReal::new()
-    //         .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-    //         .unwrap();
-    //     let transaction = conn.transaction().unwrap();
-    //
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //     let result = subject.set_start_block_transactionally(&transaction, 1234);
-    //
-    //     assert!(result.is_ok());
-    // }
-    //
+    #[test]
+    fn start_block_success() {
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new("start_block", Some ("6"), false))));
+
+        let subject = PersistentConfigurationReal::new(config_dao);
+        let start_block = subject.start_block().unwrap();
+
+        assert_eq!(start_block, Some (6));
+    }
+
+    #[test]
+    fn set_start_block_success() {
+        let set_params_arc = Arc::new (Mutex::new (vec![]));
+        let writer = Box::new (ConfigDaoWriteableMock::new()
+            .get_result(Ok(ConfigDaoRecord::new ("start_block", Some ("1234"), false)))
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result (Ok(())));
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok (writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_start_block(1234).unwrap();
+
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq! (*set_params, vec![("start_block".to_string(), Some ("1234".to_string()))])
+    }
+
     // #[test]
     // fn gas_price() {
     //     let config_dao = ConfigDaoMock::new().get_u64_result(Ok(3u64));
