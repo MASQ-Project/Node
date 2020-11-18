@@ -106,10 +106,9 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     }
 
     fn change_password(&mut self, old_password_opt: Option<&str>, new_password: &str) -> Result<(), PersistentConfigError> {
-       // let mut writer = self.dao.start_transaction()?;
-        //self.scl.change_password (old_password_opt, new_password, &mut writer)?;
-        //Ok (writer.commit()?)
-        Ok(())
+        let mut writer = self.dao.start_transaction()?;
+        self.scl.change_password (old_password_opt, new_password, &mut writer)?;
+        Ok (writer.commit()?)
     }
 
     fn clandestine_port(&self) -> Result<Option<u16>, PersistentConfigError> {
@@ -438,7 +437,7 @@ mod tests {
 
         let result = subject.change_password(None, "password");
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent));
+        assert_eq! (Err(PersistentConfigError::NotPresent), result);
         let get_params = get_params_arc.lock().unwrap();
         assert_eq! (*get_params, vec![EXAMPLE_ENCRYPTED.to_string()])
     }
@@ -494,7 +493,7 @@ mod tests {
         let _listener =
             TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port))).unwrap();
 
-        subject.clandestine_port();
+        subject.clandestine_port().unwrap();
     }
 
     #[test]
@@ -547,12 +546,13 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let seed = PlainData::new(b"example seed");
-        let encrypted_seed = Bip39::encrypt_bytes (&seed, "password").unwrap();
+        let encoded_seed = encode_bytes(Some (seed.clone())).unwrap().unwrap();
+        let encrypted_seed = Bip39::encrypt_bytes (&encoded_seed, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = Box::new (ConfigDaoMock::new()
             .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some (&example_encrypted), true)))
-            .get_result(Ok(ConfigDaoRecord::new ("seed", Some (&encrypted_seed), true))));
+            .get_result(Ok(ConfigDaoRecord::new ("seed", Some (&encrypted_seed), true)))
+            .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some (&example_encrypted), true))));
         let subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.mnemonic_seed("password").unwrap();
@@ -562,99 +562,12 @@ mod tests {
         assert_eq!(
             *get_params,
             vec![
+                "seed".to_string(),
                 EXAMPLE_ENCRYPTED.to_string(),
-                "seed".to_string()
             ]
         )
     }
 
-    // #[test]
-    // fn mnemonic_seed_none_when_not_present() {
-    //     let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_bytes_e_result(Err(ConfigDaoError::NotPresent))
-    //         .get_bytes_e_params(&get_bytes_e_params_arc);
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.mnemonic_seed("booga");
-    //
-    //     assert_eq!(result, Ok(None));
-    //     let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_bytes_e_params,
-    //         vec![("seed".to_string(), "booga".to_string())]
-    //     )
-    // }
-    //
-    // #[test]
-    // fn returns_database_error_for_seed_appropriately() {
-    //     let config_dao: Box<dyn ConfigDao> = Box::new(
-    //         ConfigDaoMock::new()
-    //             .get_bytes_e_result(Err(ConfigDaoError::DatabaseError("blah".to_string()))),
-    //     );
-    //     let subject = PersistentConfigurationReal::from(config_dao);
-    //
-    //     let result = subject.mnemonic_seed("");
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(PersistentConfigError::DatabaseError(
-    //             "DatabaseError(\"blah\")".to_string()
-    //         ))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn returns_decryption_failure_for_invalid_password_appropriately() {
-    //     let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao: Box<dyn ConfigDao> = Box::new(
-    //         ConfigDaoMock::new()
-    //             .get_bytes_e_params(&get_bytes_e_params_arc)
-    //             .get_bytes_e_result(Err(ConfigDaoError::PasswordError)),
-    //     );
-    //     let subject = PersistentConfigurationReal::from(config_dao);
-    //
-    //     let result = subject.mnemonic_seed("Invalid password");
-    //
-    //     assert_eq!(result, Err(PersistentConfigError::PasswordError));
-    //     let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_bytes_e_params,
-    //         vec![("seed".to_string(), "Invalid password".to_string())]
-    //     )
-    // }
-    //
-    // #[test]
-    // fn set_mnemonic_seed_reports_dao_error() {
-    //     let config_dao = ConfigDaoMock::new().set_string_result(Err(
-    //         ConfigDaoError::DatabaseError("Here's your problem".to_string()),
-    //     ));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.set_mnemonic_seed(&make_meaningless_seed(), "password");
-    //
-    //     assert_eq! (result, Err(PersistentConfigError::DatabaseError("Can't continue; mnemonic seed configuration is inaccessible: DatabaseError(\"Here\\'s your problem\")".to_string())));
-    // }
-    //
-    // #[test]
-    // fn set_mnemonic_seed_succeeds() {
-    //     let seed = make_meaningless_seed();
-    //     let db_password = "seed password";
-    //     let encrypted_seed = Bip39::encrypt_bytes(&seed, db_password).unwrap();
-    //     let expected_params = ("seed".to_string(), encrypted_seed);
-    //     let set_string_params_arc = Arc::new(Mutex::new(vec![expected_params.clone()]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .set_string_params(&set_string_params_arc)
-    //         .set_string_result(Ok(()));
-    //
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //     subject.set_mnemonic_seed(&seed, db_password).unwrap();
-    //
-    //     let set_string_params = set_string_params_arc.lock().unwrap();
-    //
-    //     assert_eq!(set_string_params[0], expected_params);
-    // }
-    //
     // #[test]
     // fn start_block_success() {
     //     let config_dao = ConfigDaoMock::new().get_u64_result(Ok(6u64));
