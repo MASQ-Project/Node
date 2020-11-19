@@ -20,6 +20,7 @@ pub enum PersistentConfigError {
     DatabaseError(String),
     BadNumberFormat (String),
     BadHexFormat (String),
+    Collision (String),
 }
 
 impl From<TypedConfigLayerError> for PersistentConfigError {
@@ -169,127 +170,134 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     }
 
     fn consuming_wallet_public_key(&self) -> Result<Option<String>, PersistentConfigError> {
-        let key_rec = self.dao.get ("consuming_wallet_public_key")?;
-        let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
-        match (key_rec.value_opt, path_rec.value_opt) {
-            (None, None) => Ok(None),
-            (Some(key), None) => Ok(Some(key)),
-            (None, Some(_)) => Ok(None),
-            (Some (_), Some (_)) => panic!(
-                "Database is corrupt: both consuming wallet public key and wallet are set",
-            ),
-        }
+        unimplemented!()
+        // let key_rec = self.dao.get ("consuming_wallet_public_key")?;
+        // let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
+        // match (key_rec.value_opt, path_rec.value_opt) {
+        //     (None, None) => Ok(None),
+        //     (Some(key), None) => Ok(Some(key)),
+        //     (None, Some(_)) => Ok(None),
+        //     (Some (_), Some (_)) => panic!(
+        //         "Database is corrupt: both consuming wallet public key and wallet are set",
+        //     ),
+        // }
     }
 
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError> {
-        let key_rec = self.dao.get ("consuming_wallet_public_key")?;
-        let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
-        match (key_rec.value_opt, path_rec.value_opt) {
-            (None, None) => Ok(None),
-            (Some(_), None) => Ok(None),
-            (None, Some(path)) => Ok(Some(path)),
-            (Some (_), Some (_)) => panic!(
-                "Database is corrupt: both consuming wallet public key and wallet are set",
-            ),
-        }
+        unimplemented!()
+        // let key_rec = self.dao.get ("consuming_wallet_public_key")?;
+        // let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
+        // match (key_rec.value_opt, path_rec.value_opt) {
+        //     (None, None) => Ok(None),
+        //     (Some(_), None) => Ok(None),
+        //     (None, Some(path)) => Ok(Some(path)),
+        //     (Some (_), Some (_)) => panic!(
+        //         "Database is corrupt: both consuming wallet public key and wallet are set",
+        //     ),
+        // }
     }
 
     fn set_consuming_wallet_derivation_path<'b, 'c>(&mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        let key_rec = writer.get ("consuming_wallet_public_key")?;
-        let path_rec = writer.get ("consuming_wallet_derivation_path")?;
-        match (key_rec.value_opt, path_rec.value_opt) {
-            (None, None) => {
-                writer.set("consuming_wallet_derivation_path", Some (derivation_path.to_string()))?;
-            },
-            (Some (key), None) => {
-                let seed = match decode_bytes (self.scl.decrypt (writer.get ("seed")?, Some (db_password), &writer)?)? {
-                    Some(seed) => seed,
-                    None => {
-                        panic!("Can't set consuming wallet derivation path without a mnemonic seed")
-                    }
-                };
-                let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), derivation_path)
-                    .unwrap_or_else(|_| {
-                        panic!("Bad consuming derivation path: {}", derivation_path)
-                    });
-                let existing_public_key = keypair.secret().public().bytes().to_hex::<String>();
-                if key != existing_public_key {
-                    panic!(
-                        "Cannot set consuming wallet derivation path: consuming private key is already set"
-                    )
-                }
-            }
-            (None, Some(existing_path)) => {
-                if derivation_path != existing_path {
-                    panic!(
-                        "Cannot set consuming wallet derivation path: already set to {}",
-                        existing_path
-                    )
-                }
-                else {
-                    writer.set("consuming_wallet_derivation_path", Some(derivation_path.to_string()))?
-                }
-            }
-            (Some (_), Some (_)) => panic!(
-                "Database is corrupt: both consuming wallet public key and wallet are set",
-            ),
-        };
-        Ok (writer.commit()?)
+        unimplemented!()
+        // let mut writer = self.dao.start_transaction()?;
+        // let key_rec = writer.get ("consuming_wallet_public_key")?;
+        // let path_rec = writer.get ("consuming_wallet_derivation_path")?;
+        // match (key_rec.value_opt, path_rec.value_opt) {
+        //     (None, None) => {
+        //         writer.set("consuming_wallet_derivation_path", Some (derivation_path.to_string()))?;
+        //     },
+        //     (Some (key), None) => {
+        //         let seed = match decode_bytes (self.scl.decrypt (writer.get ("seed")?, Some (db_password), &writer)?)? {
+        //             Some(seed) => seed,
+        //             None => {
+        //                 panic!("Can't set consuming wallet derivation path without a mnemonic seed")
+        //             }
+        //         };
+        //         let keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), derivation_path)
+        //             .unwrap_or_else(|_| {
+        //                 panic!("Bad consuming derivation path: {}", derivation_path)
+        //             });
+        //         let existing_public_key = keypair.secret().public().bytes().to_hex::<String>();
+        //         if key != existing_public_key {
+        //             panic!(
+        //                 "Cannot set consuming wallet derivation path: consuming private key is already set"
+        //             )
+        //         }
+        //     }
+        //     (None, Some(existing_path)) => {
+        //         if derivation_path != existing_path {
+        //             panic!(
+        //                 "Cannot set consuming wallet derivation path: already set to {}",
+        //                 existing_path
+        //             )
+        //         }
+        //         else {
+        //             writer.set("consuming_wallet_derivation_path", Some(derivation_path.to_string()))?
+        //         }
+        //     }
+        //     (Some (_), Some (_)) => panic!(
+        //         "Database is corrupt: both consuming wallet public key and wallet are set",
+        //     ),
+        // };
+        // Ok (writer.commit()?)
     }
 
     fn set_consuming_wallet_public_key<'b>(&mut self, public_key: &'b PlainData) -> Result<(), PersistentConfigError> {
-        let public_key_text: String = public_key.as_slice().to_hex();
-        let mut writer = self.dao.start_transaction()?;
-        let key_rec = writer.get ("consuming_wallet_public_key")?;
-        let path_rec = writer.get ("consuming_wallet_derivation_path")?;
-        match (key_rec.value_opt, path_rec.value_opt) {
-            (None, None) => writer.set("consuming_wallet_public_key", Some (public_key_text))?,
-            (Some(existing_public_key_text), None) =>  {
-                if public_key_text != existing_public_key_text {
-                    panic!("Cannot set consuming wallet public key: already set")
-                }
-            },
-            (None, Some(path)) => panic!("Cannot set consuming wallet public key: consuming derivation path is already set to {}", path),
-            (Some (_), Some (_)) => panic!(
-                "Database is corrupt: both consuming wallet public key and wallet are set",
-            ),
-        };
-        Ok(writer.commit()?)
+        unimplemented!()
+        // let public_key_text: String = public_key.as_slice().to_hex();
+        // let mut writer = self.dao.start_transaction()?;
+        // let key_rec = writer.get ("consuming_wallet_public_key")?;
+        // let path_rec = writer.get ("consuming_wallet_derivation_path")?;
+        // match (key_rec.value_opt, path_rec.value_opt) {
+        //     (None, None) => writer.set("consuming_wallet_public_key", Some (public_key_text))?,
+        //     (Some(existing_public_key_text), None) =>  {
+        //         if public_key_text != existing_public_key_text {
+        //             panic!("Cannot set consuming wallet public key: already set")
+        //         }
+        //     },
+        //     (None, Some(path)) => panic!("Cannot set consuming wallet public key: consuming derivation path is already set to {}", path),
+        //     (Some (_), Some (_)) => panic!(
+        //         "Database is corrupt: both consuming wallet public key and wallet are set",
+        //     ),
+        // };
+        // Ok(writer.commit()?)
     }
 
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError> {
-        match self.earning_wallet_address()? {
-            None => Ok(None),
-            Some(address) => match Wallet::from_str(&address) {
-                Err(e) => panic!("Database corrupt: invalid earning wallet address '{}': {:?}", address, e),
-                Ok(wallet) => Ok (Some(wallet)),
-            }
-        }
+        unimplemented!()
+        // match self.earning_wallet_address()? {
+        //     None => Ok(None),
+        //     Some(address) => match Wallet::from_str(&address) {
+        //         Err(e) => panic!("Database corrupt: invalid earning wallet address '{}': {:?}", address, e),
+        //         Ok(wallet) => Ok (Some(wallet)),
+        //     }
+        // }
     }
 
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
-        Ok(self.dao.get ("earning_wallet_address")?.value_opt)
+        unimplemented!()
+        // Ok(self.dao.get ("earning_wallet_address")?.value_opt)
     }
 
     fn set_earning_wallet_address<'b>(&mut self, address: &'b str) -> Result<(), PersistentConfigError> {
-        match Wallet::from_str(address) {
-            Ok(_) => (),
-            Err(e) => panic!("Invalid earning wallet address '{}': {:?}", address, e),
-        }
-        if let Some(existing_address) = self.dao.get("earning_wallet_address")?.value_opt {
-            if address.to_lowercase() != existing_address.to_lowercase() {
-                panic!(
-                    "Can't overwrite existing earning wallet address '{}'",
-                    existing_address
-                )
-            } else {
-                return Ok(());
-            }
-        }
-        let mut writer = self.dao.start_transaction()?;
-        writer.set ("earning_wallet_address", Some (address.to_string()))?;
-        Ok(writer.commit()?)
+        unimplemented!()
+        // match Wallet::from_str(address) {
+        //     Ok(_) => (),
+        //     Err(e) => panic!("Invalid earning wallet address '{}': {:?}", address, e),
+        // }
+        // if let Some(existing_address) = self.dao.get("earning_wallet_address")?.value_opt {
+        //     if address.to_lowercase() != existing_address.to_lowercase() {
+        //         panic!(
+        //             "Can't overwrite existing earning wallet address '{}'",
+        //             existing_address
+        //         )
+        //     } else {
+        //         return Ok(());
+        //     }
+        // }
+        // let mut writer = self.dao.start_transaction()?;
+        // writer.set ("earning_wallet_address", Some (address.to_string()))?;
+        // Ok(writer.commit()?)
     }
 
     fn past_neighbors(
@@ -688,28 +696,28 @@ mod tests {
         assert_eq!(set_params.len(), 1);
     }
 
-    // #[test]
-    // fn consuming_wallet_public_key_works_if_key_is_set() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Ok("encrypted private key".to_string()))
-    //         .get_string_result(Err(ConfigDaoError::NotPresent));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.consuming_wallet_public_key();
-    //
-    //     assert_eq!(result, Some("encrypted private key".to_string()));
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_string_params,
-    //         vec![
-    //             "consuming_wallet_public_key",
-    //             "consuming_wallet_derivation_path"
-    //         ]
-    //     )
-    // }
-    //
+    #[test]
+    fn consuming_wallet_public_key_retrieves_existing_key() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok("encrypted private key".to_string()))
+            .get_result(Err(ConfigDaoError::NotPresent));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.consuming_wallet_public_key();
+
+        assert_eq!(result, Some("encrypted private key".to_string()));
+        let get_string_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_string_params,
+            vec![
+                "consuming_wallet_public_key",
+                "consuming_wallet_derivation_path"
+            ]
+        )
+    }
+
     // #[test]
     // fn consuming_wallet_public_key_works_if_neither_key_nor_path_is_set() {
     //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
