@@ -357,6 +357,7 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::net::SocketAddr;
     use crate::blockchain::bip39::Bip39;
+    use crate::test_utils::main_cryptde;
 
     #[test]
     fn from_config_dao_error() {
@@ -465,7 +466,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new("clandestine_port", Some ("65536"), false)));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        subject.clandestine_port();
+        subject.clandestine_port().unwrap();
     }
 
     #[test]
@@ -477,7 +478,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new("clandestine_port", Some ("1024"), false)));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        subject.clandestine_port();
+        subject.clandestine_port().unwrap();
     }
 
     #[test]
@@ -596,194 +597,97 @@ mod tests {
         assert_eq! (*set_params, vec![("start_block".to_string(), Some ("1234".to_string()))])
     }
 
-    // #[test]
-    // fn gas_price() {
-    //     let config_dao = ConfigDaoMock::new().get_u64_result(Ok(3u64));
-    //
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     assert_eq!(3u64, subject.gas_price());
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Can't continue; gas price configuration is inaccessible: NotPresent"
-    // )]
-    // fn gas_price_fails() {
-    //     let config_dao = ConfigDaoMock::new().get_u64_result(Err(ConfigDaoError::NotPresent));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.gas_price();
-    // }
-    //
-    // #[test]
-    // fn set_gas_price_succeeds() {
-    //     let expected_params = ("gas_price".to_string(), 11u64);
-    //     let set_params_arc = Arc::new(Mutex::new(vec![expected_params.clone()]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .set_u64_params(&set_params_arc)
-    //         .set_u64_result(Ok(()));
-    //
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //     subject.set_gas_price(11u64);
-    //
-    //     let set_params = set_params_arc.lock().unwrap();
-    //
-    //     assert_eq!(set_params[0], expected_params);
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Can't continue; gas price configuration is inaccessible: NotPresent"
-    // )]
-    // fn set_gas_price_fails() {
-    //     let config_dao = ConfigDaoMock::new().set_u64_result(Err(ConfigDaoError::NotPresent));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.set_gas_price(3);
-    // }
-    //
-    // #[test]
-    // fn past_neighbors_reports_dao_error() {
-    //     let config_dao = ConfigDaoMock::new().get_bytes_e_result(Err(ConfigDaoError::TypeError));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.past_neighbors("password");
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(PersistentConfigError::DatabaseError(
-    //             "Can't continue; past neighbors configuration is inaccessible: TypeError"
-    //                 .to_string()
-    //         ))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn past_neighbors_reports_crypto_error() {
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_bytes_e_result(Err(ConfigDaoError::CryptoError("blah".to_string())));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.past_neighbors("password");
-    //
-    //     assert_eq! (result, Err(PersistentConfigError::DatabaseError("Can't continue; past neighbors configuration is inaccessible: CryptoError(\"blah\")".to_string())))
-    // }
-    //
-    // #[test]
-    // fn past_neighbors_success() {
-    //     let node_descriptors = vec![
-    //         NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
-    //         NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
-    //     ];
-    //     let node_descriptors_bytes =
-    //         PlainData::new(&serde_cbor::ser::to_vec(&node_descriptors).unwrap());
-    //     let get_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_bytes_e_params(&get_bytes_e_params_arc)
-    //         .get_bytes_e_result(Ok(node_descriptors_bytes));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.past_neighbors("password");
-    //
-    //     assert_eq!(result, Ok(Some(node_descriptors)));
-    //     let get_bytes_e_params = get_bytes_e_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         ("past_neighbors".to_string(), "password".to_string()),
-    //         get_bytes_e_params[0]
-    //     );
-    //     assert_eq!(get_bytes_e_params.len(), 1);
-    // }
-    //
-    // #[test]
-    // fn set_past_neighbors_reports_dao_error() {
-    //     let config_dao = ConfigDaoMock::new().set_bytes_e_result(Err(ConfigDaoError::TypeError));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.set_past_neighbors(Some(vec![]), "password");
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(PersistentConfigError::DatabaseError(
-    //             "Can't continue; past neighbors configuration is inaccessible: TypeError"
-    //                 .to_string()
-    //         ))
-    //     )
-    // }
-    //
-    // #[test]
-    // fn set_past_neighbors_reports_password_error() {
-    //     let config_dao =
-    //         ConfigDaoMock::new().set_bytes_e_result(Err(ConfigDaoError::PasswordError));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.set_past_neighbors(Some(vec![]), "password");
-    //
-    //     assert_eq!(result, Err(PersistentConfigError::PasswordError))
-    // }
-    //
-    // #[test]
-    // fn set_past_neighbors_none_success() {
-    //     let clear_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .clear_params(&clear_params_arc)
-    //         .clear_result(Ok(()));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.set_past_neighbors(None, "password").unwrap();
-    //
-    //     let clear_params = clear_params_arc.lock().unwrap();
-    //     assert_eq!(clear_params[0], "past_neighbors".to_string());
-    //     assert_eq!(1, clear_params.len());
-    // }
-    //
-    // #[test]
-    // fn set_past_neighbors_some_success() {
-    //     let node_descriptors = vec![
-    //         NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
-    //         NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
-    //     ];
-    //     let set_bytes_e_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .set_bytes_e_params(&set_bytes_e_params_arc)
-    //         .set_bytes_e_result(Ok(()));
-    //     let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject
-    //         .set_past_neighbors(Some(node_descriptors.clone()), "password")
-    //         .unwrap();
-    //
-    //     let set_bytes_e_params = set_bytes_e_params_arc.lock().unwrap();
-    //     assert_eq!(set_bytes_e_params[0].0, "past_neighbors".to_string());
-    //     let serialized_node_descriptors = set_bytes_e_params[0].1.clone();
-    //     let actual_node_descriptors = serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(
-    //         &serialized_node_descriptors.as_slice(),
-    //     )
-    //     .unwrap();
-    //     assert_eq!(actual_node_descriptors, node_descriptors);
-    //     assert_eq!(set_bytes_e_params.len(), 1);
-    // }
-    //
-    // #[test]
-    // fn set_start_block_transactionally_returns_err_when_transaction_fails() {
-    //     let config_dao = ConfigDaoMock::new()
-    //         .set_u64_transactional_result(Err(ConfigDaoError::DatabaseError("nah".to_string())));
-    //
-    //     let home_dir = ensure_node_home_directory_exists(
-    //         "persistent_configuration",
-    //         "set_start_block_transactionally_returns_err_when_transaction_fails",
-    //     );
-    //     let mut conn = DbInitializerReal::new()
-    //         .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-    //         .unwrap();
-    //     let transaction = conn.transaction().unwrap();
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.set_start_block_transactionally(&transaction, 1234);
-    //
-    //     assert_eq!(Err(r#"DatabaseError("nah")"#.to_string()), result);
-    // }
-    //
+    #[test]
+    fn gas_price() {
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new("gas_price", Some ("3"), false))));
+
+        let subject = PersistentConfigurationReal::new(config_dao);
+        let gas_price = subject.gas_price().unwrap();
+
+        assert_eq!(gas_price, Some (3));
+    }
+
+    #[test]
+    fn set_gas_price_succeeds() {
+        let set_params_arc = Arc::new (Mutex::new (vec![]));
+        let writer = Box::new (ConfigDaoWriteableMock::new()
+            .get_result(Ok(ConfigDaoRecord::new ("gas_price", Some ("1234"), false)))
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result (Ok(())));
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok (writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_gas_price(1234).unwrap();
+
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq! (*set_params, vec![("gas_price".to_string(), Some ("1234".to_string()))])
+    }
+
+    #[test]
+    fn past_neighbors_success() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let node_descriptors = vec![
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+        ];
+        let node_descriptors_bytes =
+            PlainData::new(&serde_cbor::ser::to_vec(&node_descriptors).unwrap());
+        let node_descriptors_string = encode_bytes (Some (node_descriptors_bytes)).unwrap().unwrap();
+        let node_descriptors_enc = Bip39::encrypt_bytes(&node_descriptors_string.as_bytes(), "password").unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new(ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new ("past_neighbors", Some(&node_descriptors_enc), true)))
+            .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some(&example_encrypted), true))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.past_neighbors("password").unwrap();
+
+        assert_eq!(result, Some(node_descriptors));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq! (*get_params, vec!["past_neighbors".to_string(), EXAMPLE_ENCRYPTED.to_string()]);
+    }
+
+    #[test]
+    fn set_past_neighbors_success() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let node_descriptors = vec![
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+        ];
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new(ConfigDaoWriteableMock::new()
+            .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some(&example_encrypted), true)))
+            .get_result(Ok(ConfigDaoRecord::new ("past_neighbors", Some ("irrelevant"), true)))
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result(Ok(())));
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        subject
+            .set_past_neighbors(Some(node_descriptors.clone()), "password")
+            .unwrap();
+
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(set_params[0].0, "past_neighbors".to_string());
+        let encrypted_serialized_node_descriptors = set_params[0].1.clone().unwrap();
+        let encoded_serialized_node_descriptors = Bip39::decrypt_bytes(&encrypted_serialized_node_descriptors, "password").unwrap();
+        let serialized_node_descriptors = decode_bytes (Some(String::from_utf8(encoded_serialized_node_descriptors.into()).unwrap())).unwrap().unwrap();
+        let actual_node_descriptors = serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(
+            &serialized_node_descriptors.as_slice(),
+        )
+        .unwrap();
+        assert_eq!(actual_node_descriptors, node_descriptors);
+        assert_eq!(set_params.len(), 1);
+    }
+
     // #[test]
     // fn consuming_wallet_public_key_works_if_key_is_set() {
     //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
