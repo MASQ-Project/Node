@@ -170,17 +170,14 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     }
 
     fn consuming_wallet_public_key(&self) -> Result<Option<String>, PersistentConfigError> {
-        unimplemented!()
-        // let key_rec = self.dao.get ("consuming_wallet_public_key")?;
-        // let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
-        // match (key_rec.value_opt, path_rec.value_opt) {
-        //     (None, None) => Ok(None),
-        //     (Some(key), None) => Ok(Some(key)),
-        //     (None, Some(_)) => Ok(None),
-        //     (Some (_), Some (_)) => panic!(
-        //         "Database is corrupt: both consuming wallet public key and wallet are set",
-        //     ),
-        // }
+
+
+        let key_rec = self.dao.get ("consuming_wallet_public_key")?;
+        let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
+        if key_rec.value_opt.is_some() && path_rec.value_opt.is_some() {
+            return Err(PersistentConfigError::Collision("Database is corrupt: both consuming wallet public key and derivation path are set".to_string()))
+        }
+        Ok(key_rec.value_opt)
     }
 
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError> {
@@ -701,16 +698,61 @@ mod tests {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
-            .get_result(Ok("encrypted private key".to_string()))
-            .get_result(Err(ConfigDaoError::NotPresent));
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key",Some("My first test"),false)))
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path",None,false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.consuming_wallet_public_key().unwrap();
+
+        assert_eq!(result, Some("My first test".to_string()));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec![
+                "consuming_wallet_public_key",
+                "consuming_wallet_derivation_path"
+            ]
+        )
+    }
+
+    #[test]
+
+    fn consuming_wallet_public_key_complains_if_both_are_set() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key",Some("My first test"),false)))
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path",Some("derivation path"),false)));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.consuming_wallet_public_key();
 
-        assert_eq!(result, Some("encrypted private key".to_string()));
-        let get_string_params = get_params_arc.lock().unwrap();
+        assert_eq!(result, Err(PersistentConfigError::Collision("Database is corrupt: both consuming wallet public key and derivation path are set".to_string())));
+        let get_params = get_params_arc.lock().unwrap();
         assert_eq!(
-            *get_string_params,
+            *get_params,
+            vec![
+                "consuming_wallet_public_key",
+                "consuming_wallet_derivation_path"
+            ]
+        )
+    }
+
+    #[test]
+    fn consuming_wallet_public_key_retrieves_nonexisting_key_if_derivation_path_is_present() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key",None,false)))
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path",Some("Here we are"),false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.consuming_wallet_public_key().unwrap();
+
+        assert_eq!(result,None);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
             vec![
                 "consuming_wallet_public_key",
                 "consuming_wallet_derivation_path"
