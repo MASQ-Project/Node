@@ -170,12 +170,10 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     }
 
     fn consuming_wallet_public_key(&self) -> Result<Option<String>, PersistentConfigError> {
-
-
         let key_rec = self.dao.get ("consuming_wallet_public_key")?;
         let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
         if key_rec.value_opt.is_some() && path_rec.value_opt.is_some() {
-            return Err(PersistentConfigError::Collision("Database is corrupt: both consuming wallet public key and derivation path are set".to_string()))
+            panic!("Database is corrupt: both consuming wallet public key and derivation path are set")
         }
         Ok(key_rec.value_opt)
     }
@@ -696,11 +694,11 @@ mod tests {
     #[test]
     fn consuming_wallet_public_key_retrieves_existing_key() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoMock::new()
+        let config_dao = Box::new (ConfigDaoMock::new()
             .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key",Some("My first test"),false)))
-            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path",None,false)));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key", Some("My first test"), false)))
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path", None, false))));
+        let subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.consuming_wallet_public_key().unwrap();
 
@@ -716,36 +714,26 @@ mod tests {
     }
 
     #[test]
-
-    fn consuming_wallet_public_key_complains_if_both_are_set() {
+    #[should_panic (expected = "Database is corrupt: both consuming wallet public key and derivation path are set")]
+    fn consuming_wallet_public_key_panics_if_both_are_set() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoMock::new()
+        let config_dao = Box::new (ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key",Some("My first test"),false)))
-            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path",Some("derivation path"),false)));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path",Some("derivation path"),false))));
+        let subject = PersistentConfigurationReal::new(config_dao);
 
-        let result = subject.consuming_wallet_public_key();
-
-        assert_eq!(result, Err(PersistentConfigError::Collision("Database is corrupt: both consuming wallet public key and derivation path are set".to_string())));
-        let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_params,
-            vec![
-                "consuming_wallet_public_key",
-                "consuming_wallet_derivation_path"
-            ]
-        )
+        let _ = subject.consuming_wallet_public_key();
     }
 
     #[test]
     fn consuming_wallet_public_key_retrieves_nonexisting_key_if_derivation_path_is_present() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoMock::new()
+        let config_dao = Box::new (ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key",None,false)))
-            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path",Some("Here we are"),false)));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path",Some("Here we are"),false))));
+        let subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.consuming_wallet_public_key().unwrap();
 
@@ -760,142 +748,22 @@ mod tests {
         )
     }
 
-    // #[test]
-    // fn consuming_wallet_public_key_works_if_neither_key_nor_path_is_set() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Err(ConfigDaoError::NotPresent))
-    //         .get_string_result(Err(ConfigDaoError::NotPresent));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.consuming_wallet_public_key();
-    //
-    //     assert_eq!(result, None);
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_string_params,
-    //         vec![
-    //             "consuming_wallet_public_key",
-    //             "consuming_wallet_derivation_path"
-    //         ]
-    //     )
-    // }
-    //
-    // #[test]
-    // fn consuming_wallet_public_key_works_if_path_but_not_key_is_set() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Err(ConfigDaoError::NotPresent))
-    //         .get_string_result(Ok("derivation path".to_string()));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.consuming_wallet_public_key();
-    //
-    //     assert_eq!(result, None);
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_string_params,
-    //         vec![
-    //             "consuming_wallet_public_key",
-    //             "consuming_wallet_derivation_path"
-    //         ]
-    //     )
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Database is corrupt: both consuming wallet public key and consuming wallet derivation path are set"
-    // )]
-    // fn consuming_wallet_public_key_complains_if_both_key_and_path_are_set() {
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_result(Ok("public key".to_string()))
-    //         .get_string_result(Ok("derivation path".to_string()));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.consuming_wallet_public_key();
-    // }
-    //
-    // #[test]
-    // fn consuming_wallet_derivation_path_works_if_path_is_set() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Err(ConfigDaoError::NotPresent))
-    //         .get_string_result(Ok("derivation path".to_string()));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.consuming_wallet_derivation_path();
-    //
-    //     assert_eq!(result, Some("derivation path".to_string()));
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_string_params,
-    //         vec![
-    //             "consuming_wallet_public_key",
-    //             "consuming_wallet_derivation_path"
-    //         ]
-    //     )
-    // }
-    //
-    // #[test]
-    // fn consuming_wallet_derivation_path_works_if_neither_key_nor_path_is_set() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Err(ConfigDaoError::NotPresent))
-    //         .get_string_result(Err(ConfigDaoError::NotPresent));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.consuming_wallet_derivation_path();
-    //
-    //     assert_eq!(result, None);
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_string_params,
-    //         vec![
-    //             "consuming_wallet_public_key",
-    //             "consuming_wallet_derivation_path"
-    //         ]
-    //     )
-    // }
-    //
-    // #[test]
-    // fn consuming_wallet_derivation_path_works_if_key_but_not_path_is_set() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_params(&get_string_params_arc)
-    //         .get_string_result(Ok("private key".to_string()))
-    //         .get_string_result(Err(ConfigDaoError::NotPresent));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     let result = subject.consuming_wallet_derivation_path();
-    //
-    //     assert_eq!(result, None);
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_string_params,
-    //         vec![
-    //             "consuming_wallet_public_key",
-    //             "consuming_wallet_derivation_path"
-    //         ]
-    //     )
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Database is corrupt: both consuming wallet public key and consuming wallet derivation path are set"
-    // )]
-    // fn consuming_wallet_derivation_path_complains_if_both_key_and_path_are_set() {
-    //     let config_dao = ConfigDaoMock::new()
-    //         .get_string_result(Ok("private key".to_string()))
-    //         .get_string_result(Ok("derivation path".to_string()));
-    //     let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-    //
-    //     subject.consuming_wallet_derivation_path();
-    // }
-    //
+    #[test]
+    fn consuming_wallet_derivation_path_works_if_key_is_not_set() {
+        unimplemented!();
+    }
+
+    #[test]
+    #[should_panic (expected = "Database is corrupt: both consuming wallet public key and derivation path are set")]
+    fn consuming_wallet_derivation_path_panics_if_both_are_set() {
+        unimplemented!();
+    }
+
+    #[test]
+    fn consuming_wallet_derivation_path_works_if_key_is_set_and_path_is_not() {
+        unimplemented!();
+    }
+
     // #[test]
     // fn set_consuming_wallet_derivation_path_works_if_no_preexisting_info() {
     //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
