@@ -178,17 +178,12 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     }
 
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError> {
-        unimplemented!()
-        // let key_rec = self.dao.get ("consuming_wallet_public_key")?;
-        // let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
-        // match (key_rec.value_opt, path_rec.value_opt) {
-        //     (None, None) => Ok(None),
-        //     (Some(_), None) => Ok(None),
-        //     (None, Some(path)) => Ok(Some(path)),
-        //     (Some (_), Some (_)) => panic!(
-        //         "Database is corrupt: both consuming wallet public key and wallet are set",
-        //     ),
-        // }
+        let key_rec = self.dao.get ("consuming_wallet_public_key")?;
+        let path_rec = self.dao.get ("consuming_wallet_derivation_path")?;
+        if path_rec.value_opt.is_some() && key_rec.value_opt.is_some(){
+            panic!("Database is corrupt: both consuming wallet public key and derivation path are set")
+        }
+        Ok(path_rec.value_opt)
     }
 
     fn set_consuming_wallet_derivation_path<'b, 'c>(&mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError> {
@@ -755,21 +750,63 @@ mod tests {
         )
     }
 
-    // #[test]
-    // fn consuming_wallet_derivation_path_works_if_key_is_not_set() {
-    //     unimplemented!();
-    // }
-    //
-    // #[test]
-    // #[should_panic (expected = "Database is corrupt: both consuming wallet public key and derivation path are set")]
-    // fn consuming_wallet_derivation_path_panics_if_both_are_set() {
-    //     unimplemented!();
-    // }
-    //
-    // #[test]
-    // fn consuming_wallet_derivation_path_works_if_key_is_set_and_path_is_not() {
-    //     unimplemented!();
-    // }
+    #[test]
+    fn consuming_wallet_derivation_path_works_if_key_is_not_set() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key", None, false)))
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path", Some("My_path"), false))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.consuming_wallet_derivation_path().unwrap();
+
+        assert_eq!(result, Some("My_path".to_string()));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec![
+                "consuming_wallet_public_key",
+                "consuming_wallet_derivation_path"
+            ]
+        )
+    }
+
+    #[test]
+    #[should_panic (expected = "Database is corrupt: both consuming wallet public key and derivation path are set")]
+    fn consuming_wallet_derivation_path_panics_if_both_are_set() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key", Some("public_key"), false)))
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path", Some("My_path"), false))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.consuming_wallet_derivation_path();
+
+    }
+
+    #[test]
+    fn consuming_wallet_derivation_path_works_if_key_is_set_and_path_is_not() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_public_key", Some("Look_at_me_I_am_public_key"), false)))
+            .get_result(Ok(ConfigDaoRecord::new("consuming_wallet_derivation_path", None, false))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.consuming_wallet_derivation_path().unwrap();
+
+        assert_eq!(result, None);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec![
+                "consuming_wallet_public_key",
+                "consuming_wallet_derivation_path"
+            ]
+        )
+    }
 
     #[test]
     fn set_consuming_wallet_public_key_works_if_no_preexisting_info() {
