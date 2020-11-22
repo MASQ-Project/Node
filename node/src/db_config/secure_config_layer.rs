@@ -3,7 +3,6 @@
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::db_config::config_dao::{ConfigDaoError, ConfigDaoRecord, ConfigDaoRead, ConfigDaoReadWrite};
 use rand::Rng;
-use serde::export::PhantomData;
 
 pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
 
