@@ -236,25 +236,15 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
         let mut writer = self.dao.start_transaction()?;
         let key_rec = writer.get ("consuming_wallet_public_key")?;
         let path_rec = writer.get ("consuming_wallet_derivation_path")?;
-        match (decode_bytes(key_rec.value_opt)?, public_key) {
-            (Some (existing), new_ref) if &existing != new_ref => return Err (PersistentConfigError::Collision("Cannot set consuming wallet public key: already set".to_string())),
+        match (decode_bytes(key_rec.value_opt)?, public_key, path_rec.value_opt) {
+            (None, _, Some (_)) => return Err (PersistentConfigError::Collision("Cannot set consuming wallet public key: consuming derivation path is already set".to_string())),
+            (Some(_), _, Some (_)) => panic! ("Database is corrupt: both consuming wallet public key and derivation path are set"),
+            (Some (existing), new_ref, _) if &existing == new_ref => return Ok(()),
+            (Some (_), _, _) => return Err (PersistentConfigError::Collision("Cannot change existing consuming wallet key".to_string())),
             _ => ()
         }
         writer.set ("consuming_wallet_public_key", Some (public_key_text))?;
         Ok (writer.commit()?)
-        // match (key_rec.value_opt, path_rec.value_opt) {
-        //     (None, None) => writer.set("consuming_wallet_public_key", Some (public_key_text))?,
-        //     (Some(existing_public_key_text), None) =>  {
-        //         if public_key_text != existing_public_key_text {
-        //             panic!("Cannot set consuming wallet public key: already set")
-        //         }
-        //     },
-        //     (None, Some(path)) => panic!("Cannot set consuming wallet public key: consuming derivation path is already set to {}", path),
-        //     (Some (_), Some (_)) => panic!(
-        //         "Database is corrupt: both consuming wallet public key and wallet are set",
-        //     ),
-        // };
-        // Ok(writer.commit()?)
     }
 
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError> {
@@ -850,12 +840,10 @@ mod tests {
 
     #[test]
     fn set_consuming_wallet_public_key_complains_if_key_is_already_set_to_different_value() {
-        let get_params_arc = Arc::new(Mutex::new(vec![]));
         let existing_public_key = PlainData::from ("existing public key".as_bytes());
         let encoded_existing_public_key = encode_bytes (Some (existing_public_key)).unwrap().unwrap();
         let writer = Box::new(
             ConfigDaoWriteableMock::new()
-                .get_params(&get_params_arc)
                 .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", Some(&encoded_existing_public_key), false)))
                 .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", None, false)))
         );
@@ -866,57 +854,62 @@ mod tests {
 
         let result = subject.set_consuming_wallet_public_key(&public_key);
 
-        assert_eq! (result, Err(PersistentConfigError::Collision("Cannot set consuming wallet public key: already set".to_string())));
+        assert_eq! (result, Err(PersistentConfigError::Collision("Cannot change existing consuming wallet key".to_string())));
     }
-    //
-    // #[test]
-    // fn set_consuming_wallet_public_key_does_not_complain_if_key_is_already_set_to_same_value() {
-    //     let set_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let private_public_key_text = b"public key".to_hex::<String>();
-    //     let config_dao: Box<dyn ConfigDao> = Box::new(
-    //         ConfigDaoMock::new()
-    //             .get_string_result(Ok(private_public_key_text.clone()))
-    //             .get_string_result(Err(ConfigDaoError::NotPresent))
-    //             .set_string_params(&set_string_params_arc)
-    //             .set_string_result(Ok(())),
-    //     );
-    //     let mut subject = PersistentConfigurationReal::from(config_dao);
-    //
-    //     subject.set_consuming_wallet_public_key(&PlainData::new(b"public key"));
-    //
-    //     let set_string_params = set_string_params_arc.lock().unwrap();
-    //     assert_eq!(*set_string_params, vec![]); // no changes
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Cannot set consuming wallet public key: consuming derivation path is already set to existing derivation path"
-    // )]
-    // fn set_consuming_wallet_public_key_complains_if_path_is_already_set() {
-    //     let config_dao: Box<dyn ConfigDao> = Box::new(
-    //         ConfigDaoMock::new()
-    //             .get_string_result(Err(ConfigDaoError::NotPresent))
-    //             .get_string_result(Ok("existing derivation path".to_string())),
-    //     );
-    //     let mut subject = PersistentConfigurationReal::from(config_dao);
-    //
-    //     subject.set_consuming_wallet_public_key(&PlainData::new(b"public key"));
-    // }
-    //
-    // #[test]
-    // #[should_panic(
-    //     expected = "Database is corrupt: both consuming wallet public key and consuming wallet derivation path are set"
-    // )]
-    // fn set_consuming_wallet_public_key_complains_if_both_are_already_set() {
-    //     let config_dao: Box<dyn ConfigDao> = Box::new(
-    //         ConfigDaoMock::new()
-    //             .get_string_result(Ok("existing private key".to_string()))
-    //             .get_string_result(Ok("existing derivation path".to_string())),
-    //     );
-    //     let mut subject = PersistentConfigurationReal::from(config_dao);
-    //
-    //     subject.set_consuming_wallet_public_key(&PlainData::new(b"public key"));
-    // }
+
+    #[test]
+    fn set_consuming_wallet_public_key_does_not_complain_if_key_is_already_set_to_same_value() {
+        let existing_public_key = PlainData::from ("existing public key".as_bytes());
+        let encoded_existing_public_key = encode_bytes (Some (existing_public_key)).unwrap().unwrap();
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", Some(&encoded_existing_public_key), false)))
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", None, false)))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+        let public_key = PlainData::new(b"existing public key");
+
+        let result = subject.set_consuming_wallet_public_key(&public_key);
+
+        assert_eq! (result, Ok(()));
+    }
+
+    #[test]
+    fn set_consuming_wallet_public_key_complains_if_path_is_already_set_and_key_is_not() {
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", None, false)))
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", Some ("existing path"), false)))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+        let public_key = PlainData::new(b"public key");
+
+        let result = subject.set_consuming_wallet_public_key(&public_key);
+
+        assert_eq! (result, Err (PersistentConfigError::Collision("Cannot set consuming wallet public key: consuming derivation path is already set".to_string())));
+    }
+
+    #[test]
+    #[should_panic (expected = "Database is corrupt: both consuming wallet public key and derivation path are set")]
+    fn set_consuming_wallet_public_key_panics_if_key_and_path_are_both_already_set() {
+        let existing_public_key = PlainData::from ("existing public key".as_bytes());
+        let encoded_existing_public_key = encode_bytes (Some (existing_public_key)).unwrap().unwrap();
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", Some(&encoded_existing_public_key), false)))
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", Some ("existing path"), false)))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+        let public_key = PlainData::new(b"public key");
+
+        subject.set_consuming_wallet_public_key(&public_key).unwrap();
+    }
     //
     // #[test]
     // fn set_consuming_wallet_derivation_path_works_if_no_preexisting_info() {
