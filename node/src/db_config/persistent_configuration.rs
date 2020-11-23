@@ -247,8 +247,16 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
         Ok(self.dao.get("earning_wallet_address")?.value_opt)
     }
 
-    fn set_earning_wallet_address<'b>(&mut self, address: &'b str) -> Result<(), PersistentConfigError> {
-        unimplemented!()
+    fn set_earning_wallet_address<'b>(&mut self, new_address: &'b str) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        let existing_address_opt = writer.get ("earning_wallet_address")?.value_opt;
+        match existing_address_opt {
+            None => {
+                writer.set ("earning_wallet_address", Some(new_address.to_string()))?;
+                Ok(writer.commit()?)
+            }
+            _ => unimplemented!(),
+        }
         // match Wallet::from_str(address) {
         //     Ok(_) => (),
         //     Err(e) => panic!("Invalid earning wallet address '{}': {:?}", address, e),
@@ -1160,49 +1168,38 @@ mod tests {
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(*get_params, vec!["earning_wallet_address".to_string()]);
     }
-    // #[test]
-    // fn earning_wallet_from_address_handles_no_address() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao: Box<dyn ConfigDao> = Box::new(
-    //         ConfigDaoMock::new()
-    //             .get_string_params(&get_string_params_arc)
-    //             .get_string_result(Err(ConfigDaoError::NotPresent)),
-    //     );
-    //     let subject = PersistentConfigurationReal::new(config_dao);
-    //
-    //     let result = subject.earning_wallet_from_address();
-    //
-    //     assert_eq!(result, None);
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_string_params,
-    //         vec!["earning_wallet_address".to_string()]
-    //     )
-    // }
-    //
-    // #[test]
-    // fn earning_wallet_from_address_handles_existing_address() {
-    //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let config_dao: Box<dyn ConfigDao> = Box::new(
-    //         ConfigDaoMock::new()
-    //             .get_string_params(&get_string_params_arc)
-    //             .get_string_result(Ok("0x0123456789ABCDEF0123456789ABCDEF01234567".to_string())),
-    //     );
-    //     let subject = PersistentConfigurationReal::new(config_dao);
-    //
-    //     let result = subject.earning_wallet_from_address();
-    //
-    //     assert_eq!(
-    //         result,
-    //         Some(Wallet::from_str("0x0123456789ABCDEF0123456789ABCDEF01234567").unwrap())
-    //     );
-    //     let get_string_params = get_string_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *get_string_params,
-    //         vec!["earning_wallet_address".to_string()]
-    //     )
-    // }
-    //
+
+    #[test]
+    fn set_earning_wallet_address_works_if_no_address_exists() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new (ConfigDaoWriteableMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new("earning_wallet_address", None, false)))
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_params(&commit_params_arc)
+            .commit_result(Ok(()))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new()
+            .start_transaction_result(Ok(writer))
+        );
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_earning_wallet_address("0x7d6dabd6b5c75291a3258c29b418f5805792a875");
+
+        assert_eq!(result, Ok(()));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["earning_wallet_address".to_string()]);
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![
+            ("earning_wallet_address".to_string(), Some ("0x7d6dabd6b5c75291a3258c29b418f5805792a875".to_string()))
+        ]);
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()]);
+    }
+
     // #[test]
     // fn set_earning_wallet_address_happy_path() {
     //     let get_string_params_arc = Arc::new(Mutex::new(vec![]));
