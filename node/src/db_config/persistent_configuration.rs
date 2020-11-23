@@ -7,7 +7,7 @@ use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use crate::database::connection_wrapper::{ConnectionWrapper};
-use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoReadWrite};
 use crate::db_config::secure_config_layer::{SecureConfigLayerError, SecureConfigLayer};
 use crate::db_config::typed_config_layer::{decode_u64, TypedConfigLayerError, encode_u64, decode_bytes, encode_bytes};
 
@@ -19,6 +19,7 @@ pub enum PersistentConfigError {
     DatabaseError(String),
     BadNumberFormat (String),
     BadHexFormat (String),
+    BadDerivationPathFormat (String),
     Collision (String),
 }
 
@@ -187,10 +188,30 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
     }
 
     fn set_consuming_wallet_derivation_path<'b, 'c>(&mut self, derivation_path: &'b str, db_password: &'c str) -> Result<(), PersistentConfigError> {
-        unimplemented!()
-        // let mut writer = self.dao.start_transaction()?;
-        // let key_rec = writer.get ("consuming_wallet_public_key")?;
-        // let path_rec = writer.get ("consuming_wallet_derivation_path")?;
+        let mut writer = self.dao.start_transaction()?;
+        let key_rec = writer.get ("consuming_wallet_public_key")?;
+        let seed_opt = decode_bytes(self.scl.decrypt (writer.get ("seed")?, Some (db_password), &writer)?)?;
+        let path_rec = writer.get ("consuming_wallet_derivation_path")?;
+        let check_and_set = |writer: &mut Box<dyn ConfigDaoReadWrite>, seed: PlainData| {
+            if let Ok(_) = Bip32ECKeyPair::from_raw(seed.as_ref(), derivation_path) {
+                writer.set("consuming_wallet_derivation_path", Some(derivation_path.to_string()))?;
+                Ok(writer.commit()?)
+            }
+            else {
+                Err (PersistentConfigError::BadDerivationPathFormat(derivation_path.to_string()))
+            }
+        };
+        match (key_rec.value_opt, seed_opt, path_rec.value_opt) {
+            (None, Some (seed), None) => {
+                check_and_set (&mut writer, seed)
+            },
+            (None, Some (seed), Some (existing_path)) if &existing_path == derivation_path => {
+                check_and_set (&mut writer, seed)
+            },
+            (None, Some (_), Some (_)) => Err (PersistentConfigError::Collision("Cannot change existing consuming wallet derivation path".to_string())),
+            (None, None, _) => Err (PersistentConfigError::DatabaseError("Can't set consuming wallet derivation path without a mnemonic seed".to_string())),
+            _ => unimplemented!()
+        }
         // match (key_rec.value_opt, path_rec.value_opt) {
         //     (None, None) => {
         //         writer.set("consuming_wallet_derivation_path", Some (derivation_path.to_string()))?;
@@ -228,7 +249,6 @@ impl PersistentConfiguration<'_> for PersistentConfigurationReal {
         //         "Database is corrupt: both consuming wallet public key and wallet are set",
         //     ),
         // };
-        // Ok (writer.commit()?)
     }
 
     fn set_consuming_wallet_public_key<'b>(&mut self, public_key: &'b PlainData) -> Result<(), PersistentConfigError> {
@@ -910,6 +930,198 @@ mod tests {
 
         subject.set_consuming_wallet_public_key(&public_key).unwrap();
     }
+
+
+
+
+
+
+
+
+
+    #[test]
+    fn set_consuming_wallet_derivation_path_works_if_seed_but_no_other_preexisting_info() {
+        let from_hex: Vec<u8> = FromHex::from_hex("3f91d24bb4279747c807cc791a0794b6e509e4a8df1f28ece6090d8bef226199cb20256210243209b11c650d08fa4f1ff9a218e263d45d689699f0a01bbe6d3b").unwrap();
+        let seed = PlainData::new (&from_hex);
+        let encoded_seed = encode_bytes(Some(seed)).unwrap().unwrap();
+        let encrypted_encoded_seed = Bip39::encrypt_bytes(&encoded_seed.as_bytes(), "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new (Mutex::new (vec![]));
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", None, false)))
+                .get_result(Ok(ConfigDaoRecord::new ("seed", Some(&encrypted_encoded_seed), true)))
+                .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some(&example_encrypted), true)))
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", None, false)))
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .commit_params(&commit_params_arc)
+                .commit_result(Ok(()))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_consuming_wallet_derivation_path("m/44'/0'/0'/1/2", "password");
+
+        assert_eq! (result, Ok(()));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec![
+                "consuming_wallet_public_key".to_string(),
+                "seed".to_string(),
+                EXAMPLE_ENCRYPTED.to_string(),
+                "consuming_wallet_derivation_path".to_string()
+            ]
+        );
+        let mut set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![("consuming_wallet_derivation_path".to_string(), Some ("m/44'/0'/0'/1/2".to_string()))]);
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()]);
+    }
+
+    #[test]
+    fn set_consuming_wallet_derivation_path_works_if_path_is_already_set_to_same_value() {
+        let from_hex: Vec<u8> = FromHex::from_hex("3f91d24bb4279747c807cc791a0794b6e509e4a8df1f28ece6090d8bef226199cb20256210243209b11c650d08fa4f1ff9a218e263d45d689699f0a01bbe6d3b").unwrap();
+        let seed = PlainData::new (&from_hex);
+        let encoded_seed = encode_bytes(Some(seed)).unwrap().unwrap();
+        let encrypted_encoded_seed = Bip39::encrypt_bytes(&encoded_seed.as_bytes(), "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new (Mutex::new (vec![]));
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", None, false)))
+                .get_result(Ok(ConfigDaoRecord::new ("seed", Some(&encrypted_encoded_seed), true)))
+                .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some(&example_encrypted), true)))
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", Some ("m/44'/0'/0'/1/2"), false)))
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .commit_params(&commit_params_arc)
+                .commit_result(Ok(()))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_consuming_wallet_derivation_path("m/44'/0'/0'/1/2", "password");
+
+        assert_eq! (result, Ok(()));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec![
+                "consuming_wallet_public_key".to_string(),
+                "seed".to_string(),
+                EXAMPLE_ENCRYPTED.to_string(),
+                "consuming_wallet_derivation_path".to_string()
+            ]
+        );
+        let mut set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![("consuming_wallet_derivation_path".to_string(), Some ("m/44'/0'/0'/1/2".to_string()))]);
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()]);
+    }
+
+    #[test]
+    fn set_consuming_wallet_derivation_path_complains_if_path_is_already_set_to_different_value() {
+        let from_hex: Vec<u8> = FromHex::from_hex("3f91d24bb4279747c807cc791a0794b6e509e4a8df1f28ece6090d8bef226199cb20256210243209b11c650d08fa4f1ff9a218e263d45d689699f0a01bbe6d3b").unwrap();
+        let seed = PlainData::new (&from_hex);
+        let encoded_seed = encode_bytes(Some(seed)).unwrap().unwrap();
+        let encrypted_encoded_seed = Bip39::encrypt_bytes(&encoded_seed.as_bytes(), "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", None, false)))
+                .get_result(Ok(ConfigDaoRecord::new ("seed", Some(&encrypted_encoded_seed), true)))
+                .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some(&example_encrypted), true)))
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", Some ("m/44'/0'/0'/1/0"), false)))
+                .set_result(Ok(()))
+                .commit_result(Ok(()))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_consuming_wallet_derivation_path("m/44'/0'/0'/1/2", "password");
+
+        assert_eq! (result, Err(PersistentConfigError::Collision("Cannot change existing consuming wallet derivation path".to_string())));
+    }
+
+    #[test]
+    fn set_consuming_wallet_derivation_path_complains_if_seed_is_not_set() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", None, false)))
+                .get_result(Ok(ConfigDaoRecord::new ("seed", None, true)))
+                .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some(&example_encrypted), true)))
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", None, false)))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_consuming_wallet_derivation_path("invalid path", "password");
+
+        assert_eq! (result, Err(PersistentConfigError::DatabaseError("Can't set consuming wallet derivation path without a mnemonic seed".to_string())));
+    }
+
+    #[test]
+    fn set_consuming_wallet_derivation_path_complains_about_invalid_derivation_path() {
+        let from_hex: Vec<u8> = FromHex::from_hex("3f91d24bb4279747c807cc791a0794b6e509e4a8df1f28ece6090d8bef226199cb20256210243209b11c650d08fa4f1ff9a218e263d45d689699f0a01bbe6d3b").unwrap();
+        let seed = PlainData::new (&from_hex);
+        let encoded_seed = encode_bytes(Some(seed)).unwrap().unwrap();
+        let encrypted_encoded_seed = Bip39::encrypt_bytes(&encoded_seed.as_bytes(), "password").unwrap();
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_public_key", None, false)))
+                .get_result(Ok(ConfigDaoRecord::new ("seed", Some(&encrypted_encoded_seed), true)))
+                .get_result(Ok(ConfigDaoRecord::new (EXAMPLE_ENCRYPTED, Some(&example_encrypted), true)))
+                .get_result(Ok(ConfigDaoRecord::new ("consuming_wallet_derivation_path", None, false)))
+        );
+        let config_dao = Box::new (ConfigDaoMock::new ()
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_consuming_wallet_derivation_path("invalid path", "password");
+
+        assert_eq! (result, Err(PersistentConfigError::BadDerivationPathFormat("invalid path".to_string())));
+    }
+
+    #[test]
+    fn set_consuming_wallet_derivation_path_complains_if_key_is_already_set_and_path_is_not() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic (expected = "Database is corrupt: both consuming wallet public key and derivation path are set")]
+    fn set_consuming_wallet_derivation_path_panics_if_key_and_path_are_both_already_set() {
+        unimplemented!()
+    }
+
+
+
+
+
+
+
+
+
+
+
     //
     // #[test]
     // fn set_consuming_wallet_derivation_path_works_if_no_preexisting_info() {
