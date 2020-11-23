@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::config_dao_old::{ConfigDaoError, ConfigDaoOld};
 use crate::sub_lib::cryptde::PlainData;
+use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use rusqlite::Transaction;
 
 #[derive(Default)]
 pub struct ConfigDaoMock {

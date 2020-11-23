@@ -4,9 +4,9 @@ use crate::persistent_configuration::{PersistentConfigError, PersistentConfigura
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
+use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use rusqlite::Transaction;
 
 type MnemonicSeedParam = (Vec<u8>, String);
 

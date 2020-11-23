@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::db_config::config_dao::{ConfigDaoError, ConfigDaoRecord, ConfigDaoRead, ConfigDaoReadWrite};
+use crate::db_config::config_dao::{
+    ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord,
+};
 use rand::Rng;
 
 pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
@@ -56,36 +58,55 @@ impl SecureConfigLayer {
         Ok(())
     }
 
-    pub fn encrypt<T: ConfigDaoRead + ?Sized>(&self, name: &str, plain_value_opt: Option<String>, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
+    pub fn encrypt<T: ConfigDaoRead + ?Sized>(
+        &self,
+        name: &str,
+        plain_value_opt: Option<String>,
+        password_opt: Option<&str>,
+        dao: &Box<T>,
+    ) -> Result<Option<String>, SecureConfigLayerError> {
         if !self.check_password(password_opt, dao)? {
-            return Err(SecureConfigLayerError::PasswordError)
+            return Err(SecureConfigLayerError::PasswordError);
         }
-        let record = dao.get (name)?;
+        let record = dao.get(name)?;
         match (record.encrypted, plain_value_opt, password_opt) {
             (false, value_opt, _) => Ok(value_opt.map(|x| x.to_string())),
-            (true, Some (plain_value), Some (password)) => match Bip39::encrypt_bytes(&plain_value.as_bytes(), password) {
-                Err(_) => panic! ("Encryption of '{}' failed", plain_value),
-                Ok(crypt_data) => Ok(Some(crypt_data)),
-            },
-            (true, Some (_), None) => Err(SecureConfigLayerError::PasswordError),
+            (true, Some(plain_value), Some(password)) => {
+                match Bip39::encrypt_bytes(&plain_value.as_bytes(), password) {
+                    Err(_) => panic!("Encryption of '{}' failed", plain_value),
+                    Ok(crypt_data) => Ok(Some(crypt_data)),
+                }
+            }
+            (true, Some(_), None) => Err(SecureConfigLayerError::PasswordError),
             (true, None, _) => Ok(None),
         }
     }
 
-    pub fn decrypt<T: ConfigDaoRead + ?Sized>(&self, record: ConfigDaoRecord, password_opt: Option<&str>, dao: &Box<T>) -> Result<Option<String>, SecureConfigLayerError> {
+    pub fn decrypt<T: ConfigDaoRead + ?Sized>(
+        &self,
+        record: ConfigDaoRecord,
+        password_opt: Option<&str>,
+        dao: &Box<T>,
+    ) -> Result<Option<String>, SecureConfigLayerError> {
         if !self.check_password(password_opt, dao)? {
-            return Err(SecureConfigLayerError::PasswordError)
+            return Err(SecureConfigLayerError::PasswordError);
         }
         match (record.encrypted, record.value_opt, password_opt) {
             (false, value_opt, _) => Ok(value_opt.map(|x| x.to_string())),
-            (true, Some (value), Some (password)) => match Bip39::decrypt_bytes(&value, password) {
-                Err(_) => Err(SecureConfigLayerError::DatabaseError(format!("Password for '{}' does not match database password", record.name))),
+            (true, Some(value), Some(password)) => match Bip39::decrypt_bytes(&value, password) {
+                Err(_) => Err(SecureConfigLayerError::DatabaseError(format!(
+                    "Password for '{}' does not match database password",
+                    record.name
+                ))),
                 Ok(plain_data) => match String::from_utf8(plain_data.into()) {
-                    Err(_) => Err (SecureConfigLayerError::DatabaseError(format!("Database contains a non-UTF-8 value for '{}'", record.name))),
-                    Ok(plain_text) => Ok (Some (plain_text)),
-                }
+                    Err(_) => Err(SecureConfigLayerError::DatabaseError(format!(
+                        "Database contains a non-UTF-8 value for '{}'",
+                        record.name
+                    ))),
+                    Ok(plain_text) => Ok(Some(plain_text)),
+                },
             },
-            (true, Some (_), None) => Err(SecureConfigLayerError::PasswordError),
+            (true, Some(_), None) => Err(SecureConfigLayerError::PasswordError),
             (true, None, _) => Ok(None),
         }
     }
@@ -196,8 +217,7 @@ impl SecureConfigLayer {
             .collect();
         let example_encrypted =
             Bip39::encrypt_bytes(&example_data, new_password).expect("Encryption failed");
-        dao
-            .set(EXAMPLE_ENCRYPTED, Some(example_encrypted))
+        dao.set(EXAMPLE_ENCRYPTED, Some(example_encrypted))
             .map_err(|e| SecureConfigLayerError::from(e))
     }
 }
@@ -213,7 +233,7 @@ mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
     use crate::db_config::config_dao::{ConfigDaoError, ConfigDaoRecord};
-    use crate::db_config::mocks::{ConfigDaoWriteableMock, ConfigDaoMock};
+    use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
     use std::sync::{Arc, Mutex};
@@ -242,7 +262,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(None, &Box::new (dao));
+        let result = subject.check_password(None, &Box::new(dao));
 
         assert_eq!(result, Ok(true));
         let get_params = get_params_arc.lock().unwrap();
@@ -257,7 +277,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("password"), &Box::new (dao));
+        let result = subject.check_password(Some("password"), &Box::new(dao));
 
         assert_eq!(result, Ok(false));
         let get_params = get_params_arc.lock().unwrap();
@@ -278,7 +298,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(None, &Box::new (dao));
+        let result = subject.check_password(None, &Box::new(dao));
 
         assert_eq!(result, Ok(false));
         let get_params = get_params_arc.lock().unwrap();
@@ -299,7 +319,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("password"), &Box::new (dao));
+        let result = subject.check_password(Some("password"), &Box::new(dao));
 
         assert_eq!(result, Ok(true));
         let get_params = get_params_arc.lock().unwrap();
@@ -320,7 +340,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("bad password"), &Box::new (dao));
+        let result = subject.check_password(Some("bad password"), &Box::new(dao));
 
         assert_eq!(result, Ok(false));
         let get_params = get_params_arc.lock().unwrap();
@@ -339,7 +359,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("bad password"), &Box::new (dao));
+        let result = subject.check_password(Some("bad password"), &Box::new(dao));
 
         assert_eq!(
             result,
@@ -365,7 +385,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("password"), &Box::new (dao));
+        let result = subject.check_password(Some("password"), &Box::new(dao));
 
         assert_eq! (result, Err(DatabaseError(format!("Password example value '{}' is corrupted: ConversionError(\"Invalid character \\'s\\' at position 1\")", EXAMPLE_ENCRYPTED))));
         let get_params = get_params_arc.lock().unwrap();
@@ -380,7 +400,7 @@ mod tests {
             .get_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("irrelevant"), &Box::new (dao));
+        let result = subject.check_password(Some("irrelevant"), &Box::new(dao));
 
         assert_eq!(result, Err(DatabaseError("booga".to_string())));
         let get_params = get_params_arc.lock().unwrap();
@@ -392,30 +412,31 @@ mod tests {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut writeable = Box::new (ConfigDaoWriteableMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-            .get_params(&get_params_arc)
-            .get_all_result(Ok(vec![
-                ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true),
-                ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
-                ConfigDaoRecord::new("encrypted_value_key", None, true),
-                ConfigDaoRecord::new("missing_value_key", None, false),
-            ]))
-            .get_result(Ok(ConfigDaoRecord::new(
-                "unencrypted_value_key",
-                Some("unencrypted_value"),
-                false,
-            )))
-            .set_params(&set_params_arc)
-            .set_result(Ok(()))
-            .set_result(Ok(()))
-            .set_result(Ok(()))
-            .set_result(Ok(()))
-            .commit_params (&commit_params_arc));
+        let mut writeable = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+                .get_params(&get_params_arc)
+                .get_all_result(Ok(vec![
+                    ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true),
+                    ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
+                    ConfigDaoRecord::new("encrypted_value_key", None, true),
+                    ConfigDaoRecord::new("missing_value_key", None, false),
+                ]))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "unencrypted_value_key",
+                    Some("unencrypted_value"),
+                    false,
+                )))
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .commit_params(&commit_params_arc),
+        );
         let mut subject = SecureConfigLayer::new();
 
-        let result = subject.change_password(None,
-                                             "password", &mut writeable);
+        let result = subject.change_password(None, "password", &mut writeable);
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -438,7 +459,7 @@ mod tests {
             x => panic!("Expected Ok(_), got {:?}", x),
         };
         let commit_params = commit_params_arc.lock().unwrap();
-        assert_eq! (*commit_params, vec![]);
+        assert_eq!(*commit_params, vec![]);
     }
 
     #[test]
@@ -449,33 +470,35 @@ mod tests {
         let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
         let unencrypted_value = "These are the times that try men's souls.".as_bytes();
         let old_encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "old_password").unwrap();
-        let commit_params_arc = Arc::new(Mutex::new (vec![]));
-        let mut writeable = Box::new (ConfigDaoWriteableMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            )))
-            .get_all_result(Ok(vec![
-                ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true),
-                ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
-                ConfigDaoRecord::new("encrypted_value_key", Some(&old_encrypted_value), true),
-                ConfigDaoRecord::new("missing_encrypted_key", None, true),
-                ConfigDaoRecord::new("missing_unencrypted_key", None, false),
-            ]))
-            .get_result(Ok(ConfigDaoRecord::new(
-                "unencrypted_value_key",
-                Some("unencrypted_value"),
-                false,
-            )))
-            .set_params(&set_params_arc)
-            .set_result(Ok(()))
-            .set_result(Ok(()))
-            .set_result(Ok(()))
-            .set_result(Ok(()))
-            .set_result(Ok(()))
-            .commit_params(&commit_params_arc));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut writeable = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&encrypted_example),
+                    true,
+                )))
+                .get_all_result(Ok(vec![
+                    ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, Some(&encrypted_example), true),
+                    ConfigDaoRecord::new("unencrypted_value_key", Some("unencrypted_value"), false),
+                    ConfigDaoRecord::new("encrypted_value_key", Some(&old_encrypted_value), true),
+                    ConfigDaoRecord::new("missing_encrypted_key", None, true),
+                    ConfigDaoRecord::new("missing_unencrypted_key", None, false),
+                ]))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "unencrypted_value_key",
+                    Some("unencrypted_value"),
+                    false,
+                )))
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .commit_params(&commit_params_arc),
+        );
         let mut subject = SecureConfigLayer::new();
 
         let result = subject.change_password(Some("old_password"), "new_password", &mut writeable);
@@ -502,7 +525,7 @@ mod tests {
         assert_eq!(set_params[4].0, EXAMPLE_ENCRYPTED.to_string());
         let _ = Bip39::decrypt_bytes(&set_params[4].1.as_ref().unwrap(), "new_password").unwrap();
         let commit_params = commit_params_arc.lock().unwrap();
-        assert_eq! (*commit_params, vec![])
+        assert_eq!(*commit_params, vec![])
     }
 
     #[test]
@@ -516,7 +539,8 @@ mod tests {
         )));
         let mut subject = SecureConfigLayer::new();
 
-        let result = subject.change_password(Some("bad_password"), "new_password", &mut Box::new (dao));
+        let result =
+            subject.change_password(Some("bad_password"), "new_password", &mut Box::new(dao));
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
@@ -532,7 +556,8 @@ mod tests {
         )]));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.reencrypt_records(Some("old_password"), "new_password", &Box::new (dao));
+        let result =
+            subject.reencrypt_records(Some("old_password"), "new_password", &Box::new(dao));
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change due to database corruption: configuration value 'badly_encrypted' cannot be decrypted".to_string())))
     }
@@ -563,7 +588,8 @@ mod tests {
             .set_result(Ok(()));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.reencrypt_records(Some("old_password"), "new_password", &Box::new (dao));
+        let result =
+            subject.reencrypt_records(Some("old_password"), "new_password", &Box::new(dao));
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change: configuration value 'encrypted_value' could not be set: DatabaseError(\"booga\")".to_string())))
     }
@@ -574,8 +600,7 @@ mod tests {
         let old_password_opt = None;
         let new_password = "irrelevant";
 
-        let result =
-            SecureConfigLayer::reencrypt_record(record, old_password_opt, new_password);
+        let result = SecureConfigLayer::reencrypt_record(record, old_password_opt, new_password);
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change: configuration value 'name' is encrypted, but database has no password".to_string())))
     }
@@ -583,39 +608,37 @@ mod tests {
     #[test]
     fn decrypt_works_when_database_is_unencrypted_value_is_unencrypted() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let record = ConfigDaoRecord::new ("attribute_name", Some("attribute_value"), false);
-        let dao = Box::new(ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true))));
+        let record = ConfigDaoRecord::new("attribute_name", Some("attribute_value"), false);
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, None, &dao);
 
         assert_eq!(result, Ok(Some("attribute_value".to_string())));
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_params,
-            vec![EXAMPLE_ENCRYPTED.to_string()]
-        );
+        assert_eq!(*get_params, vec![EXAMPLE_ENCRYPTED.to_string()]);
     }
 
     #[test]
     fn decrypt_works_when_database_is_unencrypted_value_is_encrypted_and_absent() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let record = ConfigDaoRecord::new ("attribute_name", None, true);
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true))));
+        let record = ConfigDaoRecord::new("attribute_name", None, true);
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, None, &dao);
 
         assert_eq!(result, Ok(None));
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_params,
-            vec![EXAMPLE_ENCRYPTED.to_string()]
-        );
+        assert_eq!(*get_params, vec![EXAMPLE_ENCRYPTED.to_string()]);
     }
 
     #[test]
@@ -623,24 +646,23 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let record = ConfigDaoRecord::new ("attribute_name", Some("attribute_value"), false);
-        let dao = Box::new(ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            ))));
+        let record = ConfigDaoRecord::new("attribute_name", Some("attribute_value"), false);
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&encrypted_example),
+                    true,
+                ))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
 
         assert_eq!(result, Ok(Some("attribute_value".to_string())));
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_params,
-            vec![EXAMPLE_ENCRYPTED.to_string()]
-        );
+        assert_eq!(*get_params, vec![EXAMPLE_ENCRYPTED.to_string()]);
     }
 
     #[test]
@@ -650,14 +672,16 @@ mod tests {
         let value = "These are the times that try men's souls.";
         let encrypted_value = Bip39::encrypt_bytes(&value, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let record = ConfigDaoRecord::new ("attribute_name", Some(&encrypted_value), true);
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            ))));
+        let record = ConfigDaoRecord::new("attribute_name", Some(&encrypted_value), true);
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&encrypted_example),
+                    true,
+                ))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
@@ -669,10 +693,7 @@ mod tests {
             ))
         );
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_params,
-            vec![EXAMPLE_ENCRYPTED.to_string()]
-        );
+        assert_eq!(*get_params, vec![EXAMPLE_ENCRYPTED.to_string()]);
     }
 
     #[test]
@@ -681,13 +702,12 @@ mod tests {
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let value = "These are the times that try men's souls.".as_bytes();
         let encrypted_value = Bip39::encrypt_bytes(&value, "bad_password").unwrap();
-        let record = ConfigDaoRecord::new ("attribute_name", Some(&encrypted_value), true);
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            ))));
+        let record = ConfigDaoRecord::new("attribute_name", Some(&encrypted_value), true);
+        let dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            EXAMPLE_ENCRYPTED,
+            Some(&encrypted_example),
+            true,
+        ))));
         let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
@@ -704,21 +724,17 @@ mod tests {
     fn decrypt_objects_to_decrypting_an_encrypted_value_without_a_password() {
         let value = "These are the times that try men's souls.".as_bytes();
         let encrypted_value = Bip39::encrypt_bytes(&value, "password").unwrap();
-        let record = ConfigDaoRecord::new ("attribute_name", Some(&encrypted_value), true);
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                None,
-                true,
-            ))));
+        let record = ConfigDaoRecord::new("attribute_name", Some(&encrypted_value), true);
+        let dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            EXAMPLE_ENCRYPTED,
+            None,
+            true,
+        ))));
         let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, None, &dao);
 
-        assert_eq!(
-            result,
-            Err(SecureConfigLayerError::PasswordError)
-        );
+        assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
 
     #[test]
@@ -728,13 +744,12 @@ mod tests {
         // UTF-8 doesn't tolerate 192 followed by 193
         let unencrypted_value: &[u8] = &[32, 32, 192, 193, 32, 32];
         let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "password").unwrap();
-        let record = ConfigDaoRecord::new ("attribute_name", Some(&encrypted_value), true);
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            ))));
+        let record = ConfigDaoRecord::new("attribute_name", Some(&encrypted_value), true);
+        let dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            EXAMPLE_ENCRYPTED,
+            Some(&encrypted_example),
+            true,
+        ))));
         let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
@@ -749,13 +764,12 @@ mod tests {
 
     #[test]
     fn decrypt_objects_if_passwords_dont_match() {
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                None,
-                true,
-            ))));
-        let record = ConfigDaoRecord::new ("attribute_name", Some("attribute_value"), true);
+        let dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            EXAMPLE_ENCRYPTED,
+            None,
+            true,
+        ))));
+        let record = ConfigDaoRecord::new("attribute_name", Some("attribute_value"), true);
         let subject = SecureConfigLayer::new();
 
         let result = subject.decrypt(record, Some("password"), &dao);
@@ -766,10 +780,16 @@ mod tests {
     #[test]
     fn encrypt_works_when_database_is_unencrypted_and_value_is_unencrypted_and_absent() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-            .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some("irrelevant"), false))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "attribute_name",
+                    Some("irrelevant"),
+                    false,
+                ))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, None, &dao);
@@ -785,13 +805,24 @@ mod tests {
     #[test]
     fn encrypt_works_when_database_is_unencrypted_and_value_is_unencrypted_and_present() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new(ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-            .get_result(Ok(ConfigDaoRecord::new("attribute_name", Some("irrelevant"), false))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "attribute_name",
+                    Some("irrelevant"),
+                    false,
+                ))),
+        );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), None, &dao);
+        let result = subject.encrypt(
+            "attribute_name",
+            Some("attribute_value".to_string()),
+            None,
+            &dao,
+        );
 
         assert_eq!(result, Ok(Some("attribute_value".to_string())));
         let get_params = get_params_arc.lock().unwrap();
@@ -804,10 +835,12 @@ mod tests {
     #[test]
     fn encrypt_works_when_database_is_unencrypted_and_value_is_encrypted_and_absent() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-            .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+                .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, None, &dao);
@@ -825,14 +858,16 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            )))
-            .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, false))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&encrypted_example),
+                    true,
+                )))
+                .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, false))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, Some("password"), &dao);
@@ -850,28 +885,30 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new(ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            )))
-            .get_result(Ok(ConfigDaoRecord::new(
-                "attribute_name",
-                Some("irrelevant"),
-                false,
-            ))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&encrypted_example),
+                    true,
+                )))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "attribute_name",
+                    Some("irrelevant"),
+                    false,
+                ))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt(
             "attribute_name",
             Some("attribute_value".to_string()),
             Some("password"),
-            &dao
+            &dao,
         );
 
-        assert_eq!(result, Ok(Some ("attribute_value".to_string())));
+        assert_eq!(result, Ok(Some("attribute_value".to_string())));
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(
             *get_params,
@@ -884,14 +921,16 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new(ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            )))
-            .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&encrypted_example),
+                    true,
+                )))
+                .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, Some("password"), &dao);
@@ -909,34 +948,34 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new(ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(&encrypted_example),
-                true,
-            )))
-            .get_result(Ok(ConfigDaoRecord::new(
-                "attribute_name",
-                Some("irrelevant"),
-                true,
-            ))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&encrypted_example),
+                    true,
+                )))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "attribute_name",
+                    Some("irrelevant"),
+                    true,
+                ))),
+        );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.encrypt(
-            "attribute_name",
-            Some("attribute_value".to_string()),
-            Some("password"),
-            &dao
-        ).unwrap().unwrap();
+        let result = subject
+            .encrypt(
+                "attribute_name",
+                Some("attribute_value".to_string()),
+                Some("password"),
+                &dao,
+            )
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
-            String::from_utf8(
-                Bip39::decrypt_bytes(&result, "password")
-                    .unwrap()
-                    .into()
-            )
-                .unwrap(),
+            String::from_utf8(Bip39::decrypt_bytes(&result, "password").unwrap().into()).unwrap(),
             "attribute_value".to_string()
         );
         let get_params = get_params_arc.lock().unwrap();
@@ -947,18 +986,25 @@ mod tests {
     }
 
     #[test]
-    fn encrypt_works_when_database_is_unencrypted_and_value_is_encrypted_and_present_without_password()
-    {
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-            .get_result(Ok(ConfigDaoRecord::new(
-                "attribute_name",
-                Some("irrelevant"),
-                true,
-            ))));
+    fn encrypt_works_when_database_is_unencrypted_and_value_is_encrypted_and_present_without_password(
+    ) {
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "attribute_name",
+                    Some("irrelevant"),
+                    true,
+                ))),
+        );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), None, &dao);
+        let result = subject.encrypt(
+            "attribute_name",
+            Some("attribute_value".to_string()),
+            None,
+            &dao,
+        );
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
@@ -966,13 +1012,20 @@ mod tests {
     #[test]
     fn encrypt_works_when_password_doesnt_match() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-            .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, false))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+                .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, false))),
+        );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), Some("password"), &dao);
+        let result = subject.encrypt(
+            "attribute_name",
+            Some("attribute_value".to_string()),
+            Some("password"),
+            &dao,
+        );
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
         let get_params = get_params_arc.lock().unwrap();
@@ -982,13 +1035,20 @@ mod tests {
     #[test]
     fn encrypt_works_when_database_is_unencrypted_and_value_is_encrypted_and_present() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-            .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+                .get_result(Ok(ConfigDaoRecord::new("attribute_name", None, true))),
+        );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.encrypt("attribute_name", Some("attribute_value".to_string()), Some("password"), &dao);
+        let result = subject.encrypt(
+            "attribute_name",
+            Some("attribute_value".to_string()),
+            Some("password"),
+            &dao,
+        );
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
         let get_params = get_params_arc.lock().unwrap();
@@ -997,9 +1057,11 @@ mod tests {
 
     #[test]
     fn encrypt_works_when_configuration_item_is_unknown() {
-        let dao = Box::new (ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
-            .get_result(Err(ConfigDaoError::NotPresent)));
+        let dao = Box::new(
+            ConfigDaoMock::new()
+                .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
+                .get_result(Err(ConfigDaoError::NotPresent)),
+        );
         let subject = SecureConfigLayer::new();
 
         let result = subject.encrypt("attribute_name", None, None, &dao);

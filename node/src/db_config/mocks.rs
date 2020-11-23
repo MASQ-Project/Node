@@ -1,10 +1,12 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
-use std::sync::{Arc, Mutex};
 use crate::database::connection_wrapper::TransactionWrapper;
-use rusqlite::{Statement, Error};
+use crate::db_config::config_dao::{
+    ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
+};
+use rusqlite::{Error, Statement};
 use std::cell::RefCell;
-use crate::db_config::config_dao::{ConfigDaoRecord, ConfigDaoError, ConfigDaoRead, ConfigDao, ConfigDaoReadWrite, ConfigDaoWrite};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub struct TransactionWrapperMock {
@@ -61,7 +63,9 @@ impl ConfigDaoRead for ConfigDaoMock {
 }
 
 impl ConfigDao for ConfigDaoMock {
-    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
+    fn start_transaction<'b, 'c: 'b>(
+        &'c mut self,
+    ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
         self.start_transaction_results.borrow_mut().remove(0)
     }
 }
@@ -91,7 +95,10 @@ impl ConfigDaoMock {
         self
     }
 
-    pub fn start_transaction_result(self, result: Result<Box<dyn ConfigDaoReadWrite>, ConfigDaoError>) -> Self {
+    pub fn start_transaction_result(
+        self,
+        result: Result<Box<dyn ConfigDaoReadWrite>, ConfigDaoError>,
+    ) -> Self {
         self.start_transaction_results.borrow_mut().push(result);
         self
     }

@@ -435,8 +435,11 @@ mod tests {
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
-    use crate::database::db_initializer::test_utils::{ConnectionWrapperOldMock, DbInitializerMock};
-    use crate::database::db_initializer::{InitializationError};
+    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::database::db_initializer::test_utils::{
+        ConnectionWrapperOldMock, DbInitializerMock,
+    };
+    use crate::database::db_initializer::InitializationError;
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
@@ -489,7 +492,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
-    use crate::database::connection_wrapper::ConnectionWrapper;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {

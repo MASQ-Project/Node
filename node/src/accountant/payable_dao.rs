@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{jackass_unsigned_to_signed, PaymentError};
+use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::{ToSql, Type};
@@ -8,7 +9,6 @@ use serde_json::{self, json};
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::database::connection_wrapper::ConnectionWrapper;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {

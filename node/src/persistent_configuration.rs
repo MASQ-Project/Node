@@ -3,17 +3,17 @@ use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::config_dao_old::ConfigDaoError;
 use crate::config_dao_old::{ConfigDaoOld, ConfigDaoReal};
+use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use rand::Rng;
+use rusqlite::Transaction;
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-use crate::database::connection_wrapper::{ConnectionWrapper};
-use rusqlite::Transaction;
-use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {

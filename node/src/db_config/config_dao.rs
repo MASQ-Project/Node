@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::database::connection_wrapper::ConnectionWrapper;
 use rusqlite::types::ToSql;
-use rusqlite::{Rows, NO_PARAMS, Row, Transaction, Statement};
-use crate::database::connection_wrapper::{ConnectionWrapper};
+use rusqlite::{Row, Rows, Statement, Transaction, NO_PARAMS};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -29,14 +29,14 @@ impl ConfigDaoRecord {
 
 // Anything that can read from the database implements this trait
 pub trait ConfigDaoRead {
-    fn get_all (&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
-    fn get (&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
+    fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
+    fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
 }
 
 // Anything that can write to the database implements this trait
 pub trait ConfigDaoWrite {
-    fn set (&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
-    fn commit (& mut self) -> Result<(), ConfigDaoError>;
+    fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
+    fn commit(&mut self) -> Result<(), ConfigDaoError>;
 }
 
 pub trait ConfigDaoReadWrite: ConfigDaoRead + ConfigDaoWrite {}
@@ -44,7 +44,9 @@ pub trait ConfigDaoReadWrite: ConfigDaoRead + ConfigDaoWrite {}
 // ConfigDao can read from the database but not write to it; however, it can produce a Transaction,
 // which _can_ write to the database.
 pub trait ConfigDao: ConfigDaoRead {
-    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError>;
+    fn start_transaction<'b, 'c: 'b>(
+        &'c mut self,
+    ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError>;
 }
 
 pub struct ConfigDaoReal {
@@ -52,43 +54,45 @@ pub struct ConfigDaoReal {
 }
 
 impl ConfigDao for ConfigDaoReal {
-    fn start_transaction<'b, 'c: 'b>(&'c mut self) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
+    fn start_transaction<'b, 'c: 'b>(
+        &'c mut self,
+    ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
         let transaction: Transaction<'b> = match self.conn.transaction() {
-            Ok (t) => t,
+            Ok(t) => t,
             // This line is untested, because we don't know how to pop this error in a test
-            Err(e) => return Err (ConfigDaoError::DatabaseError(format! ("{:?}", e))),
+            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{:?}", e))),
         };
-        Ok(Box::new (ConfigDaoWriteableReal::new (transaction)))
+        Ok(Box::new(ConfigDaoWriteableReal::new(transaction)))
     }
 }
 
 impl ConfigDaoRead for ConfigDaoReal {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
-        let stmt = self.conn
+        let stmt = self
+            .conn
             .prepare("select name, value, encrypted from config")
             .expect("Schema error: couldn't compose query for config table");
         get_all(stmt)
     }
 
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
-        let stmt = self.conn
+        let stmt = self
+            .conn
             .prepare("select name, value, encrypted from config where name = ?")
             .expect("Schema error: couldn't compose query for config table");
-        get (stmt, name)
+        get(stmt, name)
     }
 }
 
 impl ConfigDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ConfigDaoReal {
-        ConfigDaoReal {
-            conn,
-        }
+        ConfigDaoReal { conn }
     }
 }
 
 // This is the real object that contains a Transaction for writing
 pub struct ConfigDaoWriteableReal<'a> {
-    transaction_opt: Option<Transaction<'a>>
+    transaction_opt: Option<Transaction<'a>>,
 }
 
 // But the Transaction-bearing writer can also read
@@ -99,8 +103,7 @@ impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
                 .prepare("select name, value, encrypted from config")
                 .expect("Schema error: couldn't compose query for config table");
             get_all(stmt)
-        }
-        else {
+        } else {
             Err(ConfigDaoError::TransactionError)
         }
     }
@@ -110,9 +113,8 @@ impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
             let stmt = transaction
                 .prepare("select name, value, encrypted from config where name = ?")
                 .expect("Schema error: couldn't compose query for config table");
-            get (stmt, name)
-        }
-        else {
+            get(stmt, name)
+        } else {
             Err(ConfigDaoError::TransactionError)
         }
     }
@@ -120,15 +122,12 @@ impl ConfigDaoRead for ConfigDaoWriteableReal<'_> {
 
 // ...and it can write too
 impl<'a> ConfigDaoWrite for ConfigDaoWriteableReal<'a> {
-
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError> {
         let transaction = match &self.transaction_opt {
-            Some (t) => t,
+            Some(t) => t,
             None => return Err(ConfigDaoError::TransactionError),
         };
-        let mut stmt = match transaction
-            .prepare("update config set value = ? where name = ?")
-        {
+        let mut stmt = match transaction.prepare("update config set value = ? where name = ?") {
             Ok(stmt) => stmt,
             // The following line is untested, because we don't know how to trigger it.
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
@@ -139,12 +138,12 @@ impl<'a> ConfigDaoWrite for ConfigDaoWriteableReal<'a> {
 
     fn commit(&mut self) -> Result<(), ConfigDaoError> {
         match self.transaction_opt.take() {
-            Some (transaction) => match transaction.commit() {
-                Ok (_) => Ok(()),
+            Some(transaction) => match transaction.commit() {
+                Ok(_) => Ok(()),
                 // The following line is untested, because we don't know how to trigger it.
-                Err (e) => Err (ConfigDaoError::DatabaseError (format! ("{:?}", e))),
+                Err(e) => Err(ConfigDaoError::DatabaseError(format!("{:?}", e))),
             },
-            None => Err (ConfigDaoError::TransactionError),
+            None => Err(ConfigDaoError::TransactionError),
         }
     }
 }
@@ -154,8 +153,10 @@ impl<'a> ConfigDaoReadWrite for ConfigDaoWriteableReal<'a> {}
 
 // This is the real version of ConfigDaoWriteable used in production
 impl<'a> ConfigDaoWriteableReal<'a> {
-    fn new (transaction: Transaction<'a>) -> Self {
-        Self { transaction_opt: Some (transaction)}
+    fn new(transaction: Transaction<'a>) -> Self {
+        Self {
+            transaction_opt: Some(transaction),
+        }
     }
 }
 fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), ConfigDaoError> {
@@ -167,7 +168,7 @@ fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), Config
     }
 }
 
-fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>{
+fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
     let mut rows: Rows = stmt
         .query(NO_PARAMS)
         .expect("Schema error: couldn't dump config table");
@@ -180,8 +181,12 @@ fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>{
                 let value_opt: Option<String> = row.get(1).expect("Schema error: no value column");
                 let encrypted: i32 = row.get(2).expect("Schema error: no encrypted column");
                 match value_opt {
-                    Some (s) => results.push (ConfigDaoRecord::new (&name, Some (s.as_str()), encrypted != 0)),
-                    None => results.push (ConfigDaoRecord::new (&name, None, encrypted != 0)),
+                    Some(s) => results.push(ConfigDaoRecord::new(
+                        &name,
+                        Some(s.as_str()),
+                        encrypted != 0,
+                    )),
+                    None => results.push(ConfigDaoRecord::new(&name, None, encrypted != 0)),
                 }
             }
             Ok(None) => break,
@@ -190,7 +195,7 @@ fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>{
     Ok(results)
 }
 
-fn get (mut stmt: Statement, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
+fn get(mut stmt: Statement, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
     match stmt.query_row(&[name], |row| Ok(row_to_config_dao_record(row))) {
         Ok(record) => Ok(record),
         Err(rusqlite::Error::QueryReturnedNoRows) => Err(ConfigDaoError::NotPresent),
@@ -204,8 +209,8 @@ fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
     let value_opt: Option<String> = row.get(1).expect("Schema error: no value column");
     let encrypted_int: i32 = row.get(2).expect("Schema error: no encrypted column");
     match value_opt {
-        Some (value) => ConfigDaoRecord::new(&name, Some (&value), encrypted_int != 0),
-        None => ConfigDaoRecord::new (&name, None, encrypted_int != 0),
+        Some(value) => ConfigDaoRecord::new(&name, Some(&value), encrypted_int != 0),
+        None => ConfigDaoRecord::new(&name, None, encrypted_int != 0),
     }
 }
 
@@ -237,15 +242,21 @@ mod tests {
         );
         assert_contains(
             &result,
-            &ConfigDaoRecord::new("start_block", Some(&ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK.to_string()), false),
+            &ConfigDaoRecord::new(
+                "start_block",
+                Some(&ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK.to_string()),
+                false,
+            ),
         );
-        assert_contains(&result, &ConfigDaoRecord::new ("seed", None, true));
+        assert_contains(&result, &ConfigDaoRecord::new("seed", None, true));
     }
 
     #[test]
     fn get_returns_not_present_if_row_doesnt_exist() {
-        let home_dir =
-            ensure_node_home_directory_exists("config_dao", "get_returns_not_present_if_row_doesnt_exist");
+        let home_dir = ensure_node_home_directory_exists(
+            "config_dao",
+            "get_returns_not_present_if_row_doesnt_exist",
+        );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -254,12 +265,15 @@ mod tests {
 
         let result = subject.get("booga");
 
-        assert_eq! (result, Err(ConfigDaoError::NotPresent));
+        assert_eq!(result, Err(ConfigDaoError::NotPresent));
     }
 
     #[test]
     fn set_and_get_and_committed_transactions_work() {
-        let home_dir = ensure_node_home_directory_exists("config_dao", "set_and_get_and_committed_transactions_work");
+        let home_dir = ensure_node_home_directory_exists(
+            "config_dao",
+            "set_and_get_and_committed_transactions_work",
+        );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -271,10 +285,19 @@ mod tests {
                 .unwrap(),
         );
         let initial_value = dao.get("seed").unwrap();
-        let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
+        let modified_value = ConfigDaoRecord::new(
+            "seed",
+            Some("Two wrongs don't make a right, but two Wrights make an airplane"),
+            true,
+        );
         let mut subject = dao.start_transaction().unwrap();
 
-        subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane".to_string())).unwrap();
+        subject
+            .set(
+                "seed",
+                Some("Two wrongs don't make a right, but two Wrights make an airplane".to_string()),
+            )
+            .unwrap();
 
         let subject_get_all = subject.get_all().unwrap();
         let subject_get = subject.get("seed").unwrap();
@@ -289,7 +312,10 @@ mod tests {
         // Can't use a committed ConfigDaoWriteableReal anymore
         assert_eq!(subject.get_all(), Err(ConfigDaoError::TransactionError));
         assert_eq!(subject.get("seed"), Err(ConfigDaoError::TransactionError));
-        assert_eq!(subject.set("seed", Some("irrelevant".to_string())), Err(ConfigDaoError::TransactionError));
+        assert_eq!(
+            subject.set("seed", Some("irrelevant".to_string())),
+            Err(ConfigDaoError::TransactionError)
+        );
         assert_eq!(subject.commit(), Err(ConfigDaoError::TransactionError));
         let confirmer_get_all = confirmer.get_all().unwrap();
         let confirmer_get = confirmer.get("seed").unwrap();
@@ -299,7 +325,10 @@ mod tests {
 
     #[test]
     fn set_and_get_and_rolled_back_transactions_work() {
-        let home_dir = ensure_node_home_directory_exists("config_dao", "set_and_get_and_rolled_back_transactions_work");
+        let home_dir = ensure_node_home_directory_exists(
+            "config_dao",
+            "set_and_get_and_rolled_back_transactions_work",
+        );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -311,11 +340,23 @@ mod tests {
                 .unwrap(),
         );
         let initial_value = dao.get("seed").unwrap();
-        let modified_value = ConfigDaoRecord::new("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane"), true);
+        let modified_value = ConfigDaoRecord::new(
+            "seed",
+            Some("Two wrongs don't make a right, but two Wrights make an airplane"),
+            true,
+        );
         {
             let subject = dao.start_transaction().unwrap();
 
-            subject.set("seed", Some("Two wrongs don't make a right, but two Wrights make an airplane".to_string())).unwrap();
+            subject
+                .set(
+                    "seed",
+                    Some(
+                        "Two wrongs don't make a right, but two Wrights make an airplane"
+                            .to_string(),
+                    ),
+                )
+                .unwrap();
 
             let subject_get_all = subject.get_all().unwrap();
             let subject_get = subject.get("seed").unwrap();
@@ -336,7 +377,10 @@ mod tests {
 
     #[test]
     fn setting_nonexistent_value_returns_not_present() {
-        let home_dir = ensure_node_home_directory_exists("config_dao", "setting_nonexistent_value_returns_not_present");
+        let home_dir = ensure_node_home_directory_exists(
+            "config_dao",
+            "setting_nonexistent_value_returns_not_present",
+        );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -344,14 +388,17 @@ mod tests {
         );
         let subject = dao.start_transaction().unwrap();
 
-        let result = subject.set("booga", Some ("bigglesworth".to_string()));
+        let result = subject.set("booga", Some("bigglesworth".to_string()));
 
         assert_eq!(result, Err(ConfigDaoError::NotPresent));
     }
 
     #[test]
     fn setting_value_to_none_removes_value_but_not_row() {
-        let home_dir = ensure_node_home_directory_exists("config_dao", "setting_value_to_none_removes_value_but_not_row");
+        let home_dir = ensure_node_home_directory_exists(
+            "config_dao",
+            "setting_value_to_none_removes_value_but_not_row",
+        );
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -364,6 +411,6 @@ mod tests {
             subject.commit().unwrap();
         }
         let result = dao.get("schema_version").unwrap();
-        assert_eq!(result, ConfigDaoRecord::new ("schema_version", None, false));
+        assert_eq!(result, ConfigDaoRecord::new("schema_version", None, false));
     }
 }

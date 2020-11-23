@@ -1,11 +1,11 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
+use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
-use rusqlite::{Statement, Transaction, Connection, Error};
 
 pub trait TransactionWrapper<'a>: Drop {
     fn commit(&mut self);
-    fn prepare(& self, query: &str) -> Result<Statement, rusqlite::Error>;
+    fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
 }
 
 pub struct TransactionWrapperReal<'a> {
@@ -17,7 +17,7 @@ impl<'a> TransactionWrapper<'a> for TransactionWrapperReal<'a> {
         unimplemented!()
     }
 
-    fn prepare(& self, query: &str) -> Result<Statement, Error> {
+    fn prepare(&self, query: &str) -> Result<Statement, Error> {
         unimplemented!()
     }
 }
@@ -30,9 +30,7 @@ impl<'a> Drop for TransactionWrapperReal<'a> {
 
 impl<'a> From<Transaction<'a>> for TransactionWrapperReal<'a> {
     fn from(transaction: Transaction<'a>) -> Self {
-        Self{
-            transaction
-        }
+        Self { transaction }
     }
 }
 
