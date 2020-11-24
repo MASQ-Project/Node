@@ -16,7 +16,7 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
@@ -652,6 +652,7 @@ impl Neighborhood {
                     .as_ref()
                     .expect("PersistentConfig was not set by StartMessage")
                     .set_past_neighbors(node_descriptors_opt, db_password)
+                    .expect ("Test-drive me!")
                 {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
                     Err(e) => error!(
@@ -1222,7 +1223,7 @@ mod tests {
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::neighborhood::node_record::NodeRecordInner_0v1;
-    use crate::persistent_configuration::PersistentConfigError;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;

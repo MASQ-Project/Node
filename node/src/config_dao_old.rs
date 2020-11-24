@@ -18,7 +18,7 @@ pub enum ConfigDaoError {
     DatabaseError(String),
 }
 
-pub trait ConfigDaoOld: Send {
+pub trait ConfigDao: Send {
     fn get_all(
         &self,
         db_password: Option<&str>,
@@ -53,7 +53,7 @@ pub struct ConfigDaoReal {
     conn: Box<dyn ConnectionWrapper>,
 }
 
-impl ConfigDaoOld for ConfigDaoReal {
+impl ConfigDao for ConfigDaoReal {
     fn get_all(
         &self,
         _db_password: Option<&str>,

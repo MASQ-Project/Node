@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
@@ -14,7 +14,7 @@ type MnemonicSeedParam = (Vec<u8>, String);
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
     current_schema_version_results: RefCell<Vec<String>>,
-    set_password_params: Arc<Mutex<Vec<String>>>,
+    change_password_params: Arc<Mutex<Vec<(Option<String>, String)>>>,
     check_password_params: Arc<Mutex<Vec<String>>>,
     check_password_results: RefCell<Vec<Option<bool>>>,
     clandestine_port_results: RefCell<Vec<u16>>,
@@ -31,8 +31,9 @@ pub struct PersistentConfigurationMock {
     earning_wallet_from_address_results: RefCell<Vec<Option<Wallet>>>,
     earning_wallet_address_results: RefCell<Vec<Option<String>>>,
     set_earning_wallet_address_params: Arc<Mutex<Vec<String>>>,
-    start_block_results: RefCell<Vec<u64>>,
-    set_start_block_transactionally_results: RefCell<Vec<Result<(), String>>>,
+    start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
+    set_start_block_params: Arc<Mutex<Vec<u64>>>,
+    set_start_block_results: RefCell<Vec<Result<(), String>>>,
     set_gas_price_params: Arc<Mutex<Vec<u64>>>,
     gas_price_results: RefCell<Vec<u64>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
@@ -47,11 +48,11 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.current_schema_version_results)
     }
 
-    fn set_password(&self, db_password: &str) {
-        self.set_password_params
+    fn change_password(&self, old_password_opt: Option<&str>, db_password: &str) {
+        self.change_password_params
             .lock()
             .unwrap()
-            .push(db_password.to_string());
+            .push((old_password_opt.map (|p| p.to_string()), db_password.to_string()));
     }
 
     fn check_password(&self, db_password: &str) -> Option<bool> {
@@ -147,7 +148,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn set_past_neighbors(
-        &self,
+        &mut self,
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
@@ -158,19 +159,19 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_past_neighbors_results.borrow_mut().remove(0)
     }
 
-    fn start_block(&self) -> u64 {
+    fn start_block(&self) -> Result<u64, PersistentConfigError> {
         if self.start_block_results.borrow().is_empty() {
             return 0;
         }
         Self::result_from(&self.start_block_results)
     }
 
-    fn set_start_block_transactionally(
+    fn set_start_block(
         &self,
-        _tx: &Transaction,
-        _value: u64,
+        value: u64,
     ) -> Result<(), String> {
-        Self::result_from(&self.set_start_block_transactionally_results)
+        self.set_start_block_params.lock().unwrap().push(value);
+        Self::result_from(&self.set_start_block_results)
     }
 }
 
@@ -190,7 +191,7 @@ impl PersistentConfigurationMock {
         mut self,
         params: &Arc<Mutex<Vec<String>>>,
     ) -> PersistentConfigurationMock {
-        self.set_password_params = params.clone();
+        self.change_password_params = params.clone();
         self
     }
 
@@ -375,8 +376,13 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_start_block_transactionally_result(self, result: Result<(), String>) -> Self {
-        self.set_start_block_transactionally_results
+    pub fn set_start_block_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> PersistentConfigurationMock {
+        self.set_start_block_params = params.clone();
+        self
+    }
+
+    pub fn set_start_block_result(self, result: Result<(), String>) -> Self {
+        self.set_start_block_results
             .borrow_mut()
             .push(result);
         self

@@ -5,7 +5,7 @@ use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, Transaction,
 };
 use crate::bootstrapper::BootstrapperConfig;
-use crate::persistent_configuration::PersistentConfiguration;
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
@@ -144,10 +144,10 @@ impl Handler<NodeFromUiMessage> for BlockchainBridge {
 }
 
 impl BlockchainBridge {
-    pub fn new(
+    pub fn new<'a>(
         config: &BootstrapperConfig,
         blockchain_interface: Box<dyn BlockchainInterface>,
-        persistent_config: Box<dyn PersistentConfiguration>,
+        persistent_config: Box<dyn PersistentConfiguration<'a>>,
     ) -> BlockchainBridge {
         BlockchainBridge {
             consuming_wallet: config.consuming_wallet.clone(),

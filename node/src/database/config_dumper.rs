@@ -2,7 +2,7 @@
 
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
-use crate::config_dao_old::{ConfigDaoOld, ConfigDaoReal};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal, ConfigDaoRecord};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::node_configurator::RealDirsWrapper;
 use crate::node_configurator::{
@@ -27,7 +27,7 @@ pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, Con
     PrivilegeDropperReal::new().drop_privileges(&real_user);
     let config_dao = make_config_dao(&data_directory, chain_id);
     let configuration = config_dao
-        .get_all(None)
+        .get_all()
         .expect("Couldn't fetch configuration");
     let json = configuration_to_json(configuration);
     write_string(streams, json);
@@ -45,11 +45,11 @@ fn write_string(streams: &mut StdStreams, json: String) {
         .expect("Couldn't flush JSON to stdout");
 }
 
-fn configuration_to_json(configuration: Vec<(String, Option<String>)>) -> String {
+fn configuration_to_json(configuration: Vec<ConfigDaoRecord>) -> String {
     let mut map = Map::new();
-    configuration.into_iter().for_each(|(name, value)| {
-        let json_name = name.to_mixed_case();
-        match value {
+    configuration.into_iter().for_each(|record| {
+        let json_name = record.name.to_mixed_case();
+        match record.value_opt {
             None => map.insert(json_name, json!(null)),
             Some(value) => map.insert(json_name, json!(value)),
         };
@@ -106,7 +106,7 @@ mod tests {
         chain_id_from_name, contract_creation_block_from_chain_id,
     };
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
-    use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+    use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::sub_lib::cryptde::PlainData;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::test_utils::environment_guard::ClapGuard;

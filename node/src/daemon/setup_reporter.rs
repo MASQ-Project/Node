@@ -9,7 +9,7 @@ use crate::node_configurator::node_configurator_standard::standard::{
 use crate::node_configurator::{
     app_head, data_directory_from_context, determine_config_file_path, DirsWrapper, RealDirsWrapper,
 };
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
@@ -537,7 +537,7 @@ impl ValueRetriever for ClandestinePort {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         persistent_config_opt
             .as_ref()
-            .map(|pc| (pc.clandestine_port().to_string(), Default))
+            .map(|pc| (pc.clandestine_port().expect ("Test-drive me!").to_string(), Default))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -861,7 +861,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
     use crate::node_test_utils::MockDirsWrapper;
-    use crate::persistent_configuration::{
+    use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::sub_lib::cryptde::PublicKey;
@@ -911,15 +911,15 @@ mod tests {
         let conn = db_initializer
             .initialize(&home_dir, chain_id_from_name(DEFAULT_CHAIN_NAME), true)
             .unwrap();
-        let config = PersistentConfigurationReal::from(conn);
-        config.set_password("password");
-        config.set_clandestine_port(1234);
+        let mut config = PersistentConfigurationReal::from(conn);
+        config.change_password(None, "password").unwrap();
+        config.set_clandestine_port(1234).unwrap();
         config
             .set_mnemonic_seed(b"booga booga", "password")
             .unwrap();
-        config.set_consuming_wallet_derivation_path("m/44'/60'/1'/2/3", "password");
-        config.set_earning_wallet_address("0x0000000000000000000000000000000000000000");
-        config.set_gas_price(1234567890);
+        config.set_consuming_wallet_derivation_path("m/44'/60'/1'/2/3", "password").unwrap();
+        config.set_earning_wallet_address("0x0000000000000000000000000000000000000000").unwrap();
+        config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"ABCD"),
             mainnet: true,

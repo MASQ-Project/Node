@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::config_dao_old::{ConfigDaoError, ConfigDaoOld};
+use crate::db_config::config_dao::{ConfigDaoError, ConfigDao};
 use crate::sub_lib::cryptde::PlainData;
 use rusqlite::Transaction;
 use std::cell::RefCell;
@@ -25,7 +25,7 @@ pub struct ConfigDaoMock {
     clear_results: RefCell<Vec<Result<(), ConfigDaoError>>>,
 }
 
-impl ConfigDaoOld for ConfigDaoMock {
+impl ConfigDao for ConfigDaoMock {
     fn get_all(
         &self,
         _db_password: Option<&str>,

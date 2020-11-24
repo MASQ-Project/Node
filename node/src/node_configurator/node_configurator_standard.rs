@@ -9,6 +9,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::shared_schema::{shared_app, ui_port_arg};
 use masq_lib::shared_schema::{ConfiguratorError, UI_PORT_HELP};
+use crate::db_config::persistent_configuration::PersistentConfigError;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -135,6 +136,12 @@ const HELP_TEXT: &str = indoc!(
         3. Create the port forwarding entries in the router."
 );
 
+impl From<PersistentConfigError> for ConfiguratorError {
+    fn from(input: PersistentConfigError) -> Self {
+        unimplemented!()
+    }
+}
+
 pub fn app() -> App<'static, 'static> {
     shared_app(app_head().after_help(HELP_TEXT)).arg(ui_port_arg(&UI_PORT_HELP))
 }
@@ -155,7 +162,7 @@ pub mod standard {
         data_directory_from_context, determine_config_file_path, mnemonic_seed_exists,
         real_user_data_directory_opt_and_chain_name, request_existing_db_password, DirsWrapper,
     };
-    use crate::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+    use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -299,7 +306,7 @@ pub mod standard {
             value_m!(multi_config, "gas-price", u64).expect("Value disappeared")
         } else {
             match persistent_config_opt {
-                Some(persistent_config) => persistent_config.gas_price(),
+                Some(persistent_config) => persistent_config.gas_price()?,
                 None => 1,
             }
         };
@@ -327,21 +334,21 @@ pub mod standard {
 
     pub fn configure_database(
         config: &BootstrapperConfig,
-        persistent_config: &dyn PersistentConfiguration,
-    ) {
+        persistent_config: &mut dyn PersistentConfiguration,
+    ) -> Result<(), PersistentConfigError> {
         if let Some(port) = config.clandestine_port_opt {
-            persistent_config.set_clandestine_port(port)
+            persistent_config.set_clandestine_port(port)?
         }
-        if persistent_config.earning_wallet_address().is_none() {
-            persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string());
+        if persistent_config.earning_wallet_address()?.is_none() {
+            persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string())?;
         }
-        persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price);
+        persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price)?;
         match &config.consuming_wallet {
             Some(consuming_wallet)
                 if persistent_config
-                    .consuming_wallet_derivation_path()
+                    .consuming_wallet_derivation_path()?
                     .is_none()
-                    && persistent_config.consuming_wallet_public_key().is_none() =>
+                    && persistent_config.consuming_wallet_public_key()?.is_none() =>
             {
                 let keypair: Bip32ECKeyPair = match consuming_wallet.clone().try_into() {
                     Err(e) => panic!(
@@ -351,10 +358,11 @@ pub mod standard {
                     Ok(keypair) => keypair,
                 };
                 let public_key = PlainData::new(keypair.secret().public().bytes());
-                persistent_config.set_consuming_wallet_public_key(&public_key)
+                persistent_config.set_consuming_wallet_public_key(&public_key)?
             }
             _ => (),
-        }
+        };
+        Ok(())
     }
 
     pub fn get_wallets(
@@ -387,6 +395,7 @@ pub mod standard {
                     )?;
                 } else if persistent_config
                     .consuming_wallet_derivation_path()
+                    .expect ("Test-drive me!")
                     .is_some()
                 {
                     return Err(ConfiguratorError::required("consuming-private-key", "Cannot use when database contains mnemonic seed and consuming wallet derivation path"));
@@ -591,7 +600,10 @@ pub mod standard {
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<Option<Wallet>, ConfiguratorError> {
         let earning_wallet_from_command_line_opt = value_m!(multi_config, "earning-wallet", String);
-        let earning_wallet_from_database_opt = persistent_config.earning_wallet_from_address();
+        let earning_wallet_from_database_opt = match persistent_config.earning_wallet_from_address() {
+            Ok (ewfdo) => ewfdo,
+            Err(e) => unimplemented!("Test-drive me: {:?}", e),
+        };
         match (
             earning_wallet_from_command_line_opt,
             earning_wallet_from_database_opt,
@@ -620,8 +632,8 @@ pub mod standard {
         db_password: &str,
     ) -> Result<Option<Wallet>, ConfiguratorError> {
         match persistent_config.consuming_wallet_derivation_path() {
-            None => Ok(None),
-            Some(derivation_path) => match persistent_config.mnemonic_seed(db_password) {
+            Ok (None) => Ok(None),
+            Ok (Some(derivation_path)) => match persistent_config.mnemonic_seed(db_password) {
                 Ok(None) => Ok(None),
                 Ok(Some(mnemonic_seed)) => {
                     let keypair =
@@ -642,6 +654,7 @@ pub mod standard {
                     e => panic!("{:?}", e),
                 },
             },
+            Err(e) => unimplemented!("Test-drive me: {:?}", e),
         }
     }
 
@@ -655,14 +668,15 @@ pub mod standard {
                     Ok(raw_secret) => match Bip32ECKeyPair::from_raw_secret(&raw_secret[..]) {
                         Ok(keypair) => {
                             match persistent_config.consuming_wallet_public_key() {
-                                None => (),
-                                Some(established_public_key_hex) => {
+                                Ok(None) => (),
+                                Ok(Some(established_public_key_hex)) => {
                                     let proposed_public_key_hex =
                                         keypair.secret().public().bytes().to_hex::<String>();
                                     if proposed_public_key_hex != established_public_key_hex {
                                         return Err(ConfiguratorError::required("consuming-private-key", "Not the private key of the consuming wallet you have used in the past"));
                                     }
-                                }
+                                },
+                                Err(e) => unimplemented!("Test-drive me: {:?}", e),
                             }
                             Ok(Some(Wallet::from(keypair)))
                         }
@@ -709,7 +723,7 @@ pub mod standard {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::persistent_configuration::PersistentConfigError;
+        use crate::db_config::persistent_configuration::PersistentConfigError;
         use crate::sub_lib::utils::make_new_test_multi_config;
         use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
         use crate::test_utils::ArgsBuilder;
@@ -942,10 +956,10 @@ mod tests {
         chain_id_from_name, chain_name_from_id, contract_address,
     };
     use crate::bootstrapper::RealUser;
-    use crate::config_dao_old::{ConfigDaoOld, ConfigDaoReal};
+    use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::node_configurator::RealDirsWrapper;
-    use crate::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal};
+    use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal};
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1561,7 +1575,7 @@ mod tests {
             "node_configurator",
             "unprivileged_parse_args_creates_configurations",
         );
-        let config_dao: Box<dyn ConfigDaoOld> = Box::new(ConfigDaoReal::new(
+        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true)
                 .unwrap(),

@@ -12,7 +12,7 @@ use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainError, Transaction};
 use crate::bootstrapper::BootstrapperConfig;
-use crate::persistent_configuration::PersistentConfiguration;
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::accountant::AccountantConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
@@ -218,12 +218,12 @@ impl Handler<NodeFromUiMessage> for Accountant {
 }
 
 impl Accountant {
-    pub fn new(
+    pub fn new<'a>(
         config: &BootstrapperConfig,
         payable_dao: Box<dyn PayableDao>,
         receivable_dao: Box<dyn ReceivableDao>,
         banned_dao: Box<dyn BannedDao>,
-        persistent_configuration: Box<dyn PersistentConfiguration>,
+        persisten_configuration: Box<dyn PersistentConfiguration<'a>>,
     ) -> Accountant {
         Accountant {
             config: config.accountant_config.clone(),
@@ -349,7 +349,9 @@ impl Accountant {
             "Scanning for payments to {}", self.earning_wallet
         );
         let future_report_new_payments_sub = self.report_new_payments_sub.clone();
-        let start_block = self.persistent_configuration.start_block();
+        let start_block = self.persistent_configuration.start_block()
+            .expect ("Test-drive me!")
+            .expect ("Test-drive me!");
         let future = self
             .retrieve_transactions_sub
             .as_ref()

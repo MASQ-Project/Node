@@ -4,7 +4,7 @@ use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
-use crate::config_dao_old::ConfigDaoReal;
+use crate::db_config::config_dao::ConfigDaoReal;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::discriminator::DiscriminatorFactory;
@@ -16,7 +16,7 @@ use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
 use crate::node_configurator::{DirsWrapper, NodeConfigurator};
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
@@ -523,11 +523,12 @@ impl Bootstrapper {
                 )
                 .expect("Cannot initialize database");
             let config_dao = ConfigDaoReal::new(conn);
-            let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
+            let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
             if let Some(clandestine_port) = self.config.clandestine_port_opt {
-                persistent_config.set_clandestine_port(clandestine_port)
+                persistent_config.set_clandestine_port(clandestine_port).expect ("Test-drive me!")
             }
-            let clandestine_port = persistent_config.clandestine_port();
+            let clandestine_port = persistent_config.clandestine_port()
+                .expect("Test-drive me!").expect ("Test-drive me!");
             let mut listener_handler = self.listener_handler_factory.make();
             listener_handler
                 .bind_port_and_configuration(
@@ -558,14 +559,14 @@ mod tests {
     use super::*;
     use crate::actor_system_factory::ActorFactory;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::config_dao_old::ConfigDaoReal;
+    use crate::db_config::config_dao::ConfigDaoReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, IdWrapperMock, MockDirsWrapper};
-    use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+    use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
@@ -1542,7 +1543,7 @@ For more information try --help".to_string()
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        assert_eq!(1234u16, persistent_config.clandestine_port());
+        assert_eq!(1234u16, persistent_config.clandestine_port().unwrap().unwrap());
         assert_eq!(
             subject
                 .config
@@ -1611,7 +1612,7 @@ For more information try --help".to_string()
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        let clandestine_port = persistent_config.clandestine_port();
+        let clandestine_port = persistent_config.clandestine_port().unwrap().unwrap();
         assert_eq!(
             subject
                 .config

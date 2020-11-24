@@ -19,9 +19,9 @@ use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
-use crate::config_dao_old::ConfigDaoReal;
+use crate::db_config::config_dao::ConfigDaoReal;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::persistent_configuration::PersistentConfigurationReal;
+use crate::db_config::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::cryptde::CryptDE;
@@ -357,6 +357,8 @@ impl ActorFactory for ActorFactoryReal {
             banned_dao,
             persistent_configuration,
         );
+        // TODO Figure out how not to send the PersistentConfiguration across threads here. Making it Send
+        // causes problems we'd rather not deal with.
         let addr: Addr<Accountant> = Arbiter::start(|_| accountant);
         Accountant::make_subs_from(&addr)
     }

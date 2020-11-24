@@ -10,7 +10,7 @@ use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::persistent_configuration::{
+use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::cryptde::PlainData;
@@ -37,6 +37,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
+use crate::db_config::config_dao::ConfigDaoRecord;
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -169,26 +170,26 @@ pub fn determine_config_file_path(
 
 pub fn create_wallet(
     config: &WalletCreationConfig,
-    persistent_config: &dyn PersistentConfiguration,
-) {
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
     if let Some(address) = &config.earning_wallet_address_opt {
-        persistent_config.set_earning_wallet_address(address)
+        persistent_config.set_earning_wallet_address(address)?
     }
     if let Some(derivation_path_info) = &config.derivation_path_info_opt {
         persistent_config
             .set_mnemonic_seed(
                 &derivation_path_info.mnemonic_seed,
                 &derivation_path_info.db_password,
-            )
-            .expect("Failed to set mnemonic seed");
+            )?;
         if let Some(consuming_derivation_path) = &derivation_path_info.consuming_derivation_path_opt
         {
             persistent_config.set_consuming_wallet_derivation_path(
                 consuming_derivation_path,
                 &derivation_path_info.db_password,
-            )
+            )?
         }
     }
+    Ok(())
 }
 
 pub fn initialize_database(
@@ -209,12 +210,13 @@ pub fn initialize_database(
 
 pub fn update_db_password(
     wallet_config: &WalletCreationConfig,
-    persistent_config: &dyn PersistentConfiguration,
-) {
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
     match &wallet_config.derivation_path_info_opt {
-        Some(dpwi) => persistent_config.set_password(&dpwi.db_password),
+        Some(dpwi) => persistent_config.change_password(None, &dpwi.db_password)?,
         None => (),
-    }
+    };
+    Ok(())
 }
 
 pub fn real_user_data_directory_opt_and_chain_name(
@@ -331,7 +333,7 @@ pub fn request_existing_db_password(
     prompt: &str,
     persistent_config: &dyn PersistentConfiguration,
 ) -> Option<String> {
-    if persistent_config.check_password("bad password") == None {
+    if persistent_config.check_password(None) == Ok(true) {
         return None;
     }
     if let Some(preamble) = possible_preamble {
@@ -341,10 +343,10 @@ pub fn request_existing_db_password(
         if password.is_empty() {
             return Err("Password must not be blank.".to_string());
         }
-        match persistent_config.check_password(password) {
-            None => panic!("Database password disappeared"),
-            Some(true) => Ok(()),
-            Some(false) => Err("Incorrect password.".to_string()),
+        match persistent_config.check_password(Some (password)) {
+            Ok (true) => Ok(()),
+            Ok (false) => Err("Incorrect password.".to_string()),
+            Err(e) => unimplemented!("Test-drive me: {:?}", e),
         }
     };
     match request_password_with_retry(prompt, streams, |streams| {

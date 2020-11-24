@@ -4,7 +4,7 @@ use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::to_time_t;
-use crate::persistent_configuration::PersistentConfiguration;
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
@@ -334,13 +334,13 @@ impl ReceivableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::make_receivable_account;
-    use crate::config_dao_old::ConfigDaoReal;
+    use crate::db_config::config_dao::ConfigDaoReal;
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperOldMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
-    use crate::persistent_configuration::PersistentConfigurationReal;
+    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -503,7 +503,7 @@ mod tests {
         assert!(timestamp2 >= before);
         assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
 
-        let start_block = persistent_config.start_block();
+        let start_block = persistent_config.start_block().unwrap().unwrap();
         assert_eq!(57u64, start_block);
     }
 
