@@ -25,7 +25,7 @@ pub trait ReceivableDao: Send {
 
     fn more_money_received(
         &mut self,
-        persistent_configuration: &mut dyn PersistentConfiguration, //TODO: review with Dan; added mutability...
+        persistent_configuration: &dyn PersistentConfiguration,
         transactions: Vec<Transaction>,
     );
 
@@ -70,7 +70,7 @@ impl ReceivableDao for ReceivableDaoReal {
 
     fn more_money_received(
         &mut self,
-        persistent_configuration: &mut dyn PersistentConfiguration,
+        mut persistent_configuration: &dyn PersistentConfiguration,
         payments: Vec<Transaction>,
     ) {
         self.try_multi_insert_payment(persistent_configuration, payments)
@@ -283,9 +283,9 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
-        persistent_configuration: &mut dyn PersistentConfiguration,
+        mut persistent_configuration: &dyn PersistentConfiguration,
         payments: Vec<Transaction>,
-    ) -> Result<(), unimplemented!()> {
+    ) -> Result<(), ReceivableDaoError> {   //custom error type doesn't exist yet here
         let tx = match self.conn.transaction() {
             Ok(t) => t,
             Err(e) => return unimplemented!(), //()Err(e.to_string()),
