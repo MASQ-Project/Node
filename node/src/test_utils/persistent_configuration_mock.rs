@@ -61,7 +61,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         self.check_password_results.borrow_mut().remove(0)
     }
 
-    fn change_password(&self, old_password_opt: Option<&str>, db_password: &str) {
+    fn change_password(&mut self, old_password_opt: Option<&str>, db_password: &str) {
         self.change_password_params
             .lock()
             .unwrap()
@@ -72,7 +72,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         Self::result_from(&self.clandestine_port_results)
     }
 
-    fn set_clandestine_port(&self, port: u16) {
+    fn set_clandestine_port(&mut self, port: u16) {
         self.set_clandestine_port_params.lock().unwrap().push(port);
     }
 
@@ -80,7 +80,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         Self::result_from(&self.gas_price_results)
     }
 
-    fn set_gas_price(&self, gas_price: u64) {
+    fn set_gas_price(&mut self, gas_price: u64) {
         self.set_gas_price_params.lock().unwrap().push(gas_price);
     }
 
@@ -93,7 +93,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
     }
 
     fn set_mnemonic_seed(
-        &self,
+        &mut self,
         seed: &dyn AsRef<[u8]>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
@@ -112,14 +112,14 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         Self::result_from(&self.consuming_wallet_derivation_path_results)
     }
 
-    fn set_consuming_wallet_derivation_path(&self, derivation_path: &str, db_password: &str) {
+    fn set_consuming_wallet_derivation_path(&mut self, derivation_path: &str, db_password: &str) {
         self.set_consuming_wallet_derivation_path_params
             .lock()
             .unwrap()
             .push((derivation_path.to_string(), db_password.to_string()));
     }
 
-    fn set_consuming_wallet_public_key(&self, public_key: &PlainData) {
+    fn set_consuming_wallet_public_key(&mut self, public_key: &PlainData) {
         self.set_consuming_wallet_public_key_params
             .lock()
             .unwrap()
@@ -134,7 +134,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         Self::result_from(&self.earning_wallet_address_results)
     }
 
-    fn set_earning_wallet_address(&self, address: &str) {
+    fn set_earning_wallet_address(&mut self, address: &str) {
         self.set_earning_wallet_address_params
             .lock()
             .unwrap()
@@ -172,7 +172,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
     }
 
     fn set_start_block(
-        &self,
+        &mut self,
         value: u64,
     ) -> Result<(), PersistentConfigError> {
         self.set_start_block_params.lock().unwrap().push(value);
