@@ -223,7 +223,7 @@ impl Accountant {
         payable_dao: Box<dyn PayableDao>,
         receivable_dao: Box<dyn ReceivableDao>,
         banned_dao: Box<dyn BannedDao>,
-        persistent_configuration: Box<dyn PersistentConfiguration<'a>>,
+        persistent_configuration: Box<dyn PersistentConfiguration>,
     ) -> Accountant {
         Accountant {
             config: config.accountant_config.clone(),

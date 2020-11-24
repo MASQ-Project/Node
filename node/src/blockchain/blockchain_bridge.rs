@@ -112,7 +112,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
                                     panic!("Lost payable amount precision: {}", payable.balance)
                                 }),
                                 nonce,
-                                self.persistent_config.gas_price(),
+                                self.persistent_config.gas_price().unwrap().unwrap(),
                             ) {
                                 Ok(hash) => Ok(Payment::new(
                                     payable.wallet.clone(),
@@ -399,7 +399,7 @@ mod tests {
             .clone();
         let expected_gas_price = 5u64;
         let persistent_configuration_mock =
-            PersistentConfigurationMock::default().gas_price_result(expected_gas_price);
+            PersistentConfigurationMock::default().gas_price_result(Ok(Some(expected_gas_price)));
 
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
@@ -527,7 +527,7 @@ mod tests {
         let consuming_wallet = make_wallet("somewallet");
 
         let persistent_configuration_mock =
-            PersistentConfigurationMock::new().gas_price_result(3u64);
+            PersistentConfigurationMock::new().gas_price_result(Ok(Some(3u64)));
         let subject = BlockchainBridge::new(
             &bc_from_wallet(Some(consuming_wallet.clone())),
             Box::new(blockchain_interface_mock),

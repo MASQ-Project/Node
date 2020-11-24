@@ -652,7 +652,7 @@ impl Neighborhood {
                     .as_ref()
                     .expect("PersistentConfig was not set by StartMessage")
                     .set_past_neighbors(node_descriptors_opt, db_password)
-                    .expect ("Test-drive me!")
+                 // .expect ("Test-drive me!")   TODO: review with Dan -- possibly a redundant line
                 {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
                     Err(e) => error!(

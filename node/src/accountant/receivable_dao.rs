@@ -4,7 +4,7 @@ use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::to_time_t;
-use crate::db_config::persistent_configuration::PersistentConfiguration;
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigError};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
@@ -25,7 +25,7 @@ pub trait ReceivableDao: Send {
 
     fn more_money_received(
         &mut self,
-        persistent_configuration: &dyn PersistentConfiguration,
+        persistent_configuration: &mut dyn PersistentConfiguration, //TODO: review with Dan; added mutability...
         transactions: Vec<Transaction>,
     );
 
@@ -70,7 +70,7 @@ impl ReceivableDao for ReceivableDaoReal {
 
     fn more_money_received(
         &mut self,
-        persistent_configuration: &dyn PersistentConfiguration,
+        persistent_configuration: &mut dyn PersistentConfiguration,
         payments: Vec<Transaction>,
     ) {
         self.try_multi_insert_payment(persistent_configuration, payments)
@@ -283,12 +283,12 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
-        persistent_configuration: &dyn PersistentConfiguration,
+        persistent_configuration: &mut dyn PersistentConfiguration,
         payments: Vec<Transaction>,
-    ) -> Result<(), String> {
+    ) -> Result<(), unimplemented!()> {
         let tx = match self.conn.transaction() {
             Ok(t) => t,
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return unimplemented!(), //()Err(e.to_string()),
         };
 
         let block_number = payments
@@ -297,7 +297,7 @@ impl ReceivableDaoReal {
             .max()
             .ok_or("no payments given")?;
 
-        persistent_configuration.set_start_block_transactionally(&tx, block_number)?;
+        persistent_configuration.set_start_block(block_number)?;
 
         {
             let mut stmt = tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?").expect("Internal error");
@@ -305,7 +305,7 @@ impl ReceivableDaoReal {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
                     Ok(amount) => amount,
-                    Err(e) => return Err(format!("Amount too large: {:?}", e)),
+                    Err(e) => return unimplemented!(), //Err(format!("Amount too large: {:?}", e)),
                 };
                 let params: &[&dyn ToSql] = &[&gwei_amount, &timestamp, &transaction.from];
                 stmt.execute(params).map_err(|e| e.to_string())?;
@@ -340,7 +340,7 @@ mod tests {
     use crate::database::db_initializer::test_utils::ConnectionWrapperOldMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
-    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::db_config::persistent_configuration::{PersistentConfigurationReal, PersistentConfigError};
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -601,7 +601,7 @@ mod tests {
         );
 
         let persistent_configuration_mock = PersistentConfigurationMock::new()
-            .set_start_block_transactionally_result(Err("BOOM".to_string()));
+            .set_start_block_result(Err(PersistentConfigError::DatabaseError("Start block couldn't be updated".to_string())));
 
         let payments = vec![Transaction {
             from: make_wallet("foobar"),
