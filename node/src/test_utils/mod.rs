@@ -201,12 +201,12 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 
 pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
     PersistentConfigurationMock::new()
-        .earning_wallet_from_address_result(None)
-        .consuming_wallet_derivation_path_result(None)
-        .consuming_wallet_public_key_result(None)
+        .earning_wallet_from_address_result(Ok(None))
+        .consuming_wallet_derivation_path_result(Ok(None))
+        .consuming_wallet_public_key_result(Ok(None))
         .mnemonic_seed_result(Ok(None))
         .past_neighbors_result(Ok(None))
-        .gas_price_result(1)
+        .gas_price_result(Ok(Some (1)))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {

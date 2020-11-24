@@ -1665,7 +1665,7 @@ mod tests {
         };
         let set_password_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config =
-            PersistentConfigurationMock::new().set_password_params(&set_password_params_arc);
+            PersistentConfigurationMock::new().change_password_params(&set_password_params_arc);
 
         update_db_password(&wallet_config, &persistent_config);
 
@@ -1686,7 +1686,7 @@ mod tests {
         };
         let set_password_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config =
-            PersistentConfigurationMock::new().set_password_params(&set_password_params_arc);
+            PersistentConfigurationMock::new().change_password_params(&set_password_params_arc);
 
         update_db_password(&wallet_config, &persistent_config);
 

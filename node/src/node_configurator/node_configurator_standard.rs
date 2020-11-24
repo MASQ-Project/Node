@@ -1668,7 +1668,7 @@ mod tests {
             &multi_config,
             &mut config,
             &mut FakeStreamHolder::new().streams(),
-            Some(&make_default_persistent_configuration().check_password_result(Some(false))),
+            Some(&make_default_persistent_configuration().check_password_result(Ok(false))),
         )
         .unwrap();
 
@@ -1835,9 +1835,7 @@ mod tests {
                     Bip32ECKeyPair::from_raw_secret(&consuming_wallet_private_key).unwrap();
                 let consuming_wallet_public_key = keypair.secret().public();
                 let consuming_wallet_public_key_bytes = consuming_wallet_public_key.bytes();
-                let consuming_wallet_public_key_hex =
-                    consuming_wallet_public_key_bytes.to_hex::<String>();
-                Some(consuming_wallet_public_key_hex)
+                Some (PlainData::from (consuming_wallet_public_key_bytes))
             }
         };
         let consuming_wallet_derivation_path_opt =
@@ -1861,10 +1859,10 @@ mod tests {
         };
         PersistentConfigurationMock::new()
             .mnemonic_seed_result(mnemonic_seed_result)
-            .consuming_wallet_public_key_result(consuming_wallet_public_key_opt)
-            .consuming_wallet_derivation_path_result(consuming_wallet_derivation_path_opt)
-            .earning_wallet_from_address_result(earning_wallet_from_address_opt)
-            .gas_price_result(gas_price)
+            .consuming_wallet_public_key_result(Ok(consuming_wallet_public_key_opt))
+            .consuming_wallet_derivation_path_result(Ok(consuming_wallet_derivation_path_opt))
+            .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))
+            .gas_price_result(Ok(Some(gas_price)))
             .past_neighbors_result(past_neighbors_result)
     }
 
@@ -1918,7 +1916,7 @@ mod tests {
             None,
             None,
         )
-        .check_password_result(Some(false));
+        .check_password_result(Ok(false));
         let mut config = BootstrapperConfig::new();
 
         let result = standard::get_wallets(
@@ -2126,7 +2124,7 @@ mod tests {
             None,
             None,
         )
-        .check_password_result(Some(false));
+        .check_password_result(Ok(false));
         let mut config = BootstrapperConfig::new();
 
         standard::get_wallets(
@@ -2162,7 +2160,7 @@ mod tests {
             None,
             None,
         )
-        .check_password_result(Some(false));
+        .check_password_result(Ok(false));
         let mut config = BootstrapperConfig::new();
 
         standard::get_wallets(
@@ -2194,8 +2192,8 @@ mod tests {
             None,
             None,
         )
-        .check_password_result(Some(false))
-        .check_password_result(Some(true));
+        .check_password_result(Ok(false))
+        .check_password_result(Ok(true));
         let mut config = BootstrapperConfig::new();
         let mut stdout_writer = ByteArrayWriter::new();
         let mut streams = &mut StdStreams {
@@ -2310,7 +2308,8 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         let mut config = BootstrapperConfig::new();
         let persistent_config =
-            make_default_persistent_configuration().check_password_result(Some(false));
+            make_default_persistent_configuration()
+                .check_password_result(Ok(false));
         config.db_password_opt = Some("password".to_string());
 
         let result = standard::get_db_password(
@@ -2329,7 +2328,8 @@ mod tests {
         let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
         let mut holder = FakeStreamHolder::new();
         let mut config = BootstrapperConfig::new();
-        let persistent_config = make_default_persistent_configuration().check_password_result(None);
+        let persistent_config = make_default_persistent_configuration()
+            .check_password_result(Ok(true));
 
         let result = standard::get_db_password(
             &multi_config,
@@ -2590,16 +2590,16 @@ mod tests {
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
         let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_address_result(None)
-            .consuming_wallet_public_key_result(None)
-            .consuming_wallet_derivation_path_result(None)
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(Ok (None))
+            .consuming_wallet_public_key_result(Ok (None))
+            .consuming_wallet_derivation_path_result(Ok (None))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
             .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc)
             .set_gas_price_params(&set_gas_price_params_arc);
 
-        standard::configure_database(&config, &persistent_config);
+        standard::configure_database(&config, &mut persistent_config);
 
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
@@ -2630,20 +2630,20 @@ mod tests {
             PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
         let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
         let consuming_public_key = keypair.secret().public();
-        let consuming_public_key_text = consuming_public_key.bytes().to_hex::<String>();
+        let consuming_public_key_data = PlainData::from (consuming_public_key.bytes());
         config.consuming_wallet = Some(Wallet::from(keypair));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_address_result(Some(earning_address.to_string()))
-            .consuming_wallet_public_key_result(Some(consuming_public_key_text))
-            .consuming_wallet_derivation_path_result(None)
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(Ok (Some(earning_address.to_string())))
+            .consuming_wallet_public_key_result(Ok(Some(consuming_public_key_data)))
+            .consuming_wallet_derivation_path_result(Ok(None))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
             .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc);
 
-        standard::configure_database(&config, &persistent_config);
+        standard::configure_database(&config, &mut persistent_config);
 
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
@@ -2664,14 +2664,14 @@ mod tests {
             Some(Wallet::from_str("0x0123456789ABCDEF0123456789ABCDEF01234567").unwrap());
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_address_result(None)
-            .consuming_wallet_public_key_result(None)
-            .consuming_wallet_derivation_path_result(None)
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(Ok(None))
+            .consuming_wallet_public_key_result(Ok(None))
+            .consuming_wallet_derivation_path_result(Ok (None))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc);
 
-        standard::configure_database(&config, &persistent_config);
+        standard::configure_database(&config, &mut persistent_config);
     }
 
     #[test]
@@ -2684,15 +2684,15 @@ mod tests {
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_public_key_params_arc = Arc::new(Mutex::new(vec![]));
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_address_result(None)
-            .consuming_wallet_public_key_result(None)
-            .consuming_wallet_derivation_path_result(None)
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(Ok(None))
+            .consuming_wallet_public_key_result(Ok(None))
+            .consuming_wallet_derivation_path_result(Ok(None))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc)
             .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc);
 
-        standard::configure_database(&config, &persistent_config);
+        standard::configure_database(&config, &mut persistent_config);
 
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
