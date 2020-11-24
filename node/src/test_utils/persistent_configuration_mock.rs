@@ -43,16 +43,9 @@ pub struct PersistentConfigurationMock {
     set_past_neighbors_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
 }
 
-impl PersistentConfiguration for PersistentConfigurationMock {
+impl PersistentConfiguration<'_> for PersistentConfigurationMock {
     fn current_schema_version(&self) -> String {
         Self::result_from(&self.current_schema_version_results)
-    }
-
-    fn change_password(&self, old_password_opt: Option<&str>, db_password: &str) {
-        self.change_password_params
-            .lock()
-            .unwrap()
-            .push((old_password_opt.map (|p| p.to_string()), db_password.to_string()));
     }
 
     fn check_password(&self, db_password: &str) -> Option<bool> {
@@ -61,6 +54,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .unwrap()
             .push(db_password.to_string());
         self.check_password_results.borrow_mut().remove(0)
+    }
+
+    fn change_password(&self, old_password_opt: Option<&str>, db_password: &str) {
+        self.change_password_params
+            .lock()
+            .unwrap()
+            .push((old_password_opt.map (|p| p.to_string()), db_password.to_string()));
     }
 
     fn clandestine_port(&self) -> u16 {
@@ -372,7 +372,7 @@ impl PersistentConfigurationMock {
     }
 
     pub fn start_block_result(self, start_block: u64) -> Self {
-        self.start_block_results.borrow_mut().push(start_block);
+        self.start_block_results.borrow_mut().push(Ok(start_block));
         self
     }
 

@@ -93,7 +93,7 @@ pub struct Accountant {
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     banned_dao: Box<dyn BannedDao>,
-    persistent_configuration: Box<dyn PersistentConfiguration>,
+    persistent_configuration: Box<dyn PersistentConfiguration<'static>>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
@@ -223,7 +223,7 @@ impl Accountant {
         payable_dao: Box<dyn PayableDao>,
         receivable_dao: Box<dyn ReceivableDao>,
         banned_dao: Box<dyn BannedDao>,
-        persisten_configuration: Box<dyn PersistentConfiguration<'a>>,
+        persistent_configuration: Box<dyn PersistentConfiguration<'a>>,
     ) -> Accountant {
         Accountant {
             config: config.accountant_config.clone(),
@@ -2896,7 +2896,7 @@ pub mod tests {
         bc
     }
 
-    fn null_config() -> Box<dyn PersistentConfiguration> {
+    fn null_config<'a>() -> Box<dyn PersistentConfiguration<'a>> {
         Box::new(PersistentConfigurationMock::new().start_block_result(0))
     }
 }

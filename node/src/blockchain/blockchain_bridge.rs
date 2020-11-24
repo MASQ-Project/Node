@@ -29,7 +29,7 @@ pub struct BlockchainBridge {
     consuming_wallet: Option<Wallet>,
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
-    persistent_config: Box<dyn PersistentConfiguration>,
+    persistent_config: Box<dyn PersistentConfiguration<'static>>,
     set_consuming_wallet_subs: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     crashable: bool,
 }

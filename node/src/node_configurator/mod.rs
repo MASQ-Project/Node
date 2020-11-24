@@ -272,7 +272,7 @@ pub fn prepare_initialization_mode<'a>(
     app: &'a App,
     args: &[String],
     streams: &mut StdStreams,
-) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
+) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration<'a>>), ConfiguratorError> {
     let multi_config = make_new_multi_config(
         &app,
         vec![

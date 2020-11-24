@@ -392,7 +392,7 @@ impl SetupReporterReal {
         data_directory: &PathBuf,
         chain_id: u8,
     ) -> (
-        (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
+        (BootstrapperConfig, Option<Box<dyn PersistentConfiguration<'static>>>),
         Option<ConfiguratorError>,
     ) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
