@@ -60,7 +60,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         self.check_password_results.borrow_mut().remove(0)
     }
 
-    fn change_password(&mut self, old_password_opt: Option<&str>, db_password: &str) -> Result<(), PersistentConfigError> {
+    fn change_password(&mut self, old_password_opt: Option<&str>, db_password: &str)-> Result<(), PersistentConfigError> {
         self.change_password_params
             .lock()
             .unwrap()
@@ -72,7 +72,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         Self::result_from(&self.clandestine_port_results)
     }
 
-    fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
+    fn set_clandestine_port(&mut self, port: u16)-> Result<(), PersistentConfigError> {
         self.set_clandestine_port_params.lock().unwrap().push(port);
         self.set_clandestine_port_results.borrow_mut().remove(0)
     }
@@ -81,7 +81,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         Self::result_from(&self.gas_price_results)
     }
 
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
+    fn set_gas_price(&mut self, gas_price: u64)-> Result<(), PersistentConfigError> {
         self.set_gas_price_params.lock().unwrap().push(gas_price);
         self.set_gas_price_results.borrow_mut().remove(0)
     }
@@ -114,7 +114,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         Self::result_from(&self.consuming_wallet_derivation_path_results)
     }
 
-    fn set_consuming_wallet_derivation_path(&mut self, derivation_path: &str, db_password: &str) -> Result<(), PersistentConfigError> {
+    fn set_consuming_wallet_derivation_path(&mut self, derivation_path: &str, db_password: &str)-> Result<(), PersistentConfigError> {
         self.set_consuming_wallet_derivation_path_params
             .lock()
             .unwrap()
@@ -138,7 +138,7 @@ impl PersistentConfiguration<'_> for PersistentConfigurationMock {
         Self::result_from(&self.earning_wallet_address_results)
     }
 
-    fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError>{
+    fn set_earning_wallet_address(&mut self, address: &str)-> Result<(), PersistentConfigError>{
         self.set_earning_wallet_address_params
             .lock()
             .unwrap()
