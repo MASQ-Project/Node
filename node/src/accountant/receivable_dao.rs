@@ -13,6 +13,23 @@ use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
 use std::time::SystemTime;
 
+#[derive (Debug, PartialEq)]
+pub enum ReceivableDaoError {
+
+}
+
+impl From<PersistentConfigError> for ReceivableDaoError {
+    fn from(input: PersistentConfigError) -> Self {
+        unimplemented!()
+    }
+}
+
+impl From<String> for ReceivableDaoError {
+    fn from(input: String) -> Self {
+        unimplemented!()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceivableAccount {
     pub wallet: Wallet,
@@ -75,7 +92,7 @@ impl ReceivableDao for ReceivableDaoReal {
     ) {
         self.try_multi_insert_payment(persistent_configuration, payments)
             .unwrap_or_else(|e| {
-                error!(self.logger, "Transaction failed, rolling back: {}", e);
+                error!(self.logger, "Transaction failed, rolling back: {:?}", e);
             })
     }
 
@@ -285,17 +302,17 @@ impl ReceivableDaoReal {
         &mut self,
         mut persistent_configuration: &dyn PersistentConfiguration,
         payments: Vec<Transaction>,
-    ) -> Result<(), ReceivableDaoError> {   //custom error type doesn't exist yet here
+    ) -> Result<(), ReceivableDaoError> {
         let tx = match self.conn.transaction() {
             Ok(t) => t,
-            Err(e) => return unimplemented!(), //()Err(e.to_string()),
+            Err(e) => unimplemented!(), //return Err(e.to_string()),
         };
 
         let block_number = payments
             .iter()
             .map(|t| t.block_number)
             .max()
-            .ok_or("no payments given")?;
+            .ok_or("no payments given".to_string())?;
 
         persistent_configuration.set_start_block(block_number)?;
 
@@ -305,7 +322,7 @@ impl ReceivableDaoReal {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
                     Ok(amount) => amount,
-                    Err(e) => return unimplemented!(), //Err(format!("Amount too large: {:?}", e)),
+                    Err(e) => unimplemented!(), //return Err(format!("Amount too large: {:?}", e)),
                 };
                 let params: &[&dyn ToSql] = &[&gwei_amount, &timestamp, &transaction.from];
                 stmt.execute(params).map_err(|e| e.to_string())?;

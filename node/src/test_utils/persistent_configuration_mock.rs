@@ -47,7 +47,7 @@ pub struct PersistentConfigurationMock {
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
 }
 
-impl PersistentConfiguration<'_> for PersistentConfigurationMock {
+impl PersistentConfiguration for PersistentConfigurationMock {
     fn current_schema_version(&self) -> String {
         Self::result_from(&self.current_schema_version_results)
     }

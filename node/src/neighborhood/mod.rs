@@ -86,7 +86,7 @@ pub struct Neighborhood {
     initial_neighbors: Vec<NodeDescriptor>,
     chain_id: u8,
     data_directory: PathBuf,
-    persistent_config_opt: Option<Box<dyn PersistentConfiguration<'static>>>,
+    persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
     db_password_opt: Option<String>,
     logger: Logger,
 }

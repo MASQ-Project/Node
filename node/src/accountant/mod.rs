@@ -93,7 +93,7 @@ pub struct Accountant {
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     banned_dao: Box<dyn BannedDao>,
-    persistent_configuration: Box<dyn PersistentConfiguration<'static>>,
+    persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
@@ -1523,7 +1523,7 @@ pub mod tests {
                     .new_delinquencies_result(vec![])
                     .paid_delinquencies_result(vec![]),
             );
-            let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(5));
+            let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(Ok(Some(5))));
             let banned_dao = Box::new(BannedDaoMock::new());
             let subject = Accountant::new(
                 &config,
@@ -1593,7 +1593,7 @@ pub mod tests {
                     .new_delinquencies_result(vec![])
                     .paid_delinquencies_result(vec![]),
             );
-            let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(5));
+            let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(Ok(Some(5))));
             let banned_dao = Box::new(BannedDaoMock::new());
             let subject = Accountant::new(
                 &config,
@@ -1658,7 +1658,7 @@ pub mod tests {
                     .new_delinquencies_result(vec![])
                     .paid_delinquencies_result(vec![]),
             );
-            let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(0));
+            let config_mock = Box::new(PersistentConfigurationMock::new().start_block_result(Ok(Some(0))));
             let banned_dao = Box::new(BannedDaoMock::new());
             let subject = Accountant::new(
                 &config,
@@ -2896,7 +2896,7 @@ pub mod tests {
         bc
     }
 
-    fn null_config<'a>() -> Box<dyn PersistentConfiguration<'a>> {
-        Box::new(PersistentConfigurationMock::new().start_block_result(0))
+    fn null_config() -> Box<dyn PersistentConfiguration> {
+        Box::new(PersistentConfigurationMock::new().start_block_result(Ok(Some(0))))
     }
 }

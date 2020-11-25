@@ -294,11 +294,11 @@ pub mod standard {
         Ok(())
     }
 
-    pub fn unprivileged_parse_args<'a>(
+    pub fn unprivileged_parse_args(
         multi_config: &MultiConfig,
         unprivileged_config: &mut BootstrapperConfig,
         streams: &mut StdStreams<'_>,
-        persistent_config_opt: Option<&dyn PersistentConfiguration<'a>>,
+        persistent_config_opt: Option<&dyn PersistentConfiguration>,
     ) -> Result<(), ConfiguratorError> {
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
         let user_specified = multi_config.arg_matches().occurrences_of("gas-price") > 0;
@@ -335,9 +335,9 @@ pub mod standard {
         }
     }
 
-    pub fn configure_database<'a>(
+    pub fn configure_database(
         config: &BootstrapperConfig,
-        persistent_config: &'a mut (dyn PersistentConfiguration<'a> + 'a),
+        persistent_config: &mut (dyn PersistentConfiguration),
     ) -> Result<(), PersistentConfigError> {
         if let Some(port) = config.clandestine_port_opt {
             persistent_config.set_clandestine_port(port)?

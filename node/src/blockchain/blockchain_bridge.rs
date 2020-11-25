@@ -29,7 +29,7 @@ pub struct BlockchainBridge {
     consuming_wallet: Option<Wallet>,
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
-    persistent_config: Box<dyn PersistentConfiguration<'static>>,
+    persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     crashable: bool,
 }
@@ -144,10 +144,10 @@ impl Handler<NodeFromUiMessage> for BlockchainBridge {
 }
 
 impl BlockchainBridge {
-    pub fn new<'a>(
+    pub fn new(
         config: &BootstrapperConfig,
         blockchain_interface: Box<dyn BlockchainInterface>,
-        persistent_config: Box<dyn PersistentConfiguration<'a>>,
+        persistent_config: Box<dyn PersistentConfiguration>,
     ) -> BlockchainBridge {
         BlockchainBridge {
             consuming_wallet: config.consuming_wallet.clone(),

@@ -167,9 +167,9 @@ pub fn determine_config_file_path(
     Ok((directory.join(config_file_path), user_specified))
 }
 
-pub fn create_wallet<'a>(
+pub fn create_wallet(
     config: &WalletCreationConfig,
-    persistent_config: &'a mut (dyn PersistentConfiguration<'a> + 'a),
+    persistent_config: &mut (dyn PersistentConfiguration),
 ) -> Result<(), ConfiguratorError> {
     if let Some(address) = &config.earning_wallet_address_opt {
         persistent_config.set_earning_wallet_address(address)?
@@ -207,9 +207,9 @@ pub fn initialize_database(
     Box::new(PersistentConfigurationReal::from(conn))
 }
 
-pub fn update_db_password<'a>(
+pub fn update_db_password(
     wallet_config: &WalletCreationConfig,
-    persistent_config: &'a mut (dyn PersistentConfiguration<'a> + 'a),
+    persistent_config: &mut (dyn PersistentConfiguration),
 ) -> Result<(), ConfiguratorError> {
     match &wallet_config.derivation_path_info_opt {
         Some(dpwi) => persistent_config.change_password(None, &dpwi.db_password)?,
@@ -271,7 +271,7 @@ pub fn prepare_initialization_mode<'a>(
     app: &'a App,
     args: &[String],
     streams: &mut StdStreams,
-) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration<'a>>), ConfiguratorError> {
+) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
     let multi_config = make_new_multi_config(
         &app,
         vec![
