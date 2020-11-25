@@ -267,8 +267,10 @@ impl ActorFactory for ActorFactoryReal {
         cryptde: &'static dyn CryptDE,
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
-        let neighborhood = Neighborhood::new(cryptde, config);
-        let addr: Addr<Neighborhood> = Arbiter::start(|_| neighborhood);
+        let config_clone = config.clone();
+        let addr: Addr<Neighborhood> = Arbiter::start(move |_| {
+            Neighborhood::new(cryptde, &config_clone)
+        });
         Neighborhood::make_subs_from(&addr)
     }
 

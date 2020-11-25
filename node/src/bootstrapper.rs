@@ -92,7 +92,7 @@ impl PortConfiguration {
     }
 }
 
-pub trait EnvironmentWrapper: Send {
+pub trait EnvironmentWrapper: Send + Sync {
     fn var(&self, key: &str) -> Option<String>;
 }
 
@@ -108,10 +108,9 @@ impl EnvironmentWrapper for EnvironmentWrapperReal {
 }
 
 pub struct RealUser {
-    id_wrapper: Box<dyn IdWrapper>,
     environment_wrapper: Box<dyn EnvironmentWrapper>,
-    pub uid: Option<i32>,
-    pub gid: Option<i32>,
+    pub uid_opt: Option<i32>,
+    pub gid_opt: Option<i32>,
     pub home_dir: Option<PathBuf>,
 }
 
@@ -120,14 +119,14 @@ impl Debug for RealUser {
         write!(
             f,
             "uid: {:?}, gid: {:?}, home_dir: {:?}",
-            self.uid, self.gid, self.home_dir
+            self.uid_opt, self.gid_opt, self.home_dir
         )
     }
 }
 
 impl PartialEq for RealUser {
     fn eq(&self, other: &Self) -> bool {
-        self.uid == other.uid && self.gid == other.gid && self.home_dir == other.home_dir
+        self.uid_opt == other.uid_opt && self.gid_opt == other.gid_opt && self.home_dir == other.home_dir
     }
 }
 
@@ -139,7 +138,7 @@ impl Default for RealUser {
 
 impl Clone for RealUser {
     fn clone(&self) -> Self {
-        RealUser::new(self.uid, self.gid, self.home_dir.clone())
+        RealUser::new(self.uid_opt, self.gid_opt, self.home_dir.clone())
     }
 }
 
@@ -183,13 +182,14 @@ impl RealUser {
         gid_opt: Option<i32>,
         home_dir_opt: Option<PathBuf>,
     ) -> RealUser {
-        RealUser {
-            id_wrapper: Box::new(IdWrapperReal),
+        let mut result = RealUser {
             environment_wrapper: Box::new(EnvironmentWrapperReal),
-            uid: uid_opt,
-            gid: gid_opt,
+            uid_opt: None,
+            gid_opt: None,
             home_dir: home_dir_opt,
-        }
+        };
+        result.initialize_ids(Box::new (IdWrapperReal{}), uid_opt, gid_opt);
+        result
     }
 
     pub fn null() -> RealUser {
@@ -197,15 +197,16 @@ impl RealUser {
     }
 
     pub fn populate(&self, dirs_wrapper: &dyn DirsWrapper) -> RealUser {
+        unimplemented! ("Figure this out with the new way of doing IdWrapper");
         let uid = Self::first_present(vec![
-            self.uid,
+            self.uid_opt,
             self.id_from_env("SUDO_UID"),
-            Some(self.id_wrapper.getuid()),
+            // Some(self.id_wrapper.getuid()),
         ]);
         let gid = Self::first_present(vec![
-            self.gid,
+            self.gid_opt,
             self.id_from_env("SUDO_GID"),
-            Some(self.id_wrapper.getgid()),
+            // Some(self.id_wrapper.getgid()),
         ]);
         let home_dir = Self::first_present(vec![
             self.home_dir.clone(),
@@ -243,6 +244,12 @@ impl RealUser {
             .expect("Nothing was present")
             .expect("Internal error")
     }
+
+    fn initialize_ids(&mut self, id_wrapper: Box<dyn IdWrapper>, uid_opt: Option<i32>, gid_opt: Option<i32>) {
+        unimplemented! ("Make an IdWrapper; set uid and gid from it if they're not supplied in the parameters");
+        // self.uid = uid_opt.or (Some (id_wrapper.getuid()));
+        // self.gid = gid_opt.or (Some (id_wrapper.getgid()));
+    }
 }
 
 impl Display for RealUser {
@@ -250,11 +257,11 @@ impl Display for RealUser {
         write!(
             f,
             "{}:{}:{}",
-            match self.uid {
+            match self.uid_opt {
                 Some(uid) => format!("{}", uid),
                 None => "".to_string(),
             },
-            match self.gid {
+            match self.gid_opt {
                 Some(gid) => format!("{}", gid),
                 None => "".to_string(),
             },
@@ -1735,11 +1742,9 @@ For more information try --help".to_string()
 
     #[test]
     fn configurator_beats_all() {
-        let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
         let environment_wrapper =
             EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
         let mut from_configurator = RealUser::new(Some(1), Some(2), Some("three".into()));
-        from_configurator.id_wrapper = Box::new(id_wrapper);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         let result = from_configurator.populate(&MockDirsWrapper::new());
@@ -1753,7 +1758,7 @@ For more information try --help".to_string()
         let environment_wrapper =
             EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
         let mut from_configurator = RealUser::null();
-        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         let result = from_configurator
@@ -1778,7 +1783,7 @@ For more information try --help".to_string()
         let environment_wrapper =
             EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
         let mut from_configurator = RealUser::null();
-        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.initialize_ids(Box::new (id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         from_configurator.populate(&MockDirsWrapper::new().home_dir_result(Some("/".into())));
@@ -1789,7 +1794,7 @@ For more information try --help".to_string()
         let environment_wrapper = EnvironmentWrapperMock::new(None, None, None);
         let id_wrapper = IdWrapperMock::new().getuid_result(123).getgid_result(456);
         let mut from_configurator = RealUser::null();
-        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.initialize_ids(Box::new (id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         let result = from_configurator
