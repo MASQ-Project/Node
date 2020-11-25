@@ -537,7 +537,7 @@ impl ValueRetriever for ClandestinePort {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         persistent_config_opt
             .as_ref()
-            .map(|pc| (pc.clandestine_port().expect ("Test-drive me!").to_string(), Default))
+            .map(|pc| (pc.clandestine_port().expect ("Test-drive me!").expect("Test-drive me!").to_string(), Default))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1987,7 +1987,7 @@ mod tests {
 
     #[test]
     fn clandestine_port_computed_default_present() {
-        let persistent_config = PersistentConfigurationMock::new().clandestine_port_result(1234);
+        let persistent_config = PersistentConfigurationMock::new().clandestine_port_result(Ok(Some(1234)));
         let subject = ClandestinePort {};
 
         let result = subject.computed_default(

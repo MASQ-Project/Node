@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde::Serializer;
 use std::fmt;
 use std::iter::FromIterator;
+use std::str::FromStr;
 
 #[derive(Clone, PartialEq)]
 pub struct PrivateKey {
@@ -405,6 +406,15 @@ impl From<&[u8]> for PlainData {
 impl From<Vec<u8>> for PlainData {
     fn from(data: Vec<u8>) -> Self {
         PlainData { data }
+    }
+}
+
+impl FromStr for PlainData {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // PlainData::from (value.from_hex::<Vec<u8>>())
+        unimplemented!()
     }
 }
 

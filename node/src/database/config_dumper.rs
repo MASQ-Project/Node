@@ -2,7 +2,7 @@
 
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
-use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal, ConfigDaoRecord};
+use crate::db_config::config_dao::{ConfigDaoReal, ConfigDaoRecord, ConfigDaoRead};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::node_configurator::RealDirsWrapper;
 use crate::node_configurator::{

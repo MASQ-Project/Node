@@ -35,9 +35,9 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
         args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<WalletCreationConfig, ConfiguratorError> {
-        let (multi_config, persistent_config_box) =
+        let (multi_config, mut persistent_config_box) =
             prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args, streams)?;
-        let persistent_config = persistent_config_box.as_ref();
+        let mut persistent_config = persistent_config_box.as_mut();
 
         let config = self.parse_args(&multi_config, streams, persistent_config);
 

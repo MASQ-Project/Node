@@ -66,7 +66,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         streams: &mut StdStreams<'_>,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let app = app();
-        let persistent_config = initialize_database(
+        let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             self.privileged_config.blockchain_bridge_config.chain_id,
         );
@@ -83,7 +83,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             streams,
             Some(persistent_config.as_ref()),
         )?;
-        standard::configure_database(&unprivileged_config, persistent_config.as_ref());
+        standard::configure_database(&unprivileged_config, persistent_config.as_mut());
         Ok(unprivileged_config)
     }
 }
@@ -179,7 +179,7 @@ pub mod standard {
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
-    use rustc_hex::{FromHex, ToHex};
+    use rustc_hex::{FromHex};
     use std::convert::TryInto;
     use std::str::FromStr;
 
@@ -294,11 +294,11 @@ pub mod standard {
         Ok(())
     }
 
-    pub fn unprivileged_parse_args(
+    pub fn unprivileged_parse_args<'a>(
         multi_config: &MultiConfig,
         unprivileged_config: &mut BootstrapperConfig,
         streams: &mut StdStreams<'_>,
-        persistent_config_opt: Option<&dyn PersistentConfiguration>,
+        persistent_config_opt: Option<&dyn PersistentConfiguration<'a>>,
     ) -> Result<(), ConfiguratorError> {
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
         let user_specified = multi_config.arg_matches().occurrences_of("gas-price") > 0;
@@ -306,7 +306,10 @@ pub mod standard {
             value_m!(multi_config, "gas-price", u64).expect("Value disappeared")
         } else {
             match persistent_config_opt {
-                Some(persistent_config) => persistent_config.gas_price()?,
+                Some(persistent_config) => match persistent_config.gas_price()? {
+                    Some(price) => price,
+                    None => unimplemented!("Test-drive me!"),
+                },
                 None => 1,
             }
         };
@@ -332,9 +335,9 @@ pub mod standard {
         }
     }
 
-    pub fn configure_database(
+    pub fn configure_database<'a>(
         config: &BootstrapperConfig,
-        persistent_config: &mut dyn PersistentConfiguration,
+        persistent_config: &'a mut (dyn PersistentConfiguration<'a> + 'a),
     ) -> Result<(), PersistentConfigError> {
         if let Some(port) = config.clandestine_port_opt {
             persistent_config.set_clandestine_port(port)?
@@ -669,13 +672,13 @@ pub mod standard {
                         Ok(keypair) => {
                             match persistent_config.consuming_wallet_public_key() {
                                 Ok(None) => (),
-                                Ok(Some(established_public_key_hex)) => {
-                                    let proposed_public_key_hex =
-                                        keypair.secret().public().bytes().to_hex::<String>();
-                                    if proposed_public_key_hex != established_public_key_hex {
+                                Ok(Some(established_public_key)) => {
+                                    let proposed_public_key =
+                                        PlainData::from (keypair.secret().public().bytes().to_vec());
+                                    if proposed_public_key != established_public_key {
                                         return Err(ConfiguratorError::required("consuming-private-key", "Not the private key of the consuming wallet you have used in the past"));
                                     }
-                                },
+                                }
                                 Err(e) => unimplemented!("Test-drive me: {:?}", e),
                             }
                             Ok(Some(Wallet::from(keypair)))
@@ -751,8 +754,8 @@ pub mod standard {
                 vec![Box::new(CommandLineVcl::new(args.into()))];
             let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
             let persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_from_address_result(None)
-                .consuming_wallet_public_key_result(None)
+                .earning_wallet_from_address_result(Ok (None))
+                .consuming_wallet_public_key_result(Ok (None))
                 .mnemonic_seed_result(Ok(Some(PlainData::new(b"mnemonic seed"))));
             let mut bootstrapper_config = BootstrapperConfig::new();
 
@@ -783,10 +786,10 @@ pub mod standard {
                 vec![Box::new(CommandLineVcl::new(args.into()))];
             let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
             let persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_from_address_result (None)
+                .earning_wallet_from_address_result (Ok (None))
                 .mnemonic_seed_result (Ok(Some(PlainData::new(b"mnemonic seed"))))
-                .consuming_wallet_derivation_path_result(Some("path".to_string()))
-                .consuming_wallet_public_key_result(Some("c2a4c3969a1acfd0a67f8881a894f0db3b36f7f1dde0b053b988bf7cff325f6c3129d83b9d6eeb205e3274193b033f106bea8bbc7bdd5f85589070effccbf55e".to_string()));
+                .consuming_wallet_derivation_path_result(Ok(Some("path".to_string())))
+                .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str ("c2a4c3969a1acfd0a67f8881a894f0db3b36f7f1dde0b053b988bf7cff325f6c3129d83b9d6eeb205e3274193b033f106bea8bbc7bdd5f85589070effccbf55e").unwrap())));
             let mut bootstrapper_config = BootstrapperConfig::new();
 
             let result = standard::get_wallets(
@@ -882,9 +885,9 @@ pub mod standard {
                 vec![Box::new(CommandLineVcl::new(args.into()))];
             let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
             let persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_from_address_result(Some(Wallet::new(
+                .earning_wallet_from_address_result(Ok(Some(Wallet::new(
                     "0x9876543210987654321098765432109876543210",
-                )));
+                ))));
 
             let result =
                 standard::get_earning_wallet_from_address(&multi_config, &persistent_config)
@@ -898,7 +901,7 @@ pub mod standard {
         fn get_consuming_wallet_opt_from_derivation_path_handles_bad_password() {
             running_test();
             let persistent_config = PersistentConfigurationMock::new()
-                .consuming_wallet_derivation_path_result(Some("m/44'/60'/1'/2/3".to_string()))
+                .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())))
                 .mnemonic_seed_result(Err(PersistentConfigError::PasswordError));
 
             let result = standard::get_consuming_wallet_opt_from_derivation_path(
@@ -928,9 +931,9 @@ pub mod standard {
                 vec![Box::new(CommandLineVcl::new(args.into()))];
             let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
             let persistent_config = PersistentConfigurationMock::new()
-                .consuming_wallet_public_key_result(Some(
-                    "0123456789012345678901234567890123456789".to_string(),
-                ));
+                .consuming_wallet_public_key_result(Ok(Some(
+                    PlainData::from_str ("0123456789012345678901234567890123456789").unwrap(),
+                )));
 
             let result =
                 standard::get_consuming_wallet_from_private_key(&multi_config, &persistent_config)
@@ -1136,7 +1139,7 @@ mod tests {
         let result = standard::make_neighborhood_config(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            Some(&make_default_persistent_configuration().check_password_result(Some(false))),
+            Some(&make_default_persistent_configuration().check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1195,7 +1198,7 @@ mod tests {
         let result = standard::make_neighborhood_config(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            Some(&make_default_persistent_configuration().check_password_result(Some(false))),
+            Some(&make_default_persistent_configuration().check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1224,7 +1227,7 @@ mod tests {
         let result = standard::make_neighborhood_config(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            Some(&make_default_persistent_configuration().check_password_result(Some(false))),
+            Some(&make_default_persistent_configuration().check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1253,7 +1256,7 @@ mod tests {
         let result = standard::make_neighborhood_config(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            Some(&make_default_persistent_configuration().check_password_result(Some(false))),
+            Some(&make_default_persistent_configuration().check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1323,7 +1326,7 @@ mod tests {
     fn get_past_neighbors_handles_unavailable_password() {
         running_test();
         let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
-        let persistent_config = make_default_persistent_configuration().check_password_result(None);
+        let persistent_config = make_default_persistent_configuration().check_password_result(Ok(true));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
@@ -1343,7 +1346,7 @@ mod tests {
         running_test();
         let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
         let persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Some(false))
+            .check_password_result(Ok(false))
             .past_neighbors_result(Err(PersistentConfigError::PasswordError));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
@@ -1583,7 +1586,7 @@ mod tests {
         let consuming_private_key_text =
             "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01";
         let consuming_private_key =
-            PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
+            PlainData::from_str(consuming_private_key_text).unwrap();
         let persistent_config = PersistentConfigurationReal::new(config_dao);
         let password = "secret-db-password";
         let args = ArgsBuilder::new()
@@ -1835,7 +1838,7 @@ mod tests {
                     Bip32ECKeyPair::from_raw_secret(&consuming_wallet_private_key).unwrap();
                 let consuming_wallet_public_key = keypair.secret().public();
                 let consuming_wallet_public_key_bytes = consuming_wallet_public_key.bytes();
-                Some (PlainData::from (consuming_wallet_public_key_bytes))
+                Some (PlainData::from (consuming_wallet_public_key_bytes.to_vec()))
             }
         };
         let consuming_wallet_derivation_path_opt =
@@ -2578,7 +2581,7 @@ mod tests {
         let consuming_private_key_text =
             "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
         let consuming_private_key =
-            PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
+            PlainData::from_str(consuming_private_key_text).unwrap();
         let gas_price = 4u64;
         let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
         let consuming_public_key = keypair.secret().public();
@@ -2627,10 +2630,10 @@ mod tests {
         let consuming_private_key_text =
             "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
         let consuming_private_key =
-            PlainData::from(consuming_private_key_text.from_hex::<Vec<u8>>().unwrap());
+            PlainData::from_str(consuming_private_key_text).unwrap();
         let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
         let consuming_public_key = keypair.secret().public();
-        let consuming_public_key_data = PlainData::from (consuming_public_key.bytes());
+        let consuming_public_key_data = PlainData::from (consuming_public_key.bytes().to_vec());
         config.consuming_wallet = Some(Wallet::from(keypair));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
