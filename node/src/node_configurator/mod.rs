@@ -223,7 +223,7 @@ pub fn real_user_data_directory_opt_and_chain_name(
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, String) {
     let real_user = match value_m!(multi_config, "real-user", RealUser) {
-        None => RealUser::null().populate(dirs_wrapper),
+        None => RealUser::new(None, None, None).populate(dirs_wrapper),
         Some(real_user) => real_user.populate(dirs_wrapper),
     };
     let chain_name =
@@ -242,7 +242,7 @@ pub fn data_directory_from_context(
         Some(data_directory) => data_directory.clone(),
         None => {
             let right_home_dir = real_user
-                .home_dir
+                .home_dir_opt
                 .as_ref()
                 .expect("No real-user home directory; specify --real-user")
                 .to_string_lossy()
