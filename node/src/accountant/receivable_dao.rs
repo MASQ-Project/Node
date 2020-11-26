@@ -12,6 +12,7 @@ use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
 use std::time::SystemTime;
+use std::path::PathBuf;
 
 #[derive (Debug, PartialEq)]
 pub enum ReceivableDaoError {
@@ -42,7 +43,7 @@ pub trait ReceivableDao: Send {
 
     fn more_money_received(
         &mut self,
-        persistent_configuration: &dyn PersistentConfiguration,
+        persistent_configuration: &mut dyn PersistentConfiguration,
         transactions: Vec<Transaction>,
     );
 
@@ -61,6 +62,26 @@ pub trait ReceivableDao: Send {
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
 
     fn total(&self) -> u64;
+}
+
+pub trait ReceivableDaoFactory {
+    fn make (&self) -> Box<dyn ReceivableDao>;
+}
+
+pub struct ReceivableDaoFactoryReal {
+}
+
+impl ReceivableDaoFactory for ReceivableDaoFactoryReal {
+    fn make (&self) -> Box<dyn ReceivableDao> {
+        unimplemented!()
+        // Box::new(PayableDaoReal::new(connection_or_panic(db_initializer, data_directory, chain_id, false)))
+    }
+}
+
+impl ReceivableDaoFactoryReal {
+    pub fn new (data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
+        Self {}
+    }
 }
 
 pub struct ReceivableDaoReal {
@@ -87,7 +108,7 @@ impl ReceivableDao for ReceivableDaoReal {
 
     fn more_money_received(
         &mut self,
-        mut persistent_configuration: &dyn PersistentConfiguration,
+        persistent_configuration: &mut dyn PersistentConfiguration,
         payments: Vec<Transaction>,
     ) {
         self.try_multi_insert_payment(persistent_configuration, payments)
@@ -300,7 +321,7 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
-        mut persistent_configuration: &dyn PersistentConfiguration,
+        persistent_configuration: &mut dyn PersistentConfiguration,
         payments: Vec<Transaction>,
     ) -> Result<(), ReceivableDaoError> {
         let tx = match self.conn.transaction() {
@@ -484,7 +505,7 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        let persistent_config: Box<dyn PersistentConfiguration> =
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
 
         let (status1, status2) = {
@@ -501,7 +522,7 @@ mod tests {
                 },
             ];
 
-            subject.more_money_received(persistent_config.as_ref(), transactions);
+            subject.more_money_received(persistent_config.as_mut(), transactions);
             (
                 subject.account_status(&debtor1).unwrap(),
                 subject.account_status(&debtor2).unwrap(),
@@ -542,7 +563,7 @@ mod tests {
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        let persistent_config: Box<dyn PersistentConfiguration> =
+        let mut persistent_config: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
 
         let status = {
@@ -551,7 +572,7 @@ mod tests {
                 gwei_amount: 2300u64,
                 block_number: 33u64,
             }];
-            subject.more_money_received(persistent_config.as_ref(), transactions);
+            subject.more_money_received(persistent_config.as_mut(), transactions);
             subject.account_status(&debtor)
         };
 
@@ -566,10 +587,10 @@ mod tests {
             ConnectionWrapperOldMock::default().transaction_result(Err(Error::InvalidQuery));
         let mut receivable_dao = ReceivableDaoReal::new(Box::new(conn_mock));
 
-        let persistent_configuration: Box<dyn PersistentConfiguration> =
+        let mut persistent_configuration: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationMock::new());
 
-        receivable_dao.more_money_received(persistent_configuration.as_ref(), vec![]);
+        receivable_dao.more_money_received(persistent_configuration.as_mut(), vec![]);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: ReceivableDaoReal: Transaction failed, rolling back: {}",
@@ -592,10 +613,10 @@ mod tests {
                 .unwrap(),
         );
 
-        let persistent_configuration: Box<dyn PersistentConfiguration> =
+        let mut persistent_configuration: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationMock::new());
 
-        receivable_dao.more_money_received(persistent_configuration.as_ref(), vec![]);
+        receivable_dao.more_money_received(persistent_configuration.as_mut(), vec![]);
 
         TestLogHandler::new().exists_log_containing(
             "ERROR: ReceivableDaoReal: Transaction failed, rolling back: no payments given",
@@ -626,10 +647,10 @@ mod tests {
             block_number: 33u64,
         }];
 
-        let persistent_configuration: Box<dyn PersistentConfiguration> =
+        let mut persistent_configuration: Box<dyn PersistentConfiguration> =
             Box::new(persistent_configuration_mock);
 
-        receivable_dao.more_money_received(persistent_configuration.as_ref(), payments);
+        receivable_dao.more_money_received(persistent_configuration.as_mut(), payments);
 
         TestLogHandler::new().exists_log_containing(
             r#"ERROR: ReceivableDaoReal: Transaction failed, rolling back: BOOM"#,

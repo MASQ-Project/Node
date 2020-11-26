@@ -198,22 +198,22 @@ impl RealUser {
 
     pub fn populate(&self, dirs_wrapper: &dyn DirsWrapper) -> RealUser {
         unimplemented! ("Figure this out with the new way of doing IdWrapper");
-        let uid = Self::first_present(vec![
-            self.uid_opt,
-            self.id_from_env("SUDO_UID"),
-            // Some(self.id_wrapper.getuid()),
-        ]);
-        let gid = Self::first_present(vec![
-            self.gid_opt,
-            self.id_from_env("SUDO_GID"),
-            // Some(self.id_wrapper.getgid()),
-        ]);
-        let home_dir = Self::first_present(vec![
-            self.home_dir.clone(),
-            self.sudo_home_from_sudo_user_and_home(dirs_wrapper),
-            dirs_wrapper.home_dir(),
-        ]);
-        RealUser::new(Some(uid), Some(gid), Some(home_dir))
+        // let uid = Self::first_present(vec![
+        //     self.uid_opt,
+        //     self.id_from_env("SUDO_UID"),
+        //     // Some(self.id_wrapper.getuid()),
+        // ]);
+        // let gid = Self::first_present(vec![
+        //     self.gid_opt,
+        //     self.id_from_env("SUDO_GID"),
+        //     // Some(self.id_wrapper.getgid()),
+        // ]);
+        // let home_dir = Self::first_present(vec![
+        //     self.home_dir.clone(),
+        //     self.sudo_home_from_sudo_user_and_home(dirs_wrapper),
+        //     dirs_wrapper.home_dir(),
+        // ]);
+        // RealUser::new(Some(uid), Some(gid), Some(home_dir))
     }
 
     fn sudo_home_from_sudo_user_and_home(&self, dirs_wrapper: &dyn DirsWrapper) -> Option<PathBuf> {

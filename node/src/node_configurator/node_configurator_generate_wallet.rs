@@ -37,7 +37,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
     ) -> Result<WalletCreationConfig, ConfiguratorError> {
         let (multi_config, mut persistent_config_box) =
             prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args, streams)?;
-        let mut persistent_config = persistent_config_box.as_mut();
+        let persistent_config = persistent_config_box.as_mut();
 
         let config = self.parse_args(&multi_config, streams, persistent_config);
 
@@ -646,7 +646,7 @@ mod tests {
         let conn = db_initializer::DbInitializerReal::new()
             .initialize(&data_directory, DEFAULT_CHAIN_ID, true)
             .unwrap();
-        let persistent_config =
+        let mut persistent_config =
             PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
         persistent_config
             .set_mnemonic_seed(b"booga booga", "rick-rolled")

@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use rusqlite::{Error, ErrorCode, ToSql, NO_PARAMS};
 use std::collections::HashSet;
 use std::sync::RwLock;
+use std::path::PathBuf;
 
 lazy_static! {
     pub static ref BAN_CACHE: BannedCache = BannedCache::default();
@@ -65,6 +66,26 @@ pub trait BannedDao: Send {
     fn ban_list(&self) -> Vec<Wallet>;
     fn ban(&self, wallet: &Wallet);
     fn unban(&self, wallet: &Wallet);
+}
+
+pub trait BannedDaoFactory {
+    fn make (&self) -> Box<dyn BannedDao>;
+}
+
+pub struct BannedDaoFactoryReal {
+}
+
+impl BannedDaoFactory for BannedDaoFactoryReal {
+    fn make (&self) -> Box<dyn BannedDao> {
+        unimplemented!()
+        // Box::new(PayableDaoReal::new(connection_or_panic(db_initializer, data_directory, chain_id, false)))
+    }
+}
+
+impl BannedDaoFactoryReal {
+    pub fn new (data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
+        Self {}
+    }
 }
 
 pub struct BannedDaoReal {

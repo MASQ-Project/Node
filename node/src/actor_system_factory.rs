@@ -12,15 +12,15 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
-use crate::accountant::payable_dao::PayableDaoReal;
-use crate::accountant::receivable_dao::ReceivableDaoReal;
-use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoReal};
+use crate::accountant::payable_dao::{PayableDaoFactoryReal};
+use crate::accountant::receivable_dao::{ReceivableDaoFactoryReal};
+use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoFactoryReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
-use crate::db_config::config_dao::ConfigDaoReal;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::db_config::config_dao::{ConfigDaoReal, ConfigDaoFactoryReal};
+use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE, connection_or_panic};
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -281,87 +281,20 @@ impl ActorFactory for ActorFactoryReal {
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
-        let payable_dao = Box::new(PayableDaoReal::new(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                )
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
+        let cloned_config = config.clone();
+        let chain_id = config.blockchain_bridge_config.chain_id;
+        let payable_dao_factory = PayableDaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
+        let receivable_dao_factory = ReceivableDaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
+        let banned_dao_factory = BannedDaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
+        banned_cache_loader.load(connection_or_panic(db_initializer, data_directory, chain_id, false));
+        let config_dao_factory = ConfigDaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
+        let addr: Addr<Accountant> = Arbiter::start(move |_| Accountant::new(
+            &cloned_config,
+            Box::new (payable_dao_factory),
+            Box::new (receivable_dao_factory),
+            Box::new (banned_dao_factory),
+            Box::new (config_dao_factory),
         ));
-        let receivable_dao = Box::new(ReceivableDaoReal::new(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                ) // TODO: Should be false
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        let banned_dao = Box::new(BannedDaoReal::new(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                ) // TODO: Should be false
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        banned_cache_loader.load(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                ) // TODO: Should be false
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        );
-        let config_dao = Box::new(ConfigDaoReal::new(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                ) // TODO: Should be false
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        let persistent_configuration = Box::new(PersistentConfigurationReal::new(config_dao));
-        let accountant = Accountant::new(
-            config,
-            payable_dao,
-            receivable_dao,
-            banned_dao,
-            persistent_configuration,
-        );
-        // TODO Figure out how not to send the PersistentConfiguration across threads here. Making it Send
-        // causes problems we'd rather not deal with.
-        let addr: Addr<Accountant> = Arbiter::start(|_| accountant);
         Accountant::make_subs_from(&addr)
     }
 

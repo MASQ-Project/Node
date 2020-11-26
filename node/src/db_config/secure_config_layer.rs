@@ -434,7 +434,7 @@ mod tests {
                 .set_result(Ok(()))
                 .commit_params(&commit_params_arc),
         );
-        let mut subject = SecureConfigLayer::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.change_password(None, "password", &mut writeable);
 
@@ -499,7 +499,7 @@ mod tests {
                 .set_result(Ok(()))
                 .commit_params(&commit_params_arc),
         );
-        let mut subject = SecureConfigLayer::new();
+        let subject = SecureConfigLayer::new();
 
         let result = subject.change_password(Some("old_password"), "new_password", &mut writeable);
 
@@ -537,7 +537,7 @@ mod tests {
             Some(&encrypted_example),
             true,
         )));
-        let mut subject = SecureConfigLayer::new();
+        let subject = SecureConfigLayer::new();
 
         let result =
             subject.change_password(Some("bad_password"), "new_password", &mut Box::new(dao));

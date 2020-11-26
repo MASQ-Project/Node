@@ -13,7 +13,6 @@ use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-use std::path::PathBuf;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -53,19 +52,6 @@ impl From<SecureConfigLayerError> for PersistentConfigError {
 impl From<ConfigDaoError> for PersistentConfigError {
     fn from(input: ConfigDaoError) -> Self {
         PersistentConfigError::from(SecureConfigLayerError::from(input))
-    }
-}
-
-pub struct PersistentConfigurationFactory {
-}
-
-impl PersistentConfigurationFactory {
-    pub fn new (data_directory: PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
-        Self {}
-    }
-
-    pub fn make (&self) -> Box<dyn PersistentConfiguration> {
-        unimplemented!()
     }
 }
 
@@ -725,8 +711,9 @@ mod tests {
         let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
-        let result = subject.set_start_block(1234).unwrap();
+        let result = subject.set_start_block(1234);
 
+        assert_eq! (result, Ok(()));
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,
@@ -761,8 +748,9 @@ mod tests {
         let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
-        let result = subject.set_gas_price(1234).unwrap();
+        let result = subject.set_gas_price(1234);
 
+        assert_eq! (result, Ok(()));
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,
@@ -1005,7 +993,7 @@ mod tests {
         );
         let subject = PersistentConfigurationReal::new(config_dao);
 
-        let result = subject.consuming_wallet_derivation_path();
+        let _ = subject.consuming_wallet_derivation_path();
     }
 
     #[test]
@@ -1253,7 +1241,7 @@ mod tests {
                 "consuming_wallet_derivation_path".to_string()
             ]
         );
-        let mut set_params = set_params_arc.lock().unwrap();
+        let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,
             vec![(
@@ -1321,7 +1309,7 @@ mod tests {
                 "consuming_wallet_derivation_path".to_string()
             ]
         );
-        let mut set_params = set_params_arc.lock().unwrap();
+        let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,
             vec![(

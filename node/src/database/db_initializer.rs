@@ -331,6 +331,22 @@ impl DbInitializerReal {
     }
 }
 
+pub fn connection_or_panic (db_initializer: &dyn DbInitializer, path: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Box<dyn ConnectionWrapper> {
+    db_initializer
+        .initialize(
+            path,
+            chain_id,
+            create_if_necessary,
+        )
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to connect to database at {:?}",
+                path.join(DATABASE_FILE)
+            )
+        })
+}
+
+
 #[cfg(test)]
 pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;

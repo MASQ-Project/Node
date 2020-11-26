@@ -635,7 +635,7 @@ impl Neighborhood {
     }
 
     fn curate_past_neighbors(
-        &self,
+        &mut self,
         neighbor_keys_before: &[PublicKey],
         neighbor_keys_after: &[PublicKey],
     ) {
@@ -649,7 +649,7 @@ impl Neighborhood {
                 };
                 match self
                     .persistent_config_opt
-                    .as_ref()
+                    .as_mut()
                     .expect("PersistentConfig was not set by StartMessage")
                     .set_past_neighbors(node_descriptors_opt, db_password)
                 {

@@ -9,6 +9,7 @@ use serde_json::{self, json};
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {
@@ -57,6 +58,26 @@ pub trait PayableDao: Debug + Send {
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount>;
 
     fn total(&self) -> u64;
+}
+
+pub trait PayableDaoFactory {
+    fn make (&self) -> Box<dyn PayableDao>;
+}
+
+pub struct PayableDaoFactoryReal {
+}
+
+impl PayableDaoFactory for PayableDaoFactoryReal {
+    fn make (&self) -> Box<dyn PayableDao> {
+        unimplemented!()
+        // Box::new(PayableDaoReal::new(connection_or_panic(db_initializer, data_directory, chain_id, false)))
+    }
+}
+
+impl PayableDaoFactoryReal {
+    pub fn new (data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
+        Self {}
+    }
 }
 
 #[derive(Debug)]

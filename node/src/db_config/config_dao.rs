@@ -2,6 +2,7 @@
 use crate::database::connection_wrapper::ConnectionWrapper;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement, Transaction, NO_PARAMS};
+use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -159,6 +160,27 @@ impl<'a> ConfigDaoWriteableReal<'a> {
         }
     }
 }
+
+pub trait ConfigDaoFactory {
+    fn make (&self) -> Box<dyn ConfigDao>;
+}
+
+pub struct ConfigDaoFactoryReal {
+}
+
+impl ConfigDaoFactory for ConfigDaoFactoryReal {
+    fn make (&self) -> Box<dyn ConfigDao> {
+        unimplemented!()
+        // Box::new(PayableDaoReal::new(connection_or_panic(db_initializer, data_directory, chain_id, false)))
+    }
+}
+
+impl ConfigDaoFactoryReal {
+    pub fn new (data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
+        Self {}
+    }
+}
+
 fn handle_update_execution(result: rusqlite::Result<usize>) -> Result<(), ConfigDaoError> {
     match result {
         Ok(0) => Err(ConfigDaoError::NotPresent),

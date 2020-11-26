@@ -169,7 +169,7 @@ mod tests {
             let conn = DbInitializerReal::new()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
-            let persistent_config = PersistentConfigurationReal::from(conn);
+            let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.set_consuming_wallet_public_key(&PlainData::new(&[1, 2, 3, 4]));
             persistent_config
                 .set_earning_wallet_address("0x0123456789012345678901234567890123456789");
