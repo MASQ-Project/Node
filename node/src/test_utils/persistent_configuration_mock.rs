@@ -231,6 +231,11 @@ impl PersistentConfigurationMock {
         self
     }
 
+    pub fn set_clandestine_port_result (self, result: Result<(), PersistentConfigError>) -> PersistentConfigurationMock {
+        self.set_clandestine_port_results.borrow_mut().push (result);
+        self
+    }
+
     pub fn mnemonic_seed_params(
         mut self,
         params: &Arc<Mutex<Vec<String>>>,
@@ -296,6 +301,11 @@ impl PersistentConfigurationMock {
         self
     }
 
+    pub fn set_gas_price_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_gas_price_results.borrow_mut().push(result);
+        self
+    }
+
     pub fn past_neighbors_params(
         mut self,
         params: &Arc<Mutex<Vec<String>>>,
@@ -337,11 +347,27 @@ impl PersistentConfigurationMock {
         self
     }
 
+    pub fn set_consuming_wallet_derivation_path_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_consuming_wallet_derivation_path_results.borrow_mut().push(result);
+        self
+    }
+
     pub fn set_consuming_wallet_public_key_params(
         mut self,
         params: &Arc<Mutex<Vec<PlainData>>>,
     ) -> PersistentConfigurationMock {
         self.set_consuming_wallet_public_key_params = params.clone();
+        self
+    }
+
+    pub fn set_consuming_wallet_public_key_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_consuming_wallet_public_key_results.borrow_mut().push(result);
         self
     }
 
@@ -370,6 +396,16 @@ impl PersistentConfigurationMock {
         params: &Arc<Mutex<Vec<String>>>,
     ) -> PersistentConfigurationMock {
         self.set_earning_wallet_address_params = params.clone();
+        self
+    }
+
+    pub fn set_earning_wallet_address_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_earning_wallet_address_results
+            .borrow_mut()
+            .push(result);
         self
     }
 
