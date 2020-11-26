@@ -148,7 +148,7 @@ impl DbInitializerReal {
         chain_id: u8,
     ) -> Result<(), InitializationError> {
         //TODO Should this value be encrypted?
-        Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, false, "example_encrypted");
+        Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
             "clandestine_port",
@@ -580,7 +580,7 @@ mod tests {
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
             conn.execute(
-                "insert into config (name, value) values ('preexisting', 'yes')",
+                "insert into config (name, value, encrypted) values ('preexisting', 'yes', 0)",
                 NO_PARAMS,
             )
             .unwrap();

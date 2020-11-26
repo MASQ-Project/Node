@@ -99,7 +99,7 @@ impl SetupReporter for SetupReporterReal {
                 }
             };
         let real_user = real_user_opt.unwrap_or_else(|| {
-            crate::bootstrapper::RealUser::null().populate(self.dirs_wrapper.as_ref())
+            crate::bootstrapper::RealUser::new (None, None, None).populate(self.dirs_wrapper.as_ref())
         });
         let data_directory = match all_but_configured.get("data-directory") {
             Some(uisrv) if uisrv.status == Set => PathBuf::from(&uisrv.value),
@@ -233,7 +233,7 @@ impl SetupReporterReal {
             (Some(_), Some(uisrv)) if uisrv.status == Set => Self::real_user_from_str(&uisrv.value),
             (Some(real_user_str), Some(_)) => Self::real_user_from_str(&real_user_str),
             (None, Some(uisrv)) => Self::real_user_from_str(&uisrv.value),
-            (None, None) => Some(crate::bootstrapper::RealUser::null().populate(dirs_wrapper)),
+            (None, None) => Some(crate::bootstrapper::RealUser::new (None, None, None).populate(dirs_wrapper)),
         };
         let chain_name = match (
             value_m!(multi_config, "chain", String),
@@ -810,7 +810,7 @@ impl ValueRetriever for RealUser {
         #[cfg(not(target_os = "windows"))]
         {
             Some((
-                crate::bootstrapper::RealUser::default()
+                crate::bootstrapper::RealUser::new(None, None, None)
                     .populate(self.dirs_wrapper.as_ref())
                     .to_string(),
                 Default,
@@ -1289,7 +1289,7 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
-                &crate::bootstrapper::RealUser::null()
+                &crate::bootstrapper::RealUser::new (None, None, None)
                     .populate(subject.dirs_wrapper.as_ref())
                     .to_string(),
                 Default,
@@ -1445,7 +1445,7 @@ mod tests {
             ),
             (
                 "real-user",
-                &crate::bootstrapper::RealUser::null()
+                &crate::bootstrapper::RealUser::new (None, None, None)
                     .populate(&RealDirsWrapper {})
                     .to_string(),
                 Default,
@@ -1504,7 +1504,7 @@ mod tests {
             ("neighbors", "", Blank),
             (
                 "real-user",
-                &crate::bootstrapper::RealUser::null()
+                &crate::bootstrapper::RealUser::new (None, None, None)
                     .populate(&RealDirsWrapper {})
                     .to_string(),
                 Default,
@@ -1681,7 +1681,7 @@ mod tests {
 
         assert_eq!(
             real_user_opt,
-            Some(crate::bootstrapper::RealUser::null().populate(&RealDirsWrapper {}))
+            Some(crate::bootstrapper::RealUser::new (None, None, None).populate(&RealDirsWrapper {}))
         );
         assert_eq!(data_directory_opt, None);
         assert_eq!(chain_name, DEFAULT_CHAIN_NAME.to_string());
@@ -2010,7 +2010,7 @@ mod tests {
 
     #[test]
     fn data_directory_computed_default() {
-        let real_user = RealUser::null().populate(&RealDirsWrapper {});
+        let real_user = RealUser::new (None, None, None).populate(&RealDirsWrapper {});
         let expected = data_directory_from_context(&RealDirsWrapper {}, &real_user, &None, "dev")
             .to_string_lossy()
             .to_string();
@@ -2183,7 +2183,7 @@ mod tests {
         assert_eq!(
             result,
             Some((
-                RealUser::default()
+                RealUser::new(None, None, None)
                     .populate(&RealDirsWrapper {})
                     .to_string(),
                 Default
