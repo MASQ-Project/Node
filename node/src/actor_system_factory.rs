@@ -774,7 +774,7 @@ mod tests {
         );
 
         let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
-        assert_eq!(5, initialize_parameters.len());
+        assert_eq!(initialize_parameters.len(),5);
         assert_eq!(
             (data_directory.clone(), DEFAULT_CHAIN_ID, true),
             initialize_parameters[0]

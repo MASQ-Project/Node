@@ -2760,8 +2760,8 @@ pub mod tests {
         let wallet = make_wallet("booga");
         let subject = make_subject (
             None,
-            Some (PayableDaoMock::new().more_money_payable_result(Err(PaymentError::SignConversion(1234)))),
             None,
+            Some(ReceivableDaoMock::new().more_money_receivable_result(Err(PaymentError::SignConversion(1234)))),
             None,
             None,
         );
