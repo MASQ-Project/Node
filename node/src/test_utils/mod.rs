@@ -205,6 +205,7 @@ pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
         .consuming_wallet_derivation_path_result(Ok(None))
         .consuming_wallet_public_key_result(Ok(None))
         .mnemonic_seed_result(Ok(None))
+        .mnemonic_seed_exists_result(Ok(false))
         .past_neighbors_result(Ok(None))
         .gas_price_result(Ok(Some (1)))
 }

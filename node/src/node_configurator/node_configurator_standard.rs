@@ -7,7 +7,7 @@ use clap::App;
 use indoc::indoc;
 use masq_lib::command::StdStreams;
 use masq_lib::crash_point::CrashPoint;
-use masq_lib::shared_schema::{shared_app, ui_port_arg};
+use masq_lib::shared_schema::{shared_app, ui_port_arg, ParamError};
 use masq_lib::shared_schema::{ConfiguratorError, UI_PORT_HELP};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 
@@ -136,12 +136,6 @@ const HELP_TEXT: &str = indoc!(
         3. Create the port forwarding entries in the router."
 );
 
-impl From<PersistentConfigError> for ConfiguratorError {
-    fn from(input: PersistentConfigError) -> Self {
-        unimplemented!()
-    }
-}
-
 pub fn app() -> App<'static, 'static> {
     shared_app(app_head().after_help(HELP_TEXT)).arg(ui_port_arg(&UI_PORT_HELP))
 }
@@ -159,7 +153,7 @@ pub mod standard {
     use crate::bootstrapper::PortConfiguration;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::node_configurator::{
-        data_directory_from_context, determine_config_file_path, mnemonic_seed_exists,
+        data_directory_from_context, determine_config_file_path,
         real_user_data_directory_opt_and_chain_name, request_existing_db_password, DirsWrapper,
     };
     use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
@@ -306,9 +300,10 @@ pub mod standard {
             value_m!(multi_config, "gas-price", u64).expect("Value disappeared")
         } else {
             match persistent_config_opt {
-                Some(persistent_config) => match persistent_config.gas_price()? {
-                    Some(price) => price,
-                    None => unimplemented!("Test-drive me!"),
+                Some(persistent_config) => match persistent_config.gas_price() {
+                    Ok(Some(price)) => price,
+                    Ok(None) => unimplemented!("Test-drive me!"),
+                    Err(pce) => return Err(pce.into_configurator_error ("gas-price")),
                 },
                 None => 1,
             }
@@ -380,13 +375,13 @@ pub mod standard {
             standard::get_consuming_wallet_from_private_key(multi_config, persistent_config)?;
         if earning_wallet_opt.is_some()
             && consuming_wallet_opt.is_some()
-            && mnemonic_seed_exists(persistent_config)
+            && persistent_config.mnemonic_seed_exists().expect ("Test-drive me!")
         {
             return Err(ConfiguratorError::required("consuming-private-key", "Cannot use --consuming-private-key and --earning-wallet when database contains mnemonic seed"));
         }
 
         if (earning_wallet_opt.is_none() || consuming_wallet_opt.is_none())
-            && mnemonic_seed_exists(persistent_config)
+            && persistent_config.mnemonic_seed_exists().expect("Test-drive me!")
         {
             if let Some(db_password) =
                 standard::get_db_password(multi_config, streams, config, persistent_config)
@@ -756,7 +751,7 @@ pub mod standard {
             let persistent_config = PersistentConfigurationMock::new()
                 .earning_wallet_from_address_result(Ok (None))
                 .consuming_wallet_public_key_result(Ok (None))
-                .mnemonic_seed_result(Ok(Some(PlainData::new(b"mnemonic seed"))));
+                .mnemonic_seed_exists_result(Ok(true));
             let mut bootstrapper_config = BootstrapperConfig::new();
 
             let result = standard::get_wallets(
@@ -787,7 +782,7 @@ pub mod standard {
             let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
             let persistent_config = PersistentConfigurationMock::new()
                 .earning_wallet_from_address_result (Ok (None))
-                .mnemonic_seed_result (Ok(Some(PlainData::new(b"mnemonic seed"))))
+                .mnemonic_seed_exists_result (Ok(true))
                 .consuming_wallet_derivation_path_result(Ok(Some("path".to_string())))
                 .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str ("c2a4c3969a1acfd0a67f8881a894f0db3b36f7f1dde0b053b988bf7cff325f6c3129d83b9d6eeb205e3274193b033f106bea8bbc7bdd5f85589070effccbf55e").unwrap())));
             let mut bootstrapper_config = BootstrapperConfig::new();
@@ -1823,10 +1818,10 @@ mod tests {
         gas_price_opt: Option<&str>,
         past_neighbors_opt: Option<&str>,
     ) -> PersistentConfigurationMock {
-        let mnemonic_seed_result = match (mnemonic_seed_prefix_opt, db_password_opt) {
-            (None, None) => Ok(None),
-            (None, Some(_)) => Ok(None),
-            (Some(mnemonic_seed_prefix), _) => Ok(Some(make_mnemonic_seed(mnemonic_seed_prefix))),
+        let (mnemonic_seed_result, mnemonic_seed_exists_result) = match (mnemonic_seed_prefix_opt, db_password_opt) {
+            (None, None) => (Ok(None), Ok(false)),
+            (None, Some(_)) => (Ok(None), Ok(false)),
+            (Some(mnemonic_seed_prefix), _) => (Ok(Some(make_mnemonic_seed(mnemonic_seed_prefix))), Ok(true)),
         };
         let consuming_wallet_public_key_opt = match consuming_wallet_private_key_opt {
             None => None,
@@ -1862,6 +1857,7 @@ mod tests {
         };
         PersistentConfigurationMock::new()
             .mnemonic_seed_result(mnemonic_seed_result)
+            .mnemonic_seed_exists_result(mnemonic_seed_exists_result)
             .consuming_wallet_public_key_result(Ok(consuming_wallet_public_key_opt))
             .consuming_wallet_derivation_path_result(Ok(consuming_wallet_derivation_path_opt))
             .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))

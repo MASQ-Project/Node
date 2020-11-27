@@ -25,6 +25,8 @@ pub struct PersistentConfigurationMock {
     set_gas_price_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     mnemonic_seed_params: Arc<Mutex<Vec<String>>>,
     mnemonic_seed_results: RefCell<Vec<Result<Option<PlainData>, PersistentConfigError>>>,
+    mnemonic_seed_exists_params: Arc<Mutex<Vec<()>>>,
+    mnemonic_seed_exists_results: RefCell<Vec<Result<bool, PersistentConfigError>>>,
     set_mnemonic_seed_params: Arc<Mutex<Vec<MnemonicSeedParam>>>,
     set_mnemonic_seed_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     consuming_wallet_public_key_results: RefCell<Vec<Result<Option<PlainData>, PersistentConfigError>>>,
@@ -92,6 +94,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .unwrap()
             .push(db_password.to_string());
         Self::result_from(&self.mnemonic_seed_results)
+    }
+
+    fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError> {
+        self.mnemonic_seed_exists_params
+            .lock()
+            .unwrap()
+            .push(());
+        Self::result_from(&self.mnemonic_seed_exists_results)
     }
 
     fn set_mnemonic_seed(
@@ -205,6 +215,11 @@ impl PersistentConfigurationMock {
         self
     }
 
+    pub fn change_password_result(self, result: Result<(), PersistentConfigError>) -> PersistentConfigurationMock {
+        self.change_password_results.borrow_mut().push(result);
+        self
+    }
+
     pub fn check_password_params(
         mut self,
         params: &Arc<Mutex<Vec<Option<String>>>>,
@@ -249,6 +264,22 @@ impl PersistentConfigurationMock {
         result: Result<Option<PlainData>, PersistentConfigError>,
     ) -> PersistentConfigurationMock {
         self.mnemonic_seed_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn mnemonic_seed_exists_params(
+        mut self,
+        params: &Arc<Mutex<Vec<()>>>,
+    ) -> PersistentConfigurationMock {
+        self.mnemonic_seed_exists_params = params.clone();
+        self
+    }
+
+    pub fn mnemonic_seed_exists_result(
+        self,
+        result: Result<bool, PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.mnemonic_seed_exists_results.borrow_mut().push(result);
         self
     }
 

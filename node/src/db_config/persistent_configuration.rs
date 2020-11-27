@@ -13,6 +13,7 @@ use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
+use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -55,6 +56,14 @@ impl From<ConfigDaoError> for PersistentConfigError {
     }
 }
 
+impl PersistentConfigError {
+    pub fn into_configurator_error (self, parameter: &str) -> ConfiguratorError {
+        ConfiguratorError {
+            param_errors: vec![ParamError::new (parameter, &format!("{:?}", self))]
+        }
+    }
+}
+
 pub trait PersistentConfiguration {
     fn current_schema_version(&self) -> String;
     fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, PersistentConfigError>;
@@ -68,6 +77,7 @@ pub trait PersistentConfiguration {
     fn gas_price(&self) -> Result<Option<u64>, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
+    fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError>;
     fn set_mnemonic_seed(
         &mut self,
         seed: &dyn AsRef<[u8]>,
@@ -187,6 +197,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             Some(db_password),
             &self.dao,
         )?)?)
+    }
+
+    fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError> {
+        Ok(self.dao.get("seed")?.value_opt.is_some())
     }
 
     fn set_mnemonic_seed<'b, 'c>(
@@ -685,14 +699,56 @@ mod tests {
     }
 
     #[test]
+    fn mnemonic_seed_exists_true() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "seed",
+                    Some("irrelevant"),
+                    true,
+                )))
+        );
+        let subject = PersistentConfigurationReal::new (config_dao);
+
+        let result = subject.mnemonic_seed_exists().unwrap();
+
+        assert_eq! (result, true);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq! (*get_params, vec!["seed".to_string()]);
+    }
+
+    #[test]
+    fn mnemonic_seed_exists_false() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "seed",
+                    None,
+                    true,
+                )))
+        );
+        let subject = PersistentConfigurationReal::new (config_dao);
+
+        let result = subject.mnemonic_seed_exists().unwrap();
+
+        assert_eq! (result, false);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq! (*get_params, vec!["seed".to_string()]);
+    }
+
+    #[test]
     fn start_block_success() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "start_block",
             Some("6"),
             false,
         ))));
-
         let subject = PersistentConfigurationReal::new(config_dao);
+
         let start_block = subject.start_block().unwrap();
 
         assert_eq!(start_block, Some(6));

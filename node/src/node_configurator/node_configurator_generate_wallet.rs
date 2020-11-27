@@ -4,7 +4,7 @@ use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::node_configurator::{
     app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg,
-    flushed_write, language_arg, mnemonic_passphrase_arg, mnemonic_seed_exists,
+    flushed_write, language_arg, mnemonic_passphrase_arg,
     prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry,
     update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper,
     WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP,
@@ -188,7 +188,7 @@ impl NodeConfiguratorGenerateWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
-        if mnemonic_seed_exists(persistent_config) {
+        if persistent_config.mnemonic_seed_exists().expect ("Test-drive me!") {
             panic!("Can't generate wallets: mnemonic seed has already been created")
         }
         self.make_wallet_creation_config(multi_config, streams)
@@ -648,6 +648,7 @@ mod tests {
             .unwrap();
         let mut persistent_config =
             PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
+        persistent_config.change_password(None, "rick-rolled").unwrap();
         persistent_config
             .set_mnemonic_seed(b"booga booga", "rick-rolled")
             .unwrap();
