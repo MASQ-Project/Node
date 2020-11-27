@@ -331,7 +331,7 @@ impl BootstrapperConfig {
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
-            real_user: RealUser::null(),
+            real_user: RealUser::new(None, None, None),
 
             // These fields must be set without privilege: otherwise the database will be created as root
             db_password_opt: None,

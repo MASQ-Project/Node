@@ -16,18 +16,19 @@ use std::path::PathBuf;
 
 #[derive (Debug, PartialEq)]
 pub enum ReceivableDaoError {
-
+    ConfigurationError(String),
+    Other(String),
 }
 
 impl From<PersistentConfigError> for ReceivableDaoError {
     fn from(input: PersistentConfigError) -> Self {
-        unimplemented!()
+        ReceivableDaoError::ConfigurationError(format! ("{:?}", input))
     }
 }
 
 impl From<String> for ReceivableDaoError {
     fn from(input: String) -> Self {
-        unimplemented!()
+        ReceivableDaoError::Other (input)
     }
 }
 
@@ -326,7 +327,7 @@ impl ReceivableDaoReal {
     ) -> Result<(), ReceivableDaoError> {
         let tx = match self.conn.transaction() {
             Ok(t) => t,
-            Err(e) => unimplemented!(), //return Err(e.to_string()),
+            Err(e) => return Err(ReceivableDaoError::Other(e.to_string())),
         };
 
         let block_number = payments
@@ -386,6 +387,22 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
+
+    #[test]
+    fn conversion_from_pce_works() {
+        let pce = PersistentConfigError::BadHexFormat("booga".to_string());
+
+        let subject = ReceivableDaoError::from (pce);
+
+        assert_eq! (subject, ReceivableDaoError::ConfigurationError("BadHexFormat(\"booga\")".to_string()));
+    }
+
+    #[test]
+    fn conversion_from_string_works(){
+        let subject = ReceivableDaoError::from ("booga".to_string());
+
+        assert_eq! (subject, ReceivableDaoError::Other ("booga".to_string()));
+    }
 
     #[test]
     fn more_money_receivable_works_for_new_address() {
@@ -593,7 +610,7 @@ mod tests {
         receivable_dao.more_money_received(persistent_configuration.as_mut(), vec![]);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: ReceivableDaoReal: Transaction failed, rolling back: {}",
+            "ERROR: ReceivableDaoReal: Transaction failed, rolling back: Other(\"{}\")",
             Error::InvalidQuery
         ));
     }
@@ -619,7 +636,7 @@ mod tests {
         receivable_dao.more_money_received(persistent_configuration.as_mut(), vec![]);
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: ReceivableDaoReal: Transaction failed, rolling back: no payments given",
+            "ERROR: ReceivableDaoReal: Transaction failed, rolling back: Other(\"no payments given\")",
         );
     }
 
@@ -653,7 +670,7 @@ mod tests {
         receivable_dao.more_money_received(persistent_configuration.as_mut(), payments);
 
         TestLogHandler::new().exists_log_containing(
-            r#"ERROR: ReceivableDaoReal: Transaction failed, rolling back: BOOM"#,
+            r#"ERROR: ReceivableDaoReal: Transaction failed, rolling back: ConfigurationError("DatabaseError(\"Start block couldn\\\'t be updated\")")"#,
         );
     }
 

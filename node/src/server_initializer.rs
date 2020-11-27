@@ -41,7 +41,7 @@ impl Command for ServerInitializer {
         let exit_code =
             if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
                 self.privilege_dropper
-                    .drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
+                    .drop_privileges(&RealUser::new(None, None, None).populate(&RealDirsWrapper {}));
                 result = Self::combine_results(
                     result,
                     NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams),
