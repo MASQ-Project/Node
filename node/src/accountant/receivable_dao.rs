@@ -375,7 +375,7 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
-    use crate::database::db_initializer::test_utils::ConnectionWrapperOldMock;
+    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::db_config::persistent_configuration::{PersistentConfigurationReal, PersistentConfigError};
@@ -584,7 +584,7 @@ mod tests {
         logging::init_test_logging();
 
         let conn_mock =
-            ConnectionWrapperOldMock::default().transaction_result(Err(Error::InvalidQuery));
+            ConnectionWrapperMock::default().transaction_result(Err(Error::InvalidQuery));
         let mut receivable_dao = ReceivableDaoReal::new(Box::new(conn_mock));
 
         let mut persistent_configuration: Box<dyn PersistentConfiguration> =

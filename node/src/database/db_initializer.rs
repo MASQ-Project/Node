@@ -358,16 +358,16 @@ pub mod test_utils {
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Default)]
-    pub struct ConnectionWrapperOldMock<'a> {
+    pub struct ConnectionWrapperMock<'a> {
         pub prepare_parameters: Arc<Mutex<Vec<String>>>,
         pub prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         pub transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
     }
 
     // TODO: See if we can get rid of this
-    unsafe impl<'a> Send for ConnectionWrapperOldMock<'a> {}
+    unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
 
-    impl<'a> ConnectionWrapperOldMock<'a> {
+    impl<'a> ConnectionWrapperMock<'a> {
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
             self.prepare_results.borrow_mut().push(result);
             self
@@ -379,7 +379,7 @@ pub mod test_utils {
         }
     }
 
-    impl<'a> ConnectionWrapper for ConnectionWrapperOldMock<'a> {
+    impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
         fn prepare(&self, query: &str) -> Result<Statement, Error> {
             self.prepare_parameters
                 .lock()

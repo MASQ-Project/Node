@@ -981,7 +981,7 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
-                &RealUser::default()
+                &RealUser::new(None, None, None)
                     .populate(&RealDirsWrapper {})
                     .to_string(),
                 Default,
