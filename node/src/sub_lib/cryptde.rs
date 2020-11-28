@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::route::RouteError;
 use ethsign_crypto::Keccak256;
-use rustc_hex::{ToHex, FromHex};
+use rustc_hex::{FromHex, ToHex};
 use serde::de::Visitor;
 use serde::Deserialize;
 use serde::Deserializer;
@@ -413,10 +413,14 @@ impl FromStr for PlainData {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let hex = if value.starts_with ("0x") {&value[2..]} else {value};
+        let hex = if value.starts_with("0x") {
+            &value[2..]
+        } else {
+            value
+        };
         match hex.from_hex::<Vec<u8>>() {
-            Ok (bytes) => Ok(PlainData::from (bytes)),
-            Err (e) => Err (format!("{:?}", e)),
+            Ok(bytes) => Ok(PlainData::from(bytes)),
+            Err(e) => Err(format!("{:?}", e)),
         }
     }
 }
@@ -851,23 +855,32 @@ mod tests {
 
     #[test]
     fn plain_data_try_from_str_good_bare() {
-        let subject = PlainData::from_str ("0123456789ABCDEF").unwrap();
+        let subject = PlainData::from_str("0123456789ABCDEF").unwrap();
 
-        assert_eq! (subject, PlainData::new (&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]));
+        assert_eq!(
+            subject,
+            PlainData::new(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF])
+        );
     }
 
     #[test]
     fn plain_data_try_from_str_good_prefixed() {
-        let subject = PlainData::from_str ("0x0123456789ABCDEF").unwrap();
+        let subject = PlainData::from_str("0x0123456789ABCDEF").unwrap();
 
-        assert_eq! (subject, PlainData::new (&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]));
+        assert_eq!(
+            subject,
+            PlainData::new(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF])
+        );
     }
 
     #[test]
     fn plain_data_try_from_str_bad() {
-        let result = PlainData::from_str ("Not a hexadecimal value");
+        let result = PlainData::from_str("Not a hexadecimal value");
 
-        assert_eq! (result, Err ("Invalid character 'N' at position 0".to_string()));
+        assert_eq!(
+            result,
+            Err("Invalid character 'N' at position 0".to_string())
+        );
     }
 
     #[test]

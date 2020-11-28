@@ -1,11 +1,11 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use rusqlite::{Error, ErrorCode, ToSql, NO_PARAMS};
 use std::collections::HashSet;
 use std::sync::RwLock;
-use crate::database::dao_utils::DaoFactoryReal;
 
 lazy_static! {
     pub static ref BAN_CACHE: BannedCache = BannedCache::default();
@@ -69,11 +69,11 @@ pub trait BannedDao: Send {
 }
 
 pub trait BannedDaoFactory {
-    fn make (&self) -> Box<dyn BannedDao>;
+    fn make(&self) -> Box<dyn BannedDao>;
 }
 
 impl BannedDaoFactory for DaoFactoryReal {
-    fn make (&self) -> Box<dyn BannedDao> {
+    fn make(&self) -> Box<dyn BannedDao> {
         Box::new(BannedDaoReal::new(self.make_connection()))
     }
 }

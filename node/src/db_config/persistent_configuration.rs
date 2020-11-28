@@ -10,10 +10,10 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use rustc_hex::ToHex;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -57,9 +57,9 @@ impl From<ConfigDaoError> for PersistentConfigError {
 }
 
 impl PersistentConfigError {
-    pub fn into_configurator_error (self, parameter: &str) -> ConfiguratorError {
+    pub fn into_configurator_error(self, parameter: &str) -> ConfiguratorError {
         ConfiguratorError {
-            param_errors: vec![ParamError::new (parameter, &format!("{:?}", self))]
+            param_errors: vec![ParamError::new(parameter, &format!("{:?}", self))],
         }
     }
 }
@@ -96,8 +96,7 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn set_earning_wallet_address(&mut self, address: &str)
-        -> Result<(), PersistentConfigError>;
+    fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError>;
     fn past_neighbors(
         &self,
         db_password: &str,
@@ -704,19 +703,15 @@ mod tests {
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_params(&get_params_arc)
-                .get_result(Ok(ConfigDaoRecord::new(
-                    "seed",
-                    Some("irrelevant"),
-                    true,
-                )))
+                .get_result(Ok(ConfigDaoRecord::new("seed", Some("irrelevant"), true))),
         );
-        let subject = PersistentConfigurationReal::new (config_dao);
+        let subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.mnemonic_seed_exists().unwrap();
 
-        assert_eq! (result, true);
+        assert_eq!(result, true);
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq! (*get_params, vec!["seed".to_string()]);
+        assert_eq!(*get_params, vec!["seed".to_string()]);
     }
 
     #[test]
@@ -725,19 +720,15 @@ mod tests {
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_params(&get_params_arc)
-                .get_result(Ok(ConfigDaoRecord::new(
-                    "seed",
-                    None,
-                    true,
-                )))
+                .get_result(Ok(ConfigDaoRecord::new("seed", None, true))),
         );
-        let subject = PersistentConfigurationReal::new (config_dao);
+        let subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.mnemonic_seed_exists().unwrap();
 
-        assert_eq! (result, false);
+        assert_eq!(result, false);
         let get_params = get_params_arc.lock().unwrap();
-        assert_eq! (*get_params, vec!["seed".to_string()]);
+        assert_eq!(*get_params, vec!["seed".to_string()]);
     }
 
     #[test]
@@ -769,7 +760,7 @@ mod tests {
 
         let result = subject.set_start_block(1234);
 
-        assert_eq! (result, Ok(()));
+        assert_eq!(result, Ok(()));
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,
@@ -806,7 +797,7 @@ mod tests {
 
         let result = subject.set_gas_price(1234);
 
-        assert_eq! (result, Ok(()));
+        assert_eq!(result, Ok(()));
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,

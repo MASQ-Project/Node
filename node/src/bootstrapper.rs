@@ -4,9 +4,12 @@ use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
-use crate::db_config::config_dao::ConfigDaoReal;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::db_config::config_dao::ConfigDaoReal;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::discriminator::DiscriminatorFactory;
 use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
@@ -16,7 +19,6 @@ use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
 use crate::node_configurator::{DirsWrapper, NodeConfigurator};
-use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
@@ -126,7 +128,9 @@ impl Debug for RealUser {
 
 impl PartialEq for RealUser {
     fn eq(&self, other: &Self) -> bool {
-        self.uid_opt == other.uid_opt && self.gid_opt == other.gid_opt && self.home_dir_opt == other.home_dir_opt
+        self.uid_opt == other.uid_opt
+            && self.gid_opt == other.gid_opt
+            && self.home_dir_opt == other.home_dir_opt
     }
 }
 
@@ -186,9 +190,9 @@ impl RealUser {
             environment_wrapper: Box::new(EnvironmentWrapperReal),
             uid_opt: None,
             gid_opt: None,
-            home_dir_opt: home_dir_opt,
+            home_dir_opt,
         };
-        result.initialize_ids(Box::new (IdWrapperReal{}), uid_opt, gid_opt);
+        result.initialize_ids(Box::new(IdWrapperReal {}), uid_opt, gid_opt);
         result
     }
 
@@ -202,14 +206,8 @@ impl RealUser {
     }
 
     pub fn populate(&self, dirs_wrapper: &dyn DirsWrapper) -> RealUser {
-        let uid = Self::first_present(vec![
-            self.uid_opt,
-            self.id_from_env("SUDO_UID"),
-        ]);
-        let gid = Self::first_present(vec![
-            self.gid_opt,
-            self.id_from_env("SUDO_GID"),
-        ]);
+        let uid = Self::first_present(vec![self.uid_opt, self.id_from_env("SUDO_UID")]);
+        let gid = Self::first_present(vec![self.gid_opt, self.id_from_env("SUDO_GID")]);
         let home_dir = Self::first_present(vec![
             self.home_dir_opt.clone(),
             self.sudo_home_from_sudo_user_and_home(dirs_wrapper),
@@ -247,9 +245,18 @@ impl RealUser {
             .expect("Internal error")
     }
 
-    fn initialize_ids(&mut self, id_wrapper: Box<dyn IdWrapper>, uid_opt: Option<i32>, gid_opt: Option<i32>) {
-        self.uid_opt = Some (uid_opt.unwrap_or_else (|| self.id_from_env ("SUDO_UID").unwrap_or (id_wrapper.getuid())));
-        self.gid_opt = Some (gid_opt.unwrap_or_else (|| self.id_from_env ("SUDO_GID").unwrap_or (id_wrapper.getgid())));
+    fn initialize_ids(
+        &mut self,
+        id_wrapper: Box<dyn IdWrapper>,
+        uid_opt: Option<i32>,
+        gid_opt: Option<i32>,
+    ) {
+        self.uid_opt = Some(
+            uid_opt.unwrap_or_else(|| self.id_from_env("SUDO_UID").unwrap_or(id_wrapper.getuid())),
+        );
+        self.gid_opt = Some(
+            gid_opt.unwrap_or_else(|| self.id_from_env("SUDO_GID").unwrap_or(id_wrapper.getgid())),
+        );
     }
 }
 
@@ -533,10 +540,14 @@ impl Bootstrapper {
             let config_dao = ConfigDaoReal::new(conn);
             let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
             if let Some(clandestine_port) = self.config.clandestine_port_opt {
-                persistent_config.set_clandestine_port(clandestine_port).expect ("Test-drive me!")
+                persistent_config
+                    .set_clandestine_port(clandestine_port)
+                    .expect("Test-drive me!")
             }
-            let clandestine_port = persistent_config.clandestine_port()
-                .expect("Test-drive me!").expect ("Test-drive me!");
+            let clandestine_port = persistent_config
+                .clandestine_port()
+                .expect("Test-drive me!")
+                .expect("Test-drive me!");
             let mut listener_handler = self.listener_handler_factory.make();
             listener_handler
                 .bind_port_and_configuration(
@@ -567,14 +578,16 @@ mod tests {
     use super::*;
     use crate::actor_system_factory::ActorFactory;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::db_config::config_dao::ConfigDaoReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::db_config::config_dao::ConfigDaoReal;
+    use crate::db_config::persistent_configuration::{
+        PersistentConfiguration, PersistentConfigurationReal,
+    };
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, IdWrapperMock, MockDirsWrapper};
-    use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
@@ -853,32 +866,29 @@ mod tests {
     }
 
     #[test]
-    fn initialize_ids_handles_full_parameters () {
-        let id_wrapper = Box::new (IdWrapperMock::new ());
-        let environment_wrapper = EnvironmentWrapperMock::new (None, None, None);
+    fn initialize_ids_handles_full_parameters() {
+        let id_wrapper = Box::new(IdWrapperMock::new());
+        let environment_wrapper = EnvironmentWrapperMock::new(None, None, None);
         let mut subject = RealUser::null();
-        subject.environment_wrapper = Box::new (environment_wrapper);
+        subject.environment_wrapper = Box::new(environment_wrapper);
 
-        subject.initialize_ids (id_wrapper, Some (1234), Some (4321));
+        subject.initialize_ids(id_wrapper, Some(1234), Some(4321));
 
-        assert_eq! (subject.uid_opt, Some (1234));
-        assert_eq! (subject.gid_opt, Some (4321));
+        assert_eq!(subject.uid_opt, Some(1234));
+        assert_eq!(subject.gid_opt, Some(4321));
     }
 
     #[test]
-    fn initialize_ids_handles_empty_parameters () {
-        let id_wrapper = Box::new (IdWrapperMock::new ()
-            .getuid_result (1234)
-            .getgid_result (4321)
-        );
-        let environment_wrapper = EnvironmentWrapperMock::new (None, None, None);
+    fn initialize_ids_handles_empty_parameters() {
+        let id_wrapper = Box::new(IdWrapperMock::new().getuid_result(1234).getgid_result(4321));
+        let environment_wrapper = EnvironmentWrapperMock::new(None, None, None);
         let mut subject = RealUser::null();
-        subject.environment_wrapper = Box::new (environment_wrapper);
+        subject.environment_wrapper = Box::new(environment_wrapper);
 
-        subject.initialize_ids (id_wrapper, None, None);
+        subject.initialize_ids(id_wrapper, None, None);
 
-        assert_eq! (subject.uid_opt, Some (1234));
-        assert_eq! (subject.gid_opt, Some (4321));
+        assert_eq!(subject.uid_opt, Some(1234));
+        assert_eq!(subject.gid_opt, Some(4321));
     }
 
     #[test]
@@ -1580,7 +1590,10 @@ For more information try --help".to_string()
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        assert_eq!(1234u16, persistent_config.clandestine_port().unwrap().unwrap());
+        assert_eq!(
+            1234u16,
+            persistent_config.clandestine_port().unwrap().unwrap()
+        );
         assert_eq!(
             subject
                 .config
@@ -1767,9 +1780,9 @@ For more information try --help".to_string()
     fn real_user_null() {
         let subject = RealUser::null();
 
-        assert_eq! (subject.uid_opt, None);
-        assert_eq! (subject.gid_opt, None);
-        assert_eq! (subject.home_dir_opt, None);
+        assert_eq!(subject.uid_opt, None);
+        assert_eq!(subject.gid_opt, None);
+        assert_eq!(subject.home_dir_opt, None);
     }
 
     #[test]
@@ -1815,7 +1828,7 @@ For more information try --help".to_string()
         let environment_wrapper =
             EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
         let mut from_configurator = RealUser::null();
-        from_configurator.initialize_ids(Box::new (id_wrapper), None, None);
+        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         from_configurator.populate(&MockDirsWrapper::new().home_dir_result(Some("/".into())));
@@ -1826,7 +1839,7 @@ For more information try --help".to_string()
         let environment_wrapper = EnvironmentWrapperMock::new(None, None, None);
         let id_wrapper = IdWrapperMock::new().getuid_result(123).getgid_result(456);
         let mut from_configurator = RealUser::null();
-        from_configurator.initialize_ids(Box::new (id_wrapper), None, None);
+        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         let result = from_configurator

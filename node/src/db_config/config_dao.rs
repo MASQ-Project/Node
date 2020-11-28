@@ -1,8 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::dao_utils::DaoFactoryReal;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement, Transaction, NO_PARAMS};
-use crate::database::dao_utils::{DaoFactoryReal};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -162,11 +162,11 @@ impl<'a> ConfigDaoWriteableReal<'a> {
 }
 
 pub trait ConfigDaoFactory {
-    fn make (&self) -> Box<dyn ConfigDao>;
+    fn make(&self) -> Box<dyn ConfigDao>;
 }
 
 impl ConfigDaoFactory for DaoFactoryReal {
-    fn make (&self) -> Box<dyn ConfigDao> {
+    fn make(&self) -> Box<dyn ConfigDao> {
         Box::new(ConfigDaoReal::new(self.make_connection()))
     }
 }

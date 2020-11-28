@@ -2,8 +2,8 @@
 
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
-use crate::db_config::config_dao::{ConfigDaoReal, ConfigDaoRecord, ConfigDaoRead};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
 use crate::node_configurator::RealDirsWrapper;
 use crate::node_configurator::{
     app_head, data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
@@ -26,9 +26,7 @@ pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, Con
     let (real_user, data_directory, chain_id) = distill_args(&RealDirsWrapper {}, args, streams)?;
     PrivilegeDropperReal::new().drop_privileges(&real_user);
     let config_dao = make_config_dao(&data_directory, chain_id);
-    let configuration = config_dao
-        .get_all()
-        .expect("Couldn't fetch configuration");
+    let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
     let json = configuration_to_json(configuration);
     write_string(streams, json);
     Ok(0)
@@ -106,7 +104,9 @@ mod tests {
         chain_id_from_name, contract_creation_block_from_chain_id,
     };
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
-    use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+    use crate::db_config::persistent_configuration::{
+        PersistentConfiguration, PersistentConfigurationReal,
+    };
     use crate::sub_lib::cryptde::PlainData;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -170,9 +170,12 @@ mod tests {
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
-            persistent_config.set_consuming_wallet_public_key(&PlainData::new(&[1, 2, 3, 4])).unwrap();
             persistent_config
-                .set_earning_wallet_address("0x0123456789012345678901234567890123456789").unwrap();
+                .set_consuming_wallet_public_key(&PlainData::new(&[1, 2, 3, 4]))
+                .unwrap();
+            persistent_config
+                .set_earning_wallet_address("0x0123456789012345678901234567890123456789")
+                .unwrap();
             persistent_config.set_clandestine_port(3456).unwrap();
         }
         let args_vec: Vec<String> = ArgsBuilder::new()

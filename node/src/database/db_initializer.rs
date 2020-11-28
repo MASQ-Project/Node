@@ -331,13 +331,14 @@ impl DbInitializerReal {
     }
 }
 
-pub fn connection_or_panic (db_initializer: &dyn DbInitializer, path: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Box<dyn ConnectionWrapper> {
+pub fn connection_or_panic(
+    db_initializer: &dyn DbInitializer,
+    path: &PathBuf,
+    chain_id: u8,
+    create_if_necessary: bool,
+) -> Box<dyn ConnectionWrapper> {
     db_initializer
-        .initialize(
-            path,
-            chain_id,
-            create_if_necessary,
-        )
+        .initialize(path, chain_id, create_if_necessary)
         .unwrap_or_else(|_| {
             panic!(
                 "Failed to connect to database at {:?}",
@@ -345,7 +346,6 @@ pub fn connection_or_panic (db_initializer: &dyn DbInitializer, path: &PathBuf, 
             )
         })
 }
-
 
 #[cfg(test)]
 pub mod test_utils {
@@ -454,7 +454,7 @@ mod tests {
         DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use rusqlite::types::Type::Null;
-    use rusqlite::{OpenFlags, Error};
+    use rusqlite::{Error, OpenFlags};
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};

@@ -4,7 +4,7 @@ use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
-use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigError};
+use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
@@ -13,7 +13,7 @@ use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
 use std::time::SystemTime;
 
-#[derive (Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum ReceivableDaoError {
     ConfigurationError(String),
     Other(String),
@@ -21,13 +21,13 @@ pub enum ReceivableDaoError {
 
 impl From<PersistentConfigError> for ReceivableDaoError {
     fn from(input: PersistentConfigError) -> Self {
-        ReceivableDaoError::ConfigurationError(format! ("{:?}", input))
+        ReceivableDaoError::ConfigurationError(format!("{:?}", input))
     }
 }
 
 impl From<String> for ReceivableDaoError {
     fn from(input: String) -> Self {
-        ReceivableDaoError::Other (input)
+        ReceivableDaoError::Other(input)
     }
 }
 
@@ -65,11 +65,11 @@ pub trait ReceivableDao: Send {
 }
 
 pub trait ReceivableDaoFactory {
-    fn make (&self) -> Box<dyn ReceivableDao>;
+    fn make(&self) -> Box<dyn ReceivableDao>;
 }
 
 impl ReceivableDaoFactory for DaoFactoryReal {
-    fn make (&self) -> Box<dyn ReceivableDao> {
+    fn make(&self) -> Box<dyn ReceivableDao> {
         Box::new(ReceivableDaoReal::new(self.make_connection()))
     }
 }
@@ -340,8 +340,8 @@ impl ReceivableDaoReal {
             }
         }
         match tx.commit() {
-            Err (e) => unimplemented! ("{:?}", e),
-            Ok (_) => Ok (()),
+            Err(e) => unimplemented!("{:?}", e),
+            Ok(_) => Ok(()),
         }
     }
 
@@ -364,13 +364,15 @@ impl ReceivableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::make_receivable_account;
-    use crate::db_config::config_dao::ConfigDaoReal;
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
-    use crate::db_config::persistent_configuration::{PersistentConfigurationReal, PersistentConfigError};
+    use crate::db_config::config_dao::ConfigDaoReal;
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfigurationReal,
+    };
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -383,16 +385,19 @@ mod tests {
     fn conversion_from_pce_works() {
         let pce = PersistentConfigError::BadHexFormat("booga".to_string());
 
-        let subject = ReceivableDaoError::from (pce);
+        let subject = ReceivableDaoError::from(pce);
 
-        assert_eq! (subject, ReceivableDaoError::ConfigurationError("BadHexFormat(\"booga\")".to_string()));
+        assert_eq!(
+            subject,
+            ReceivableDaoError::ConfigurationError("BadHexFormat(\"booga\")".to_string())
+        );
     }
 
     #[test]
-    fn conversion_from_string_works(){
-        let subject = ReceivableDaoError::from ("booga".to_string());
+    fn conversion_from_string_works() {
+        let subject = ReceivableDaoError::from("booga".to_string());
 
-        assert_eq! (subject, ReceivableDaoError::Other ("booga".to_string()));
+        assert_eq!(subject, ReceivableDaoError::Other("booga".to_string()));
     }
 
     #[test]
@@ -647,7 +652,9 @@ mod tests {
         );
 
         let persistent_configuration_mock = PersistentConfigurationMock::new()
-            .set_start_block_result(Err(PersistentConfigError::DatabaseError("Start block couldn't be updated".to_string())));
+            .set_start_block_result(Err(PersistentConfigError::DatabaseError(
+                "Start block couldn't be updated".to_string(),
+            )));
 
         let payments = vec![Transaction {
             from: make_wallet("foobar"),

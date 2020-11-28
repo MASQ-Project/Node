@@ -2,14 +2,14 @@
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::{
     app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg,
-    flushed_write, language_arg, mnemonic_passphrase_arg,
-    prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry,
-    update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper,
-    WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP,
+    flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode,
+    request_password_with_confirmation, request_password_with_retry, update_db_password,
+    DirsWrapper, Either, NodeConfigurator, RealDirsWrapper, WalletCreationConfig,
+    WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP,
 };
-use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, MnemonicType};
@@ -188,7 +188,10 @@ impl NodeConfiguratorGenerateWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
-        if persistent_config.mnemonic_seed_exists().expect ("Test-drive me!") {
+        if persistent_config
+            .mnemonic_seed_exists()
+            .expect("Test-drive me!")
+        {
             panic!("Can't generate wallets: mnemonic seed has already been created")
         }
         self.make_wallet_creation_config(multi_config, streams)
@@ -342,11 +345,11 @@ impl NodeConfiguratorGenerateWallet {
 mod tests {
     use super::*;
     use crate::bootstrapper::RealUser;
-    use crate::db_config::config_dao::ConfigDaoReal;
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
-    use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
+    use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
@@ -486,7 +489,7 @@ mod tests {
             .unwrap();
 
         let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
-        assert_eq!(persistent_config.check_password(Some (password)), Ok(true));
+        assert_eq!(persistent_config.check_password(Some(password)), Ok(true));
         let mut make_parameters = make_parameters_arc.lock().unwrap();
         assert_eq_debug(
             make_parameters.remove(0),
@@ -648,7 +651,9 @@ mod tests {
             .unwrap();
         let mut persistent_config =
             PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
-        persistent_config.change_password(None, "rick-rolled").unwrap();
+        persistent_config
+            .change_password(None, "rick-rolled")
+            .unwrap();
         persistent_config
             .set_mnemonic_seed(b"booga booga", "rick-rolled")
             .unwrap();

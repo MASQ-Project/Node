@@ -2,6 +2,7 @@
 use crate::accountant::{jackass_unsigned_to_signed, PaymentError};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
+use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{Error, OptionalExtension, NO_PARAMS};
@@ -9,7 +10,6 @@ use serde_json::{self, json};
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::database::dao_utils::DaoFactoryReal;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {
@@ -61,11 +61,11 @@ pub trait PayableDao: Debug + Send {
 }
 
 pub trait PayableDaoFactory {
-    fn make (&self) -> Box<dyn PayableDao>;
+    fn make(&self) -> Box<dyn PayableDao>;
 }
 
 impl PayableDaoFactory for DaoFactoryReal {
-    fn make (&self) -> Box<dyn PayableDao> {
+    fn make(&self) -> Box<dyn PayableDao> {
         Box::new(PayableDaoReal::new(self.make_connection()))
     }
 }

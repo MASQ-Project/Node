@@ -10,7 +10,9 @@ use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
@@ -172,17 +174,16 @@ pub fn create_wallet(
     if let Some(address) = &config.earning_wallet_address_opt {
         match persistent_config.set_earning_wallet_address(address) {
             Ok(_) => (),
-            Err(pce) => unimplemented! ("Test-drive me: {:?}", pce), //return Err (pce.into_configurator_error("earning-wallet")),
+            Err(pce) => unimplemented!("Test-drive me: {:?}", pce), //return Err (pce.into_configurator_error("earning-wallet")),
         }
     }
     if let Some(derivation_path_info) = &config.derivation_path_info_opt {
-        match persistent_config
-            .set_mnemonic_seed(
-                &derivation_path_info.mnemonic_seed,
-                &derivation_path_info.db_password,
-            ) {
-            Ok (_) => (),
-            Err (pce) => return Err (pce.into_configurator_error("mnemonic")),
+        match persistent_config.set_mnemonic_seed(
+            &derivation_path_info.mnemonic_seed,
+            &derivation_path_info.db_password,
+        ) {
+            Ok(_) => (),
+            Err(pce) => return Err(pce.into_configurator_error("mnemonic")),
         };
         if let Some(consuming_derivation_path) = &derivation_path_info.consuming_derivation_path_opt
         {
@@ -190,8 +191,8 @@ pub fn create_wallet(
                 consuming_derivation_path,
                 &derivation_path_info.db_password,
             ) {
-                Ok (_) => (),
-                Err (pce) => unimplemented!("Test-drive me: {:?}", pce), //return Err (pce.into_configurator_error("consuming-wallet")),
+                Ok(_) => (),
+                Err(pce) => unimplemented!("Test-drive me: {:?}", pce), //return Err (pce.into_configurator_error("consuming-wallet")),
             }
         }
     }
@@ -219,9 +220,11 @@ pub fn update_db_password(
     persistent_config: &mut (dyn PersistentConfiguration),
 ) -> Result<(), ConfiguratorError> {
     match &wallet_config.derivation_path_info_opt {
-        Some(dpwi) => if let Err (pce) = persistent_config.change_password(None, &dpwi.db_password) {
-            unimplemented! ("{:?}", pce); // return Err (pce.into_configurator_error("db-password"))
-        },
+        Some(dpwi) => {
+            if let Err(pce) = persistent_config.change_password(None, &dpwi.db_password) {
+                unimplemented!("{:?}", pce); // return Err (pce.into_configurator_error("db-password"))
+            }
+        }
         None => (),
     };
     Ok(())
@@ -299,7 +302,10 @@ pub fn prepare_initialization_mode<'a>(
         &chain_name,
     );
     let persistent_config_box = initialize_database(&directory, chain_id_from_name(&chain_name));
-    if persistent_config_box.mnemonic_seed_exists().expect("Test-drive me!") {
+    if persistent_config_box
+        .mnemonic_seed_exists()
+        .expect("Test-drive me!")
+    {
         exit_process(1, "Cannot re-initialize Node: already initialized")
     }
     Ok((multi_config, persistent_config_box))
@@ -351,9 +357,9 @@ pub fn request_existing_db_password(
         if password.is_empty() {
             return Err("Password must not be blank.".to_string());
         }
-        match persistent_config.check_password(Some (password)) {
-            Ok (true) => Ok(()),
-            Ok (false) => Err("Incorrect password.".to_string()),
+        match persistent_config.check_password(Some(password)) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err("Incorrect password.".to_string()),
             Err(e) => unimplemented!("Test-drive me: {:?}", e),
         }
     };
@@ -937,8 +943,7 @@ mod tests {
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
-            persistent_config
-                .change_password(None, "password").unwrap();
+            persistent_config.change_password(None, "password").unwrap();
             persistent_config
                 .set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password")
                 .unwrap();
@@ -1249,9 +1254,9 @@ mod tests {
             *check_password_params,
             vec![
                 None,
-                Some ("first bad password".to_string()),
-                Some ("another bad password".to_string()),
-                Some ("final bad password".to_string())
+                Some("first bad password".to_string()),
+                Some("another bad password".to_string()),
+                Some("final bad password".to_string())
             ]
         )
     }
@@ -1599,7 +1604,7 @@ mod tests {
 
         let result = create_wallet(&config, &mut persistent_config);
 
-        assert_eq! (result, Ok(()));
+        assert_eq!(result, Ok(()));
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
@@ -1646,7 +1651,7 @@ mod tests {
 
         let result = create_wallet(&config, &mut persistent_config);
 
-        assert_eq! (result, Ok(()));
+        assert_eq!(result, Ok(()));
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
@@ -1681,7 +1686,7 @@ mod tests {
 
         let result = update_db_password(&wallet_config, &mut persistent_config);
 
-        assert_eq! (result, Ok(()));
+        assert_eq!(result, Ok(()));
         let set_password_params = set_password_params_arc.lock().unwrap();
         assert!(set_password_params.is_empty());
     }
@@ -1698,10 +1703,9 @@ mod tests {
             real_user: RealUser::default(),
         };
         let set_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config =
-            PersistentConfigurationMock::new()
-                .change_password_params(&set_password_params_arc)
-                .change_password_result(Ok(()));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .change_password_params(&set_password_params_arc)
+            .change_password_result(Ok(()));
 
         update_db_password(&wallet_config, &mut persistent_config).unwrap();
 

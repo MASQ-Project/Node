@@ -17,8 +17,11 @@ use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
-use crate::db_config::config_dao::{ConfigDaoReal};
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE, connection_or_panic};
+use crate::database::dao_utils::DaoFactoryReal;
+use crate::database::db_initializer::{
+    connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
+};
+use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -41,7 +44,6 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
-use crate::database::dao_utils::DaoFactoryReal;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -267,9 +269,8 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
         let config_clone = config.clone();
-        let addr: Addr<Neighborhood> = Arbiter::start(move |_| {
-            Neighborhood::new(cryptde, &config_clone)
-        });
+        let addr: Addr<Neighborhood> =
+            Arbiter::start(move |_| Neighborhood::new(cryptde, &config_clone));
         Neighborhood::make_subs_from(&addr)
     }
 
@@ -282,18 +283,41 @@ impl ActorFactory for ActorFactoryReal {
     ) -> AccountantSubs {
         let cloned_config = config.clone();
         let chain_id = config.blockchain_bridge_config.chain_id;
-        let payable_dao_factory = DaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
-        let receivable_dao_factory = DaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
-        let banned_dao_factory = DaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
-        banned_cache_loader.load(connection_or_panic(db_initializer, data_directory, chain_id, false));
-        let config_dao_factory = DaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
-        let addr: Addr<Accountant> = Arbiter::start(move |_| Accountant::new(
-            &cloned_config,
-            Box::new (payable_dao_factory),
-            Box::new (receivable_dao_factory),
-            Box::new (banned_dao_factory),
-            Box::new (config_dao_factory),
+        let payable_dao_factory = DaoFactoryReal::new(
+            data_directory,
+            config.blockchain_bridge_config.chain_id,
+            false,
+        );
+        let receivable_dao_factory = DaoFactoryReal::new(
+            data_directory,
+            config.blockchain_bridge_config.chain_id,
+            false,
+        );
+        let banned_dao_factory = DaoFactoryReal::new(
+            data_directory,
+            config.blockchain_bridge_config.chain_id,
+            false,
+        );
+        banned_cache_loader.load(connection_or_panic(
+            db_initializer,
+            data_directory,
+            chain_id,
+            false,
         ));
+        let config_dao_factory = DaoFactoryReal::new(
+            data_directory,
+            config.blockchain_bridge_config.chain_id,
+            false,
+        );
+        let addr: Addr<Accountant> = Arbiter::start(move |_| {
+            Accountant::new(
+                &cloned_config,
+                Box::new(payable_dao_factory),
+                Box::new(receivable_dao_factory),
+                Box::new(banned_dao_factory),
+                Box::new(config_dao_factory),
+            )
+        });
         Accountant::make_subs_from(&addr)
     }
 
@@ -366,15 +390,13 @@ impl ActorFactory for ActorFactoryReal {
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::database::db_initializer::test_utils::{
-        DbInitializerMock,
-    };
+    use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
@@ -740,14 +762,13 @@ mod tests{
         }
     }
 
-
     // TODO: Move this test into the Accountant. The new factories mean the connections are now made there.
     // #[test]
     // fn make_and_start_accountant_creates_connections_for_daos_and_banned_cache() {
     //     let _system =
     //         System::new("make_and_start_accountant_creates_connections_for_daos_and_banned_cache");
     //     let subject = ActorFactoryReal {};
-    // 
+    //
     //     let db_initializer_mock = DbInitializerMock::new()
     //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
     //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
@@ -762,16 +783,16 @@ mod tests{
     //     let mut config = BootstrapperConfig::new();
     //     config.accountant_config = aconfig;
     //     config.consuming_wallet = Some(make_wallet("hi"));
-    // 
+    //
     //     let banned_cache_loader = &BannedCacheLoaderMock::default();
-    // 
+    //
     //     subject.make_and_start_accountant(
     //         &config,
     //         &data_directory,
     //         &db_initializer_mock,
     //         banned_cache_loader,
     //     );
-    // 
+    //
     //     let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
     //     assert_eq!(initialize_parameters.len(),5);
     //     assert_eq!(
@@ -794,7 +815,7 @@ mod tests{
     //         (data_directory.clone(), DEFAULT_CHAIN_ID, true),
     //         initialize_parameters[4]
     //     );
-    // 
+    //
     //     let load_parameters = banned_cache_loader.load_params.lock().unwrap();
     //     assert_eq!(1, load_parameters.len());
     // }
@@ -840,7 +861,7 @@ mod tests{
     //             rusqlite::Error::InvalidQuery,
     //         )));
     //     let subject = ActorFactoryReal {};
-    // 
+    //
     //     subject.make_and_start_accountant(
     //         &config,
     //         &PathBuf::new(),

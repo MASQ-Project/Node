@@ -1,10 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::jackass_unsigned_to_signed;
-use std::time::Duration;
-use std::time::SystemTime;
-use std::path::PathBuf;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
+use std::path::PathBuf;
+use std::time::Duration;
+use std::time::SystemTime;
 
 pub fn to_time_t(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
@@ -29,11 +29,20 @@ pub struct DaoFactoryReal {
 }
 
 impl DaoFactoryReal {
-    pub fn new (data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
-        Self {data_directory: data_directory.clone(), chain_id, create_if_necessary}
+    pub fn new(data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
+        Self {
+            data_directory: data_directory.clone(),
+            chain_id,
+            create_if_necessary,
+        }
     }
 
-    pub fn make_connection (&self) -> Box<dyn ConnectionWrapper> {
-        connection_or_panic(&DbInitializerReal{}, &self.data_directory, self.chain_id, self.create_if_necessary)
+    pub fn make_connection(&self) -> Box<dyn ConnectionWrapper> {
+        connection_or_panic(
+            &DbInitializerReal {},
+            &self.data_directory,
+            self.chain_id,
+            self.create_if_necessary,
+        )
     }
 }
