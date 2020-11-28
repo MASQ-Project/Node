@@ -9,7 +9,7 @@ use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::database::db_initializer::{
     DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
 };
-use node_lib::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use node_lib::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };

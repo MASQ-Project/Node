@@ -9,7 +9,7 @@ use masq_lib::constants::{
 };
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
-use rusqlite::{Connection, Error, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
@@ -454,7 +454,7 @@ mod tests {
         DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use rusqlite::types::Type::Null;
-    use rusqlite::OpenFlags;
+    use rusqlite::{OpenFlags, Error};
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
