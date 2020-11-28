@@ -413,7 +413,7 @@ impl FromStr for PlainData {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let hex = if value.starts_with ("0x") {&value[2..]} else {value};
+        let hex = if let Some(stripped) = value.strip_prefix("0x") {stripped} else {value};
         match hex.from_hex::<Vec<u8>>() {
             Ok (bytes) => Ok(PlainData::from (bytes)),
             Err (e) => Err (format!("{:?}", e)),

@@ -186,7 +186,7 @@ impl RealUser {
             environment_wrapper: Box::new(EnvironmentWrapperReal),
             uid_opt: None,
             gid_opt: None,
-            home_dir_opt: home_dir_opt,
+            home_dir_opt,
         };
         result.initialize_ids(Box::new (IdWrapperReal{}), uid_opt, gid_opt);
         result
@@ -248,8 +248,8 @@ impl RealUser {
     }
 
     fn initialize_ids(&mut self, id_wrapper: Box<dyn IdWrapper>, uid_opt: Option<i32>, gid_opt: Option<i32>) {
-        self.uid_opt = Some (uid_opt.unwrap_or_else (|| self.id_from_env ("SUDO_UID").unwrap_or (id_wrapper.getuid())));
-        self.gid_opt = Some (gid_opt.unwrap_or_else (|| self.id_from_env ("SUDO_GID").unwrap_or (id_wrapper.getgid())));
+        self.uid_opt = Some (uid_opt.unwrap_or_else(|| self.id_from_env("SUDO_UID").unwrap_or_else(||id_wrapper.getuid())));
+        self.gid_opt = Some (gid_opt.unwrap_or_else(|| self.id_from_env("SUDO_GID").unwrap_or_else(||id_wrapper.getgid())));
     }
 }
 
