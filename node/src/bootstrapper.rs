@@ -251,12 +251,14 @@ impl RealUser {
         uid_opt: Option<i32>,
         gid_opt: Option<i32>,
     ) {
-        self.uid_opt = Some(
-            uid_opt.unwrap_or_else(|| self.id_from_env("SUDO_UID").unwrap_or(id_wrapper.getuid())),
-        );
-        self.gid_opt = Some(
-            gid_opt.unwrap_or_else(|| self.id_from_env("SUDO_GID").unwrap_or(id_wrapper.getgid())),
-        );
+        self.uid_opt = Some(uid_opt.unwrap_or_else(|| {
+            self.id_from_env("SUDO_UID")
+                .unwrap_or_else(|| id_wrapper.getuid())
+        }));
+        self.gid_opt = Some(gid_opt.unwrap_or_else(|| {
+            self.id_from_env("SUDO_GID")
+                .unwrap_or_else(|| id_wrapper.getgid())
+        }));
     }
 }
 

@@ -323,7 +323,7 @@ impl ReceivableDaoReal {
             .iter()
             .map(|t| t.block_number)
             .max()
-            .ok_or("no payments given".to_string())?;
+            .ok_or_else(|| "no payments given".to_string())?;
 
         persistent_configuration.set_start_block(block_number)?;
 

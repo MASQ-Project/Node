@@ -221,6 +221,7 @@ impl PersistentConfigurationMock {
         self
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn change_password_params(
         mut self,
         params: &Arc<Mutex<Vec<(Option<String>, String)>>>,

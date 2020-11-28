@@ -412,6 +412,7 @@ impl From<Vec<u8>> for PlainData {
 impl FromStr for PlainData {
     type Err = String;
 
+    #[allow(clippy::manual_strip)]
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let hex = if value.starts_with("0x") {
             &value[2..]

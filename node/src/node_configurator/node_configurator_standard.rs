@@ -548,7 +548,8 @@ pub mod standard {
             Some(db_password) => match persistent_config.past_neighbors(db_password) {
                 Ok(Some(past_neighbors)) => past_neighbors,
                 Ok(None) => vec![],
-                Err(e) => panic!("Could not retrieve past neighbors: {:?}", e),
+                Err(PersistentConfigError::PasswordError) => vec![], // TODO: probably should log something here
+                Err(e) => unimplemented! ("Test-drive me: {:?}", e),
             },
             None => vec![],
         }
@@ -728,8 +729,8 @@ pub mod standard {
         config: &mut BootstrapperConfig,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Option<String> {
-        if config.db_password_opt.is_some() {
-            return config.db_password_opt.clone();
+        if let Some (db_password) = &config.db_password_opt {
+            return Some (db_password.clone())
         }
         let db_password_opt = match value_user_specified_m!(multi_config, "db-password", String) {
             (Some(dbp), _) => Some(dbp),
@@ -1368,8 +1369,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Could not retrieve past neighbors: PasswordError")]
-    fn get_past_neighbors_does_not_like_error_getting_past_neighbors() {
+    fn get_past_neighbors_tolerates_bad_password_but_returns_empty_list() {
         running_test();
         let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
         let persistent_config = PersistentConfigurationMock::new()
@@ -1378,12 +1378,14 @@ mod tests {
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
-        let _ = standard::get_past_neighbors(
+        let result = standard::get_past_neighbors(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
             &persistent_config,
             &mut unprivileged_config,
         );
+
+        assert_eq! (result, vec![]);
     }
 
     #[test]

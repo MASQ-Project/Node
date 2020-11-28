@@ -254,7 +254,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         )?)?;
         let path_rec = writer.get("consuming_wallet_derivation_path")?;
         let check_and_set = |writer: &mut Box<dyn ConfigDaoReadWrite>, seed: PlainData| {
-            if let Ok(_) = Bip32ECKeyPair::from_raw(seed.as_ref(), derivation_path) {
+            if Bip32ECKeyPair::from_raw(seed.as_ref(), derivation_path).is_ok() {
                 writer.set(
                     "consuming_wallet_derivation_path",
                     Some(derivation_path.to_string()),
@@ -270,7 +270,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             (None, Some (seed), None) => {
                 check_and_set (&mut writer, seed)
             },
-            (None, Some (seed), Some (existing_path)) if &existing_path == derivation_path => {
+            (None, Some (seed), Some (existing_path)) if existing_path == derivation_path => {
                 check_and_set (&mut writer, seed)
             },
             (None, Some (_), Some (_)) => Err (PersistentConfigError::Collision("Cannot change existing consuming wallet derivation path".to_string())),
@@ -332,7 +332,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 writer.set("earning_wallet_address", Some(new_address.to_string()))?;
                 Ok(writer.commit()?)
             }
-            Some(existing_address) if new_address == &existing_address => Ok(()),
+            Some(existing_address) if new_address == existing_address => Ok(()),
             Some(_) => Err(PersistentConfigError::Collision(
                 "Cannot change existing earning wallet address".to_string(),
             )),
@@ -406,7 +406,7 @@ impl PersistentConfigurationReal {
     pub fn new(config_dao: Box<dyn ConfigDao>) -> PersistentConfigurationReal {
         PersistentConfigurationReal {
             dao: config_dao,
-            scl: SecureConfigLayer::new(),
+            scl: SecureConfigLayer::default(),
         }
     }
 }

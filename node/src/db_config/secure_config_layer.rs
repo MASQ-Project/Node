@@ -28,11 +28,18 @@ impl From<ConfigDaoError> for SecureConfigLayerError {
 
 pub struct SecureConfigLayer {}
 
+impl Default for SecureConfigLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SecureConfigLayer {
     pub fn new() -> SecureConfigLayer {
         Self {}
     }
 
+    #[allow(clippy::borrowed_box)]
     pub fn check_password<T: ConfigDaoRead + ?Sized>(
         &self,
         db_password_opt: Option<&str>,
@@ -57,7 +64,7 @@ impl SecureConfigLayer {
         self.install_example_for_password(new_password, dao)?;
         Ok(())
     }
-
+    #[allow(clippy::borrowed_box)]
     pub fn encrypt<T: ConfigDaoRead + ?Sized>(
         &self,
         name: &str,
@@ -70,7 +77,7 @@ impl SecureConfigLayer {
         }
         let record = dao.get(name)?;
         match (record.encrypted, plain_value_opt, password_opt) {
-            (false, value_opt, _) => Ok(value_opt.map(|x| x.to_string())),
+            (false, value_opt, _) => Ok(value_opt),
             (true, Some(plain_value), Some(password)) => {
                 match Bip39::encrypt_bytes(&plain_value.as_bytes(), password) {
                     Err(_) => panic!("Encryption of '{}' failed", plain_value),
@@ -82,6 +89,7 @@ impl SecureConfigLayer {
         }
     }
 
+    #[allow(clippy::borrowed_box)]
     pub fn decrypt<T: ConfigDaoRead + ?Sized>(
         &self,
         record: ConfigDaoRecord,
@@ -92,7 +100,7 @@ impl SecureConfigLayer {
             return Err(SecureConfigLayerError::PasswordError);
         }
         match (record.encrypted, record.value_opt, password_opt) {
-            (false, value_opt, _) => Ok(value_opt.map(|x| x.to_string())),
+            (false, value_opt, _) => Ok(value_opt),
             (true, Some(value), Some(password)) => match Bip39::decrypt_bytes(&value, password) {
                 Err(_) => Err(SecureConfigLayerError::DatabaseError(format!(
                     "Password for '{}' does not match database password",
@@ -139,6 +147,7 @@ impl SecureConfigLayer {
         }
     }
 
+    #[allow(clippy::borrowed_box)]
     fn reencrypt_records<T: ConfigDaoReadWrite + ?Sized>(
         &self,
         old_password_opt: Option<&str>,
@@ -163,6 +172,7 @@ impl SecureConfigLayer {
         }
     }
 
+    #[allow(clippy::borrowed_box)]
     fn update_records<T: ConfigDaoReadWrite + ?Sized>(
         &self,
         reencrypted_records: Vec<ConfigDaoRecord>,
@@ -206,6 +216,7 @@ impl SecureConfigLayer {
         }
     }
 
+    #[allow(clippy::borrowed_box)]
     fn install_example_for_password<T: ConfigDaoReadWrite + ?Sized>(
         &self,
         new_password: &str,
@@ -218,12 +229,12 @@ impl SecureConfigLayer {
         let example_encrypted =
             Bip39::encrypt_bytes(&example_data, new_password).expect("Encryption failed");
         dao.set(EXAMPLE_ENCRYPTED, Some(example_encrypted))
-            .map_err(|e| SecureConfigLayerError::from(e))
+            .map_err(SecureConfigLayerError::from)
     }
 }
 
 fn append<T: Clone>(records: Vec<T>, record: T) -> Vec<T> {
-    let mut result = records.clone();
+    let mut result = records;
     result.push(record);
     result
 }
