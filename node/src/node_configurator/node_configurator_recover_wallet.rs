@@ -37,10 +37,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorRecoverWallet {
 
         let config = self.parse_args(&multi_config, streams, persistent_config);
 
-        match update_db_password(&config, persistent_config) {
-            Ok(_) => (),
-            Err(pce) => return Err(pce.into_configurator_error("db-password")),
-        };
+        update_db_password(&config, persistent_config)?;
         create_wallet(&config, persistent_config)?;
 
         Ok(config)

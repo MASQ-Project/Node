@@ -7,9 +7,8 @@ use clap::App;
 use indoc::indoc;
 use masq_lib::command::StdStreams;
 use masq_lib::crash_point::CrashPoint;
-use masq_lib::shared_schema::{shared_app, ui_port_arg, ParamError};
+use masq_lib::shared_schema::{shared_app, ui_port_arg};
 use masq_lib::shared_schema::{ConfiguratorError, UI_PORT_HELP};
-use crate::db_config::persistent_configuration::PersistentConfigError;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -83,7 +82,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             streams,
             Some(persistent_config.as_ref()),
         )?;
-        standard::configure_database(&unprivileged_config, persistent_config.as_mut());
+        standard::configure_database(&unprivileged_config, persistent_config.as_mut())?;
         Ok(unprivileged_config)
     }
 }
@@ -333,20 +332,34 @@ pub mod standard {
     pub fn configure_database(
         config: &BootstrapperConfig,
         persistent_config: &mut (dyn PersistentConfiguration),
-    ) -> Result<(), PersistentConfigError> {
+    ) -> Result<(), ConfiguratorError> {
         if let Some(port) = config.clandestine_port_opt {
-            persistent_config.set_clandestine_port(port)?
+            if let Err(pce) = persistent_config.set_clandestine_port(port) {
+                unimplemented! ("{:?}", pce)// return pce.into_configurator_error("clandestine-port")
+            }
         }
-        if persistent_config.earning_wallet_address()?.is_none() {
-            persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string())?;
+        match persistent_config.earning_wallet_address() {
+            Ok (Some (_)) => (),
+            Ok (None) => if let Err (pce) = persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string()) {
+                unimplemented! ("{:?}", pce)// return Err(pce.into_configurator_error("clandestine-port"))
+            }
+            Err (pce) => unimplemented!("{:?}", pce), // return pce.into_configurator_error("earning-wallet"),
         }
-        persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price)?;
+        if let Err (pce) = persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price) {
+            unimplemented! ("{:?}", pce)// return Err(pce.into_configurator_error("gas-price"))
+        }
+        let consuming_wallet_derivation_path_opt = match persistent_config.consuming_wallet_derivation_path() {
+            Ok(path_opt) => path_opt,
+            Err (pce) => unimplemented!("{:?}", pce), // return Err(pce.into_configurator_error("consuming-wallet")),
+        };
+        let consuming_wallet_public_key_opt = match persistent_config.consuming_wallet_public_key() {
+            Ok(key_opt) => key_opt,
+            Err (pce) => unimplemented!("{:?}", pce), // return Err(pce.into_configurator_error("consuming-wallet")),
+        };
         match &config.consuming_wallet {
             Some(consuming_wallet)
-                if persistent_config
-                    .consuming_wallet_derivation_path()?
-                    .is_none()
-                    && persistent_config.consuming_wallet_public_key()?.is_none() =>
+                if consuming_wallet_derivation_path_opt.is_none()
+                    && consuming_wallet_public_key_opt.is_none() =>
             {
                 let keypair: Bip32ECKeyPair = match consuming_wallet.clone().try_into() {
                     Err(e) => panic!(
@@ -356,7 +369,9 @@ pub mod standard {
                     Ok(keypair) => keypair,
                 };
                 let public_key = PlainData::new(keypair.secret().public().bytes());
-                persistent_config.set_consuming_wallet_public_key(&public_key)?
+                if let Err (pce) = persistent_config.set_consuming_wallet_public_key(&public_key) {
+                    unimplemented!("{:?}", pce); // return Err(pce.into_configurator_error("consuming-wallet"))
+                }
             }
             _ => (),
         };
@@ -2602,8 +2617,9 @@ mod tests {
             .set_gas_price_params(&set_gas_price_params_arc)
             .set_gas_price_result(Ok(()));
 
-        standard::configure_database(&config, &mut persistent_config);
+        let result = standard::configure_database(&config, &mut persistent_config);
 
+        assert_eq! (result, Ok(()));
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
         let set_earning_wallet_address_params =
@@ -2651,8 +2667,9 @@ mod tests {
             .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc)
             .set_consuming_wallet_public_key_result(Ok(()));
 
-        standard::configure_database(&config, &mut persistent_config);
+        let result = standard::configure_database(&config, &mut persistent_config);
 
+        assert_eq! (result, Ok(()));
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
         let set_earning_wallet_address_params =
@@ -2683,7 +2700,7 @@ mod tests {
             .set_consuming_wallet_public_key_params(&set_consuming_public_key_params_arc)
             .set_consuming_wallet_public_key_result(Ok(()));
 
-        standard::configure_database(&config, &mut persistent_config);
+        let _ = standard::configure_database(&config, &mut persistent_config);
     }
 
     #[test]
@@ -2709,8 +2726,9 @@ mod tests {
             .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
             .set_earning_wallet_address_result(Ok(()));
 
-        standard::configure_database(&config, &mut persistent_config);
+        let result = standard::configure_database(&config, &mut persistent_config);
 
+        assert_eq! (result, Ok(()));
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);

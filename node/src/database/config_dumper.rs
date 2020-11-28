@@ -170,10 +170,10 @@ mod tests {
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
-            persistent_config.set_consuming_wallet_public_key(&PlainData::new(&[1, 2, 3, 4]));
+            persistent_config.set_consuming_wallet_public_key(&PlainData::new(&[1, 2, 3, 4])).unwrap();
             persistent_config
-                .set_earning_wallet_address("0x0123456789012345678901234567890123456789");
-            persistent_config.set_clandestine_port(3456);
+                .set_earning_wallet_address("0x0123456789012345678901234567890123456789").unwrap();
+            persistent_config.set_clandestine_port(3456).unwrap();
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())

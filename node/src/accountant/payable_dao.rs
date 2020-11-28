@@ -9,7 +9,7 @@ use serde_json::{self, json};
 use std::fmt::Debug;
 use std::time::SystemTime;
 use web3::types::H256;
-use std::path::PathBuf;
+use crate::database::dao_utils::DaoFactoryReal;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {
@@ -64,19 +64,9 @@ pub trait PayableDaoFactory {
     fn make (&self) -> Box<dyn PayableDao>;
 }
 
-pub struct PayableDaoFactoryReal {
-}
-
-impl PayableDaoFactory for PayableDaoFactoryReal {
+impl PayableDaoFactory for DaoFactoryReal {
     fn make (&self) -> Box<dyn PayableDao> {
-        unimplemented!()
-        // Box::new(PayableDaoReal::new(connection_or_panic(db_initializer, data_directory, chain_id, false)))
-    }
-}
-
-impl PayableDaoFactoryReal {
-    pub fn new (data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
-        Self {}
+        Box::new(PayableDaoReal::new(self.make_connection()))
     }
 }
 

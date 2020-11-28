@@ -41,8 +41,8 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
 
         let config = self.parse_args(&multi_config, streams, persistent_config);
 
-        create_wallet(&config, persistent_config);
-        update_db_password(&config, persistent_config);
+        update_db_password(&config, persistent_config)?;
+        create_wallet(&config, persistent_config)?;
 
         Ok(config)
     }

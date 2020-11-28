@@ -12,14 +12,12 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
-use crate::accountant::payable_dao::{PayableDaoFactoryReal};
-use crate::accountant::receivable_dao::{ReceivableDaoFactoryReal};
-use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoFactoryReal};
+use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
-use crate::db_config::config_dao::{ConfigDaoReal, ConfigDaoFactoryReal};
+use crate::db_config::config_dao::{ConfigDaoReal};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE, connection_or_panic};
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::AccountantSubs;
@@ -43,6 +41,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
+use crate::database::dao_utils::DaoFactoryReal;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -283,11 +282,11 @@ impl ActorFactory for ActorFactoryReal {
     ) -> AccountantSubs {
         let cloned_config = config.clone();
         let chain_id = config.blockchain_bridge_config.chain_id;
-        let payable_dao_factory = PayableDaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
-        let receivable_dao_factory = ReceivableDaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
-        let banned_dao_factory = BannedDaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
+        let payable_dao_factory = DaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
+        let receivable_dao_factory = DaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
+        let banned_dao_factory = DaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
         banned_cache_loader.load(connection_or_panic(db_initializer, data_directory, chain_id, false));
-        let config_dao_factory = ConfigDaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
+        let config_dao_factory = DaoFactoryReal::new (data_directory, config.blockchain_bridge_config.chain_id, false);
         let addr: Addr<Accountant> = Arbiter::start(move |_| Accountant::new(
             &cloned_config,
             Box::new (payable_dao_factory),
@@ -367,16 +366,15 @@ impl ActorFactory for ActorFactoryReal {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests{
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::test_utils::{
-        ConnectionWrapperMock, DbInitializerMock,
+        DbInitializerMock,
     };
-    use crate::database::db_initializer::InitializationError;
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
@@ -424,7 +422,6 @@ mod tests {
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
-    use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;

@@ -3,7 +3,7 @@ use crate::accountant::{jackass_unsigned_to_signed, PaymentCurves, PaymentError}
 use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
-use crate::database::dao_utils::to_time_t;
+use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigError};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
@@ -12,7 +12,6 @@ use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
 use std::time::SystemTime;
-use std::path::PathBuf;
 
 #[derive (Debug, PartialEq)]
 pub enum ReceivableDaoError {
@@ -69,19 +68,9 @@ pub trait ReceivableDaoFactory {
     fn make (&self) -> Box<dyn ReceivableDao>;
 }
 
-pub struct ReceivableDaoFactoryReal {
-}
-
-impl ReceivableDaoFactory for ReceivableDaoFactoryReal {
+impl ReceivableDaoFactory for DaoFactoryReal {
     fn make (&self) -> Box<dyn ReceivableDao> {
-        unimplemented!()
-        // Box::new(PayableDaoReal::new(connection_or_panic(db_initializer, data_directory, chain_id, false)))
-    }
-}
-
-impl ReceivableDaoFactoryReal {
-    pub fn new (data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
-        Self {}
+        Box::new(ReceivableDaoReal::new(self.make_connection()))
     }
 }
 
@@ -344,14 +333,16 @@ impl ReceivableDaoReal {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
                     Ok(amount) => amount,
-                    Err(e) => unimplemented!(), //return Err(format!("Amount too large: {:?}", e)),
+                    Err(e) => unimplemented!("{:?}", e), //return Err(format!("Amount too large: {:?}", e)),
                 };
                 let params: &[&dyn ToSql] = &[&gwei_amount, &timestamp, &transaction.from];
                 stmt.execute(params).map_err(|e| e.to_string())?;
             }
         }
-        tx.commit();
-        Ok(())
+        match tx.commit() {
+            Err (e) => unimplemented! ("{:?}", e),
+            Ok (_) => Ok (()),
+        }
     }
 
     fn row_to_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {

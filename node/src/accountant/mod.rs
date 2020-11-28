@@ -703,7 +703,7 @@ pub fn jackass_unsigned_to_signed(unsigned: u64) -> Result<i64, PaymentError> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::receivable_dao::{ReceivableAccount, ReceivableDaoFactory};
     use crate::accountant::test_utils::make_receivable_account;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::Transaction;
@@ -2867,10 +2867,6 @@ pub mod tests {
         bc.consuming_wallet = Some(consuming_wallet);
         bc.earning_wallet = earning_wallet;
         bc
-    }
-
-    fn null_config() -> Box<dyn PersistentConfiguration> {
-        Box::new(PersistentConfigurationMock::new().start_block_result(Ok(Some(0))))
     }
 
     fn make_subject (

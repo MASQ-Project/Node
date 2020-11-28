@@ -10,7 +10,7 @@ use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
@@ -172,7 +172,7 @@ pub fn create_wallet(
     if let Some(address) = &config.earning_wallet_address_opt {
         match persistent_config.set_earning_wallet_address(address) {
             Ok(_) => (),
-            Err(pce) => unimplemented! ("Test-drive me!"), //return Err (pce.into_configurator_error("earning-wallet")),
+            Err(pce) => unimplemented! ("Test-drive me: {:?}", pce), //return Err (pce.into_configurator_error("earning-wallet")),
         }
     }
     if let Some(derivation_path_info) = &config.derivation_path_info_opt {
@@ -191,7 +191,7 @@ pub fn create_wallet(
                 &derivation_path_info.db_password,
             ) {
                 Ok (_) => (),
-                Err (pce) => unimplemented!("Test-drive me!"), //return Err (pce.into_configurator_error("consuming-wallet")),
+                Err (pce) => unimplemented!("Test-drive me: {:?}", pce), //return Err (pce.into_configurator_error("consuming-wallet")),
             }
         }
     }
@@ -217,9 +217,11 @@ pub fn initialize_database(
 pub fn update_db_password(
     wallet_config: &WalletCreationConfig,
     persistent_config: &mut (dyn PersistentConfiguration),
-) -> Result<(), PersistentConfigError> {
+) -> Result<(), ConfiguratorError> {
     match &wallet_config.derivation_path_info_opt {
-        Some(dpwi) => persistent_config.change_password(None, &dpwi.db_password)?,
+        Some(dpwi) => if let Err (pce) = persistent_config.change_password(None, &dpwi.db_password) {
+            unimplemented! ("{:?}", pce); // return Err (pce.into_configurator_error("db-password"))
+        },
         None => (),
     };
     Ok(())
@@ -1595,8 +1597,9 @@ mod tests {
             .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
             .set_earning_wallet_address_result(Ok(()));
 
-        create_wallet(&config, &mut persistent_config);
+        let result = create_wallet(&config, &mut persistent_config);
 
+        assert_eq! (result, Ok(()));
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
@@ -1641,8 +1644,9 @@ mod tests {
             .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
             .set_earning_wallet_address_result(Ok(()));
 
-        create_wallet(&config, &mut persistent_config);
+        let result = create_wallet(&config, &mut persistent_config);
 
+        assert_eq! (result, Ok(()));
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
@@ -1675,8 +1679,9 @@ mod tests {
         let mut persistent_config =
             PersistentConfigurationMock::new().change_password_params(&set_password_params_arc);
 
-        update_db_password(&wallet_config, &mut persistent_config);
+        let result = update_db_password(&wallet_config, &mut persistent_config);
 
+        assert_eq! (result, Ok(()));
         let set_password_params = set_password_params_arc.lock().unwrap();
         assert!(set_password_params.is_empty());
     }
