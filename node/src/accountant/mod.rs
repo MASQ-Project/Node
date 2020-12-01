@@ -222,7 +222,6 @@ impl Handler<NodeFromUiMessage> for Accountant {
 
 impl Accountant {
     pub fn new(
-        //lifitime a removed
         config: &BootstrapperConfig,
         payable_dao_factory: Box<dyn PayableDaoFactory>,
         receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
