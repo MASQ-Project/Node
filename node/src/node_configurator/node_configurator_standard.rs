@@ -840,14 +840,13 @@ pub mod standard {
         #[test]
         fn configure_database_handles_error_setting_consuming_wallet_public_key() {
             let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = Some (1000);
-
+            config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
                 .set_gas_price_result(Ok(()))
                 .consuming_wallet_public_key_result(Err(PersistentConfigError::BadAddressFormat("baaad".to_string())))
-                .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())));
+                .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())))
+            ;
 
             let result = configure_database(&config, &mut persistent_config);
 
@@ -858,14 +857,9 @@ pub mod standard {
         fn configure_database_handles_error_during_setting_clandestine_port() {
             let mut config = BootstrapperConfig::new();
             config.clandestine_port_opt = Some (1000);
-
             let mut persistent_config = PersistentConfigurationMock::new()
                 .set_clandestine_port_result(Err(PersistentConfigError::TransactionError))
-                // .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
-                // .set_gas_price_result(Ok(()))
-                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                // .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent))
-                ;
+            ;
 
             let result = configure_database(&config, &mut persistent_config);
 
@@ -875,14 +869,13 @@ pub mod standard {
         #[test]
         fn configure_database_handles_error_setting_consuming_wallet_derivation_path() {
             let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = Some (1000);
-
+            config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
                 .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
                 .set_gas_price_result(Ok(()))
-                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
+                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent))
+            ;
 
             let result = configure_database(&config, &mut persistent_config);
 
@@ -892,15 +885,10 @@ pub mod standard {
         #[test]
         fn configure_database_handles_error_during_setting_earning_wallet_address() {
             let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = Some (1000);
-
+            config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result (Ok(None))
                 .set_earning_wallet_address_result(Err(PersistentConfigError::TransactionError))
-                // .set_gas_price_result(Ok(()))
-                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                // .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent))
             ;
 
             let result = configure_database(&config, &mut persistent_config);
@@ -911,17 +899,15 @@ pub mod standard {
         #[test]
         fn configure_database_handles_error_during_setting_consuming_wallet_public_key() {
             let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = Some (1000);
             config.consuming_wallet = Some(make_paying_wallet(b"wallet"));
-
             let mut persistent_config = PersistentConfigurationMock::new()
-                .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result (Ok(None))
                 .set_earning_wallet_address_result(Ok(()))
                 .set_gas_price_result(Ok(()))
                 .consuming_wallet_public_key_result(Ok(None))
                 .consuming_wallet_derivation_path_result(Ok(None))
-                .set_consuming_wallet_public_key_result(Err(PersistentConfigError::TransactionError));
+                .set_consuming_wallet_public_key_result(Err(PersistentConfigError::TransactionError))
+            ;
 
             let result = configure_database(&config, &mut persistent_config);
 
@@ -931,14 +917,10 @@ pub mod standard {
         #[test]
         fn configure_database_handles_error_during_setting_gas_price() {
             let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = Some (1000);
-
+            config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
                 .set_gas_price_result(Err(PersistentConfigError::TransactionError))
-                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                // .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())))
             ;
 
             let result = configure_database(&config, &mut persistent_config);
@@ -949,15 +931,10 @@ pub mod standard {
         #[test]
         fn configure_database_handles_error_setting_earning_wallet_address() {
             let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = Some (1000);
-
+            config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                .set_clandestine_port_result(Ok(()))
-                .earning_wallet_address_result(Err(PersistentConfigError::BadAddressFormat("baaad".to_string())))
-                // .set_gas_price_result(Ok(()))
-                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                // .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())))
-            ;
+                   .earning_wallet_address_result(Err(PersistentConfigError::BadAddressFormat("baaad".to_string())))
+           ;
 
             let result = configure_database(&config, &mut persistent_config);
 
