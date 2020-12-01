@@ -637,7 +637,7 @@ pub mod standard {
         let earning_wallet_from_database_opt = match persistent_config.earning_wallet_from_address()
         {
             Ok(ewfdo) => ewfdo,
-            Err(e) => unimplemented!("Test-drive me: {:?}", e),
+            Err(e) => return Err(e.into_configurator_error("earning-wallet")),
         };
         match (
             earning_wallet_from_command_line_opt,
@@ -689,7 +689,7 @@ pub mod standard {
                     e => panic!("{:?}", e),
                 },
             },
-            Err(e) => unimplemented!("Test-drive me: {:?}", e),
+            Err(e) => Err(e.into_configurator_error("consuming-wallet")),
         }
     }
 
@@ -711,7 +711,7 @@ pub mod standard {
                                         return Err(ConfiguratorError::required("consuming-private-key", "Not the private key of the consuming wallet you have used in the past"));
                                     }
                                 }
-                                Err(e) => unimplemented!("Test-drive me: {:?}", e),
+                                Err(e) => return Err(e.into_configurator_error ("consuming-private-key")),
                             }
                             Ok(Some(Wallet::from(keypair)))
                         }
@@ -834,6 +834,109 @@ pub mod standard {
             .unwrap();
 
             assert_eq! (result, ConfiguratorError::required("consuming-private-key", "Cannot use when database contains mnemonic seed and consuming wallet derivation path"))
+        }
+
+        #[test]
+        fn configure_database_handles_error_setting_consuming_wallet_public_key() {
+            let mut config = BootstrapperConfig::new();
+            config.clandestine_port_opt = Some (1000);
+
+            let persistent_config = PersistentConfigurationMock::new()
+                .set_clandestine_port_result(Ok(()))
+                .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
+            ;
+            /*
+        if let Err(pce) = persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price)
+        {
+            unimplemented!("{:?}", pce) // return Err(pce.into_configurator_error("gas-price"))
+        }
+        let consuming_wallet_derivation_path_opt =
+            match persistent_config.consuming_wallet_derivation_path() {
+                Ok(path_opt) => path_opt,
+                Err(pce) => unimplemented!("{:?}", pce), // return Err(pce.into_configurator_error("consuming-wallet")),
+            };
+        let consuming_wallet_public_key_opt = match persistent_config.consuming_wallet_public_key()
+        {
+            Ok(key_opt) => key_opt,
+            Err(pce) => unimplemented!("{:?}", pce), // return Err(pce.into_configurator_error("consuming-wallet")),
+        };
+        match &config.consuming_wallet {
+            Some(consuming_wallet)
+                if consuming_wallet_derivation_path_opt.is_none()
+                    && consuming_wallet_public_key_opt.is_none() =>
+            {
+                let keypair: Bip32ECKeyPair = match consuming_wallet.clone().try_into() {
+                    Err(e) => panic!(
+                        "Internal error: consuming wallet must be derived from keypair: {:?}",
+                        e
+                    ),
+                    Ok(keypair) => keypair,
+                };
+                let public_key = PlainData::new(keypair.secret().public().bytes());
+                if let Err(pce) = persistent_config.set_consuming_wallet_public_key(&public_key) {
+                    unimplemented!("{:?}", pce); // return Err(pce.into_configurator_error("consuming-wallet"))
+                }
+            }
+            _ => (),
+        };
+        Ok(())
+
+             */
+
+            let result = configure_database(&config, &persistent_config);
+
+            assert_eq! (result, Err(PersistentConfigError::TransactionError.into_configurator_error("consuming-wallet")))
+        }
+
+        #[test]
+        fn get_earning_wallet_from_address_handles_error_retrieving_earning_wallet_from_address() {
+            let args = ArgsBuilder::new()
+                .param(
+                    "--earning-wallet",
+                    "0x0123456789012345678901234567890123456789",
+                );
+            let vcls: Vec<Box<dyn VirtualCommandLine>> =
+                vec![Box::new(CommandLineVcl::new(args.into()))];
+            let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+            let persistent_config = PersistentConfigurationMock::new()
+                .earning_wallet_from_address_result(Err (PersistentConfigError::NotPresent));
+
+            let result = get_earning_wallet_from_address(&multi_config, &persistent_config);
+
+            assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("earning-wallet")));
+        }
+
+        #[test]
+        fn get_consuming_wallet_opt_from_derivation_path_handles_error_retrieving_consuming_wallet_derivation_path() {
+            let persistent_config = PersistentConfigurationMock::new()
+                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::Collision ("irrelevant".to_string())));
+
+            let result = get_consuming_wallet_opt_from_derivation_path(&persistent_config, "irrelevant");
+
+            assert_eq! (result, Err(ConfiguratorError::new(vec! [
+                ParamError::new ("consuming-wallet", &format! ("{:?}", PersistentConfigError::Collision ("irrelevant".to_string()))),
+            ])))
+        }
+
+        #[test]
+        fn get_consuming_wallet_from_private_key_handles_error_retrieving_consuming_wallet_public_key() {
+            let args = ArgsBuilder::new()
+                .param(
+                    "--consuming-private-key",
+                    "00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF",
+                )
+                .param("--db-password", "booga");
+            let vcls: Vec<Box<dyn VirtualCommandLine>> =
+                vec![Box::new(CommandLineVcl::new(args.into()))];
+            let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+            let persistent_config = PersistentConfigurationMock::new()
+                .consuming_wallet_public_key_result(Err (PersistentConfigError::NotPresent));
+
+            let result = get_consuming_wallet_from_private_key(&multi_config, &persistent_config);
+
+            assert_eq! (result, Err(ConfiguratorError::new (vec![
+                ParamError::new ("consuming-private-key", &format! ("{:?}", PersistentConfigError::NotPresent)),
+            ])));
         }
 
         #[test]
