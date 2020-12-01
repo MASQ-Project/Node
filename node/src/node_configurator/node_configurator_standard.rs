@@ -861,10 +861,11 @@ pub mod standard {
 
             let mut persistent_config = PersistentConfigurationMock::new()
                 .set_clandestine_port_result(Err(PersistentConfigError::TransactionError))
-                .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
-                .set_gas_price_result(Ok(()))
-                .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
+                // .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
+                // .set_gas_price_result(Ok(()))
+                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
+                // .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent))
+                ;
 
             let result = configure_database(&config, &mut persistent_config);
 
@@ -880,7 +881,7 @@ pub mod standard {
                 .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
                 .set_gas_price_result(Ok(()))
-                .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
+                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
                 .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
 
             let result = configure_database(&config, &mut persistent_config);
@@ -897,9 +898,10 @@ pub mod standard {
                 .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result (Ok(None))
                 .set_earning_wallet_address_result(Err(PersistentConfigError::TransactionError))
-                .set_gas_price_result(Ok(()))
-                .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
+                // .set_gas_price_result(Ok(()))
+                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
+                // .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent))
+            ;
 
             let result = configure_database(&config, &mut persistent_config);
 
@@ -935,8 +937,9 @@ pub mod standard {
                 .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
                 .set_gas_price_result(Err(PersistentConfigError::TransactionError))
-                .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())));
+                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
+                // .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())))
+            ;
 
             let result = configure_database(&config, &mut persistent_config);
 
@@ -951,9 +954,10 @@ pub mod standard {
             let mut persistent_config = PersistentConfigurationMock::new()
                 .set_clandestine_port_result(Ok(()))
                 .earning_wallet_address_result(Err(PersistentConfigError::BadAddressFormat("baaad".to_string())))
-                .set_gas_price_result(Ok(()))
-                .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
-                .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())));
+                // .set_gas_price_result(Ok(()))
+                // .consuming_wallet_public_key_result(Ok(Some(PlainData::from_str("0123456789012345678901234567890123456789").unwrap())))
+                // .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())))
+            ;
 
             let result = configure_database(&config, &mut persistent_config);
 
