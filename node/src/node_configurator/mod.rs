@@ -174,7 +174,7 @@ pub fn create_wallet(
     if let Some(address) = &config.earning_wallet_address_opt {
         match persistent_config.set_earning_wallet_address(address) {
             Ok(_) => (),
-            Err(pce) => unimplemented!("Test-drive me: {:?}", pce), //return Err (pce.into_configurator_error("earning-wallet")),
+            Err(pce) => return Err (pce.into_configurator_error("earning-wallet")),
         }
     }
     if let Some(derivation_path_info) = &config.derivation_path_info_opt {
@@ -192,7 +192,7 @@ pub fn create_wallet(
                 &derivation_path_info.db_password,
             ) {
                 Ok(_) => (),
-                Err(pce) => unimplemented!("Test-drive me: {:?}", pce), //return Err (pce.into_configurator_error("consuming-wallet")),
+                Err(pce) => return Err (pce.into_configurator_error("consuming-wallet")),
             }
         }
     }
@@ -727,6 +727,7 @@ mod tests {
     use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
 
     #[test]
     fn validate_ethereum_address_requires_an_address_that_is_42_characters_long() {
@@ -1671,6 +1672,42 @@ mod tests {
             *set_earning_wallet_address_params,
             vec!["0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q".to_string()]
         );
+    }
+
+    #[test]
+    pub fn create_wallet_handles_error_setting_earning_wallet() {
+        let config = WalletCreationConfig{
+            earning_wallet_address_opt: Some("irrelevant".to_string()),
+            derivation_path_info_opt: None,
+            real_user: RealUser::new(None, None, None),
+        };
+        let mut persistent_config = PersistentConfigurationMock::new ()
+            .set_earning_wallet_address_result(Err(PersistentConfigError::NotPresent));
+
+        let result = create_wallet(&config, &mut persistent_config);
+
+        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("earning-wallet")));
+    }
+
+    #[test]
+    pub fn create_wallet_handles_error_setting_consuming_wallet_derivation_path() {
+        let config = WalletCreationConfig{
+            earning_wallet_address_opt: Some("irrelevant".to_string()),
+            derivation_path_info_opt: Some (DerivationPathWalletInfo {
+                mnemonic_seed: PlainData::new (b""),
+                db_password: "password".to_string(),
+                consuming_derivation_path_opt: Some("irrelevant".to_string())
+            }),
+            real_user: RealUser::new(None, None, None),
+        };
+        let mut persistent_config = PersistentConfigurationMock::new ()
+            .set_earning_wallet_address_result(Ok(()))
+            .set_mnemonic_seed_result(Ok(()))
+            .set_consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
+
+        let result = create_wallet(&config, &mut persistent_config);
+
+        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-wallet")));
     }
 
     #[test]

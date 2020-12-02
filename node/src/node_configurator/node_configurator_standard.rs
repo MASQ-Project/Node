@@ -1741,10 +1741,10 @@ mod tests {
                 "--earning-wallet",
                 "0x0123456789012345678901234567890123456789",
             )
-            // .param(
-            //     "--consuming-private-key",
-            //     "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
-            // )
+            .param(
+                "--consuming-private-key",
+                "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
+            )
             .param("--real-user", "999:999:/home/booga");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
