@@ -3,32 +3,6 @@
 use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
 
-// pub trait TransactionWrapper<'a>: Drop {
-//     fn commit(&mut self);
-// }
-//
-// pub struct TransactionWrapperReal<'a> {
-//     transaction: Transaction<'a>,
-// }
-//
-// impl<'a> TransactionWrapper<'a> for TransactionWrapperReal<'a> {
-//     fn commit(&mut self) {
-//         unimplemented!()
-//     }
-// }
-//
-// impl<'a> Drop for TransactionWrapperReal<'a> {
-//     fn drop(&mut self) {
-//         unimplemented!()
-//     }
-// }
-//
-// impl<'a> From<Transaction<'a>> for TransactionWrapperReal<'a> {
-//     fn from(transaction: Transaction<'a>) -> Self {
-//         Self { transaction }
-//     }
-// }
-
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, rusqlite::Error>;

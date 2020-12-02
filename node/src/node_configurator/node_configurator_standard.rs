@@ -170,7 +170,7 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
+    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT, DEFAULT_GAS_PRICE};
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
@@ -303,7 +303,7 @@ pub mod standard {
             match persistent_config_opt {
                 Some(persistent_config) => match persistent_config.gas_price() {
                     Ok(Some(price)) => price,
-                    Ok(None) => unimplemented!("Test-drive me!"),
+                    Ok(None) => DEFAULT_GAS_PRICE.parse().expect ("DEFAULT_GAS_PRICE bad syntax"),
                     Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 },
                 None => 1,
@@ -412,21 +412,23 @@ pub mod standard {
                 .mnemonic_seed_exists()
                 .expect("Test-drive me!")
         {
-            if let Some(db_password) =
-                standard::get_db_password(multi_config, streams, config, persistent_config)
-            {
-                if consuming_wallet_opt.is_none() {
-                    consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
-                        persistent_config,
-                        &db_password,
-                    )?;
-                } else if persistent_config
-                    .consuming_wallet_derivation_path()
-                    .expect("Test-drive me!")
-                    .is_some()
-                {
-                    return Err(ConfiguratorError::required("consuming-private-key", "Cannot use when database contains mnemonic seed and consuming wallet derivation path"));
-                }
+            match standard::get_db_password(multi_config, streams, config, persistent_config) {
+                Ok(Some(db_password)) => {
+                    if consuming_wallet_opt.is_none() {
+                        consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
+                            persistent_config,
+                            &db_password,
+                        )?;
+                    } else if persistent_config
+                        .consuming_wallet_derivation_path()
+                        .expect("Test-drive me!")
+                        .is_some()
+                    {
+                        return Err(ConfiguratorError::required("consuming-private-key", "Cannot use when database contains mnemonic seed and consuming wallet derivation path"));
+                    }
+                },
+                Ok(None) => (),
+                Err(e) => unimplemented! ("{:?}", e),
             }
         }
         config.consuming_wallet = consuming_wallet_opt;
@@ -547,7 +549,7 @@ pub mod standard {
                 unprivileged_config,
                 persistent_config,
             ) {
-                Some(db_password) => match persistent_config.past_neighbors(db_password) {
+                Ok(Some(db_password)) => match persistent_config.past_neighbors(db_password) {
                     Ok(Some(past_neighbors)) => past_neighbors,
                     Ok(None) => vec![],
                     Err(PersistentConfigError::PasswordError) => vec![], // TODO: probably should log something here
@@ -558,7 +560,8 @@ pub mod standard {
                         )]))
                     }
                 },
-                None => vec![],
+                Ok(None) => vec![],
+                Err(e) => unimplemented! ("{:?}", e),
             },
         )
     }
@@ -736,24 +739,27 @@ pub mod standard {
         streams: &mut StdStreams,
         config: &mut BootstrapperConfig,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> Option<String> {
+    ) -> Result<Option<String>, ConfiguratorError> {
         if let Some(db_password) = &config.db_password_opt {
-            return Some(db_password.clone());
+            return Ok(Some(db_password.clone()));
         }
         let db_password_opt = match value_user_specified_m!(multi_config, "db-password", String) {
             (Some(dbp), _) => Some(dbp),
             (None, false) => None,
-            (None, true) => request_existing_db_password(
+            (None, true) => match request_existing_db_password(
                 streams,
                 Some("Decrypt information from previous runs"),
                 "Enter password: ",
                 persistent_config,
-            ),
+            ) {
+                Ok(password_opt) => password_opt,
+                Err(e) => unimplemented! ("{:?}", e),
+            },
         };
         if let Some(db_password) = &db_password_opt {
             config.db_password_opt = Some(db_password.clone());
         };
-        db_password_opt
+        Ok(db_password_opt)
     }
 
     #[cfg(test)]
@@ -1163,7 +1169,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::make_default_persistent_configuration;
+    use crate::test_utils::{make_default_persistent_configuration};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
@@ -1963,6 +1969,28 @@ mod tests {
     }
 
     #[test]
+    fn unprivileged_parse_args_handles_missing_gas_price () {
+        let multi_config= make_multi_config(ArgsBuilder::new()
+            .param ("--ip", "1.2.3.4")
+        );
+        let mut unprivileged_config = BootstrapperConfig::new();
+        let mut holder = FakeStreamHolder::new();
+        let persistent_config = PersistentConfigurationMock::new()
+            .gas_price_result(Ok (None))
+            .earning_wallet_from_address_result (Ok(Some(Wallet::new("0x0123456789012345678901234567890123456789"))))
+            .mnemonic_seed_exists_result(Ok(false));
+
+        standard::unprivileged_parse_args(
+            &multi_config,
+            &mut unprivileged_config,
+            &mut holder.streams(),
+            Some(&persistent_config)
+        ).unwrap();
+
+        assert_eq! (unprivileged_config.blockchain_bridge_config.gas_price, DEFAULT_GAS_PRICE.parse::<u64>().unwrap());
+    }
+
+    #[test]
     fn privileged_parse_args_creates_configuration_with_defaults() {
         running_test();
         let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
@@ -2546,7 +2574,7 @@ mod tests {
             &persistent_config,
         );
 
-        assert_eq!(result, Some("password".to_string()));
+        assert_eq!(result, Ok(Some("password".to_string())));
     }
 
     #[test]
@@ -2565,7 +2593,7 @@ mod tests {
             &persistent_config,
         );
 
-        assert_eq!(result, None);
+        assert_eq!(result, Ok(None));
     }
 
     #[test]

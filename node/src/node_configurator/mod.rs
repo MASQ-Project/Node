@@ -10,9 +10,7 @@ use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::db_config::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal,
-};
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
@@ -222,7 +220,7 @@ pub fn update_db_password(
     match &wallet_config.derivation_path_info_opt {
         Some(dpwi) => {
             if let Err(pce) = persistent_config.change_password(None, &dpwi.db_password) {
-                unimplemented!("{:?}", pce); // return Err (pce.into_configurator_error("db-password"))
+                return Err (pce.into_configurator_error("db-password"))
             }
         }
         None => (),
@@ -337,6 +335,9 @@ pub fn request_new_db_password(
                 &format!("Could not elicit wallet encryption password: {:?}\n", e),
             );
             None
+        },
+        Err(PasswordError::InternalError(e)) => {
+            unimplemented! ("Test-drive me: {:?}", e)
         }
     }
 }
@@ -346,29 +347,32 @@ pub fn request_existing_db_password(
     possible_preamble: Option<&str>,
     prompt: &str,
     persistent_config: &dyn PersistentConfiguration,
-) -> Option<String> {
-    if persistent_config.check_password(None) == Ok(true) {
-        return None;
+) -> Result<Option<String>, ConfiguratorError> {
+    match persistent_config.check_password(None) {
+        Ok(true) => return Ok(None),
+        Ok(false) => (),
+        Err(pce) => return Err(pce.into_configurator_error("db-password")),
     }
     if let Some(preamble) = possible_preamble {
         flushed_write(streams.stdout, &format!("{}\n", preamble))
     };
     let verifier = move |password: &str| {
         if password.is_empty() {
-            return Err("Password must not be blank.".to_string());
+            return Err(PasswordVerificationError::YourFault("Password must not be blank.".to_string()));
         }
         match persistent_config.check_password(Some(password)) {
             Ok(true) => Ok(()),
-            Ok(false) => Err("Incorrect password.".to_string()),
-            Err(e) => unimplemented!("Test-drive me: {:?}", e),
+            Ok(false) => Err(PasswordVerificationError::YourFault("Incorrect password.".to_string())),
+            Err(pce) => return Err(PasswordVerificationError::MyFault(pce)),
         }
     };
-    match request_password_with_retry(prompt, streams, |streams| {
+    let result = match request_password_with_retry(prompt, streams, |streams| {
         request_existing_password(streams, verifier)
     }) {
         Ok(ref password) if password.is_empty() => None,
         Ok(password) => Some(password),
         Err(PasswordError::RetriesExhausted) => None,
+        Err(PasswordError::InternalError(pce)) => return Err(pce.into_configurator_error("db-password")),
         Err(e) => {
             flushed_write(
                 streams.stdout,
@@ -376,7 +380,8 @@ pub fn request_existing_db_password(
             );
             None
         }
-    }
+    };
+    Ok(result)
 }
 
 pub fn cannot_be_blank(password: &str) -> Result<(), String> {
@@ -392,6 +397,12 @@ pub enum PasswordError {
     Mismatch,
     RetriesExhausted,
     VerifyError(String),
+    InternalError(PersistentConfigError),
+}
+
+pub enum PasswordVerificationError {
+    YourFault(String),
+    MyFault(PersistentConfigError),
 }
 
 pub fn request_existing_password<F>(
@@ -399,13 +410,14 @@ pub fn request_existing_password<F>(
     verifier: F,
 ) -> Result<String, PasswordError>
 where
-    F: FnOnce(&str) -> Result<(), String>,
+    F: FnOnce(&str) -> Result<(), PasswordVerificationError>,
 {
     let reader_opt = possible_reader_from_stream(streams);
     let password = read_password_with_reader(reader_opt).expect("Fatal error");
     match verifier(&password) {
         Ok(_) => Ok(password),
-        Err(msg) => Err(PasswordError::VerifyError(msg)),
+        Err(PasswordVerificationError::YourFault(msg)) => Err(PasswordError::VerifyError(msg)),
+        Err(PasswordVerificationError::MyFault(pce)) => Err(PasswordError::InternalError(pce)),
     }
 }
 
@@ -455,6 +467,7 @@ where
             Err(PasswordError::VerifyError(msg)) => {
                 flushed_write(streams.stdout, &format!("{} {}\n", msg, attempt))
             }
+            Err(PasswordError::InternalError(pce)) => return Err(PasswordError::InternalError(pce)),
             Err(e) => flushed_write(streams.stdout, &format!("{:?} {}\n", e, attempt)),
         }
     }
@@ -1174,7 +1187,7 @@ mod tests {
             &persistent_configuration,
         );
 
-        assert_eq!(actual, Some("Too Many S3cr3ts!".to_string()));
+        assert_eq!(actual, Ok(Some("Too Many S3cr3ts!".to_string())));
         assert_eq!(
             stdout_writer.get_string(),
             "Decrypt wallet\n\
@@ -1202,7 +1215,7 @@ mod tests {
             &persistent_configuration,
         );
 
-        assert_eq!(actual, Some("booga".to_string()));
+        assert_eq!(actual, Ok(Some("booga".to_string())));
         assert_eq!(
             stdout_writer.get_string(),
             "Decrypt wallet\n\
@@ -1211,6 +1224,44 @@ mod tests {
              Enter password: "
                 .to_string()
         );
+    }
+
+    #[test]
+    fn request_existing_db_password_handles_error_checking_for_no_password() {
+        let mut holder = FakeStreamHolder::new();
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Err(PersistentConfigError::NotPresent));
+
+        let result = request_existing_db_password(
+            &mut holder.streams(),
+            None,
+            "prompt",
+            &persistent_config,
+        );
+
+        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("db-password")))
+    }
+
+    #[test]
+    fn request_existing_db_password_handles_error_checking_for_entered_password() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let mut streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(false))
+            .check_password_result(Err(PersistentConfigError::NotPresent));
+
+        let result = request_existing_db_password(
+            &mut streams,
+            None,
+            "prompt",
+            &persistent_config,
+        );
+
+        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("db-password")))
     }
 
     #[test]
@@ -1238,7 +1289,7 @@ mod tests {
             &persistent_configuration,
         );
 
-        assert_eq!(actual, None);
+        assert_eq!(actual, Ok(None));
         assert_eq!(
             stdout_writer.get_string(),
             "Decrypt wallet\n\
@@ -1280,7 +1331,7 @@ mod tests {
             &persistent_configuration,
         );
 
-        assert_eq!(actual, None);
+        assert_eq!(actual, Ok(None));
         assert_eq!(stdout_writer.get_string(), "".to_string());
     }
 
@@ -1748,6 +1799,25 @@ mod tests {
 
         let set_password_params = set_password_params_arc.lock().unwrap();
         assert_eq!(*set_password_params, vec![(None, "booga".to_string())]);
+    }
+
+    #[test]
+    pub fn update_db_password_handles_error_changing_password () {
+        let wallet_config = WalletCreationConfig {
+            earning_wallet_address_opt: None,
+            derivation_path_info_opt: Some (DerivationPathWalletInfo {
+                mnemonic_seed: PlainData::new (b""),
+                db_password: "password".to_string(),
+                consuming_derivation_path_opt: None
+            }),
+            real_user: RealUser::new (None, None, None)
+        };
+        let mut persistent_config = PersistentConfigurationMock::new ()
+            .change_password_result(Err(PersistentConfigError::TransactionError));
+
+        let result = update_db_password(&wallet_config, &mut persistent_config);
+
+        assert_eq! (result, Err(PersistentConfigError::TransactionError.into_configurator_error("db-password")));
     }
 
     #[test]
