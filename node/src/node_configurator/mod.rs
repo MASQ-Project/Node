@@ -35,6 +35,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
+//use openssl::conf::Conf;
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -303,7 +304,7 @@ pub fn prepare_initialization_mode<'a>(
     match persistent_config_box.mnemonic_seed_exists() {
         Ok(true) => exit_process(1, "Cannot re-initialize Node: already initialized"),
         Ok(false) => (),
-        Err(pce) => unimplemented!("Test-drive me: {:?}", pce),
+        Err(pce) => unimplemented!("Test-drive me: {:?}", pce), //return Err(pce.into_configurator_error())
     }
     Ok((multi_config, persistent_config_box))
 }
@@ -726,7 +727,7 @@ mod tests {
     use bip39::{Mnemonic, MnemonicType, Seed};
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::multi_config::MultiConfig;
-    use masq_lib::shared_schema::db_password_arg;
+    use masq_lib::shared_schema::{db_password_arg};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::{
@@ -738,6 +739,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
     use crate::db_config::persistent_configuration::PersistentConfigError;
+    use rusqlite::{NO_PARAMS, OpenFlags, Connection};
 
     #[test]
     fn validate_ethereum_address_requires_an_address_that_is_42_characters_long() {
@@ -979,6 +981,52 @@ mod tests {
         App::new("test")
             .arg(data_directory_arg())
             .arg(config_file_arg())
+    }
+
+    #[test]  //I believe, Dan, that this is untestable, this time for real.
+    fn prepare_initialization_mode_handles_error_if_mnemonic_seed_exists_has_failure() {
+        let data_dir = ensure_node_home_directory_exists(
+            "node_configurator",
+            "prepare_initialization_mode_fails_if_mnemonic_seed_if_mnemonic_seed_exists_has_failure",
+        )
+            .join("Substratum")
+            .join(TEST_DEFAULT_CHAIN_NAME);
+        DbInitializerReal::new()
+            .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
+            .unwrap();
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let conn = Connection::open_with_flags(&data_dir.join(DATABASE_FILE), flags).unwrap();
+        conn.execute(
+            "update config set value = 'random_seed' where name = 'seed'",
+            NO_PARAMS,
+        )
+            .unwrap();
+
+        // let mut persistent_config = PersistentConfigurationReal::from(conn);
+        // persistent_config.change_password(None, "correct").unwrap();
+        // persistent_config.set_mnemonic_seed(&PlainData::new(&[1, 2, 3, 4]), "password").unwrap();
+        // drop(persistent_config);
+
+        let app = App::new("test".to_string())
+            .arg(data_directory_arg())
+            .arg(chain_arg());
+        let args = ArgsBuilder::new()
+            .param("--data-directory", data_dir.to_str().unwrap())
+            .param("--chain", TEST_DEFAULT_CHAIN_NAME);
+        let args_vec: Vec<String> = args.into();
+        let partial_output = prepare_initialization_mode(
+            &RealDirsWrapper {},
+            &app,
+            args_vec.as_slice(),
+            &mut FakeStreamHolder::new().streams())
+        ;
+
+        let result:Result<(),ConfiguratorError> = if let Err(e) = partial_output{
+            Err(e)}
+        else{Ok(())};
+
+        assert_eq!(result, Err(PersistentConfigError::DatabaseError("Crashed".to_string()).into_configurator_error("seed")))
     }
 
     #[test]

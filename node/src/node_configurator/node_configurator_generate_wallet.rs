@@ -39,7 +39,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
             prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args, streams)?;
         let persistent_config = persistent_config_box.as_mut();
 
-        let config = self.parse_args(&multi_config, streams, persistent_config);
+        let config = self.parse_args(&multi_config, streams, persistent_config)?;
 
         update_db_password(&config, persistent_config)?;
         create_wallet(&config, persistent_config)?;
@@ -187,13 +187,13 @@ impl NodeConfiguratorGenerateWallet {
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> WalletCreationConfig {
+    ) -> Result<WalletCreationConfig,ConfiguratorError> {
         match persistent_config.mnemonic_seed_exists() {
             Ok (true) => panic!("Can't generate wallets: mnemonic seed has already been created"),
             Ok (false) => (),
-            Err (pce) => unimplemented!("Test-drive me: {:?}", pce),
+            Err (pce) => return Err(pce.into_configurator_error("seed")),
         }
-        self.make_wallet_creation_config(multi_config, streams)
+        Ok(self.make_wallet_creation_config(multi_config, streams))
     }
 
     fn request_mnemonic_passphrase(streams: &mut StdStreams) -> Option<String> {
@@ -347,13 +347,14 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::db_config::config_dao::ConfigDaoReal;
-    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::db_config::persistent_configuration::{PersistentConfigurationReal, PersistentConfigError};
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::sub_lib::wallet::DEFAULT_EARNING_DERIVATION_PATH;
     use crate::test_utils::*;
+    use crate::test_utils::{ArgsBuilder};
     use bip39::Seed;
     use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -365,6 +366,8 @@ mod tests {
     use std::cell::RefCell;
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};
+    use crate::node_configurator::node_configurator_standard::app;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     struct MnemonicFactoryMock {
         make_parameters: Arc<Mutex<Vec<(MnemonicType, Language)>>>,
@@ -514,6 +517,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_handles_error_from_mnemonic_seed_exists() {
+        let mut subject = NodeConfiguratorGenerateWallet::new();
+        let make_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let expected_mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
+        let mnemonic_factory = MnemonicFactoryMock::new()
+            .make_parameters(&make_parameters_arc)
+            .make_result(expected_mnemonic.clone());
+        subject.mnemonic_factory = Box::new(mnemonic_factory);
+        let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
+        let persistent_config = PersistentConfigurationMock::new()
+            .mnemonic_seed_exists_result(Err(PersistentConfigError::DatabaseError("Crashed".to_string())));
+
+        let config = subject.parse_args(
+            &multi_config,
+            &mut FakeStreamHolder::new().streams(),
+            &persistent_config,
+        );
+
+        assert_eq!(config,Err(PersistentConfigError::DatabaseError("Crashed".to_string()).into_configurator_error("seed")));
+    }
+
+    #[test]
     fn parse_args_creates_configuration_with_defaults() {
         let args = ArgsBuilder::new()
             .opt("--generate-wallet")
@@ -548,7 +573,7 @@ mod tests {
         );
         assert_eq!(
             config,
-            WalletCreationConfig {
+            Ok(WalletCreationConfig {
                 earning_wallet_address_opt: Some(earning_wallet.to_string()),
                 derivation_path_info_opt: Some(DerivationPathWalletInfo {
                     mnemonic_seed: PlainData::new(
@@ -560,7 +585,7 @@ mod tests {
                     ),
                 }),
                 real_user: RealUser::null(),
-            },
+            }),
         );
     }
 
@@ -669,6 +694,6 @@ mod tests {
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
             &persistent_config,
-        );
+        ).unwrap();
     }
 }
