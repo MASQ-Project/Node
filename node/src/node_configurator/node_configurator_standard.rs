@@ -428,7 +428,7 @@ pub mod standard {
                     }
                 },
                 Ok(None) => (),
-                Err(e) => unimplemented! ("{:?}", e),
+                Err(e) => unimplemented! ("Test-drive me: {:?}", e),
             }
         }
         config.consuming_wallet = consuming_wallet_opt;

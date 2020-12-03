@@ -340,7 +340,7 @@ impl ReceivableDaoReal {
             }
         }
         match tx.commit() {
-            Err(e) => unimplemented!("{:?}", e),
+            Err(e) => unimplemented!("Test-drive me: {:?}", e),
             Ok(_) => Ok(()),
         }
     }
