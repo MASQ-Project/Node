@@ -336,9 +336,7 @@ pub fn request_new_db_password(
             );
             None
         },
-        Err(PasswordError::InternalError(e)) => {
-            unimplemented! ("Test-drive me: {:?}", e)
-        }
+        Err(PasswordError::InternalError(_)) => panic! ("Can't happen: no code path")
     }
 }
 

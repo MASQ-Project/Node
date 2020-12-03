@@ -753,7 +753,7 @@ pub mod standard {
                 persistent_config,
             ) {
                 Ok(password_opt) => password_opt,
-                Err(e) => unimplemented! ("{:?}", e),
+                Err(e) => return Err(e),
             },
         };
         if let Some(db_password) = &db_password_opt {
@@ -2594,6 +2594,33 @@ mod tests {
         );
 
         assert_eq!(result, Ok(None));
+    }
+
+    #[test]
+    fn get_db_password_handles_database_error() {
+        running_test();
+        let multi_config = make_multi_config(ArgsBuilder::new()
+            .opt ("--db-password")
+        );
+        let mut streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
+            stdout: &mut ByteArrayWriter::new(),
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let mut config = BootstrapperConfig::new();
+        let persistent_config =
+            make_default_persistent_configuration()
+                .check_password_result(Ok(false))
+                .check_password_result(Err(PersistentConfigError::NotPresent));
+
+        let result = standard::get_db_password(
+            &multi_config,
+            &mut streams,
+            &mut config,
+            &persistent_config,
+        );
+
+        assert_eq!(result, Err(PersistentConfigError::NotPresent.into_configurator_error("db-password")));
     }
 
     #[test]
