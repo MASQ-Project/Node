@@ -548,8 +548,8 @@ pub mod standard {
                 streams,
                 unprivileged_config,
                 persistent_config,
-            ) {
-                Ok(Some(db_password)) => match persistent_config.past_neighbors(db_password) {
+            )? {
+                Some(db_password) => match persistent_config.past_neighbors(db_password) {
                     Ok(Some(past_neighbors)) => past_neighbors,
                     Ok(None) => vec![],
                     Err(PersistentConfigError::PasswordError) => vec![], // TODO: probably should log something here
@@ -560,8 +560,7 @@ pub mod standard {
                         )]))
                     }
                 },
-                Ok(None) => vec![],
-                Err(e) => unimplemented! ("{:?}", e),
+                None => vec![],
             },
         )
     }
@@ -1581,6 +1580,32 @@ mod tests {
             result,
             Err(ConfiguratorError::new(vec![ParamError::new(
                 "[past neighbors]",
+                "NotPresent"
+            )]))
+        );
+    }
+
+    #[test]
+    fn get_past_neighbors_handles_error_getting_db_password() {
+        running_test();
+        let multi_config = make_multi_config(ArgsBuilder::new()
+            .opt ("--db-password")
+        );
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Err(PersistentConfigError::NotPresent));
+        let mut unprivileged_config = BootstrapperConfig::new();
+
+        let result = standard::get_past_neighbors(
+            &multi_config,
+            &mut FakeStreamHolder::new().streams(),
+            &persistent_config,
+            &mut unprivileged_config,
+        );
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![ParamError::new(
+                "db-password",
                 "NotPresent"
             )]))
         );
