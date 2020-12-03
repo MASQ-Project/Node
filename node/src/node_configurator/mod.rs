@@ -300,11 +300,10 @@ pub fn prepare_initialization_mode<'a>(
         &chain_name,
     );
     let persistent_config_box = initialize_database(&directory, chain_id_from_name(&chain_name));
-    if persistent_config_box
-        .mnemonic_seed_exists()
-        .expect("Test-drive me!")
-    {
-        exit_process(1, "Cannot re-initialize Node: already initialized")
+    match persistent_config_box.mnemonic_seed_exists() {
+        Ok(true) => exit_process(1, "Cannot re-initialize Node: already initialized"),
+        Ok(false) => (),
+        Err(pce) => unimplemented!("Test-drive me: {:?}", pce),
     }
     Ok((multi_config, persistent_config_box))
 }

@@ -188,11 +188,10 @@ impl NodeConfiguratorGenerateWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
-        if persistent_config
-            .mnemonic_seed_exists()
-            .expect("Test-drive me!")
-        {
-            panic!("Can't generate wallets: mnemonic seed has already been created")
+        match persistent_config.mnemonic_seed_exists() {
+            Ok (true) => panic!("Can't generate wallets: mnemonic seed has already been created"),
+            Ok (false) => (),
+            Err (pce) => unimplemented!("Test-drive me: {:?}", pce),
         }
         self.make_wallet_creation_config(multi_config, streams)
     }

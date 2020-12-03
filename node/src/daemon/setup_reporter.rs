@@ -540,15 +540,18 @@ impl ValueRetriever for ClandestinePort {
         persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        persistent_config_opt.as_ref().map(|pc| {
-            (
-                pc.clandestine_port()
-                    .expect("Test-drive me!")
-                    .expect("Test-drive me!")
-                    .to_string(),
-                Default,
-            )
-        })
+        if let Some (persistent_config) = persistent_config_opt {
+            match persistent_config.clandestine_port() {
+                Ok (clandestine_port_opt) => match clandestine_port_opt {
+                    Some (clandestine_port) => Some((clandestine_port.to_string(), Default)),
+                    None => unimplemented! ("Test-drive me!"),
+                },
+                Err (pce) => unimplemented! ("Test-drive me: {:?}", pce),
+            }
+        }
+        else {
+            None
+        }
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {

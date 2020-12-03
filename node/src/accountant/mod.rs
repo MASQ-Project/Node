@@ -354,11 +354,13 @@ impl Accountant {
             "Scanning for payments to {}", self.earning_wallet
         );
         let future_report_new_payments_sub = self.report_new_payments_sub.clone();
-        let start_block = self
-            .persistent_configuration
-            .start_block()
-            .expect("Test-drive me!")
-            .expect("Test-drive me!");
+        let start_block = match self.persistent_configuration.start_block() {
+            Ok (start_block_opt) => match start_block_opt {
+                Some (start_block) => start_block,
+                None => unimplemented! ("Test-drive me!"),
+            },
+            Err (pce) => unimplemented! ("Test-drive me: {:?}", pce),
+        };
         let future = self
             .retrieve_transactions_sub
             .as_ref()

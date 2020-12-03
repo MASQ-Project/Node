@@ -161,14 +161,13 @@ impl NodeConfiguratorRecoverWallet {
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
     ) -> WalletCreationConfig {
-        if persistent_config
-            .mnemonic_seed_exists()
-            .expect("Test-drive me!")
-        {
-            exit_process(
+        match persistent_config.mnemonic_seed_exists() {
+            Ok(true) => exit_process(
                 1,
                 "Can't recover wallets: mnemonic seed has already been created",
-            )
+            ),
+            Ok(false) => (),
+            Err(pce) => unimplemented! ("Test-drive me: {:?}", pce),
         }
         self.make_wallet_creation_config(multi_config, streams)
     }

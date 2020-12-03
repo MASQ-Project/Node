@@ -542,14 +542,18 @@ impl Bootstrapper {
             let config_dao = ConfigDaoReal::new(conn);
             let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
             if let Some(clandestine_port) = self.config.clandestine_port_opt {
-                persistent_config
-                    .set_clandestine_port(clandestine_port)
-                    .expect("Test-drive me!")
+                match persistent_config.set_clandestine_port(clandestine_port) {
+                    Ok(_) => (),
+                    Err(pce) => unimplemented! ("Test-drive me: {:?}", pce),
+                }
             }
-            let clandestine_port = persistent_config
-                .clandestine_port()
-                .expect("Test-drive me!")
-                .expect("Test-drive me!");
+            let clandestine_port = match persistent_config.clandestine_port() {
+                Ok (clandestine_port_opt) => match clandestine_port_opt {
+                    Some (clandestine_port) => clandestine_port,
+                    None => unimplemented!("Test-drive me!"),
+                },
+                Err (pce) => unimplemented!("Test-drive me: {:?}", pce),
+            };
             let mut listener_handler = self.listener_handler_factory.make();
             listener_handler
                 .bind_port_and_configuration(
