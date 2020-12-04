@@ -434,7 +434,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
         let unprivileged_config = NodeConfiguratorStandardUnprivileged::new(&self.config)
             .configure(&args.to_vec(), streams)?;
         self.config.merge_unprivileged(unprivileged_config);
-        self.establish_clandestine_port();
+        self.set_up_clandestine_port();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
             &self.config.main_cryptde_null_opt,
             &self.config.alias_cryptde_null_opt,
@@ -528,7 +528,7 @@ impl Bootstrapper {
         descriptor
     }
 
-    fn establish_clandestine_port(&mut self) {
+    fn set_up_clandestine_port(&mut self) {
         if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
             &self.config.neighborhood_config.mode
         {
@@ -541,19 +541,7 @@ impl Bootstrapper {
                 .expect("Cannot initialize database");
             let config_dao = ConfigDaoReal::new(conn);
             let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-            if let Some(clandestine_port) = self.config.clandestine_port_opt {
-                match persistent_config.set_clandestine_port(clandestine_port) {
-                    Ok(_) => (),
-                    Err(pce) => unimplemented! ("Test-drive me: {:?}", pce),
-                }
-            }
-            let clandestine_port = match persistent_config.clandestine_port() {
-                Ok (clandestine_port_opt) => match clandestine_port_opt {
-                    Some (clandestine_port) => clandestine_port,
-                    None => unimplemented!("Test-drive me!"),
-                },
-                Err (pce) => unimplemented!("Test-drive me: {:?}", pce),
-            };
+            let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
             let mut listener_handler = self.listener_handler_factory.make();
             listener_handler
                 .bind_port_and_configuration(
@@ -577,6 +565,22 @@ impl Bootstrapper {
             .clandestine_discriminator_factories
             .push(Box::new(JsonDiscriminatorFactory::new()));
     }
+
+    fn establish_clandestine_port (&self, persistent_config: &mut dyn PersistentConfiguration) -> u16 {
+        if let Some(clandestine_port) = self.config.clandestine_port_opt {
+            match persistent_config.set_clandestine_port(clandestine_port) {
+                Ok(_) => (),
+                Err(pce) => panic! ("Database is corrupt: error setting clandestine port: {:?}", pce),
+            }
+        }
+        match persistent_config.clandestine_port() {
+            Ok (clandestine_port_opt) => match clandestine_port_opt {
+                Some (clandestine_port) => clandestine_port,
+                None => panic!("Database is corrupt: clandestine port is missing"),
+            },
+            Err (pce) => panic!("Database is corrupt: error reading clandestine port: {:?}", pce),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -586,9 +590,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
-    use crate::db_config::persistent_configuration::{
-        PersistentConfiguration, PersistentConfigurationReal,
-    };
+    use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
@@ -634,6 +636,7 @@ mod tests {
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     lazy_static! {
         static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1560,7 +1563,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_specified_port_in_standard_mode() {
+    fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
@@ -1589,7 +1592,7 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::new()
             .initialize(&data_dir, chain_id, true)
@@ -1632,7 +1635,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_unspecified_port_in_standard_mode() {
+    fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1661,7 +1664,7 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::new()
             .initialize(&data_dir, chain_id, true)
@@ -1682,7 +1685,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_originate_only() {
+    fn set_up_clandestine_port_handles_originate_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1709,7 +1712,7 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         assert!(subject
             .config
@@ -1720,7 +1723,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_consume_only() {
+    fn set_up_clandestine_port_handles_consume_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1744,7 +1747,7 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         assert!(subject
             .config
@@ -1755,7 +1758,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_zero_hop() {
+    fn set_up_clandestine_port_handles_zero_hop() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_zero_hop",
@@ -1772,7 +1775,7 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         assert!(subject
             .config
@@ -1780,6 +1783,38 @@ For more information try --help".to_string()
             .mode
             .node_addr_opt()
             .is_none());
+    }
+
+    #[test]
+    #[should_panic (expected = "Database is corrupt: error setting clandestine port: TransactionError")]
+    fn establish_clandestine_port_handles_error_setting_port() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_clandestine_port_result(Err(PersistentConfigError::TransactionError));
+        let mut config = BootstrapperConfig::new();
+        config.clandestine_port_opt = Some (1234);
+        let subject = BootstrapperBuilder::new().config (config).build();
+
+        let _ = subject.establish_clandestine_port(&mut persistent_config);
+    }
+
+    #[test]
+    #[should_panic (expected = "Database is corrupt: error reading clandestine port: NotPresent")]
+    fn establish_clandestine_port_handles_error_reading_port() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .clandestine_port_result(Err(PersistentConfigError::NotPresent));
+        let subject = BootstrapperBuilder::new().build();
+
+        let _ = subject.establish_clandestine_port(&mut persistent_config);
+    }
+
+    #[test]
+    #[should_panic (expected = "Database is corrupt: clandestine port is missing")]
+    fn establish_clandestine_port_handles_missing_port() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .clandestine_port_result(Ok(None));
+        let subject = BootstrapperBuilder::new().build();
+
+        let _ = subject.establish_clandestine_port(&mut persistent_config);
     }
 
     #[test]
