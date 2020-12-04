@@ -209,7 +209,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     ) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
         let encoded_seed =
-            encode_bytes(Some(PlainData::new(seed.as_ref())))?.expect("Value disappeared");
+            encode_bytes(Some(PlainData::new(seed.as_ref())))?.expect("Value disappeared");   //the question mark here is useless, look inside the function
         writer.set(
             "seed",
             self.scl
