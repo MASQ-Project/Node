@@ -357,9 +357,15 @@ impl Accountant {
         let start_block = match self.persistent_configuration.start_block() {
             Ok (start_block_opt) => match start_block_opt {
                 Some (start_block) => start_block,
-                None => unimplemented! ("Test-drive me!"),
+                None => {
+                    warning! (self.logger, "database contains no start block; aborting received-payment scan");
+                    return
+                }
             },
-            Err (pce) => unimplemented! ("Test-drive me: {:?}", pce),
+            Err (pce) => {
+                error! (self.logger, "Could not retrieve start block: {:?} - aborting received-payment scan", pce);
+                return
+            },
         };
         let future = self
             .retrieve_transactions_sub
@@ -744,6 +750,7 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -2064,6 +2071,44 @@ pub mod tests {
             "0x00000000000000000077616c6c65743132333464",
             &format!("{:#x}", &ban_parameters[0].address())
         );
+    }
+
+    #[test]
+    fn scan_for_received_payments_handles_absence_of_start_block() {
+        init_test_logging();
+        let persistent_config = PersistentConfigurationMock::new()
+            .start_block_result(Ok(None));
+        let mut subject = make_subject(
+            None,
+            None,
+            None,
+            None,
+            Some(persistent_config),
+        );
+
+        subject.scan_for_received_payments();
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_matching("WARN: Accountant: database contains no start block; aborting received-payment scan");
+    }
+
+    #[test]
+    fn scan_for_received_payments_handles_error_retrieving_start_block() {
+        init_test_logging();
+        let persistent_config = PersistentConfigurationMock::new()
+            .start_block_result(Err(PersistentConfigError::NotPresent));
+        let mut subject = make_subject(
+            None,
+            None,
+            None,
+            None,
+            Some(persistent_config),
+        );
+
+        subject.scan_for_received_payments();
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_matching("ERROR: Accountant: Could not retrieve start block: NotPresent - aborting received-payment scan");
     }
 
     #[test]
