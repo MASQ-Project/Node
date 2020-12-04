@@ -3,13 +3,7 @@
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
-use crate::node_configurator::{
-    app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg,
-    flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode,
-    request_password_with_confirmation, request_password_with_retry, update_db_password,
-    DirsWrapper, Either, NodeConfigurator, RealDirsWrapper, WalletCreationConfig,
-    WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP,
-};
+use crate::node_configurator::{app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry, update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper, WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP, check_for_past_initialization};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, MnemonicType};
@@ -37,6 +31,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorGenerateWallet {
     ) -> Result<WalletCreationConfig, ConfiguratorError> {
         let (multi_config, mut persistent_config_box) =
             prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args, streams)?;
+        check_for_past_initialization(persistent_config_box.as_ref())?;
         let persistent_config = persistent_config_box.as_mut();
 
         let config = self.parse_args(&multi_config, streams, persistent_config)?;
