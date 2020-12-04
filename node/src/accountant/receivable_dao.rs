@@ -285,7 +285,6 @@ impl ReceivableDaoReal {
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
-
     fn try_update(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
@@ -301,7 +300,7 @@ impl ReceivableDaoReal {
 
     fn try_insert(&self, wallet: &Wallet, amount: i64) -> Result<(), String> {
         let timestamp = dao_utils::to_time_t(SystemTime::now());
-        let mut stmt = self.conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect ("Internal error");
+        let mut stmt = self.conn.prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[&wallet, &amount, &(timestamp as i64)];
         match stmt.execute(params) {
             Ok(_) => Ok(()),
@@ -323,28 +322,30 @@ impl ReceivableDaoReal {
             .iter()
             .map(|t| t.block_number)
             .max()
-            .ok_or_else(|| "no payments given".to_string())?;
+            .ok_or_else(|| "no payments given".to_string())?
+            ;
 
         persistent_configuration.set_start_block(block_number)?;
 
         {
-            let mut stmt = match tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?"){
+            let mut stmt = match tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?") {
                 Ok(stm) => stm,
-                Err(msg) => unimplemented!("Test-drive-me: {:?}", msg)   // Internal error
+                //Cannot be tested but as tx has passed above it must be ok. Failure of the statement would have been already discovered by other tests.
+                Err(e) => return Err(ReceivableDaoError::Other(e.to_string()))
             };
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
                     Ok(amount) => amount,
-                    Err(e) => unimplemented!("{:?}", e), //return Err(format!("Amount too large: {:?}", e)),
+                    Err(e) => return Err(ReceivableDaoError::Other(format!("Amount too large: {:?}", e)))
                 };
                 let params: &[&dyn ToSql] = &[&gwei_amount, &timestamp, &transaction.from];
                 stmt.execute(params).map_err(|e| e.to_string())?;
             }
         }
         match tx.commit() {
-            //Untested. We don't know how to trigger this one according to its previous occurrences
-            Err(e) => Err(ReceivableDaoError::Other(format!("{:?}",e))),
+            //Untested. We don't know how to trigger this one, knowing that from its previous occurrences
+            Err(e) => Err(ReceivableDaoError::Other(format!("{:?}", e))),
             Ok(_) => Ok(()),
         }
     }
@@ -362,9 +363,7 @@ impl ReceivableDaoReal {
             _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
         }
     }
-
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -386,9 +385,6 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
-    use crate::accountant::tests::ReceivableDaoMock;
-    use crate::accountant::payable_dao::Payment;
-    use crate::accountant::ReceivedPayments;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -410,21 +406,27 @@ mod tests {
     }
 
     #[test]
-    fn try_multi_insert_payment_handles_error_during_committing(){
-        let conn = ConnectionWrapperMock::default();
-        let mut subject = ReceivableDaoReal::new(Box::new(conn));
+    fn try_multi_insert_payment_handles_error_of_number_sign_check(){
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "try_multi_insert_payment_handles_error_of_number_sign_check"
+        );
+        let mut subject = ReceivableDaoReal::new(
+                DbInitializerReal::new()
+                    .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                    .unwrap(),
+            );
         let payments = vec![Transaction {
             block_number: 42u64,
             from: make_wallet("some_address"),
-            gwei_amount: 21,
+            gwei_amount: 18446744073709551615,
         }];
         let mut persist_config = PersistentConfigurationMock::new()
             .set_start_block_result(Ok(()));
 
         let result = subject.try_multi_insert_payment(&mut persist_config,payments);
 
-        assert_eq!(result,Err(ReceivableDaoError::Other("internal error".to_string()))) // we will likely need to enrich ReceivableDaoError
-
+        assert_eq!(result,Err(ReceivableDaoError::Other("Amount too large: SignConversion(18446744073709551615)".to_string())))
     }
 
     #[test]

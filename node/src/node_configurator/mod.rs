@@ -35,7 +35,6 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
-//use openssl::conf::Conf;
 
 pub trait NodeConfigurator<T> {
     fn configure(
