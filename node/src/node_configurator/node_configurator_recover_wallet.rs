@@ -35,7 +35,7 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorRecoverWallet {
             prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args, streams)?;
         let persistent_config = persistent_config_box.as_mut();
 
-        let config = self.parse_args(&multi_config, streams, persistent_config);
+        let config = self.parse_args(&multi_config, streams, persistent_config)?;
 
         update_db_password(&config, persistent_config)?;
         create_wallet(&config, persistent_config)?;
@@ -160,16 +160,16 @@ impl NodeConfiguratorRecoverWallet {
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> WalletCreationConfig {
+    ) -> Result<WalletCreationConfig, ConfiguratorError> {
         match persistent_config.mnemonic_seed_exists() {
             Ok(true) => exit_process(
                 1,
                 "Can't recover wallets: mnemonic seed has already been created",
             ),
             Ok(false) => (),
-            Err(pce) => unimplemented! ("Test-drive me: {:?}", pce),
+            Err(pce) => return Err(pce.into_configurator_error("seed")),
         }
-        self.make_wallet_creation_config(multi_config, streams)
+        Ok(self.make_wallet_creation_config(multi_config, streams))
     }
 
     fn request_mnemonic_passphrase(streams: &mut StdStreams) -> Option<String> {
@@ -264,10 +264,10 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::db_config::config_dao::ConfigDaoReal;
-    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::db_config::persistent_configuration::{PersistentConfigurationReal, PersistentConfigError};
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::utils::make_new_test_multi_config;
+    use crate::sub_lib::utils::{make_new_test_multi_config};
     use crate::sub_lib::wallet::{
         Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
@@ -281,6 +281,7 @@ mod tests {
     };
     use masq_lib::utils::running_test;
     use std::io::Cursor;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     #[test]
     fn validate_mnemonic_words_if_provided_in_chinese_simplified() {
@@ -481,7 +482,7 @@ mod tests {
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
             &make_default_persistent_configuration(),
-        );
+        ).unwrap();
 
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
         let seed = Seed::new(&expected_mnemonic, "Mortimer");
@@ -502,6 +503,21 @@ mod tests {
                 real_user: RealUser::null(),
             },
         );
+    }
+
+    #[test]
+    fn parse_args_handles_failure_of_mnemonic_seed_exists() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
+        let subject = NodeConfiguratorRecoverWallet::new();
+
+        let result = subject.parse_args(
+            &make_multi_config(ArgsBuilder::new()),
+            &mut FakeStreamHolder::new().streams(),
+            &persistent_config,
+        );
+
+        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("seed")));
     }
 
     #[test]
@@ -527,7 +543,7 @@ mod tests {
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
             &make_default_persistent_configuration(),
-        );
+        ).unwrap();
     }
 
     #[test]
@@ -628,7 +644,7 @@ mod tests {
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
             &persistent_config,
-        );
+        ).unwrap();
     }
 
     #[test]

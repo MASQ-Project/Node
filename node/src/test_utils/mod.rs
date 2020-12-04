@@ -61,6 +61,9 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use masq_lib::multi_config::{MultiConfig, VirtualCommandLine, CommandLineVcl};
+use crate::sub_lib::utils::make_new_test_multi_config;
+use crate::node_configurator::node_configurator_standard::app;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
@@ -196,6 +199,12 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
             .flatten()
             .collect::<Vec<u8>>(),
     )
+}
+
+pub fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
+    let vcls: Vec<Box<dyn VirtualCommandLine>> =
+        vec![Box::new(CommandLineVcl::new(args.into()))];
+    make_new_test_multi_config(&app(), vcls).unwrap()
 }
 
 pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {

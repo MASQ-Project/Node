@@ -542,11 +542,8 @@ impl ValueRetriever for ClandestinePort {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         if let Some (persistent_config) = persistent_config_opt {
             match persistent_config.clandestine_port() {
-                Ok (clandestine_port_opt) => match clandestine_port_opt {
-                    Some (clandestine_port) => Some((clandestine_port.to_string(), Default)),
-                    None => unimplemented! ("Test-drive me!"),
-                },
-                Err (pce) => unimplemented! ("Test-drive me: {:?}", pce),
+                Ok (clandestine_port_opt) => clandestine_port_opt.map (|cp| (cp.to_string(), Default)),
+                Err (_) => None,
             }
         }
         else {
@@ -2027,6 +2024,36 @@ mod tests {
         let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
 
         assert_eq!(result, None)
+    }
+
+    #[test]
+    fn clandestine_port_database_field_absent() {
+        let subject = ClandestinePort {};
+        let persistent_config = PersistentConfigurationMock::new()
+            .clandestine_port_result(Ok(None));
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &Some (Box::new (persistent_config)),
+            &None
+        );
+
+        assert_eq! (result, None)
+    }
+
+    #[test]
+    fn clandestine_port_database_field_error() {
+        let subject = ClandestinePort {};
+        let persistent_config = PersistentConfigurationMock::new()
+            .clandestine_port_result(Err(PersistentConfigError::NotPresent));
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &Some (Box::new (persistent_config)),
+            &None
+        );
+
+        assert_eq! (result, None)
     }
 
     #[test]

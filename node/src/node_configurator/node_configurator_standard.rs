@@ -1172,7 +1172,7 @@ mod tests {
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
     use masq_lib::multi_config::{
-        CommandLineVcl, ConfigFileVcl, MultiConfig, NameValueVclArg, VclArg, VirtualCommandLine,
+        CommandLineVcl, ConfigFileVcl, NameValueVclArg, VclArg, VirtualCommandLine,
     };
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -1190,6 +1190,7 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use crate::test_utils;
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
@@ -1587,7 +1588,7 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_error_getting_db_password() {
         running_test();
-        let multi_config = make_multi_config(ArgsBuilder::new()
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new()
             .opt ("--db-password")
         );
         let persistent_config = PersistentConfigurationMock::new()
@@ -1994,7 +1995,7 @@ mod tests {
 
     #[test]
     fn unprivileged_parse_args_handles_missing_gas_price () {
-        let multi_config= make_multi_config(ArgsBuilder::new()
+        let multi_config= test_utils::make_multi_config(ArgsBuilder::new()
             .param ("--ip", "1.2.3.4")
         );
         let mut unprivileged_config = BootstrapperConfig::new();
@@ -2081,12 +2082,6 @@ mod tests {
         );
     }
 
-    fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        make_new_test_multi_config(&app(), vcls).unwrap()
-    }
-
     fn make_persistent_config(
         mnemonic_seed_prefix_opt: Option<&str>,
         db_password_opt: Option<&str>,
@@ -2164,7 +2159,7 @@ mod tests {
     #[test]
     fn get_wallets_with_brand_new_database_establishes_default_earning_wallet_without_requiring_password() {
         running_test();
-        let multi_config = make_multi_config(ArgsBuilder::new());
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new());
         let persistent_config = make_persistent_config(None, None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
@@ -2182,7 +2177,7 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_mnemonic_seed_exists() {
-        let multi_config = make_multi_config(ArgsBuilder::new());
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new());
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Err (PersistentConfigError::NotPresent));
@@ -2201,7 +2196,7 @@ mod tests {
     fn get_wallets_handles_failure_of_consuming_wallet_derivation_path() {
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = make_multi_config(
+        let multi_config = test_utils::make_multi_config(
             ArgsBuilder::new()
                 .param("--consuming-private-key", &consuming_private_key_hex),
         );
@@ -2227,7 +2222,7 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_get_db_password() {
-        let multi_config = make_multi_config(
+        let multi_config = test_utils::make_multi_config(
             ArgsBuilder::new()
                 .opt ("--db-password")
         );
@@ -2252,7 +2247,7 @@ mod tests {
         running_test();
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = make_multi_config(
+        let multi_config = test_utils::make_multi_config(
             ArgsBuilder::new()
                 .param("--db-password", "password")
                 .param("--consuming-private-key", &consuming_private_key_hex),
@@ -2286,7 +2281,7 @@ mod tests {
     #[test]
     fn earning_wallet_address_different_from_database() {
         running_test();
-        let multi_config = make_multi_config(ArgsBuilder::new().param(
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new().param(
             "--earning-wallet",
             "0x0123456789012345678901234567890123456789",
         ));
@@ -2317,7 +2312,7 @@ mod tests {
     #[test]
     fn earning_wallet_address_matches_database() {
         running_test();
-        let multi_config = make_multi_config(ArgsBuilder::new().param(
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new().param(
             "--earning-wallet",
             "0xb00fa567890123456789012345678901234B00FA",
         ));
@@ -2351,7 +2346,7 @@ mod tests {
         running_test();
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = make_multi_config(
+        let multi_config = test_utils::make_multi_config(
             ArgsBuilder::new()
                 .param("--db-password", "password")
                 .param("--consuming-private-key", &consuming_private_key_hex),
@@ -2386,7 +2381,7 @@ mod tests {
         running_test();
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = make_multi_config(
+        let multi_config = test_utils::make_multi_config(
             ArgsBuilder::new()
                 .param("--db-password", "password")
                 .param("--consuming-private-key", &consuming_private_key_hex),
@@ -2428,7 +2423,7 @@ mod tests {
             .unwrap();
         bad_consuming_private_key[0] ^= 0x80; // one bit different
         let bad_consuming_private_key_hex = bad_consuming_private_key.to_hex::<String>();
-        let multi_config = make_multi_config(
+        let multi_config = test_utils::make_multi_config(
             ArgsBuilder::new()
                 .param("--db-password", "password")
                 .param("--consuming-private-key", &bad_consuming_private_key_hex),
@@ -2464,7 +2459,7 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let multi_config = make_multi_config(ArgsBuilder::new().param("--db-password", "password"));
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new().param("--db-password", "password"));
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2500,7 +2495,7 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_parameter() {
         running_test();
-        let multi_config = make_multi_config(ArgsBuilder::new());
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new());
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2532,7 +2527,7 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_value() {
         running_test();
-        let multi_config = make_multi_config(ArgsBuilder::new().opt("--db-password"));
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new().opt("--db-password"));
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2694,7 +2689,7 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_error() {
         running_test();
-        let multi_config = make_multi_config(ArgsBuilder::new()
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new()
             .opt ("--db-password")
         );
         let mut streams = &mut StdStreams {
