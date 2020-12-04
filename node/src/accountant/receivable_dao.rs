@@ -328,7 +328,10 @@ impl ReceivableDaoReal {
         persistent_configuration.set_start_block(block_number)?;
 
         {
-            let mut stmt = tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?").expect("Internal error");
+            let mut stmt = match tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?"){
+                Ok(stm) => stm,
+                Err(msg) => unimplemented!("Test-drive-me: {:?}", msg)   // Internal error
+            };
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
@@ -340,7 +343,8 @@ impl ReceivableDaoReal {
             }
         }
         match tx.commit() {
-            Err(e) => unimplemented!("Test-drive me: {:?}", e),
+            //Untested. We don't know how to trigger this one according to its previous occurrences
+            Err(e) => Err(ReceivableDaoError::Other(format!("{:?}",e))),
             Ok(_) => Ok(()),
         }
     }
@@ -358,7 +362,9 @@ impl ReceivableDaoReal {
             _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
         }
     }
+
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -380,6 +386,9 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
+    use crate::accountant::tests::ReceivableDaoMock;
+    use crate::accountant::payable_dao::Payment;
+    use crate::accountant::ReceivedPayments;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -398,6 +407,24 @@ mod tests {
         let subject = ReceivableDaoError::from("booga".to_string());
 
         assert_eq!(subject, ReceivableDaoError::Other("booga".to_string()));
+    }
+
+    #[test]
+    fn try_multi_insert_payment_handles_error_during_committing(){
+        let conn = ConnectionWrapperMock::default();
+        let mut subject = ReceivableDaoReal::new(Box::new(conn));
+        let payments = vec![Transaction {
+            block_number: 42u64,
+            from: make_wallet("some_address"),
+            gwei_amount: 21,
+        }];
+        let mut persist_config = PersistentConfigurationMock::new()
+            .set_start_block_result(Ok(()));
+
+        let result = subject.try_multi_insert_payment(&mut persist_config,payments);
+
+        assert_eq!(result,Err(ReceivableDaoError::Other("internal error".to_string()))) // we will likely need to enrich ReceivableDaoError
+
     }
 
     #[test]
