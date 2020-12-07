@@ -536,7 +536,6 @@ impl Accountant {
 
     fn handle_received_payments(&mut self, received_payments: ReceivedPayments) {
         self.receivable_dao.as_mut().more_money_received(
-            self.persistent_configuration.as_mut(),
             received_payments.payments,
         );
     }
@@ -918,7 +917,6 @@ pub mod tests {
 
         fn more_money_received(
             &mut self,
-            _persistent_configuration: &mut dyn PersistentConfiguration,
             transactions: Vec<Transaction>,
         ) {
             self.more_money_received_parameters

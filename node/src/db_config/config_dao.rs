@@ -162,7 +162,7 @@ impl<'a> ConfigDaoReadWrite for ConfigDaoWriteableReal<'a> {}
 
 // This is the real version of ConfigDaoWriteable used in production
 impl<'a> ConfigDaoWriteableReal<'a> {
-    fn new(transaction: Transaction<'a>) -> Self {
+    pub fn new(transaction: Transaction<'a>) -> Self {
         Self {
             transaction_opt: Some(transaction),
         }
