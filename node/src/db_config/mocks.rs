@@ -5,6 +5,7 @@ use crate::db_config::config_dao::{
 };
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use rusqlite::Transaction;
 
 pub struct ConfigDaoMock {
     get_all_results: RefCell<Vec<Result<Vec<ConfigDaoRecord>, ConfigDaoError>>>,
@@ -100,6 +101,10 @@ impl ConfigDaoWrite for ConfigDaoWriteableMock {
     fn commit(&mut self) -> Result<(), ConfigDaoError> {
         self.commit_params.lock().unwrap().push(());
         self.commit_results.borrow_mut().remove(0)
+    }
+
+    fn extract(&mut self) -> Result<Transaction, ConfigDaoError> {
+        unimplemented!()
     }
 }
 
