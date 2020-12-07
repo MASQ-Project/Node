@@ -152,7 +152,7 @@ impl<'a> ConfigDaoWrite for ConfigDaoWriteableReal<'a> {
     fn extract(&mut self) -> Result<Transaction, ConfigDaoError> {
         match self.transaction_opt.take() {
             Some (transaction) => Ok (transaction),
-            None => unimplemented!(),
+            None => Err(ConfigDaoError::TransactionError),
         }
     }
 }
@@ -370,6 +370,7 @@ mod tests {
                 .unwrap();
 
             subject.commit().unwrap();
+            assert_eq! (subject.extract().err().unwrap(), ConfigDaoError::TransactionError);
         }
         let final_value = dao.get ("seed").unwrap();
         assert_eq! (final_value, ConfigDaoRecord::new ("seed", Some ("Two wrongs don't make a right, but two Wrights make an airplane"), true));
