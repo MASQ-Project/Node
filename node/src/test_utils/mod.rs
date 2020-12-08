@@ -62,8 +62,8 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine, CommandLineVcl};
-use crate::sub_lib::utils::make_new_test_multi_config;
 use crate::node_configurator::node_configurator_standard::app;
+use crate::sub_lib::utils::make_new_test_multi_config;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);

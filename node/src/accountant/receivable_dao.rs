@@ -326,14 +326,14 @@ impl ReceivableDaoReal {
         let mut writer = ConfigDaoWriteableReal::new(tx);
         match writer.set("start_block", Some(block_number.to_string())) {
             Ok(_) => (),
-            Err(e) => unimplemented!("{:?}", e),
+            Err(e) => return Err(ReceivableDaoError::Other(format!("{:?}", e))),
         }
         let tx = writer.extract().expect("Transaction disappeared from writer");
 
         {
             let mut stmt = match tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?") {
                 Ok(stm) => stm,
-                Err(e) => unimplemented!(), //return Err(ReceivableDaoError::Other(e.to_string()))
+                Err(e) => return Err(ReceivableDaoError::Other(format!("{:?}", e)))
             };
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
@@ -346,25 +346,11 @@ impl ReceivableDaoReal {
             }
         }
         match tx.commit() {
-            Err(e) => unimplemented!("{:?}", e), //Err(ReceivableDaoError::Other(format!("{:?}", e))),
+            // Error response is untested here, because without a mockable Transaction, it's untestable.
+            Err(e) => Err(ReceivableDaoError::Other(format!("{:?}", e))),
             Ok(_) => Ok(()),
         }
     }
-
-    // fn update_start_block(
-    //     tx: rusqlite::Transaction,
-    //     block_number: u64
-    // ) -> Result<rusqlite::Transaction, ReceivableDaoError> {
-    //     let mut writer = ConfigDaoWriteableReal::new(tx);
-    //     match writer.set("start_block", Some(block_number.to_string())) {
-    //         Ok(_) => (),
-    //         Err(e) => unimplemented!("{:?}", e),
-    //     }
-    //     match writer.extract() {
-    //         Ok(tx) => Ok(tx),
-    //         Err(e) => unimplemented!("{:?}", e),
-    //     }
-    // }
 
     fn row_to_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
         let wallet: Result<Wallet, rusqlite::Error> = row.get(0);
@@ -394,11 +380,11 @@ mod tests {
     use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal, PersistentConfiguration};
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{assert_contains, make_wallet};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
+    use crate::blockchain::blockchain_interface::contract_creation_block_from_chain_id;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -438,7 +424,66 @@ mod tests {
 
         let result = subject.try_multi_insert_payment(payments);
 
-        assert_eq!(result,Err(ReceivableDaoError::Other("Amount too large: SignConversion(18446744073709551615)".to_string())))
+        assert_eq!(result, Err(ReceivableDaoError::Other("Amount too large: SignConversion(18446744073709551615)".to_string())))
+    }
+
+    #[test]
+    fn try_multi_insert_payment_handles_error_setting_start_block() {
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "try_multi_insert_payment_handles_error_setting_start_block"
+        );
+        let conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .unwrap();
+        {
+            let mut stmt = conn.prepare("drop table config").unwrap();
+            stmt.execute(NO_PARAMS).unwrap();
+        }
+        let mut subject = ReceivableDaoReal::new(conn);
+
+        let payments = vec![Transaction {
+            block_number: 42u64,
+            from: make_wallet("some_address"),
+            gwei_amount: 18446744073709551615,
+        }];
+
+        let result = subject.try_multi_insert_payment(payments);
+
+        assert_eq!(result, Err(ReceivableDaoError::Other("DatabaseError(\"no such table: config\")".to_string())))
+    }
+
+    #[test]
+    fn try_multi_insert_payment_handles_error_adding_receivables() {
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "try_multi_insert_payment_handles_error_adding_receivables"
+        );
+        let conn = DbInitializerReal::new()
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .unwrap();
+        {
+            let mut stmt = conn.prepare("drop table receivable").unwrap();
+            stmt.execute(NO_PARAMS).unwrap();
+        }
+        let mut subject = ReceivableDaoReal::new(conn);
+
+        let payments = vec![Transaction {
+            block_number: 42u64,
+            from: make_wallet("some_address"),
+            gwei_amount: 18446744073709551615,
+        }];
+
+        let result = subject.try_multi_insert_payment(payments);
+
+        assert_eq!(result, Err(ReceivableDaoError::Other("SqliteFailure(Error { code: Unknown, extended_code: 1 }, Some(\"no such table: receivable\"))".to_string())));
+        let persistent_config = PersistentConfigurationReal::new (
+            Box::new (ConfigDaoReal::new (
+                DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .unwrap()))
+        );
+        assert_eq!(persistent_config.start_block().unwrap().unwrap(), contract_creation_block_from_chain_id(DEFAULT_CHAIN_ID));
     }
 
     #[test]
@@ -611,12 +656,6 @@ mod tests {
                 .unwrap(),
         );
 
-        let config_dao = ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-
         let status = {
             let transactions = vec![Transaction {
                 from: debtor.clone(),
@@ -665,39 +704,6 @@ mod tests {
 
         TestLogHandler::new().exists_log_containing(
             "ERROR: ReceivableDaoReal: Transaction failed, rolling back: Other(\"no payments given\")",
-        );
-    }
-
-    #[test]
-    fn more_money_received_logs_when_start_block_cannot_be_updated() {
-        logging::init_test_logging();
-
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "more_money_received_logs_when_start_block_cannot_be_updated",
-        );
-
-        let mut receivable_dao = ReceivableDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        );
-
-        let persistent_configuration_mock = PersistentConfigurationMock::new()
-            .set_start_block_result(Err(PersistentConfigError::DatabaseError(
-                "Start block couldn't be updated".to_string(),
-            )));
-
-        let payments = vec![Transaction {
-            from: make_wallet("foobar"),
-            gwei_amount: 2300u64,
-            block_number: 33u64,
-        }];
-
-        receivable_dao.more_money_received(payments);
-
-        TestLogHandler::new().exists_log_containing(
-            r#"ERROR: ReceivableDaoReal: Transaction failed, rolling back: ConfigurationError("DatabaseError(\"Start block couldn\\\'t be updated\")")"#,
         );
     }
 
