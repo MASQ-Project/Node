@@ -566,19 +566,28 @@ impl Bootstrapper {
             .push(Box::new(JsonDiscriminatorFactory::new()));
     }
 
-    fn establish_clandestine_port (&self, persistent_config: &mut dyn PersistentConfiguration) -> u16 {
+    fn establish_clandestine_port(
+        &self,
+        persistent_config: &mut dyn PersistentConfiguration,
+    ) -> u16 {
         if let Some(clandestine_port) = self.config.clandestine_port_opt {
             match persistent_config.set_clandestine_port(clandestine_port) {
                 Ok(_) => (),
-                Err(pce) => panic! ("Database is corrupt: error setting clandestine port: {:?}", pce),
+                Err(pce) => panic!(
+                    "Database is corrupt: error setting clandestine port: {:?}",
+                    pce
+                ),
             }
         }
         match persistent_config.clandestine_port() {
-            Ok (clandestine_port_opt) => match clandestine_port_opt {
-                Some (clandestine_port) => clandestine_port,
+            Ok(clandestine_port_opt) => match clandestine_port_opt {
+                Some(clandestine_port) => clandestine_port,
                 None => panic!("Database is corrupt: clandestine port is missing"),
             },
-            Err (pce) => panic!("Database is corrupt: error reading clandestine port: {:?}", pce),
+            Err(pce) => panic!(
+                "Database is corrupt: error reading clandestine port: {:?}",
+                pce
+            ),
         }
     }
 }
@@ -590,7 +599,9 @@ mod tests {
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
-    use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
+    };
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
@@ -608,6 +619,7 @@ mod tests {
     use crate::test_utils::logging::TestLog;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::main_cryptde;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
@@ -636,7 +648,6 @@ mod tests {
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     lazy_static! {
         static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1786,19 +1797,21 @@ For more information try --help".to_string()
     }
 
     #[test]
-    #[should_panic (expected = "Database is corrupt: error setting clandestine port: TransactionError")]
+    #[should_panic(
+        expected = "Database is corrupt: error setting clandestine port: TransactionError"
+    )]
     fn establish_clandestine_port_handles_error_setting_port() {
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_clandestine_port_result(Err(PersistentConfigError::TransactionError));
         let mut config = BootstrapperConfig::new();
-        config.clandestine_port_opt = Some (1234);
-        let subject = BootstrapperBuilder::new().config (config).build();
+        config.clandestine_port_opt = Some(1234);
+        let subject = BootstrapperBuilder::new().config(config).build();
 
         let _ = subject.establish_clandestine_port(&mut persistent_config);
     }
 
     #[test]
-    #[should_panic (expected = "Database is corrupt: error reading clandestine port: NotPresent")]
+    #[should_panic(expected = "Database is corrupt: error reading clandestine port: NotPresent")]
     fn establish_clandestine_port_handles_error_reading_port() {
         let mut persistent_config = PersistentConfigurationMock::new()
             .clandestine_port_result(Err(PersistentConfigError::NotPresent));
@@ -1808,10 +1821,10 @@ For more information try --help".to_string()
     }
 
     #[test]
-    #[should_panic (expected = "Database is corrupt: clandestine port is missing")]
+    #[should_panic(expected = "Database is corrupt: clandestine port is missing")]
     fn establish_clandestine_port_handles_missing_port() {
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .clandestine_port_result(Ok(None));
+        let mut persistent_config =
+            PersistentConfigurationMock::new().clandestine_port_result(Ok(None));
         let subject = BootstrapperBuilder::new().build();
 
         let _ = subject.establish_clandestine_port(&mut persistent_config);

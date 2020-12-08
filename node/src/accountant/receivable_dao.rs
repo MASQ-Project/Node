@@ -4,7 +4,8 @@ use crate::blockchain::blockchain_interface::Transaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
-use crate::db_config::persistent_configuration::{PersistentConfigError};
+use crate::db_config::config_dao::{ConfigDaoWrite, ConfigDaoWriteableReal};
+use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
@@ -12,7 +13,6 @@ use rusqlite::named_params;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{OptionalExtension, Row, NO_PARAMS};
 use std::time::SystemTime;
-use crate::db_config::config_dao::{ConfigDaoWriteableReal, ConfigDaoWrite};
 
 #[derive(Debug, PartialEq)]
 pub enum ReceivableDaoError {
@@ -42,10 +42,7 @@ pub struct ReceivableAccount {
 pub trait ReceivableDao: Send {
     fn more_money_receivable(&self, wallet: &Wallet, amount: u64) -> Result<(), PaymentError>;
 
-    fn more_money_received(
-        &mut self,
-        transactions: Vec<Transaction>,
-    );
+    fn more_money_received(&mut self, transactions: Vec<Transaction>);
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
@@ -96,14 +93,10 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    fn more_money_received(
-        &mut self,
-        payments: Vec<Transaction>,
-    ) {
-        self.try_multi_insert_payment(payments)
-            .unwrap_or_else(|e| {
-                error!(self.logger, "Transaction failed, rolling back: {:?}", e);
-            })
+    fn more_money_received(&mut self, payments: Vec<Transaction>) {
+        self.try_multi_insert_payment(payments).unwrap_or_else(|e| {
+            error!(self.logger, "Transaction failed, rolling back: {:?}", e);
+        })
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
@@ -320,15 +313,16 @@ impl ReceivableDaoReal {
             .iter()
             .map(|t| t.block_number)
             .max()
-            .ok_or_else(|| "no payments given".to_string())?
-            ;
+            .ok_or_else(|| "no payments given".to_string())?;
 
         let mut writer = ConfigDaoWriteableReal::new(tx);
         match writer.set("start_block", Some(block_number.to_string())) {
             Ok(_) => (),
             Err(e) => return Err(ReceivableDaoError::Other(format!("{:?}", e))),
         }
-        let tx = writer.extract().expect("Transaction disappeared from writer");
+        let tx = writer
+            .extract()
+            .expect("Transaction disappeared from writer");
 
         {
             let mut stmt = match tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?") {
@@ -339,7 +333,12 @@ impl ReceivableDaoReal {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
                     Ok(amount) => amount,
-                    Err(e) => return Err(ReceivableDaoError::Other(format!("Amount too large: {:?}", e)))
+                    Err(e) => {
+                        return Err(ReceivableDaoError::Other(format!(
+                            "Amount too large: {:?}",
+                            e
+                        )))
+                    }
                 };
                 let params: &[&dyn ToSql] = &[&gwei_amount, &timestamp, &transaction.from];
                 stmt.execute(params).map_err(|e| e.to_string())?;
@@ -371,20 +370,22 @@ impl ReceivableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::make_receivable_account;
+    use crate::blockchain::blockchain_interface::contract_creation_block_from_chain_id;
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
     use crate::db_config::config_dao::ConfigDaoReal;
-    use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal, PersistentConfiguration};
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
+    };
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::{assert_contains, make_wallet};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};
-    use crate::blockchain::blockchain_interface::contract_creation_block_from_chain_id;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -406,16 +407,16 @@ mod tests {
     }
 
     #[test]
-    fn try_multi_insert_payment_handles_error_of_number_sign_check(){
+    fn try_multi_insert_payment_handles_error_of_number_sign_check() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "try_multi_insert_payment_handles_error_of_number_sign_check"
+            "try_multi_insert_payment_handles_error_of_number_sign_check",
         );
         let mut subject = ReceivableDaoReal::new(
-                DbInitializerReal::new()
-                    .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                    .unwrap(),
-            );
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .unwrap(),
+        );
         let payments = vec![Transaction {
             block_number: 42u64,
             from: make_wallet("some_address"),
@@ -424,14 +425,19 @@ mod tests {
 
         let result = subject.try_multi_insert_payment(payments);
 
-        assert_eq!(result, Err(ReceivableDaoError::Other("Amount too large: SignConversion(18446744073709551615)".to_string())))
+        assert_eq!(
+            result,
+            Err(ReceivableDaoError::Other(
+                "Amount too large: SignConversion(18446744073709551615)".to_string()
+            ))
+        )
     }
 
     #[test]
     fn try_multi_insert_payment_handles_error_setting_start_block() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "try_multi_insert_payment_handles_error_setting_start_block"
+            "try_multi_insert_payment_handles_error_setting_start_block",
         );
         let conn = DbInitializerReal::new()
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -450,14 +456,19 @@ mod tests {
 
         let result = subject.try_multi_insert_payment(payments);
 
-        assert_eq!(result, Err(ReceivableDaoError::Other("DatabaseError(\"no such table: config\")".to_string())))
+        assert_eq!(
+            result,
+            Err(ReceivableDaoError::Other(
+                "DatabaseError(\"no such table: config\")".to_string()
+            ))
+        )
     }
 
     #[test]
     fn try_multi_insert_payment_handles_error_adding_receivables() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "try_multi_insert_payment_handles_error_adding_receivables"
+            "try_multi_insert_payment_handles_error_adding_receivables",
         );
         let conn = DbInitializerReal::new()
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -477,13 +488,15 @@ mod tests {
         let result = subject.try_multi_insert_payment(payments);
 
         assert_eq!(result, Err(ReceivableDaoError::Other("SqliteFailure(Error { code: Unknown, extended_code: 1 }, Some(\"no such table: receivable\"))".to_string())));
-        let persistent_config = PersistentConfigurationReal::new (
-            Box::new (ConfigDaoReal::new (
-                DbInitializerReal::new()
+        let persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
+            DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-            .unwrap()))
+                .unwrap(),
+        )));
+        assert_eq!(
+            persistent_config.start_block().unwrap().unwrap(),
+            contract_creation_block_from_chain_id(DEFAULT_CHAIN_ID)
         );
-        assert_eq!(persistent_config.start_block().unwrap().unwrap(), contract_creation_block_from_chain_id(DEFAULT_CHAIN_ID));
     }
 
     #[test]
@@ -632,13 +645,12 @@ mod tests {
         assert!(timestamp2 >= before);
         assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
 
-
         let config_dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
-        let persistent_config = PersistentConfigurationReal::new (Box::new (config_dao));
+        let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         let start_block = persistent_config.start_block().unwrap().unwrap();
         assert_eq!(57u64, start_block);
     }

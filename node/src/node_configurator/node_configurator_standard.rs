@@ -170,7 +170,9 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT, DEFAULT_GAS_PRICE};
+    use masq_lib::constants::{
+        DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT,
+    };
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
@@ -303,7 +305,9 @@ pub mod standard {
             match persistent_config_opt {
                 Some(persistent_config) => match persistent_config.gas_price() {
                     Ok(Some(price)) => price,
-                    Ok(None) => DEFAULT_GAS_PRICE.parse().expect ("DEFAULT_GAS_PRICE bad syntax"),
+                    Ok(None) => DEFAULT_GAS_PRICE
+                        .parse()
+                        .expect("DEFAULT_GAS_PRICE bad syntax"),
                     Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 },
                 None => 1,
@@ -337,7 +341,7 @@ pub mod standard {
     ) -> Result<(), ConfiguratorError> {
         if let Some(port) = config.clandestine_port_opt {
             if let Err(pce) = persistent_config.set_clandestine_port(port) {
-                return Err(pce.into_configurator_error("clandestine-port"))
+                return Err(pce.into_configurator_error("clandestine-port"));
             }
         }
         match persistent_config.earning_wallet_address() {
@@ -346,7 +350,7 @@ pub mod standard {
                 if let Err(pce) =
                     persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string())
                 {
-                    return Err(pce.into_configurator_error("earning-wallet"))
+                    return Err(pce.into_configurator_error("earning-wallet"));
                 }
             }
             Err(pce) => return Err(pce.into_configurator_error("earning-wallet")),
@@ -354,7 +358,7 @@ pub mod standard {
 
         if let Err(pce) = persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price)
         {
-            return Err(pce.into_configurator_error("gas-price"))
+            return Err(pce.into_configurator_error("gas-price"));
         }
         let consuming_wallet_derivation_path_opt =
             match persistent_config.consuming_wallet_derivation_path() {
@@ -380,7 +384,7 @@ pub mod standard {
                 };
                 let public_key = PlainData::new(keypair.secret().public().bytes());
                 if let Err(pce) = persistent_config.set_consuming_wallet_public_key(&public_key) {
-                    return Err(pce.into_configurator_error("consuming-wallet"))
+                    return Err(pce.into_configurator_error("consuming-wallet"));
                 }
             }
             _ => (),
@@ -402,23 +406,20 @@ pub mod standard {
             Ok(flag) => flag,
             Err(pce) => return Err(pce.into_configurator_error("seed")),
         };
-        if earning_wallet_opt.is_some()
-            && consuming_wallet_opt.is_some()
-            && mnemonic_seed_exists
-        {
+        if earning_wallet_opt.is_some() && consuming_wallet_opt.is_some() && mnemonic_seed_exists {
             return Err(ConfiguratorError::required("consuming-private-key", "Cannot use --consuming-private-key and --earning-wallet when database contains mnemonic seed"));
         }
 
-        if (earning_wallet_opt.is_none() || consuming_wallet_opt.is_none())
-            && mnemonic_seed_exists
+        if (earning_wallet_opt.is_none() || consuming_wallet_opt.is_none()) && mnemonic_seed_exists
         {
             match standard::get_db_password(multi_config, streams, config, persistent_config)? {
                 Some(db_password) => {
                     if consuming_wallet_opt.is_none() {
-                        consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
-                            persistent_config,
-                            &db_password,
-                        )?;
+                        consuming_wallet_opt =
+                            standard::get_consuming_wallet_opt_from_derivation_path(
+                                persistent_config,
+                                &db_password,
+                            )?;
                     } else {
                         match persistent_config.consuming_wallet_derivation_path() {
                             Ok(Some(_)) => return Err(ConfiguratorError::required("consuming-private-key", "Cannot use when database contains mnemonic seed and consuming wallet derivation path")),
@@ -426,7 +427,7 @@ pub mod standard {
                             Err(pce) => return Err(pce.into_configurator_error("consuming-wallet")),
                         }
                     }
-                },
+                }
                 None => (),
             }
         }
@@ -713,7 +714,9 @@ pub mod standard {
                                         return Err(ConfiguratorError::required("consuming-private-key", "Not the private key of the consuming wallet you have used in the past"));
                                     }
                                 }
-                                Err(e) => return Err(e.into_configurator_error ("consuming-private-key")),
+                                Err(e) => {
+                                    return Err(e.into_configurator_error("consuming-private-key"))
+                                }
                             }
                             Ok(Some(Wallet::from(keypair)))
                         }
@@ -766,7 +769,7 @@ pub mod standard {
         use crate::db_config::persistent_configuration::PersistentConfigError;
         use crate::sub_lib::utils::make_new_test_multi_config;
         use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-        use crate::test_utils::{ArgsBuilder, make_paying_wallet};
+        use crate::test_utils::{make_paying_wallet, ArgsBuilder};
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
         use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
@@ -846,28 +849,38 @@ pub mod standard {
             let mut config = BootstrapperConfig::new();
             config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
+                .earning_wallet_address_result(Ok(Some(
+                    "0x0123456789012345678901234567890123456789".to_string(),
+                )))
                 .set_gas_price_result(Ok(()))
-                .consuming_wallet_public_key_result(Err(PersistentConfigError::BadAddressFormat("baaad".to_string())))
-                .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())))
-            ;
+                .consuming_wallet_public_key_result(Err(PersistentConfigError::BadAddressFormat(
+                    "baaad".to_string(),
+                )))
+                .consuming_wallet_derivation_path_result(Ok(Some("m/44'/60'/1'/2/3".to_string())));
 
             let result = configure_database(&config, &mut persistent_config);
 
-            assert_eq! (result, Err(PersistentConfigError::BadAddressFormat("baaad".to_string()).into_configurator_error("consuming-wallet")))
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::BadAddressFormat("baaad".to_string())
+                    .into_configurator_error("consuming-wallet"))
+            )
         }
 
         #[test]
         fn configure_database_handles_error_during_setting_clandestine_port() {
             let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = Some (1000);
+            config.clandestine_port_opt = Some(1000);
             let mut persistent_config = PersistentConfigurationMock::new()
-                .set_clandestine_port_result(Err(PersistentConfigError::TransactionError))
-            ;
+                .set_clandestine_port_result(Err(PersistentConfigError::TransactionError));
 
             let result = configure_database(&config, &mut persistent_config);
 
-            assert_eq! (result, Err(PersistentConfigError::TransactionError.into_configurator_error("clandestine-port")))
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::TransactionError
+                    .into_configurator_error("clandestine-port"))
+            )
         }
 
         #[test]
@@ -876,14 +889,18 @@ pub mod standard {
             config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
                 .set_clandestine_port_result(Ok(()))
-                .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
+                .earning_wallet_address_result(Ok(Some(
+                    "0x0123456789012345678901234567890123456789".to_string(),
+                )))
                 .set_gas_price_result(Ok(()))
-                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent))
-            ;
+                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
 
             let result = configure_database(&config, &mut persistent_config);
 
-            assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-wallet")))
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-wallet"))
+            )
         }
 
         #[test]
@@ -891,13 +908,16 @@ pub mod standard {
             let mut config = BootstrapperConfig::new();
             config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_address_result (Ok(None))
-                .set_earning_wallet_address_result(Err(PersistentConfigError::TransactionError))
-            ;
+                .earning_wallet_address_result(Ok(None))
+                .set_earning_wallet_address_result(Err(PersistentConfigError::TransactionError));
 
             let result = configure_database(&config, &mut persistent_config);
 
-            assert_eq! (result, Err(PersistentConfigError::TransactionError.into_configurator_error("earning-wallet")))
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::TransactionError
+                    .into_configurator_error("earning-wallet"))
+            )
         }
 
         #[test]
@@ -905,17 +925,22 @@ pub mod standard {
             let mut config = BootstrapperConfig::new();
             config.consuming_wallet = Some(make_paying_wallet(b"wallet"));
             let mut persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_address_result (Ok(None))
+                .earning_wallet_address_result(Ok(None))
                 .set_earning_wallet_address_result(Ok(()))
                 .set_gas_price_result(Ok(()))
                 .consuming_wallet_public_key_result(Ok(None))
                 .consuming_wallet_derivation_path_result(Ok(None))
-                .set_consuming_wallet_public_key_result(Err(PersistentConfigError::TransactionError))
-            ;
+                .set_consuming_wallet_public_key_result(Err(
+                    PersistentConfigError::TransactionError,
+                ));
 
             let result = configure_database(&config, &mut persistent_config);
 
-            assert_eq! (result, Err(PersistentConfigError::TransactionError.into_configurator_error("consuming-wallet")))
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::TransactionError
+                    .into_configurator_error("consuming-wallet"))
+            )
         }
 
         #[test]
@@ -923,13 +948,17 @@ pub mod standard {
             let mut config = BootstrapperConfig::new();
             config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_address_result (Ok(Some("0x0123456789012345678901234567890123456789".to_string())))
-                .set_gas_price_result(Err(PersistentConfigError::TransactionError))
-            ;
+                .earning_wallet_address_result(Ok(Some(
+                    "0x0123456789012345678901234567890123456789".to_string(),
+                )))
+                .set_gas_price_result(Err(PersistentConfigError::TransactionError));
 
             let result = configure_database(&config, &mut persistent_config);
 
-            assert_eq! (result, Err(PersistentConfigError::TransactionError.into_configurator_error("gas-price")))
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::TransactionError.into_configurator_error("gas-price"))
+            )
         }
 
         #[test]
@@ -937,46 +966,65 @@ pub mod standard {
             let mut config = BootstrapperConfig::new();
             config.clandestine_port_opt = None;
             let mut persistent_config = PersistentConfigurationMock::new()
-                   .earning_wallet_address_result(Err(PersistentConfigError::BadAddressFormat("baaad".to_string())))
-           ;
+                .earning_wallet_address_result(Err(PersistentConfigError::BadAddressFormat(
+                    "baaad".to_string(),
+                )));
 
             let result = configure_database(&config, &mut persistent_config);
 
-            assert_eq! (result, Err(PersistentConfigError::BadAddressFormat("baaad".to_string()).into_configurator_error("earning-wallet")))
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::BadAddressFormat("baaad".to_string())
+                    .into_configurator_error("earning-wallet"))
+            )
         }
 
         #[test]
         fn get_earning_wallet_from_address_handles_error_retrieving_earning_wallet_from_address() {
-            let args = ArgsBuilder::new()
-                .param(
-                    "--earning-wallet",
-                    "0x0123456789012345678901234567890123456789",
-                );
+            let args = ArgsBuilder::new().param(
+                "--earning-wallet",
+                "0x0123456789012345678901234567890123456789",
+            );
             let vcls: Vec<Box<dyn VirtualCommandLine>> =
                 vec![Box::new(CommandLineVcl::new(args.into()))];
             let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
             let persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_from_address_result(Err (PersistentConfigError::NotPresent));
+                .earning_wallet_from_address_result(Err(PersistentConfigError::NotPresent));
 
             let result = get_earning_wallet_from_address(&multi_config, &persistent_config);
 
-            assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("earning-wallet")));
+            assert_eq!(
+                result,
+                Err(PersistentConfigError::NotPresent.into_configurator_error("earning-wallet"))
+            );
         }
 
         #[test]
-        fn get_consuming_wallet_opt_from_derivation_path_handles_error_retrieving_consuming_wallet_derivation_path() {
+        fn get_consuming_wallet_opt_from_derivation_path_handles_error_retrieving_consuming_wallet_derivation_path(
+        ) {
             let persistent_config = PersistentConfigurationMock::new()
-                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::Collision ("irrelevant".to_string())));
+                .consuming_wallet_derivation_path_result(Err(PersistentConfigError::Collision(
+                    "irrelevant".to_string(),
+                )));
 
-            let result = get_consuming_wallet_opt_from_derivation_path(&persistent_config, "irrelevant");
+            let result =
+                get_consuming_wallet_opt_from_derivation_path(&persistent_config, "irrelevant");
 
-            assert_eq! (result, Err(ConfiguratorError::new(vec! [
-                ParamError::new ("consuming-wallet", &format! ("{:?}", PersistentConfigError::Collision ("irrelevant".to_string()))),
-            ])))
+            assert_eq!(
+                result,
+                Err(ConfiguratorError::new(vec![ParamError::new(
+                    "consuming-wallet",
+                    &format!(
+                        "{:?}",
+                        PersistentConfigError::Collision("irrelevant".to_string())
+                    )
+                ),]))
+            )
         }
 
         #[test]
-        fn get_consuming_wallet_from_private_key_handles_error_retrieving_consuming_wallet_public_key() {
+        fn get_consuming_wallet_from_private_key_handles_error_retrieving_consuming_wallet_public_key(
+        ) {
             let args = ArgsBuilder::new()
                 .param(
                     "--consuming-private-key",
@@ -987,13 +1035,17 @@ pub mod standard {
                 vec![Box::new(CommandLineVcl::new(args.into()))];
             let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
             let persistent_config = PersistentConfigurationMock::new()
-                .consuming_wallet_public_key_result(Err (PersistentConfigError::NotPresent));
+                .consuming_wallet_public_key_result(Err(PersistentConfigError::NotPresent));
 
             let result = get_consuming_wallet_from_private_key(&multi_config, &persistent_config);
 
-            assert_eq! (result, Err(ConfiguratorError::new (vec![
-                ParamError::new ("consuming-private-key", &format! ("{:?}", PersistentConfigError::NotPresent)),
-            ])));
+            assert_eq!(
+                result,
+                Err(ConfiguratorError::new(vec![ParamError::new(
+                    "consuming-private-key",
+                    &format!("{:?}", PersistentConfigError::NotPresent)
+                ),]))
+            );
         }
 
         #[test]
@@ -1167,7 +1219,8 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::{make_default_persistent_configuration};
+    use crate::test_utils;
+    use crate::test_utils::make_default_persistent_configuration;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
@@ -1190,7 +1243,6 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crate::test_utils;
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
@@ -1588,9 +1640,7 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_error_getting_db_password() {
         running_test();
-        let multi_config = test_utils::make_multi_config(ArgsBuilder::new()
-            .opt ("--db-password")
-        );
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new().opt("--db-password"));
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
         let mut unprivileged_config = BootstrapperConfig::new();
@@ -1837,8 +1887,7 @@ mod tests {
         ));
         let consuming_private_key_text =
             "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01";
-        let consuming_private_key =
-            PlainData::from_str(consuming_private_key_text).unwrap();
+        let consuming_private_key = PlainData::from_str(consuming_private_key_text).unwrap();
         let persistent_config = PersistentConfigurationReal::new(config_dao);
         let password = "secret-db-password";
         let args = ArgsBuilder::new()
@@ -1994,25 +2043,30 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_handles_missing_gas_price () {
-        let multi_config= test_utils::make_multi_config(ArgsBuilder::new()
-            .param ("--ip", "1.2.3.4")
-        );
+    fn unprivileged_parse_args_handles_missing_gas_price() {
+        let multi_config =
+            test_utils::make_multi_config(ArgsBuilder::new().param("--ip", "1.2.3.4"));
         let mut unprivileged_config = BootstrapperConfig::new();
         let mut holder = FakeStreamHolder::new();
         let persistent_config = PersistentConfigurationMock::new()
-            .gas_price_result(Ok (None))
-            .earning_wallet_from_address_result (Ok(Some(Wallet::new("0x0123456789012345678901234567890123456789"))))
+            .gas_price_result(Ok(None))
+            .earning_wallet_from_address_result(Ok(Some(Wallet::new(
+                "0x0123456789012345678901234567890123456789",
+            ))))
             .mnemonic_seed_exists_result(Ok(false));
 
         standard::unprivileged_parse_args(
             &multi_config,
             &mut unprivileged_config,
             &mut holder.streams(),
-            Some(&persistent_config)
-        ).unwrap();
+            Some(&persistent_config),
+        )
+        .unwrap();
 
-        assert_eq! (unprivileged_config.blockchain_bridge_config.gas_price, DEFAULT_GAS_PRICE.parse::<u64>().unwrap());
+        assert_eq!(
+            unprivileged_config.blockchain_bridge_config.gas_price,
+            DEFAULT_GAS_PRICE.parse::<u64>().unwrap()
+        );
     }
 
     #[test]
@@ -2130,7 +2184,9 @@ mod tests {
             .past_neighbors_result(past_neighbors_result)
     }
 
-    fn make_consuming_wallet_public_key_opt (consuming_wallet_private_key_opt: Option<&str>) -> Option<PlainData> {
+    fn make_consuming_wallet_public_key_opt(
+        consuming_wallet_private_key_opt: Option<&str>,
+    ) -> Option<PlainData> {
         match consuming_wallet_private_key_opt {
             None => None,
             Some(consuming_wallet_private_key_hex) => {
@@ -2157,7 +2213,8 @@ mod tests {
     }
 
     #[test]
-    fn get_wallets_with_brand_new_database_establishes_default_earning_wallet_without_requiring_password() {
+    fn get_wallets_with_brand_new_database_establishes_default_earning_wallet_without_requiring_password(
+    ) {
         running_test();
         let multi_config = test_utils::make_multi_config(ArgsBuilder::new());
         let persistent_config = make_persistent_config(None, None, None, None, None, None, None);
@@ -2180,7 +2237,7 @@ mod tests {
         let multi_config = test_utils::make_multi_config(ArgsBuilder::new());
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
-            .mnemonic_seed_exists_result(Err (PersistentConfigError::NotPresent));
+            .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
 
         let result = standard::get_wallets(
             &mut FakeStreamHolder::new().streams(),
@@ -2189,7 +2246,10 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("seed")));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("seed"))
+        );
     }
 
     #[test]
@@ -2197,14 +2257,13 @@ mod tests {
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
         let multi_config = test_utils::make_multi_config(
-            ArgsBuilder::new()
-                .param("--consuming-private-key", &consuming_private_key_hex),
+            ArgsBuilder::new().param("--consuming-private-key", &consuming_private_key_hex),
         );
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
-            .consuming_wallet_public_key_result(Ok(
-                make_consuming_wallet_public_key_opt(Some (consuming_private_key_hex)))
-            )
+            .consuming_wallet_public_key_result(Ok(make_consuming_wallet_public_key_opt(Some(
+                consuming_private_key_hex,
+            ))))
             .mnemonic_seed_exists_result(Ok(true))
             .consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
         let mut config = BootstrapperConfig::new();
@@ -2217,15 +2276,15 @@ mod tests {
             &mut config,
         );
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-wallet")));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-wallet"))
+        );
     }
 
     #[test]
     fn get_wallets_handles_failure_of_get_db_password() {
-        let multi_config = test_utils::make_multi_config(
-            ArgsBuilder::new()
-                .opt ("--db-password")
-        );
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new().opt("--db-password"));
         let persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Ok(true))
@@ -2239,7 +2298,10 @@ mod tests {
             &mut config,
         );
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("db-password")));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
+        );
     }
 
     #[test]
@@ -2459,7 +2521,8 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let multi_config = test_utils::make_multi_config(ArgsBuilder::new().param("--db-password", "password"));
+        let multi_config =
+            test_utils::make_multi_config(ArgsBuilder::new().param("--db-password", "password"));
         let mnemonic_seed_prefix = "mnemonic_seed";
         let persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2689,28 +2752,24 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_error() {
         running_test();
-        let multi_config = test_utils::make_multi_config(ArgsBuilder::new()
-            .opt ("--db-password")
-        );
+        let multi_config = test_utils::make_multi_config(ArgsBuilder::new().opt("--db-password"));
         let mut streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
             stdout: &mut ByteArrayWriter::new(),
             stderr: &mut ByteArrayWriter::new(),
         };
         let mut config = BootstrapperConfig::new();
-        let persistent_config =
-            make_default_persistent_configuration()
-                .check_password_result(Ok(false))
-                .check_password_result(Err(PersistentConfigError::NotPresent));
+        let persistent_config = make_default_persistent_configuration()
+            .check_password_result(Ok(false))
+            .check_password_result(Err(PersistentConfigError::NotPresent));
 
-        let result = standard::get_db_password(
-            &multi_config,
-            &mut streams,
-            &mut config,
-            &persistent_config,
+        let result =
+            standard::get_db_password(&multi_config, &mut streams, &mut config, &persistent_config);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
         );
-
-        assert_eq!(result, Err(PersistentConfigError::NotPresent.into_configurator_error("db-password")));
     }
 
     #[test]

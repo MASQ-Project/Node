@@ -540,13 +540,14 @@ impl ValueRetriever for ClandestinePort {
         persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        if let Some (persistent_config) = persistent_config_opt {
+        if let Some(persistent_config) = persistent_config_opt {
             match persistent_config.clandestine_port() {
-                Ok (clandestine_port_opt) => clandestine_port_opt.map (|cp| (cp.to_string(), Default)),
-                Err (_) => None,
+                Ok(clandestine_port_opt) => {
+                    clandestine_port_opt.map(|cp| (cp.to_string(), Default))
+                }
+                Err(_) => None,
             }
-        }
-        else {
+        } else {
             None
         }
     }
@@ -2029,16 +2030,16 @@ mod tests {
     #[test]
     fn clandestine_port_database_field_absent() {
         let subject = ClandestinePort {};
-        let persistent_config = PersistentConfigurationMock::new()
-            .clandestine_port_result(Ok(None));
+        let persistent_config =
+            PersistentConfigurationMock::new().clandestine_port_result(Ok(None));
 
         let result = subject.computed_default(
             &BootstrapperConfig::new(),
-            &Some (Box::new (persistent_config)),
-            &None
+            &Some(Box::new(persistent_config)),
+            &None,
         );
 
-        assert_eq! (result, None)
+        assert_eq!(result, None)
     }
 
     #[test]
@@ -2049,11 +2050,11 @@ mod tests {
 
         let result = subject.computed_default(
             &BootstrapperConfig::new(),
-            &Some (Box::new (persistent_config)),
-            &None
+            &Some(Box::new(persistent_config)),
+            &None,
         );
 
-        assert_eq! (result, None)
+        assert_eq!(result, None)
     }
 
     #[test]

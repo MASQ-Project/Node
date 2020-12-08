@@ -3,9 +3,9 @@
 use crate::db_config::config_dao::{
     ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
 };
+use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use rusqlite::Transaction;
 
 pub struct ConfigDaoMock {
     get_all_results: RefCell<Vec<Result<Vec<ConfigDaoRecord>, ConfigDaoError>>>,

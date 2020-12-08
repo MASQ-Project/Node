@@ -2,7 +2,13 @@
 
 use crate::blockchain::bip39::Bip39;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
-use crate::node_configurator::{app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry, update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper, WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP, check_for_past_initialization};
+use crate::node_configurator::{
+    app_head, check_for_past_initialization, common_validators, consuming_wallet_arg,
+    create_wallet, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
+    prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry,
+    update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper,
+    WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP,
+};
 use crate::sub_lib::cryptde::PlainData;
 use bip39::{Language, Mnemonic};
 use clap::{value_t, values_t, App, Arg};
@@ -259,13 +265,16 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::db_config::config_dao::ConfigDaoReal;
-    use crate::db_config::persistent_configuration::{PersistentConfigurationReal, PersistentConfigError};
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfigurationReal,
+    };
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::utils::{make_new_test_multi_config};
+    use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::{
         Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::*;
     use bip39::Seed;
     use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
@@ -276,7 +285,6 @@ mod tests {
     };
     use masq_lib::utils::running_test;
     use std::io::Cursor;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     #[test]
     fn validate_mnemonic_words_if_provided_in_chinese_simplified() {
@@ -473,11 +481,13 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&subject.app, vcls).unwrap();
 
-        let config = subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &make_default_persistent_configuration(),
-        ).unwrap();
+        let config = subject
+            .parse_args(
+                &multi_config,
+                &mut FakeStreamHolder::new().streams(),
+                &make_default_persistent_configuration(),
+            )
+            .unwrap();
 
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
         let seed = Seed::new(&expected_mnemonic, "Mortimer");
@@ -512,7 +522,10 @@ mod tests {
             &persistent_config,
         );
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("seed")));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("seed"))
+        );
     }
 
     #[test]
@@ -534,11 +547,13 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
-        subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &make_default_persistent_configuration(),
-        ).unwrap();
+        subject
+            .parse_args(
+                &multi_config,
+                &mut FakeStreamHolder::new().streams(),
+                &make_default_persistent_configuration(),
+            )
+            .unwrap();
     }
 
     #[test]
@@ -635,11 +650,13 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
-        subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &persistent_config,
-        ).unwrap();
+        subject
+            .parse_args(
+                &multi_config,
+                &mut FakeStreamHolder::new().streams(),
+                &persistent_config,
+            )
+            .unwrap();
     }
 
     #[test]

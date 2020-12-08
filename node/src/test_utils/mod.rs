@@ -17,6 +17,7 @@ pub mod tokio_wrapper_mocks;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
+use crate::node_configurator::node_configurator_standard::app;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -34,11 +35,13 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
+use crate::sub_lib::utils::make_new_test_multi_config;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
+use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
 use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -61,9 +64,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use masq_lib::multi_config::{MultiConfig, VirtualCommandLine, CommandLineVcl};
-use crate::node_configurator::node_configurator_standard::app;
-use crate::sub_lib::utils::make_new_test_multi_config;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
@@ -202,8 +202,7 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 }
 
 pub fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
-    let vcls: Vec<Box<dyn VirtualCommandLine>> =
-        vec![Box::new(CommandLineVcl::new(args.into()))];
+    let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(args.into()))];
     make_new_test_multi_config(&app(), vcls).unwrap()
 }
 

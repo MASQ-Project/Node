@@ -151,7 +151,7 @@ impl<'a> ConfigDaoWrite for ConfigDaoWriteableReal<'a> {
 
     fn extract(&mut self) -> Result<Transaction, ConfigDaoError> {
         match self.transaction_opt.take() {
-            Some (transaction) => Ok (transaction),
+            Some(transaction) => Ok(transaction),
             None => Err(ConfigDaoError::TransactionError),
         }
     }
@@ -345,10 +345,7 @@ mod tests {
 
     #[test]
     fn extract_works() {
-        let home_dir = ensure_node_home_directory_exists(
-            "config_dao",
-            "extract_works",
-        );
+        let home_dir = ensure_node_home_directory_exists("config_dao", "extract_works");
         let mut dao = ConfigDaoReal::new(
             DbInitializerReal::new()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -370,10 +367,20 @@ mod tests {
                 .unwrap();
 
             subject.commit().unwrap();
-            assert_eq! (subject.extract().err().unwrap(), ConfigDaoError::TransactionError);
+            assert_eq!(
+                subject.extract().err().unwrap(),
+                ConfigDaoError::TransactionError
+            );
         }
-        let final_value = dao.get ("seed").unwrap();
-        assert_eq! (final_value, ConfigDaoRecord::new ("seed", Some ("Two wrongs don't make a right, but two Wrights make an airplane"), true));
+        let final_value = dao.get("seed").unwrap();
+        assert_eq!(
+            final_value,
+            ConfigDaoRecord::new(
+                "seed",
+                Some("Two wrongs don't make a right, but two Wrights make an airplane"),
+                true
+            )
+        );
     }
 
     #[test]

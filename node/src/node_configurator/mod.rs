@@ -10,7 +10,9 @@ use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
+use crate::db_config::persistent_configuration::{
+    PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
@@ -25,7 +27,7 @@ use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
 use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-use masq_lib::utils::{localhost};
+use masq_lib::utils::localhost;
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
 use std::fmt::Debug;
@@ -172,7 +174,7 @@ pub fn create_wallet(
     if let Some(address) = &config.earning_wallet_address_opt {
         match persistent_config.set_earning_wallet_address(address) {
             Ok(_) => (),
-            Err(pce) => return Err (pce.into_configurator_error("earning-wallet")),
+            Err(pce) => return Err(pce.into_configurator_error("earning-wallet")),
         }
     }
     if let Some(derivation_path_info) = &config.derivation_path_info_opt {
@@ -190,7 +192,7 @@ pub fn create_wallet(
                 &derivation_path_info.db_password,
             ) {
                 Ok(_) => (),
-                Err(pce) => return Err (pce.into_configurator_error("consuming-wallet")),
+                Err(pce) => return Err(pce.into_configurator_error("consuming-wallet")),
             }
         }
     }
@@ -220,7 +222,7 @@ pub fn update_db_password(
     match &wallet_config.derivation_path_info_opt {
         Some(dpwi) => {
             if let Err(pce) = persistent_config.change_password(None, &dpwi.db_password) {
-                return Err (pce.into_configurator_error("db-password"))
+                return Err(pce.into_configurator_error("db-password"));
             }
         }
         None => (),
@@ -303,9 +305,16 @@ pub fn prepare_initialization_mode<'a>(
     Ok((multi_config, persistent_config_box))
 }
 
-pub fn check_for_past_initialization(persistent_config: &dyn PersistentConfiguration) -> Result<(), ConfiguratorError> {
+pub fn check_for_past_initialization(
+    persistent_config: &dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
     match persistent_config.mnemonic_seed_exists() {
-        Ok(true) => return Err(ConfiguratorError::required("seed", "Cannot re-initialize Node: already initialized")),
+        Ok(true) => {
+            return Err(ConfiguratorError::required(
+                "seed",
+                "Cannot re-initialize Node: already initialized",
+            ))
+        }
         Ok(false) => Ok(()),
         Err(pce) => return Err(pce.into_configurator_error("seed")),
     }
@@ -337,8 +346,8 @@ pub fn request_new_db_password(
                 &format!("Could not elicit wallet encryption password: {:?}\n", e),
             );
             None
-        },
-        Err(PasswordError::InternalError(_)) => panic! ("Can't happen: no code path")
+        }
+        Err(PasswordError::InternalError(_)) => panic!("Can't happen: no code path"),
     }
 }
 
@@ -358,11 +367,15 @@ pub fn request_existing_db_password(
     };
     let verifier = move |password: &str| {
         if password.is_empty() {
-            return Err(PasswordVerificationError::YourFault("Password must not be blank.".to_string()));
+            return Err(PasswordVerificationError::YourFault(
+                "Password must not be blank.".to_string(),
+            ));
         }
         match persistent_config.check_password(Some(password)) {
             Ok(true) => Ok(()),
-            Ok(false) => Err(PasswordVerificationError::YourFault("Incorrect password.".to_string())),
+            Ok(false) => Err(PasswordVerificationError::YourFault(
+                "Incorrect password.".to_string(),
+            )),
             Err(pce) => return Err(PasswordVerificationError::MyFault(pce)),
         }
     };
@@ -372,7 +385,9 @@ pub fn request_existing_db_password(
         Ok(ref password) if password.is_empty() => None,
         Ok(password) => Some(password),
         Err(PasswordError::RetriesExhausted) => None,
-        Err(PasswordError::InternalError(pce)) => return Err(pce.into_configurator_error("db-password")),
+        Err(PasswordError::InternalError(pce)) => {
+            return Err(pce.into_configurator_error("db-password"))
+        }
         Err(e) => {
             flushed_write(
                 streams.stdout,
@@ -467,7 +482,9 @@ where
             Err(PasswordError::VerifyError(msg)) => {
                 flushed_write(streams.stdout, &format!("{} {}\n", msg, attempt))
             }
-            Err(PasswordError::InternalError(pce)) => return Err(PasswordError::InternalError(pce)),
+            Err(PasswordError::InternalError(pce)) => {
+                return Err(PasswordError::InternalError(pce))
+            }
             Err(e) => flushed_write(streams.stdout, &format!("{:?} {}\n", e, attempt)),
         }
     }
@@ -720,6 +737,7 @@ pub trait WalletCreationConfigMaker {
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::node_configurator::node_configurator_standard::app;
     use crate::node_test_utils::MockDirsWrapper;
     use crate::sub_lib::utils::make_new_test_multi_config;
@@ -732,15 +750,12 @@ mod tests {
     use masq_lib::shared_schema::{db_password_arg, ParamError};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
-    use masq_lib::test_utils::utils::{
-        TEST_DEFAULT_CHAIN_NAME,
-    };
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
     use masq_lib::utils::{find_free_port, running_test};
     use std::io::Cursor;
     use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
-    use crate::db_config::persistent_configuration::PersistentConfigError;
 
     #[test]
     fn validate_ethereum_address_requires_an_address_that_is_42_characters_long() {
@@ -951,34 +966,41 @@ mod tests {
 
     #[test]
     fn check_for_past_initialization_is_happy_when_database_is_uninitialized() {
-        let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_exists_result(Ok(false));
+        let persistent_config =
+            PersistentConfigurationMock::new().mnemonic_seed_exists_result(Ok(false));
 
         let result = check_for_past_initialization(&persistent_config);
 
-        assert_eq! (result, Ok(()));
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
     fn check_for_past_initialization_is_unhappy_when_database_is_initialized() {
-        let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_exists_result(Ok(true));
+        let persistent_config =
+            PersistentConfigurationMock::new().mnemonic_seed_exists_result(Ok(true));
 
         let result = check_for_past_initialization(&persistent_config);
 
-        assert_eq! (result, Err(ConfiguratorError::new (vec![
-            ParamError::new ("seed", "Cannot re-initialize Node: already initialized")
-        ])));
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![ParamError::new(
+                "seed",
+                "Cannot re-initialize Node: already initialized"
+            )]))
+        );
     }
 
     #[test]
     fn check_for_past_initialization_handles_database_error() {
         let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_exists_result(Err (PersistentConfigError::NotPresent));
+            .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
 
         let result = check_for_past_initialization(&persistent_config);
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("seed")));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("seed"))
+        );
     }
 
     #[test]
@@ -1229,14 +1251,13 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
 
-        let result = request_existing_db_password(
-            &mut holder.streams(),
-            None,
-            "prompt",
-            &persistent_config,
-        );
+        let result =
+            request_existing_db_password(&mut holder.streams(), None, "prompt", &persistent_config);
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("db-password")))
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
+        )
     }
 
     #[test]
@@ -1251,14 +1272,12 @@ mod tests {
             .check_password_result(Ok(false))
             .check_password_result(Err(PersistentConfigError::NotPresent));
 
-        let result = request_existing_db_password(
-            &mut streams,
-            None,
-            "prompt",
-            &persistent_config,
-        );
+        let result = request_existing_db_password(&mut streams, None, "prompt", &persistent_config);
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("db-password")))
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
+        )
     }
 
     #[test]
@@ -1724,38 +1743,44 @@ mod tests {
 
     #[test]
     pub fn create_wallet_handles_error_setting_earning_wallet() {
-        let config = WalletCreationConfig{
+        let config = WalletCreationConfig {
             earning_wallet_address_opt: Some("irrelevant".to_string()),
             derivation_path_info_opt: None,
             real_user: RealUser::new(None, None, None),
         };
-        let mut persistent_config = PersistentConfigurationMock::new ()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .set_earning_wallet_address_result(Err(PersistentConfigError::NotPresent));
 
         let result = create_wallet(&config, &mut persistent_config);
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("earning-wallet")));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("earning-wallet"))
+        );
     }
 
     #[test]
     pub fn create_wallet_handles_error_setting_consuming_wallet_derivation_path() {
-        let config = WalletCreationConfig{
+        let config = WalletCreationConfig {
             earning_wallet_address_opt: Some("irrelevant".to_string()),
-            derivation_path_info_opt: Some (DerivationPathWalletInfo {
-                mnemonic_seed: PlainData::new (b""),
+            derivation_path_info_opt: Some(DerivationPathWalletInfo {
+                mnemonic_seed: PlainData::new(b""),
                 db_password: "password".to_string(),
-                consuming_derivation_path_opt: Some("irrelevant".to_string())
+                consuming_derivation_path_opt: Some("irrelevant".to_string()),
             }),
             real_user: RealUser::new(None, None, None),
         };
-        let mut persistent_config = PersistentConfigurationMock::new ()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .set_earning_wallet_address_result(Ok(()))
             .set_mnemonic_seed_result(Ok(()))
             .set_consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
 
         let result = create_wallet(&config, &mut persistent_config);
 
-        assert_eq! (result, Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-wallet")));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-wallet"))
+        );
     }
 
     #[test]
@@ -1799,22 +1824,25 @@ mod tests {
     }
 
     #[test]
-    pub fn update_db_password_handles_error_changing_password () {
+    pub fn update_db_password_handles_error_changing_password() {
         let wallet_config = WalletCreationConfig {
             earning_wallet_address_opt: None,
-            derivation_path_info_opt: Some (DerivationPathWalletInfo {
-                mnemonic_seed: PlainData::new (b""),
+            derivation_path_info_opt: Some(DerivationPathWalletInfo {
+                mnemonic_seed: PlainData::new(b""),
                 db_password: "password".to_string(),
-                consuming_derivation_path_opt: None
+                consuming_derivation_path_opt: None,
             }),
-            real_user: RealUser::new (None, None, None)
+            real_user: RealUser::new(None, None, None),
         };
-        let mut persistent_config = PersistentConfigurationMock::new ()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .change_password_result(Err(PersistentConfigError::TransactionError));
 
         let result = update_db_password(&wallet_config, &mut persistent_config);
 
-        assert_eq! (result, Err(PersistentConfigError::TransactionError.into_configurator_error("db-password")));
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::TransactionError.into_configurator_error("db-password"))
+        );
     }
 
     #[test]

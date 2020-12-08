@@ -355,17 +355,23 @@ impl Accountant {
         );
         let future_report_new_payments_sub = self.report_new_payments_sub.clone();
         let start_block = match self.persistent_configuration.start_block() {
-            Ok (start_block_opt) => match start_block_opt {
-                Some (start_block) => start_block,
+            Ok(start_block_opt) => match start_block_opt {
+                Some(start_block) => start_block,
                 None => {
-                    warning! (self.logger, "database contains no start block; aborting received-payment scan");
-                    return
+                    warning!(
+                        self.logger,
+                        "database contains no start block; aborting received-payment scan"
+                    );
+                    return;
                 }
             },
-            Err (pce) => {
-                error! (self.logger, "Could not retrieve start block: {:?} - aborting received-payment scan", pce);
-                return
-            },
+            Err(pce) => {
+                error!(
+                    self.logger,
+                    "Could not retrieve start block: {:?} - aborting received-payment scan", pce
+                );
+                return;
+            }
         };
         let future = self
             .retrieve_transactions_sub
@@ -535,9 +541,9 @@ impl Accountant {
     }
 
     fn handle_received_payments(&mut self, received_payments: ReceivedPayments) {
-        self.receivable_dao.as_mut().more_money_received(
-            received_payments.payments,
-        );
+        self.receivable_dao
+            .as_mut()
+            .more_money_received(received_payments.payments);
     }
 
     fn handle_sent_payments(&mut self, sent_payments: SentPayments) {
@@ -724,6 +730,7 @@ pub mod tests {
     use crate::database::dao_utils::to_time_t;
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::mocks::ConfigDaoMock;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
@@ -749,7 +756,6 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
-    use crate::db_config::persistent_configuration::PersistentConfigError;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -915,10 +921,7 @@ pub mod tests {
             self.more_money_receivable_results.borrow_mut().remove(0)
         }
 
-        fn more_money_received(
-            &mut self,
-            transactions: Vec<Transaction>,
-        ) {
+        fn more_money_received(&mut self, transactions: Vec<Transaction>) {
             self.more_money_received_parameters
                 .lock()
                 .unwrap()
@@ -2074,20 +2077,15 @@ pub mod tests {
     #[test]
     fn scan_for_received_payments_handles_absence_of_start_block() {
         init_test_logging();
-        let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(None));
-        let mut subject = make_subject(
-            None,
-            None,
-            None,
-            None,
-            Some(persistent_config),
-        );
+        let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(None));
+        let mut subject = make_subject(None, None, None, None, Some(persistent_config));
 
         subject.scan_for_received_payments();
 
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching("WARN: Accountant: database contains no start block; aborting received-payment scan");
+        tlh.exists_log_matching(
+            "WARN: Accountant: database contains no start block; aborting received-payment scan",
+        );
     }
 
     #[test]
@@ -2095,13 +2093,7 @@ pub mod tests {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Err(PersistentConfigError::NotPresent));
-        let mut subject = make_subject(
-            None,
-            None,
-            None,
-            None,
-            Some(persistent_config),
-        );
+        let mut subject = make_subject(None, None, None, None, Some(persistent_config));
 
         subject.scan_for_received_payments();
 

@@ -3,7 +3,13 @@
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
-use crate::node_configurator::{app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg, prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry, update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper, WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP, check_for_past_initialization};
+use crate::node_configurator::{
+    app_head, check_for_past_initialization, common_validators, consuming_wallet_arg,
+    create_wallet, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
+    prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry,
+    update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper,
+    WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP,
+};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, Mnemonic, MnemonicType};
@@ -182,11 +188,11 @@ impl NodeConfiguratorGenerateWallet {
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<WalletCreationConfig,ConfiguratorError> {
+    ) -> Result<WalletCreationConfig, ConfiguratorError> {
         match persistent_config.mnemonic_seed_exists() {
-            Ok (true) => panic!("Can't generate wallets: mnemonic seed has already been created"),
-            Ok (false) => (),
-            Err (pce) => return Err(pce.into_configurator_error("seed")),
+            Ok(true) => panic!("Can't generate wallets: mnemonic seed has already been created"),
+            Ok(false) => (),
+            Err(pce) => return Err(pce.into_configurator_error("seed")),
         }
         Ok(self.make_wallet_creation_config(multi_config, streams))
     }
@@ -342,14 +348,18 @@ mod tests {
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
     use crate::db_config::config_dao::ConfigDaoReal;
-    use crate::db_config::persistent_configuration::{PersistentConfigurationReal, PersistentConfigError};
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfigurationReal,
+    };
+    use crate::node_configurator::node_configurator_standard::app;
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::sub_lib::wallet::DEFAULT_EARNING_DERIVATION_PATH;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::ArgsBuilder;
     use crate::test_utils::*;
-    use crate::test_utils::{ArgsBuilder};
     use bip39::Seed;
     use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -361,8 +371,6 @@ mod tests {
     use std::cell::RefCell;
     use std::io::Cursor;
     use std::sync::{Arc, Mutex};
-    use crate::node_configurator::node_configurator_standard::app;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     struct MnemonicFactoryMock {
         make_parameters: Arc<Mutex<Vec<(MnemonicType, Language)>>>,
@@ -521,8 +529,9 @@ mod tests {
             .make_result(expected_mnemonic.clone());
         subject.mnemonic_factory = Box::new(mnemonic_factory);
         let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
-        let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_exists_result(Err(PersistentConfigError::DatabaseError("Crashed".to_string())));
+        let persistent_config = PersistentConfigurationMock::new().mnemonic_seed_exists_result(
+            Err(PersistentConfigError::DatabaseError("Crashed".to_string())),
+        );
 
         let config = subject.parse_args(
             &multi_config,
@@ -530,7 +539,11 @@ mod tests {
             &persistent_config,
         );
 
-        assert_eq!(config,Err(PersistentConfigError::DatabaseError("Crashed".to_string()).into_configurator_error("seed")));
+        assert_eq!(
+            config,
+            Err(PersistentConfigError::DatabaseError("Crashed".to_string())
+                .into_configurator_error("seed"))
+        );
     }
 
     #[test]
@@ -685,10 +698,12 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
-        subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &persistent_config,
-        ).unwrap();
+        subject
+            .parse_args(
+                &multi_config,
+                &mut FakeStreamHolder::new().streams(),
+                &persistent_config,
+            )
+            .unwrap();
     }
 }
