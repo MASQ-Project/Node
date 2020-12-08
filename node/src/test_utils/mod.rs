@@ -42,6 +42,7 @@ use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
+use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -64,7 +65,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
