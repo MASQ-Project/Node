@@ -412,23 +412,21 @@ pub mod standard {
 
         if (earning_wallet_opt.is_none() || consuming_wallet_opt.is_none()) && mnemonic_seed_exists
         {
-            match standard::get_db_password(multi_config, streams, config, persistent_config)? {
-                Some(db_password) => {
-                    if consuming_wallet_opt.is_none() {
-                        consuming_wallet_opt =
-                            standard::get_consuming_wallet_opt_from_derivation_path(
-                                persistent_config,
-                                &db_password,
-                            )?;
-                    } else {
-                        match persistent_config.consuming_wallet_derivation_path() {
-                            Ok(Some(_)) => return Err(ConfiguratorError::required("consuming-private-key", "Cannot use when database contains mnemonic seed and consuming wallet derivation path")),
-                            Ok(None) => (),
-                            Err(pce) => return Err(pce.into_configurator_error("consuming-wallet")),
-                        }
+            if let Some(db_password) =
+                standard::get_db_password(multi_config, streams, config, persistent_config)?
+            {
+                if consuming_wallet_opt.is_none() {
+                    consuming_wallet_opt = standard::get_consuming_wallet_opt_from_derivation_path(
+                        persistent_config,
+                        &db_password,
+                    )?;
+                } else {
+                    match persistent_config.consuming_wallet_derivation_path() {
+                        Ok(Some(_)) => return Err(ConfiguratorError::required("consuming-private-key", "Cannot use when database contains mnemonic seed and consuming wallet derivation path")),
+                        Ok(None) => (),
+                        Err(pce) => return Err(pce.into_configurator_error("consuming-wallet")),
                     }
                 }
-                None => (),
             }
         }
         config.consuming_wallet = consuming_wallet_opt;

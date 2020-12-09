@@ -309,14 +309,12 @@ pub fn check_for_past_initialization(
     persistent_config: &dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
     match persistent_config.mnemonic_seed_exists() {
-        Ok(true) => {
-            return Err(ConfiguratorError::required(
-                "seed",
-                "Cannot re-initialize Node: already initialized",
-            ))
-        }
+        Ok(true) => Err(ConfiguratorError::required(
+            "seed",
+            "Cannot re-initialize Node: already initialized",
+        )),
         Ok(false) => Ok(()),
-        Err(pce) => return Err(pce.into_configurator_error("seed")),
+        Err(pce) => Err(pce.into_configurator_error("seed")),
     }
 }
 
@@ -376,7 +374,7 @@ pub fn request_existing_db_password(
             Ok(false) => Err(PasswordVerificationError::YourFault(
                 "Incorrect password.".to_string(),
             )),
-            Err(pce) => return Err(PasswordVerificationError::MyFault(pce)),
+            Err(pce) => Err(PasswordVerificationError::MyFault(pce)),
         }
     };
     let result = match request_password_with_retry(prompt, streams, |streams| {
