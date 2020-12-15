@@ -138,9 +138,7 @@ fn node_remembers_its_neighbors_across_a_bounce() {
 
     originating_node.kill_node();
 
-    let mut config = originating_node.get_startup_config();
-    config.neighbors = vec![];
-    originating_node.restart_node(config);
+    originating_node.restart_node(originating_node.get_startup_config());
     let (gossip, ip_addr) = relay1.wait_for_gossip(Duration::from_millis(2000)).unwrap();
     match parse_gossip(&gossip, ip_addr) {
         GossipType::DebutGossip(_) => (),

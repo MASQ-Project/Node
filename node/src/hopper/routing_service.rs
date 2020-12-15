@@ -217,6 +217,9 @@ impl RoutingService {
         self.route_expired_package(component, expired_package, payer_owns_secret_key)
     }
 
+    // TODO: Rather than trying both alias and main cryptdes, this method should accept the Component
+    // that is to receive the package. If that Component is Neighborhood, it should use the main_cryptde
+    // to expire it; if the Component is anything else, it should use the alias_cryptde.
     fn extract_expired_package(
         &self,
         immediate_neighbor_addr: SocketAddr,

@@ -91,3 +91,6 @@ cargo-bundle = "0.4.0"
 
 [features]
 expose_test_privates = []
+
+#[profile.release]
+#opt-level = 0

@@ -649,6 +649,10 @@ impl Neighborhood {
                 } else {
                     Some(nds.into_iter().collect_vec())
                 };
+                debug!(
+                    self.logger,
+                    "Saving neighbor list: {:?}", node_descriptors_opt
+                );
                 match self
                     .persistent_config_opt
                     .as_mut()

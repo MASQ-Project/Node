@@ -422,12 +422,12 @@ impl SetupReporterReal {
         let initializer = DbInitializerReal::new();
         match initializer.initialize(data_directory, chain_id, false) {
             Ok(conn) => {
-                let persistent_config = PersistentConfigurationReal::from(conn);
+                let mut persistent_config = PersistentConfigurationReal::from(conn);
                 match unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut streams,
-                    Some(&persistent_config),
+                    Some(&mut persistent_config),
                 ) {
                     Ok(_) => (
                         (bootstrapper_config, Some(Box::new(persistent_config))),

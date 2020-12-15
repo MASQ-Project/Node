@@ -8,9 +8,9 @@ use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
 use rand::prelude::*;
+use rustc_hex::ToHex;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
-use rustc_hex::ToHex;
 
 #[derive(Debug, Clone)]
 pub struct CryptDENull {
@@ -210,7 +210,8 @@ impl CryptDENull {
         let vec = Vec::from(&data.as_slice()[0..prefix_len]);
         format!(
             "Could not decrypt with {} data beginning with {}",
-            key_data.to_hex::<String>(), vec.to_hex::<String>()
+            key_data.to_hex::<String>(),
+            vec.to_hex::<String>()
         )
     }
 
@@ -304,7 +305,12 @@ mod tests {
 
         let result = subject.decode(&CryptData::new(b"keydata"));
 
-        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with 696e76616c69646b6579 data beginning with 6b657964617461")), result.err().unwrap());
+        assert_eq!(
+            CryptdecError::InvalidKey(String::from(
+                "Could not decrypt with 696e76616c69646b6579 data beginning with 6b657964617461"
+            )),
+            result.err().unwrap()
+        );
     }
 
     #[test]
@@ -417,7 +423,12 @@ mod tests {
 
         let result = subject.decode_sym(&key, &CryptData::new(b"keydata"));
 
-        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with 696e76616c69646b6579 data beginning with 6b657964617461")), result.err().unwrap());
+        assert_eq!(
+            CryptdecError::InvalidKey(String::from(
+                "Could not decrypt with 696e76616c69646b6579 data beginning with 6b657964617461"
+            )),
+            result.err().unwrap()
+        );
     }
 
     #[test]
