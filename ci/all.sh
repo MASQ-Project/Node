@@ -6,10 +6,10 @@ PARENT_DIR="$1"
 ci/format.sh
 
 # Remove these two lines to slow down the build
-which sccache || cargo install sccache || echo "Skipping sccache installation"  # Should do significant work only once
-export SCCACHE_DIR="$HOME/.cargo/cache"
-export RUSTC_WRAPPER="$HOME/.cargo/bin/sccache"
-sccache --start-server || echo "sccache server already running"
+#which sccache || cargo install sccache || echo "Skipping sccache installation"  # Should do significant work only once
+#export SCCACHE_DIR="$HOME/.cargo/cache"
+#export RUSTC_WRAPPER="$HOME/.cargo/bin/sccache"
+#sccache --start-server || echo "sccache server already running"
 export RUSTFLAGS="-D warnings -Anon-snake-case"
 
 echo "*********************************************************************************************************"
