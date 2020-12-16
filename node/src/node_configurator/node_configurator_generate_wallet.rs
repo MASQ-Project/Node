@@ -466,14 +466,14 @@ mod tests {
             "node_configurator_generate_wallet",
             "exercise_configure",
         );
-        let password = "secret-db-password";
+        let password = "secret-db-password".to_string();
         let consuming_path = "m/44'/60'/0'/77/78";
         let earning_path = "m/44'/60'/0'/78/77";
         let args_vec: Vec<String> = ArgsBuilder::new()
             .opt("--generate-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
-            .param("--db-password", password)
+            .param("--db-password", &password)
             .param("--consuming-wallet", consuming_path)
             .param("--earning-wallet", earning_path)
             .param("--language", "español")
@@ -494,7 +494,7 @@ mod tests {
             .unwrap();
 
         let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
-        assert_eq!(persistent_config.check_password(Some(password)), Ok(true));
+        assert_eq!(persistent_config.check_password(Some(password.clone())), Ok(true));
         let mut make_parameters = make_parameters_arc.lock().unwrap();
         assert_eq_debug(
             make_parameters.remove(0),

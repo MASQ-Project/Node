@@ -42,7 +42,7 @@ impl SecureConfigLayer {
     #[allow(clippy::borrowed_box)]
     pub fn check_password<T: ConfigDaoRead + ?Sized>(
         &self,
-        db_password_opt: Option<&str>,
+        db_password_opt: Option<String>,
         dao: &Box<T>,
     ) -> Result<bool, SecureConfigLayerError> {
         match dao.get(EXAMPLE_ENCRYPTED) {
@@ -53,11 +53,11 @@ impl SecureConfigLayer {
 
     pub fn change_password<'b, T: ConfigDaoReadWrite + ?Sized>(
         &self,
-        old_password_opt: Option<&str>,
+        old_password_opt: Option<String>,
         new_password: &str,
         dao: &'b mut Box<T>,
     ) -> Result<(), SecureConfigLayerError> {
-        if !self.check_password(old_password_opt, dao)? {
+        if !self.check_password(old_password_opt.clone(), dao)? {
             return Err(SecureConfigLayerError::PasswordError);
         }
         self.reencrypt_records(old_password_opt, new_password, dao)?;
@@ -69,17 +69,17 @@ impl SecureConfigLayer {
         &self,
         name: &str,
         plain_value_opt: Option<String>,
-        password_opt: Option<&str>,
+        password_opt: Option<String>,
         dao: &Box<T>,
     ) -> Result<Option<String>, SecureConfigLayerError> {
-        if !self.check_password(password_opt, dao)? {
+        if !self.check_password(password_opt.clone(), dao)? {
             return Err(SecureConfigLayerError::PasswordError);
         }
         let record = dao.get(name)?;
         match (record.encrypted, plain_value_opt, password_opt) {
             (false, value_opt, _) => Ok(value_opt),
             (true, Some(plain_value), Some(password)) => {
-                match Bip39::encrypt_bytes(&plain_value.as_bytes(), password) {
+                match Bip39::encrypt_bytes(&plain_value.as_bytes(), &password) {
                     Err(_) => panic!("Encryption of '{}' failed", plain_value),
                     Ok(crypt_data) => Ok(Some(crypt_data)),
                 }
@@ -93,15 +93,15 @@ impl SecureConfigLayer {
     pub fn decrypt<T: ConfigDaoRead + ?Sized>(
         &self,
         record: ConfigDaoRecord,
-        password_opt: Option<&str>,
+        password_opt: Option<String>,
         dao: &Box<T>,
     ) -> Result<Option<String>, SecureConfigLayerError> {
-        if !self.check_password(password_opt, dao)? {
+        if !self.check_password(password_opt.clone(), dao)? {
             return Err(SecureConfigLayerError::PasswordError);
         }
-        match (record.encrypted, record.value_opt, password_opt) {
+        match (record.encrypted, record.value_opt, password_opt.clone()) {
             (false, value_opt, _) => Ok(value_opt),
-            (true, Some(value), Some(password)) => match Bip39::decrypt_bytes(&value, password) {
+            (true, Some(value), Some(password)) => match Bip39::decrypt_bytes(&value, &password) {
                 Err(_) => Err(SecureConfigLayerError::DatabaseError(format!(
                     "Password for '{}' does not match database password",
                     record.name
@@ -121,7 +121,7 @@ impl SecureConfigLayer {
 
     fn password_matches_example(
         &self,
-        db_password_opt: Option<&str>,
+        db_password_opt: Option<String>,
         example_record: ConfigDaoRecord,
     ) -> Result<bool, SecureConfigLayerError> {
         if !example_record.encrypted {
@@ -135,7 +135,7 @@ impl SecureConfigLayer {
             (None, Some(_)) => Ok(false),
             (Some(_), None) => Ok(false),
             (Some(db_password), Some(encrypted_example)) => {
-                match Bip39::decrypt_bytes(&encrypted_example, db_password) {
+                match Bip39::decrypt_bytes(&encrypted_example, &db_password) {
                     Ok(_) => Ok(true),
                     Err(Bip39Error::DecryptionFailure(_)) => Ok(false),
                     Err(e) => Err(SecureConfigLayerError::DatabaseError(format!(
@@ -150,7 +150,7 @@ impl SecureConfigLayer {
     #[allow(clippy::borrowed_box)]
     fn reencrypt_records<T: ConfigDaoReadWrite + ?Sized>(
         &self,
-        old_password_opt: Option<&str>,
+        old_password_opt: Option<String>,
         new_password: &str,
         dao: &Box<T>,
     ) -> Result<(), SecureConfigLayerError> {
@@ -161,7 +161,7 @@ impl SecureConfigLayer {
             .filter(|record| record.name != EXAMPLE_ENCRYPTED)
             .fold(init, |so_far, record| match so_far {
                 Err(e) => Err(e),
-                Ok(records) => match Self::reencrypt_record(record, old_password_opt, new_password)
+                Ok(records) => match Self::reencrypt_record(record, old_password_opt.clone(), new_password)
                 {
                     Err(e) => Err(e),
                     Ok(new_record) => Ok(append(records, new_record)),
@@ -196,10 +196,10 @@ impl SecureConfigLayer {
 
     fn reencrypt_record(
         old_record: ConfigDaoRecord,
-        old_password_opt: Option<&str>,
+        old_password_opt: Option<String>,
         new_password: &str,
     ) -> Result<ConfigDaoRecord, SecureConfigLayerError> {
-        match (old_record.encrypted, &old_record.value_opt, old_password_opt) {
+        match (old_record.encrypted, &old_record.value_opt, &old_password_opt) {
             (false, _, _) => Ok(old_record),
             (true, None, _) => Ok(old_record),
             (true, Some(_), None) => Err(SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' is encrypted, but database has no password", old_record.name))),
@@ -288,7 +288,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("password"), &Box::new(dao));
+        let result = subject.check_password(Some("password".to_string()), &Box::new(dao));
 
         assert_eq!(result, Ok(false));
         let get_params = get_params_arc.lock().unwrap();
@@ -330,7 +330,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("password"), &Box::new(dao));
+        let result = subject.check_password(Some("password".to_string()), &Box::new(dao));
 
         assert_eq!(result, Ok(true));
         let get_params = get_params_arc.lock().unwrap();
@@ -351,7 +351,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("bad password"), &Box::new(dao));
+        let result = subject.check_password(Some("bad password".to_string()), &Box::new(dao));
 
         assert_eq!(result, Ok(false));
         let get_params = get_params_arc.lock().unwrap();
@@ -370,7 +370,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("bad password"), &Box::new(dao));
+        let result = subject.check_password(Some("bad password".to_string()), &Box::new(dao));
 
         assert_eq!(
             result,
@@ -396,7 +396,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("password"), &Box::new(dao));
+        let result = subject.check_password(Some("password".to_string()), &Box::new(dao));
 
         assert_eq! (result, Err(DatabaseError(format!("Password example value '{}' is corrupted: ConversionError(\"Invalid character \\'s\\' at position 1\")", EXAMPLE_ENCRYPTED))));
         let get_params = get_params_arc.lock().unwrap();
@@ -411,7 +411,7 @@ mod tests {
             .get_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("irrelevant"), &Box::new(dao));
+        let result = subject.check_password(Some("irrelevant".to_string()), &Box::new(dao));
 
         assert_eq!(result, Err(DatabaseError("booga".to_string())));
         let get_params = get_params_arc.lock().unwrap();
@@ -512,7 +512,7 @@ mod tests {
         );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.change_password(Some("old_password"), "new_password", &mut writeable);
+        let result = subject.change_password(Some("old_password".to_string()), "new_password", &mut writeable);
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -551,7 +551,7 @@ mod tests {
         let subject = SecureConfigLayer::new();
 
         let result =
-            subject.change_password(Some("bad_password"), "new_password", &mut Box::new(dao));
+            subject.change_password(Some("bad_password".to_string()), "new_password", &mut Box::new(dao));
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
@@ -568,7 +568,7 @@ mod tests {
         let subject = SecureConfigLayer::new();
 
         let result =
-            subject.reencrypt_records(Some("old_password"), "new_password", &Box::new(dao));
+            subject.reencrypt_records(Some("old_password".to_string()), "new_password", &Box::new(dao));
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change due to database corruption: configuration value 'badly_encrypted' cannot be decrypted".to_string())))
     }
@@ -600,7 +600,7 @@ mod tests {
         let subject = SecureConfigLayer::new();
 
         let result =
-            subject.reencrypt_records(Some("old_password"), "new_password", &Box::new(dao));
+            subject.reencrypt_records(Some("old_password".to_string()), "new_password", &Box::new(dao));
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change: configuration value 'encrypted_value' could not be set: DatabaseError(\"booga\")".to_string())))
     }
@@ -669,7 +669,7 @@ mod tests {
         );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.decrypt(record, Some("password"), &dao);
+        let result = subject.decrypt(record, Some("password".to_string()), &dao);
 
         assert_eq!(result, Ok(Some("attribute_value".to_string())));
         let get_params = get_params_arc.lock().unwrap();
@@ -695,7 +695,7 @@ mod tests {
         );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.decrypt(record, Some("password"), &dao);
+        let result = subject.decrypt(record, Some("password".to_string()), &dao);
 
         assert_eq!(
             result,
@@ -721,7 +721,7 @@ mod tests {
         ))));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.decrypt(record, Some("password"), &dao);
+        let result = subject.decrypt(record, Some("password".to_string()), &dao);
 
         assert_eq!(
             result,
@@ -763,7 +763,7 @@ mod tests {
         ))));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.decrypt(record, Some("password"), &dao);
+        let result = subject.decrypt(record, Some("password".to_string()), &dao);
 
         assert_eq!(
             result,
@@ -783,7 +783,7 @@ mod tests {
         let record = ConfigDaoRecord::new("attribute_name", Some("attribute_value"), true);
         let subject = SecureConfigLayer::new();
 
-        let result = subject.decrypt(record, Some("password"), &dao);
+        let result = subject.decrypt(record, Some("password".to_string()), &dao);
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
@@ -881,7 +881,7 @@ mod tests {
         );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.encrypt("attribute_name", None, Some("password"), &dao);
+        let result = subject.encrypt("attribute_name", None, Some("password".to_string()), &dao);
 
         assert_eq!(result, Ok(None));
         let get_params = get_params_arc.lock().unwrap();
@@ -915,7 +915,7 @@ mod tests {
         let result = subject.encrypt(
             "attribute_name",
             Some("attribute_value".to_string()),
-            Some("password"),
+            Some("password".to_string()),
             &dao,
         );
 
@@ -944,7 +944,7 @@ mod tests {
         );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.encrypt("attribute_name", None, Some("password"), &dao);
+        let result = subject.encrypt("attribute_name", None, Some("password".to_string()), &dao);
 
         assert_eq!(result, Ok(None));
         let get_params = get_params_arc.lock().unwrap();
@@ -979,7 +979,7 @@ mod tests {
             .encrypt(
                 "attribute_name",
                 Some("attribute_value".to_string()),
-                Some("password"),
+                Some("password".to_string()),
                 &dao,
             )
             .unwrap()
@@ -1034,7 +1034,7 @@ mod tests {
         let result = subject.encrypt(
             "attribute_name",
             Some("attribute_value".to_string()),
-            Some("password"),
+            Some("password".to_string()),
             &dao,
         );
 
@@ -1057,7 +1057,7 @@ mod tests {
         let result = subject.encrypt(
             "attribute_name",
             Some("attribute_value".to_string()),
-            Some("password"),
+            Some("password".to_string()),
             &dao,
         );
 

@@ -421,7 +421,7 @@ mod tests {
             "node_configurator_recover_wallet",
             "exercise_configure",
         );
-        let password = "secret-db-password";
+        let password = "secret-db-password".to_string();
         let phrase = "llanto elipse chaleco factor setenta dental moneda rasgo gala rostro taco nudillo orador temor puesto";
         let consuming_path = "m/44'/60'/0'/77/78";
         let earning_path = "m/44'/60'/0'/78/77";
@@ -429,7 +429,7 @@ mod tests {
             .opt("--recover-wallet")
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .param("--data-directory", home_dir.to_str().unwrap())
-            .param("--db-password", password)
+            .param("--db-password", &password)
             .param("--consuming-wallet", consuming_path)
             .param("--earning-wallet", earning_path)
             .param("--language", "español")
@@ -444,7 +444,7 @@ mod tests {
             .unwrap();
 
         let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
-        assert_eq!(persistent_config.check_password(Some(password)), Ok(true));
+        assert_eq!(persistent_config.check_password(Some(password.clone())), Ok(true));
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::Spanish).unwrap();
         let seed = Seed::new(&expected_mnemonic, "Mortimer");
         let earning_wallet =

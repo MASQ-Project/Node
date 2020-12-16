@@ -57,21 +57,21 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.current_schema_version_results)
     }
 
-    fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, PersistentConfigError> {
+    fn check_password(&self, db_password_opt: Option<String>) -> Result<bool, PersistentConfigError> {
         self.check_password_params
             .lock()
             .unwrap()
-            .push(db_password_opt.map(|p| p.to_string()));
+            .push(db_password_opt);
         self.check_password_results.borrow_mut().remove(0)
     }
 
     fn change_password(
         &mut self,
-        old_password_opt: Option<&str>,
+        old_password_opt: Option<String>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
         self.change_password_params.lock().unwrap().push((
-            old_password_opt.map(|p| p.to_string()),
+            old_password_opt,
             db_password.to_string(),
         ));
         self.change_password_results.borrow_mut().remove(0)

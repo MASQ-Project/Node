@@ -364,7 +364,7 @@ pub fn request_existing_db_password(
     if let Some(preamble) = possible_preamble {
         flushed_write(streams.stdout, &format!("{}\n", preamble))
     };
-    let verifier = move |password: &str| {
+    let verifier = move |password: String| {
         if password.is_empty() {
             return Err(PasswordVerificationError::YourFault(
                 "Password must not be blank.".to_string(),
@@ -424,12 +424,12 @@ pub fn request_existing_password<F>(
     verifier: F,
 ) -> Result<String, PasswordError>
 where
-    F: FnOnce(&str) -> Result<(), PasswordVerificationError>,
+    F: FnOnce(String) -> Result<(), PasswordVerificationError>,
 {
     let reader_opt = possible_reader_from_stream(streams);
     let password = read_password_with_reader(reader_opt).expect("Fatal error");
-    match verifier(&password) {
-        Ok(_) => Ok(password),
+    match verifier(password.clone()) {
+        Ok(_) => Ok(password.clone()),
         Err(PasswordVerificationError::YourFault(msg)) => Err(PasswordError::VerifyError(msg)),
         Err(PasswordVerificationError::MyFault(pce)) => Err(PasswordError::InternalError(pce)),
     }

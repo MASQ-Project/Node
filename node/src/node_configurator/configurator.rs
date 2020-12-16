@@ -1,5 +1,5 @@
 use actix::{Handler, Actor, Context, Recipient};
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, MessageTarget, MessageBody};
+use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, MessageTarget, MessageBody, MessagePath};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::database::db_initializer::{DbInitializerReal, DbInitializer};
@@ -7,10 +7,15 @@ use std::path::PathBuf;
 use crate::db_config::config_dao::ConfigDaoReal;
 use masq_lib::messages::{UiChangePasswordRequest, FromMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse, ToMessageBody};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
+use crate::sub_lib::logger::Logger;
+
+pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
+pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub: Option<Recipient<NodeToUiMessage>>,
+    logger: Logger,
 }
 
 impl Actor for Configurator {
@@ -21,7 +26,7 @@ impl Handler<BindMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.node_to_ui_sub = Some (msg.peer_actors.configurator.node_to_ui_sub.clone());
+        self.node_to_ui_sub = Some (msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
     }
 }
 
@@ -29,7 +34,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let(Ok((body, context_id))) = UiCheckPasswordRequest::fmb(msg.body) {
+        if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.body) {
             self.reply (ClientId(msg.client_id), self.handle_check_password (body, context_id));
         }
     }
@@ -40,31 +45,36 @@ impl From<Box<dyn PersistentConfiguration>> for Configurator {
         Configurator {
             persistent_config,
             node_to_ui_sub: None,
+            logger: Logger::new ("Configurator"),
         }
     }
 }
 
 impl Configurator {
     pub fn new (data_directory: PathBuf, chain_id: u8) -> Self {
-        let initializer = DbInitializerReal::new();
-        let conn = initializer.initialize(
-            &data_directory,
-            chain_id,
-            false,
-        ).expect ("Couldn't initialize database");
-        let config_dao = ConfigDaoReal::new(conn);
-        let persistent_config: Box<dyn PersistentConfiguration> = Box::new (PersistentConfigurationReal::new (Box::new (config_dao)));
-        Configurator::from (persistent_config)
+        unimplemented!();
+        // let initializer = DbInitializerReal::new();
+        // let conn = initializer.initialize(
+        //     &data_directory,
+        //     chain_id,
+        //     false,
+        // ).expect ("Couldn't initialize database");
+        // let config_dao = ConfigDaoReal::new(conn);
+        // let persistent_config: Box<dyn PersistentConfiguration> = Box::new (PersistentConfigurationReal::new (Box::new (config_dao)));
+        // Configurator::from (persistent_config)
     }
 
     fn handle_check_password (&self, msg: UiCheckPasswordRequest, context_id: u64) -> MessageBody {
-        let db_password_opt = match msg.db_password_opt {
-            Some (s) => Some (s.as_str()),
-            None => None
-        };
-        match self.persistent_config.check_password(db_password_opt) {
+        match self.persistent_config.check_password(msg.db_password_opt.clone()) {
             Ok(matches) => UiCheckPasswordResponse { matches }.tmb (context_id),
-            Err(e) => unimplemented! ("{:?}", e),
+            Err(e) => {
+                warning! (self.logger, "Failed to check password: {:?}", e);
+                MessageBody {
+                    opcode: msg.opcode().to_string(),
+                    path: MessagePath::Conversation(context_id),
+                    payload: Err((CONFIGURATOR_WRITE_ERROR, format!("{:?}", e))),
+                }
+            },
         }
     }
 
@@ -87,7 +97,9 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::messages::{UiStartOrder, ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse};
     use std::sync::{Arc, Mutex};
-    use masq_lib::ui_gateway::MessageTarget;
+    use masq_lib::ui_gateway::{MessageTarget, MessagePath};
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::db_config::persistent_configuration::PersistentConfigError;
 
     #[test]
     fn ignores_unexpected_message () {
@@ -116,7 +128,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new ()
             .check_password_params (&check_password_params_arc)
             .check_password_result (Ok(false));
-        let subject = make_subject (None);
+        let subject = make_subject (Some (persistent_config));
         let subject_addr = subject.start();
         let (ui_gateway, _, ui_gateway_recording) = make_recorder ();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -141,6 +153,24 @@ mod tests {
             }.tmb(4321)
         });
         assert_eq! (recording.len(), 1);
+    }
+
+    #[test]
+    fn handle_check_password_handles_error() {
+        init_test_logging();
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result (Err(PersistentConfigError::NotPresent));
+        let subject = make_subject (Some(persistent_config));
+        let msg = UiCheckPasswordRequest {db_password_opt: None};
+
+        let result = subject.handle_check_password (msg, 4321);
+
+        assert_eq! (result, MessageBody {
+            opcode: "checkPassword".to_string(),
+            path: MessagePath::Conversation(4321),
+            payload: Err ((CONFIGURATOR_WRITE_ERROR, "NotPresent".to_string()))
+        });
+        TestLogHandler::new().exists_log_containing("WARN: Configurator: Failed to check password: NotPresent");
     }
 
     fn make_subject (persistent_config_opt: Option<PersistentConfigurationMock>) -> Configurator {

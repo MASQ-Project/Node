@@ -66,10 +66,10 @@ impl PersistentConfigError {
 
 pub trait PersistentConfiguration {
     fn current_schema_version(&self) -> String;
-    fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, PersistentConfigError>;
+    fn check_password(&self, db_password_opt: Option<String>) -> Result<bool, PersistentConfigError>;
     fn change_password(
         &mut self,
-        old_password_opt: Option<&str>,
+        old_password_opt: Option<String>,
         new_password: &str,
     ) -> Result<(), PersistentConfigError>;
     fn clandestine_port(&self) -> Result<Option<u16>, PersistentConfigError>;
@@ -129,13 +129,13 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn check_password(&self, db_password_opt: Option<&str>) -> Result<bool, PersistentConfigError> {
+    fn check_password(&self, db_password_opt: Option<String>) -> Result<bool, PersistentConfigError> {
         Ok(self.scl.check_password(db_password_opt, &self.dao)?)
     }
 
     fn change_password(
         &mut self,
-        old_password_opt: Option<&str>,
+        old_password_opt: Option<String>,
         new_password: &str,
     ) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
@@ -193,7 +193,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError> {
         Ok(decode_bytes(self.scl.decrypt(
             self.dao.get("seed")?,
-            Some(db_password),
+            Some(db_password.to_string()),
             &self.dao,
         )?)?)
     }
@@ -213,7 +213,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         writer.set(
             "seed",
             self.scl
-                .encrypt("seed", Some(encoded_seed), Some(db_password), &writer)?,
+                .encrypt("seed", Some(encoded_seed), Some(db_password.to_string()), &writer)?,
         )?;
         Ok(writer.commit()?)
     }
@@ -249,7 +249,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         let key_rec = writer.get("consuming_wallet_public_key")?;
         let seed_opt = decode_bytes(self.scl.decrypt(
             writer.get("seed")?,
-            Some(db_password),
+            Some(db_password.to_string()),
             &writer,
         )?)?;
         let path_rec = writer.get("consuming_wallet_derivation_path")?;
@@ -345,7 +345,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
         let bytes_opt = decode_bytes(self.scl.decrypt(
             self.dao.get("past_neighbors")?,
-            Some(db_password),
+            Some(db_password.to_string()),
             &self.dao,
         )?)?;
         match bytes_opt {
@@ -371,7 +371,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             self.scl.encrypt(
                 "past_neighbors",
                 encode_bytes(plain_data_opt)?,
-                Some(db_password),
+                Some(db_password.to_string()),
                 &writer,
             )?,
         )?;
