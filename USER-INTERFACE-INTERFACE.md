@@ -243,6 +243,44 @@ it's an object with one field, which may be named "ChildWaitFailure", "NoInforma
 field is named "ChildWaitFailure" or "Unrecognized", the value is a string with additional information. If the key
 is "NoInformation", the value is `null`.
 
+#### `checkPassword`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPasswordOpt": <string>
+}
+```
+##### Description:
+This message is used to check whether a password the UI knows is actually the real database
+password.
+
+Note that under some circumstances, during the first few minutes after installation, a new MASQNode
+may not have any database password at all.
+
+There's no way to make the Node tell you what the database password is, but if you have an idea
+what it might be, you can check your idea by sending this message with your idea in the
+`dbPasswordOpt` field. If you're checking to see whether there's no password, pass `null` in this
+field.
+
+#### `checkPassword`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "matches": <boolean>
+}
+```
+##### Description:
+If you send a `checkPassword` request to the Node, it will respond with this message. If the
+password you proposed (or the absence-of-password you proposed) matched the database password,
+the `matches` field will be `true`; otherwise it will be `false`.
+
+If there was an error checking the password, you'll get a standard error response with a 64-bit
+code, where the high-order eight bits are 0x01.
+
 #### `financials`
 ##### Direction: Request
 ##### Correspondent: Node
