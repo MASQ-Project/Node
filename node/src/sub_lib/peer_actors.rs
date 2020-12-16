@@ -11,6 +11,7 @@ use actix::Message;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use crate::sub_lib::configurator::ConfiguratorSubs;
 
 #[derive(Clone)]
 pub struct PeerActors {
@@ -22,6 +23,7 @@ pub struct PeerActors {
     pub accountant: AccountantSubs,
     pub ui_gateway: UiGatewaySubs,
     pub blockchain_bridge: BlockchainBridgeSubs,
+    pub configurator: ConfiguratorSubs,
 }
 
 impl Debug for PeerActors {

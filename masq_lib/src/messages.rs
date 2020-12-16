@@ -525,7 +525,7 @@ pub struct UiGenerateWalletResponse {
     consuming: UiGeneratedWallet,
     earning: UiGeneratedWallet,
 }
-conversation_message!(UiGenerateWalletResponse "generateWallet");
+conversation_message!(UiGenerateWalletResponse, "generateWallet");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiRecoverWalletRequest {
@@ -542,7 +542,7 @@ conversation_message!(UiRecoverWalletRequest, "recoverWallet");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiRecoverWalletResponse {}
-conversation_message!(UiRecoverWalletResponse "recoverWallet");
+conversation_message!(UiRecoverWalletResponse, "recoverWallet");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiShutdownRequest {}

@@ -53,6 +53,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use crate::sub_lib::configurator::ConfiguratorSubs;
 
 #[derive(Default)]
 pub struct Recorder {
@@ -428,6 +429,13 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
     }
 }
 
+pub fn make_configurator_subs_from(addr: &Addr<Recorder>) -> ConfiguratorSubs {
+    ConfiguratorSubs {
+        bind: recipient!(addr, BindMessage),
+        node_to_ui_sub: recipient! (addr, NodeToUiMessage),
+    }
+}
+
 pub fn peer_actors_builder() -> PeerActorsBuilder {
     PeerActorsBuilder::new()
 }
@@ -442,6 +450,7 @@ pub struct PeerActorsBuilder {
     accountant: Recorder,
     ui_gateway: Recorder,
     blockchain_bridge: Recorder,
+    configurator: Recorder,
 }
 
 impl PeerActorsBuilder {
@@ -455,6 +464,7 @@ impl PeerActorsBuilder {
             accountant: Recorder::new(),
             ui_gateway: Recorder::new(),
             blockchain_bridge: Recorder::new(),
+            configurator: Recorder::new(),
         }
     }
 
@@ -508,6 +518,7 @@ impl PeerActorsBuilder {
         let accountant_addr = self.accountant.start();
         let ui_gateway_addr = self.ui_gateway.start();
         let blockchain_bridge_addr = self.blockchain_bridge.start();
+        let configurator_addr = self.configurator.start();
 
         PeerActors {
             proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
@@ -518,6 +529,7 @@ impl PeerActorsBuilder {
             accountant: make_accountant_subs_from(&accountant_addr),
             ui_gateway: make_ui_gateway_subs_from(&ui_gateway_addr),
             blockchain_bridge: make_blockchain_bridge_subs_from(&blockchain_bridge_addr),
+            configurator: make_configurator_subs_from(&configurator_addr),
         }
     }
 }
