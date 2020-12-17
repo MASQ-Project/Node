@@ -454,6 +454,13 @@ pub struct UiDescriptorResponse {
 }
 conversation_message!(UiDescriptorResponse, "descriptor");
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiNewPasswordBroadcast {
+    #[serde(rename = "newPassword")]
+    pub new_password: String,
+}
+fire_and_forget_message!(UiNewPasswordBroadcast, "newPassword");
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiPayableAccount {
     pub wallet: String,

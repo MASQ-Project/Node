@@ -59,7 +59,7 @@ use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
-use masq_lib::messages::FromMessageBody;
+use masq_lib::messages::{FromMessageBody, UiNewPasswordBroadcast};
 use masq_lib::messages::UiMessageError::UnexpectedMessage;
 use masq_lib::messages::{UiMessageError, UiShutdownRequest};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -273,19 +273,11 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        let opcode = msg.body.opcode.clone();
-        let result: Result<(UiShutdownRequest, u64), UiMessageError> =
-            UiShutdownRequest::fmb(msg.body);
-        match result {
-            Ok((payload, _)) => self.handle_shutdown_order(client_id, payload),
-            Err(UnexpectedMessage(opcode, _)) => debug!(
-                &self.logger,
-                "Ignoring '{}' request from client {}", opcode, client_id
-            ),
-            Err(e) => error!(
-                &self.logger,
-                "Failure to parse '{}' message from client {}: {:?}", opcode, client_id, e
-            ),
+        if let (Ok((body, _))) = UiShutdownRequest::fmb (msg.body.clone()) {
+            self.handle_shutdown_order (client_id, body);
+        }
+        else if let (Ok((body, _))) = UiNewPasswordBroadcast::fmb (msg.body) {
+            self.handle_new_password (body.new_password);
         }
     }
 }
@@ -1206,6 +1198,10 @@ impl Neighborhood {
             ),
         );
     }
+
+    fn handle_new_password(&mut self, new_password: String) {
+        self.db_password_opt = Some (new_password);
+    }
 }
 
 pub fn regenerate_signed_gossip(
@@ -1276,6 +1272,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
+    use masq_lib::messages::{UiNewPasswordBroadcast, ToMessageBody};
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -4155,7 +4152,7 @@ mod tests {
                 },
                 make_wallet("earning"),
                 None,
-                "unexpected_ui_message_is_logged_and_ignored",
+                "shutdown_instruction_generates_log",
             ),
         );
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -4183,43 +4180,50 @@ mod tests {
     }
 
     #[test]
-    fn unexpected_ui_message_is_logged_and_ignored() {
-        init_test_logging();
-        let subject = Neighborhood::new(
-            main_cryptde(),
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::ZeroHop,
-                },
-                make_wallet("earning"),
-                None,
-                "unexpected_ui_message_is_logged_and_ignored",
-            ),
-        );
-        let system = System::new("test");
-        let subject_addr: Addr<Neighborhood> = subject.start();
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+    fn new_password_broadcast_works() {
+        let system = System::new ("test");
+        let mut subject = make_standard_subject();
+        let root_node_record = subject.neighborhood_database.root().clone();
+        let set_past_neighbors_params_arc = Arc::new (Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        subject.persistent_config_opt = Some(Box::new (persistent_config));
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
-                body: MessageBody {
-                    opcode: "booga".to_string(),
-                    path: FireAndForget,
-                    payload: Ok("{}".to_string()),
-                },
+                body: UiNewPasswordBroadcast {
+                    new_password: "borkety-bork".to_string()
+                }.tmb(0),
             })
             .unwrap();
 
+        let mut db = db_from_node(&root_node_record);
+        let new_neighbor = make_node_record(1324, true);
+        db.add_node(new_neighbor.clone()).unwrap();
+        db.add_arbitrary_half_neighbor(new_neighbor.public_key(), root_node_record.public_key());
+        db.node_by_key_mut(root_node_record.public_key()).unwrap().resign();
+        db.node_by_key_mut(new_neighbor.public_key()).unwrap().resign();
+        let gossip = GossipBuilder::new(&db)
+            .node(new_neighbor.public_key(), true)
+            .build();
+        let cores_package = ExpiredCoresPackage {
+            immediate_neighbor: new_neighbor.node_addr_opt().unwrap().into(),
+            paying_wallet: None,
+            remaining_route: make_meaningless_route(),
+            payload: gossip,
+            payload_len: 0,
+        };
+        subject_addr
+            .try_send(cores_package).unwrap();
         System::current().stop();
         system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(
-            "DEBUG: Neighborhood: Ignoring 'booga' request from client 1234",
-        );
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert_eq! (set_past_neighbors_params[0].1, "borkety-bork");
     }
 
     fn make_standard_subject() -> Neighborhood {
