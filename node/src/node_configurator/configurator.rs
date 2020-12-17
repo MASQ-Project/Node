@@ -8,9 +8,10 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget, NodeFromUiMe
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 
 use crate::db_config::config_dao::ConfigDaoReal;
-use crate::db_config::persistent_configuration::PersistentConfiguration;
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::database::db_initializer::{DbInitializerReal, DbInitializer};
 
 pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
 pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
@@ -64,16 +65,15 @@ impl From<Box<dyn PersistentConfiguration>> for Configurator {
 
 impl Configurator {
     pub fn new (data_directory: PathBuf, chain_id: u8) -> Self {
-        unimplemented!();
-        // let initializer = DbInitializerReal::new();
-        // let conn = initializer.initialize(
-        //     &data_directory,
-        //     chain_id,
-        //     false,
-        // ).expect ("Couldn't initialize database");
-        // let config_dao = ConfigDaoReal::new(conn);
-        // let persistent_config: Box<dyn PersistentConfiguration> = Box::new (PersistentConfigurationReal::new (Box::new (config_dao)));
-        // Configurator::from (persistent_config)
+        let initializer = DbInitializerReal::new();
+        let conn = initializer.initialize(
+            &data_directory,
+            chain_id,
+            false,
+        ).expect ("Couldn't initialize database");
+        let config_dao = ConfigDaoReal::new(conn);
+        let persistent_config: Box<dyn PersistentConfiguration> = Box::new (PersistentConfigurationReal::new (Box::new (config_dao)));
+        Configurator::from (persistent_config)
     }
 
     fn handle_check_password(&mut self, msg: UiCheckPasswordRequest, context_id: u64) -> MessageBody {
@@ -145,13 +145,38 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast, UiStartOrder};
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
 
-    use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal};
     use crate::db_config::persistent_configuration::PersistentConfigError::DatabaseError;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
 
     use super::*;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use crate::database::db_initializer::{DbInitializerReal, DbInitializer};
+
+    #[test]
+    fn constructor_connects_with_database() {
+        let data_dir = ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
+        let verifier = PersistentConfigurationReal::new(Box::new (
+            ConfigDaoReal::new (
+                DbInitializerReal::new()
+                    .initialize (&data_dir, DEFAULT_CHAIN_ID, true).unwrap()
+            )
+        ));
+        let (recorder, _,  _) = make_recorder();
+        let recorder_addr = recorder.start();
+        let mut subject = Configurator::new (data_dir, DEFAULT_CHAIN_ID);
+        subject.node_to_ui_sub = Some(recorder_addr.recipient());
+        subject.configuration_change_subs = Some(vec![]);
+
+        let _ = subject.handle_change_password (UiChangePasswordRequest {
+            old_password_opt: None,
+            new_password: "password".to_string()
+        }, 0, 0);
+
+        assert_eq! (verifier.check_password (Some ("password".to_string())), Ok(true))
+    }
 
     #[test]
     fn ignores_unexpected_message () {
