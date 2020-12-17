@@ -1157,6 +1157,47 @@ pub mod tests {
             }
         }
     }
+    /*
+    pub fn new(
+        config: &BootstrapperConfig,
+        payable_dao_factory: Box<dyn PayableDaoFactory>,
+        receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
+        banned_dao_factory: Box<dyn BannedDaoFactory>,
+        config_dao_factory: Box<dyn ConfigDaoFactory>,
+    ) -> Accountant {
+        Accountant {
+            config: config.accountant_config.clone(),
+            consuming_wallet: config.consuming_wallet.clone(),
+            earning_wallet: config.earning_wallet.clone(),
+            payable_dao: payable_dao_factory.make(),
+            receivable_dao: receivable_dao_factory.make(),
+            banned_dao: banned_dao_factory.make(),
+            persistent_configuration: Box::new(PersistentConfigurationReal::new(
+                config_dao_factory.make(),
+            )),
+            report_accounts_payable_sub: None,
+            retrieve_transactions_sub: None,
+            report_new_payments_sub: None,
+            report_sent_payments_sub: None,
+            ui_message_sub: None,
+            logger: Logger::new("Accountant"),
+        }
+    }
+
+     */
+    #[test]
+    fn new_calls_factories_properly() {
+        let config = BootstrapperConfig::new();
+        let payable_dao = PayableDaoMock::new();
+        let payable_dao_factory = PayableDaoFactoryMock::new(payable_dao);
+        let receivable_dao = ReceivableDaoMock::new();
+        let receivable_dao_factory = ReceivableDaoFactoryMock::new(receivable_dao);
+        let banned_dao = BannedDaoMock::new();
+        let banned_dao_factory = BannedDaoFactoryMock::new(banned_dao);
+        let config_dao = ConfigDaoMock::new();
+        let config_dao_factory = ConfigDaoFactoryMock::new(config_dao);
+        unimplemented! ("Finish me");
+    }
 
     #[test]
     fn financials_request_produces_financials_response() {

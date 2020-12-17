@@ -31,6 +31,9 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub = Some (msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
+        self.configuration_change_subs = Some (vec![
+            msg.peer_actors.neighborhood.from_ui_message_sub.clone(),
+        ])
     }
 }
 
@@ -40,10 +43,10 @@ impl Handler<NodeFromUiMessage> for Configurator {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {     //hmm I don't like that clone.
             let response = self.handle_check_password(body, context_id);
-            self.reply(ClientId(msg.client_id), response);
+            self.send_to_ui_gateway(ClientId(msg.client_id), response);
         } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body) {
-            let response = self.handle_change_password(body, context_id);
-            self.reply(ClientId(msg.client_id), response);
+            let response = self.handle_change_password(body, msg.client_id, context_id);
+            self.send_to_ui_gateway(ClientId(msg.client_id), response);
         }
     }
 }
@@ -91,16 +94,11 @@ impl Configurator {
     fn handle_change_password(&mut self, msg: UiChangePasswordRequest, client_id: u64, context_id: u64) -> MessageBody {
         match self.persistent_config.change_password(msg.old_password_opt.clone(),&msg.new_password) {
             Ok(_) => {
-                self.configuration_change_subs
-                    .as_ref()
-                    .expect("Configurator is unbound")
-                    .iter().for_each(|sub| Self::send(
-                    sub,
-                    NodeFromUiMessage {
-                        client_id: 0,
-                        body: UiNewPasswordBroadcast { new_password: msg.new_password.clone()}.tmb(0),
-                    }, "Configuration change recipient"));
-                self.reply(MessageTarget::AllExcept(client_id),UiNewPasswordBroadcast{ new_password: msg.new_password}.tmb(0));
+                let broadcast = UiNewPasswordBroadcast {
+                    new_password: msg.new_password
+                }.tmb(0);
+                self.send_configuration_changes(broadcast.clone());
+                self.send_to_ui_gateway (MessageTarget::AllExcept(client_id), broadcast);
                 UiChangePasswordResponse {}.tmb(context_id)
             },
 
@@ -115,18 +113,26 @@ impl Configurator {
         }
     }
 
-    fn reply(&self, target: MessageTarget, body: MessageBody) {
+    fn send_to_ui_gateway (&self, target: MessageTarget, body: MessageBody) {
         let msg = NodeToUiMessage {
             target,
             body,
         };
-        Self::send(self.node_to_ui_sub.as_ref().expect("Configurator is unbound"), msg, "UiGateway");
+        self.node_to_ui_sub
+            .as_ref().expect("Configurator is unbound")
+            .try_send (msg).expect ("UiGateway is dead");
     }
 
-    fn send<T>(sub: &Recipient<T>, message: T, target_name: &str)
-    where T: Message + Send
-    {
-        sub.try_send(message).expect(&format!("{} is dead", target_name))
+    fn send_configuration_changes (&self, body: MessageBody) {
+        let msg = NodeFromUiMessage {
+            client_id: 0,
+            body,
+        };
+        self.configuration_change_subs
+            .as_ref().expect("Configurator is unbound")
+            .iter().for_each (|sub|
+                sub.try_send (msg.clone()).expect ("Configuration change recipient is dead")
+            );
     }
 }
 
@@ -250,17 +256,17 @@ mod tests {
         assert_eq!(*change_password_params, vec![(Some("old_password".to_string()), "new_password".to_string())]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.get_record::<NodeToUiMessage>(0), &NodeToUiMessage {
-            target: MessageTarget::ClientId(1234),
-            body: UiChangePasswordResponse {}.tmb(4321)
-        });
-        assert_eq!(ui_gateway_recording.get_record::<NodeToUiMessage>(1), &NodeToUiMessage {
             target: MessageTarget::AllExcept(1234),
             body: UiNewPasswordBroadcast {
                 new_password: "new_password".to_string(),
             }.tmb(0)
         });
+        assert_eq!(ui_gateway_recording.get_record::<NodeToUiMessage>(1), &NodeToUiMessage {
+            target: MessageTarget::ClientId(1234),
+            body: UiChangePasswordResponse {}.tmb(4321)
+        });
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        assert_eq!(neighborhood_recording.get_record::<NodeFromUiMessage>(1), &NodeFromUiMessage {
+        assert_eq!(neighborhood_recording.get_record::<NodeFromUiMessage>(0), &NodeFromUiMessage {
             client_id: 0,
             body: UiNewPasswordBroadcast {
                 new_password: "new_password".to_string(),
@@ -277,7 +283,7 @@ mod tests {
         let mut subject = make_subject(Some(persistent_config));
         let msg = UiChangePasswordRequest { old_password_opt: None, new_password: "".to_string() };
 
-        let result = subject.handle_change_password(msg, 4321);
+        let result = subject.handle_change_password(msg, 1234, 4321);
 
         assert_eq!(result, MessageBody {
             opcode: "changePassword".to_string(),
