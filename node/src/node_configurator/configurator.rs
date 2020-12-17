@@ -1,13 +1,16 @@
-use actix::{Handler, Actor, Context, Recipient};
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, MessageTarget, MessageBody, MessagePath};
-use crate::sub_lib::peer_actors::BindMessage;
-use crate::db_config::persistent_configuration::{PersistentConfiguration};
-use std::path::PathBuf;
-use crate::db_config::config_dao::ConfigDaoReal;
-use masq_lib::messages::{UiChangePasswordRequest, FromMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse, ToMessageBody, UiChangePasswordResponse};
-use masq_lib::ui_gateway::MessageTarget::ClientId;
-use crate::sub_lib::logger::Logger;
 use std::cell::RefCell;
+use std::path::PathBuf;
+
+use actix::{Actor, Context, Handler, Message, Recipient};
+
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast};
+use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::MessageTarget::ClientId;
+
+use crate::db_config::config_dao::ConfigDaoReal;
+use crate::db_config::persistent_configuration::PersistentConfiguration;
+use crate::sub_lib::logger::Logger;
+use crate::sub_lib::peer_actors::BindMessage;
 
 pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
 pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
@@ -72,7 +75,8 @@ impl Configurator {
 
     fn handle_check_password(&mut self, msg: UiCheckPasswordRequest, context_id: u64) -> MessageBody {
         match self.persistent_config.check_password(msg.db_password_opt.clone()) {
-            Ok(matches) => UiCheckPasswordResponse{ matches }.tmb(context_id),
+            Ok(matches) => { UiCheckPasswordResponse { matches }.tmb(context_id) }
+            ,
             Err(e) => {
                 warning!(self.logger, "Failed to check password: {:?}", e);
                 MessageBody {
@@ -84,9 +88,22 @@ impl Configurator {
         }
     }
 
-    fn handle_change_password(&mut self, msg: UiChangePasswordRequest, context_id: u64) -> MessageBody {
+    fn handle_change_password(&mut self, msg: UiChangePasswordRequest, client_id: u64, context_id: u64) -> MessageBody {
         match self.persistent_config.change_password(msg.old_password_opt.clone(),&msg.new_password) {
-            Ok(_) => UiChangePasswordResponse{}.tmb(context_id),
+            Ok(_) => {
+                self.configuration_change_subs
+                    .as_ref()
+                    .expect("Configurator is unbound")
+                    .iter().for_each(|sub| Self::send(
+                    sub,
+                    NodeFromUiMessage {
+                        client_id: 0,
+                        body: UiNewPasswordBroadcast { new_password: msg.new_password.clone()}.tmb(0),
+                    }, "Configuration change recipient"));
+                self.reply(MessageTarget::AllExcept(client_id),UiNewPasswordBroadcast{ new_password: msg.new_password}.tmb(0));
+                UiChangePasswordResponse {}.tmb(context_id)
+            },
+
             Err(e) => {
                 warning!(self.logger, "Failed to change password: {:?}", e);
                 MessageBody {
@@ -98,28 +115,37 @@ impl Configurator {
         }
     }
 
-    fn reply (&self, target: MessageTarget, body: MessageBody) {
+    fn reply(&self, target: MessageTarget, body: MessageBody) {
         let msg = NodeToUiMessage {
             target,
-            body
+            body,
         };
-        self.node_to_ui_sub
-            .as_ref().expect ("Configurator is unbound")
-            .try_send(msg).expect ("UiGateway is dead");
+        Self::send(self.node_to_ui_sub.as_ref().expect("Configurator is unbound"), msg, "UiGateway");
+    }
+
+    fn send<T>(sub: &Recipient<T>, message: T, target_name: &str)
+    where T: Message + Send
+    {
+        sub.try_send(message).expect(&format!("{} is dead", target_name))
     }
 }
 
 #[cfg (test)]
 mod tests {
-    use super::*;
-    use actix::{System};
-    use crate::test_utils::recorder::{peer_actors_builder, make_recorder};
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use masq_lib::messages::{UiStartOrder, ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse, UiChangePasswordResponse, UiNewPasswordBroadcast};
     use std::sync::{Arc, Mutex};
-    use masq_lib::ui_gateway::{MessageTarget, MessagePath};
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+
+    use actix::System;
+
+    use masq_lib::messages::{ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast, UiStartOrder};
+    use masq_lib::ui_gateway::{MessagePath, MessageTarget};
+
     use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::db_config::persistent_configuration::PersistentConfigError::DatabaseError;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+
+    use super::*;
 
     #[test]
     fn ignores_unexpected_message () {
@@ -245,7 +271,20 @@ mod tests {
 
     #[test]
     fn handle_change_password_handles_error() {
-        unimplemented!();
+        init_test_logging();
+        let persistent_config = PersistentConfigurationMock::new()
+            .change_password_result(Err(PersistentConfigError::DatabaseError("Didn't work good".to_string())));
+        let mut subject = make_subject(Some(persistent_config));
+        let msg = UiChangePasswordRequest { old_password_opt: None, new_password: "".to_string() };
+
+        let result = subject.handle_change_password(msg, 4321);
+
+        assert_eq!(result, MessageBody {
+            opcode: "changePassword".to_string(),
+            path: MessagePath::Conversation(4321),
+            payload: Err((CONFIGURATOR_WRITE_ERROR, r#"DatabaseError("Didn\'t work good")"#.to_string())),
+        });
+        TestLogHandler::new().exists_log_containing(r#"WARN: Configurator: Failed to change password: DatabaseError("Didn\'t work good")"#);
     }
 
     fn make_subject(persistent_config_opt: Option<PersistentConfigurationMock>) -> Configurator {
