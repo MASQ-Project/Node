@@ -7,6 +7,7 @@ use crate::commands::descriptor_command::DescriptorCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
+use crate::commands::check_password_command::CheckPasswordCommand;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandFactoryError {
@@ -24,7 +25,11 @@ pub struct CommandFactoryReal {}
 impl CommandFactory for CommandFactoryReal {
     fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError> {
         let boxed_command: Box<dyn Command> = match pieces[0].as_str() {
-            "crash" => match CrashCommand::new(&pieces[..]) {
+            "check-password" => match CheckPasswordCommand::new (pieces) {
+                Ok(command) => Box::new (command),
+                Err(msg) => unimplemented!("{}", msg),
+            }
+            "crash" => match CrashCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
