@@ -1,8 +1,7 @@
 use actix::{Handler, Actor, Context, Recipient};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage, MessageTarget, MessageBody, MessagePath};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
-use crate::database::db_initializer::{DbInitializerReal, DbInitializer};
+use crate::db_config::persistent_configuration::{PersistentConfiguration};
 use std::path::PathBuf;
 use crate::db_config::config_dao::ConfigDaoReal;
 use masq_lib::messages::{UiChangePasswordRequest, FromMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse, ToMessageBody, UiChangePasswordResponse};
@@ -14,7 +13,7 @@ pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
 pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
 
 pub struct Configurator {
-    persistent_config: RefCell<Box<dyn PersistentConfiguration>>,
+    persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub: Option<Recipient<NodeToUiMessage>>,
     logger: Logger,
 }
@@ -36,9 +35,11 @@ impl Handler<NodeFromUiMessage> for Configurator {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {     //hmm I don't like that clone.
-            self.reply(ClientId(msg.client_id), self.handle_check_password(body, context_id));
+            let response = self.handle_check_password(body, context_id);
+            self.reply(ClientId(msg.client_id), response);
         } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body) {
-            self.reply(ClientId(msg.client_id), self.handle_change_password(body, context_id));
+            let response = self.handle_change_password(body, context_id);
+            self.reply(ClientId(msg.client_id), response);
         }
     }
 }
@@ -46,7 +47,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
 impl From<Box<dyn PersistentConfiguration>> for Configurator {
     fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
         Configurator {
-            persistent_config:RefCell::new(persistent_config),
+            persistent_config,
             node_to_ui_sub: None,
             logger: Logger::new ("Configurator"),
         }
@@ -67,8 +68,8 @@ impl Configurator {
         // Configurator::from (persistent_config)
     }
 
-    fn handle_check_password(&self, msg: UiCheckPasswordRequest, context_id: u64) -> MessageBody {
-        match self.persistent_config.borrow().check_password(msg.db_password_opt.clone()) {
+    fn handle_check_password(&mut self, msg: UiCheckPasswordRequest, context_id: u64) -> MessageBody {
+        match self.persistent_config.check_password(msg.db_password_opt.clone()) {
             Ok(matches) => UiCheckPasswordResponse{ matches }.tmb(context_id),
             Err(e) => {
                 warning!(self.logger, "Failed to check password: {:?}", e);
@@ -81,19 +82,19 @@ impl Configurator {
         }
     }
 
-        fn handle_change_password(&self, msg: UiChangePasswordRequest, context_id: u64) -> MessageBody {
-            match self.persistent_config.borrow_mut().change_password(msg.old_password_opt.clone(),&msg.new_password) {
-                Ok(_) => UiChangePasswordResponse{}.tmb(context_id),
-                Err(e) => {
-                    warning!(self.logger, "Failed to change password: {:?}", e);
-                    MessageBody {
-                        opcode: msg.opcode().to_string(),
-                        path: MessagePath::Conversation(context_id),
-                        payload: Err((CONFIGURATOR_WRITE_ERROR, format!("{:?}", e))),
-                    }
+    fn handle_change_password(&mut self, msg: UiChangePasswordRequest, context_id: u64) -> MessageBody {
+        match self.persistent_config.change_password(msg.old_password_opt.clone(),&msg.new_password) {
+            Ok(_) => UiChangePasswordResponse{}.tmb(context_id),
+            Err(e) => {
+                warning!(self.logger, "Failed to change password: {:?}", e);
+                MessageBody {
+                    opcode: msg.opcode().to_string(),
+                    path: MessagePath::Conversation(context_id),
+                    payload: Err((CONFIGURATOR_WRITE_ERROR, format!("{:?}", e))),
                 }
             }
         }
+    }
 
     fn reply (&self, target: MessageTarget, body: MessageBody) {
         let msg = NodeToUiMessage {
@@ -177,7 +178,7 @@ mod tests {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result (Err(PersistentConfigError::NotPresent));
-        let subject = make_subject (Some(persistent_config));
+        let mut subject = make_subject (Some(persistent_config));
         let msg = UiCheckPasswordRequest {db_password_opt: None};
 
         let result = subject.handle_check_password (msg, 4321);
