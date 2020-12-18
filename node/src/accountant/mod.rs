@@ -360,7 +360,7 @@ impl Accountant {
                 None => {
                     warning!(
                         self.logger,
-                        "database contains no start block; aborting received-payment scan"
+                        "Database contains no start block; aborting received-payment scan"
                     );
                     return;
                 }

@@ -2,10 +2,7 @@ use std::path::PathBuf;
 
 use actix::{Actor, Context, Handler, Recipient};
 
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
-    UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast,
-};
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast, UiGenerateWalletsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
     MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
@@ -51,8 +48,11 @@ impl Handler<NodeFromUiMessage> for Configurator {
             //hmm I don't like that clone.
             let response = self.handle_check_password(body, context_id);
             self.send_to_ui_gateway(ClientId(msg.client_id), response);
-        } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body) {
+        } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
             let response = self.handle_change_password(body, msg.client_id, context_id);
+            self.send_to_ui_gateway(ClientId(msg.client_id), response);
+        } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.clone().body) {
+            let response = self.handle_generate_wallets(body, msg.client_id, context_id);
             self.send_to_ui_gateway(ClientId(msg.client_id), response);
         }
     }
@@ -131,6 +131,15 @@ impl Configurator {
                 }
             }
         }
+    }
+
+    fn handle_generate_wallets (
+        &mut self,
+        msg: UiGenerateWalletsRequest,
+        client_id: u64,
+        context_id: u64,
+    ) -> MessageBody {
+        unimplemented!()
     }
 
     fn send_to_ui_gateway(&self, target: MessageTarget, body: MessageBody) {
