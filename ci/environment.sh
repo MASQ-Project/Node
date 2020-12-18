@@ -9,7 +9,7 @@ elif [[ "$TOOLCHAIN_HOME" != "" ]]; then
   export CARGO_HOME="$TOOLCHAIN_HOME/toolchains/.cargo"
   export RUSTUP_HOME="$TOOLCHAIN_HOME/toolchains/.rustup"
   export PATH="$CARGO_HOME/bin:$PATH"
-  export RUSTC_WRAPPER="$CARGO_HOME"/bin/sccache
+  #export RUSTC_WRAPPER="$CARGO_HOME"/bin/sccache
   export SCCACHE_DIR="$TOOLCHAIN_HOME"/cache
 
   # TODO: Verify that removing the following two lines and doing a clean build of the cache with

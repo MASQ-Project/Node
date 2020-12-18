@@ -55,6 +55,7 @@ Temporary Items
 **/.idea/markdown-navigator.xml
 **/.idea/markdown-navigator/**
 **/.idea/aws.xml
+**/.idea/scopes/*.xml
 
 # Sensitive or high-churn files:
 **/.idea/**/dataSources/
@@ -78,6 +79,7 @@ cmake-build-debug/
 
 ## File-based project format:
 *.iws
+*.iml
 *.ipr
 
 ## Plugin-specific files:
