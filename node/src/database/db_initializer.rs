@@ -147,7 +147,6 @@ impl DbInitializerReal {
         conn: &Connection,
         chain_id: u8,
     ) -> Result<(), InitializationError> {
-        //TODO Should this value be encrypted?
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
@@ -364,7 +363,6 @@ pub mod test_utils {
         pub transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
     }
 
-    // TODO: See if we can get rid of this
     unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
 
     impl<'a> ConnectionWrapperMock<'a> {
@@ -389,10 +387,7 @@ pub mod test_utils {
         }
 
         fn transaction<'x: 'y, 'y>(&'x mut self) -> Result<Transaction<'y>, Error> {
-            match self.transaction_results.borrow_mut().remove(0) {
-                Ok(result) => Ok(result),
-                Err(e) => Err(e),
-            }
+            self.transaction_results.borrow_mut().remove(0)
         }
     }
 

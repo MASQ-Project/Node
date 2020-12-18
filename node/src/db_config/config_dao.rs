@@ -43,8 +43,8 @@ pub trait ConfigDaoWrite {
 
 pub trait ConfigDaoReadWrite: ConfigDaoRead + ConfigDaoWrite {}
 
-// ConfigDao can read from the database but not write to it; however, it can produce a Transaction,
-// which _can_ write to the database.
+// ConfigDao can read from the database but not write to it; however, it can produce a
+// ConfigDaoReadWrite, which contains a Transaction and _can_ write to the database.
 pub trait ConfigDao: ConfigDaoRead {
     fn start_transaction<'b, 'c: 'b>(
         &'c mut self,

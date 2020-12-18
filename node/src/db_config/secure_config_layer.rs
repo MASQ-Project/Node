@@ -102,15 +102,9 @@ impl SecureConfigLayer {
         match (record.encrypted, record.value_opt, password_opt) {
             (false, value_opt, _) => Ok(value_opt),
             (true, Some(value), Some(password)) => match Bip39::decrypt_bytes(&value, password) {
-                Err(_) => Err(SecureConfigLayerError::DatabaseError(format!(
-                    "Password for '{}' does not match database password",
-                    record.name
-                ))),
+                Err(_) => Err(SecureConfigLayerError::PasswordError),
                 Ok(plain_data) => match String::from_utf8(plain_data.into()) {
-                    Err(_) => Err(SecureConfigLayerError::DatabaseError(format!(
-                        "Database contains a non-UTF-8 value for '{}'",
-                        record.name
-                    ))),
+                    Err(_) => panic! ("Database is corrupt: contains a non-UTF-8 value for '{}'", record.name),
                     Ok(plain_text) => Ok(Some(plain_text)),
                 },
             },
@@ -125,10 +119,7 @@ impl SecureConfigLayer {
         example_record: ConfigDaoRecord,
     ) -> Result<bool, SecureConfigLayerError> {
         if !example_record.encrypted {
-            return Err(SecureConfigLayerError::DatabaseError(format!(
-                "Password example value '{}' is not encrypted",
-                EXAMPLE_ENCRYPTED
-            )));
+            panic! ("Database is corrupt: Password example value is not encrypted");
         }
         match (db_password_opt, example_record.value_opt) {
             (None, None) => Ok(true),
@@ -138,10 +129,7 @@ impl SecureConfigLayer {
                 match Bip39::decrypt_bytes(&encrypted_example, db_password) {
                     Ok(_) => Ok(true),
                     Err(Bip39Error::DecryptionFailure(_)) => Ok(false),
-                    Err(e) => Err(SecureConfigLayerError::DatabaseError(format!(
-                        "Password example value '{}' is corrupted: {:?}",
-                        EXAMPLE_ENCRYPTED, e
-                    ))),
+                    Err(e) => panic! ("Database is corrupt: password example value can't be read: {:?}", e),
                 }
             }
         }
@@ -202,13 +190,11 @@ impl SecureConfigLayer {
         match (old_record.encrypted, &old_record.value_opt, old_password_opt) {
             (false, _, _) => Ok(old_record),
             (true, None, _) => Ok(old_record),
-            (true, Some(_), None) => Err(SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' is encrypted, but database has no password", old_record.name))),
+            (true, Some(_), None) => panic! ("Database is corrupt: configuration value '{}' is encrypted, but database has no password", old_record.name),
             (true, Some(value), Some(old_password)) => {
                 let decrypted_value = match Bip39::decrypt_bytes(value, old_password) {
                     Ok(plain_data) => plain_data,
-                    Err(_) => {
-                        return Err(SecureConfigLayerError::DatabaseError(format!("Aborting password change due to database corruption: configuration value '{}' cannot be decrypted", old_record.name)));
-                    }
+                    Err(_) => panic! ("Database is corrupt: configuration value '{}' cannot be decrypted", old_record.name),
                 };
                 let reencrypted_value = Bip39::encrypt_bytes(&decrypted_value, new_password).expect("Encryption failed");
                 Ok(ConfigDaoRecord::new(&old_record.name, Some(&reencrypted_value), old_record.encrypted))
@@ -359,10 +345,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic (expected = "Database is corrupt: Password example value is not encrypted")] // TODO: Modify this test to expect a panic, since database is corrupt
     fn check_password_fails_when_example_record_is_present_and_unencrypted() {
-        let get_params_arc = Arc::new(Mutex::new(vec![]));
         let dao = ConfigDaoMock::new()
-            .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
                 Some("booga"),
@@ -370,25 +355,14 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("bad password"), &Box::new(dao));
-
-        assert_eq!(
-            result,
-            Err(DatabaseError(format!(
-                "Password example value '{}' is not encrypted",
-                EXAMPLE_ENCRYPTED
-            )))
-        );
-        let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(*get_params, vec![EXAMPLE_ENCRYPTED.to_string()]);
+        let _ = subject.check_password(Some("bad password"), &Box::new(dao));
     }
 
     #[test]
+    #[should_panic (expected = "Database is corrupt: password example value can't be read: ConversionError(\"Invalid character \\'s\\' at position 1\")")]
     fn check_password_fails_when_example_record_is_present_but_corrupt() {
-        let get_params_arc = Arc::new(Mutex::new(vec![]));
         let bad_encrypted_example = "Aside from that, Mrs. Lincoln, how was the play?";
         let dao = ConfigDaoMock::new()
-            .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
                 Some(bad_encrypted_example),
@@ -396,11 +370,7 @@ mod tests {
             )));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.check_password(Some("password"), &Box::new(dao));
-
-        assert_eq! (result, Err(DatabaseError(format!("Password example value '{}' is corrupted: ConversionError(\"Invalid character \\'s\\' at position 1\")", EXAMPLE_ENCRYPTED))));
-        let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(*get_params, vec![EXAMPLE_ENCRYPTED.to_string()]);
+        let _ = subject.check_password(Some("password"), &Box::new(dao));
     }
 
     #[test]
@@ -557,6 +527,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic (expected = "Database is corrupt: configuration value 'badly_encrypted' cannot be decrypted")]
     fn reencrypt_records_balks_when_a_value_is_incorrectly_encrypted() {
         let unencrypted_value = "These are the times that try men's souls.".as_bytes();
         let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "bad_password").unwrap();
@@ -567,10 +538,7 @@ mod tests {
         )]));
         let subject = SecureConfigLayer::new();
 
-        let result =
-            subject.reencrypt_records(Some("old_password"), "new_password", &Box::new(dao));
-
-        assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change due to database corruption: configuration value 'badly_encrypted' cannot be decrypted".to_string())))
+        let _ = subject.reencrypt_records(Some("old_password"), "new_password", &Box::new(dao));
     }
 
     #[test]
@@ -606,14 +574,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic (expected = "Database is corrupt: configuration value 'name' is encrypted, but database has no password")]
     fn reencrypt_record_balks_when_database_has_no_password_but_value_is_encrypted_anyway() {
         let record = ConfigDaoRecord::new("name", Some("value"), true);
         let old_password_opt = None;
         let new_password = "irrelevant";
 
-        let result = SecureConfigLayer::reencrypt_record(record, old_password_opt, new_password);
-
-        assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change: configuration value 'name' is encrypted, but database has no password".to_string())))
+        let _ = SecureConfigLayer::reencrypt_record(record, old_password_opt, new_password);
     }
 
     #[test]
@@ -725,9 +692,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SecureConfigLayerError::DatabaseError(
-                "Password for 'attribute_name' does not match database password".to_string()
-            ))
+            Err(SecureConfigLayerError::PasswordError)
         );
     }
 
@@ -749,6 +714,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic (expected = "Database is corrupt: contains a non-UTF-8 value for 'attribute_name'")]
     fn decrypt_objects_if_decrypted_string_violates_utf8() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
@@ -763,14 +729,7 @@ mod tests {
         ))));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.decrypt(record, Some("password"), &dao);
-
-        assert_eq!(
-            result,
-            Err(SecureConfigLayerError::DatabaseError(
-                "Database contains a non-UTF-8 value for 'attribute_name'".to_string()
-            ))
-        );
+        let _ = subject.decrypt(record, Some("password"), &dao);
     }
 
     #[test]
