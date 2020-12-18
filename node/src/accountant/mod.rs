@@ -2151,7 +2151,7 @@ pub mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.exists_log_matching(
-            "WARN: Accountant: database contains no start block; aborting received-payment scan",
+            "WARN: Accountant: Database contains no start block; aborting received-payment scan",
         );
     }
 
@@ -2165,7 +2165,7 @@ pub mod tests {
         subject.scan_for_received_payments();
 
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching("ERROR: Accountant: Could not retrieve start block: NotPresent - aborting received-payment scan");
+        tlh.exists_log_matching("WARN: Accountant: Database contains no start block; aborting received-payment scan");
     }
 
     #[test]
