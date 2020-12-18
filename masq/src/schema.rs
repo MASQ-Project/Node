@@ -1,4 +1,5 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::commands::check_password_command::check_password_subcommand;
 use crate::commands::crash_command::crash_subcommand;
 use crate::commands::descriptor_command::descriptor_subcommand;
 use crate::commands::setup_command::setup_subcommand;
@@ -7,7 +8,6 @@ use crate::commands::start_command::start_subcommand;
 use clap::{App, AppSettings, Arg};
 use lazy_static::lazy_static;
 use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use crate::commands::check_password_command::check_password_subcommand;
 
 lazy_static! {
     static ref UI_PORT_HELP: String = format!(

@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -11,7 +12,6 @@ use actix::Message;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use crate::sub_lib::configurator::ConfiguratorSubs;
 
 #[derive(Clone)]
 pub struct PeerActors {

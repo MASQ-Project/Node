@@ -161,11 +161,12 @@ impl SecureConfigLayer {
             .filter(|record| record.name != EXAMPLE_ENCRYPTED)
             .fold(init, |so_far, record| match so_far {
                 Err(e) => Err(e),
-                Ok(records) => match Self::reencrypt_record(record, old_password_opt.clone(), new_password)
-                {
-                    Err(e) => Err(e),
-                    Ok(new_record) => Ok(append(records, new_record)),
-                },
+                Ok(records) => {
+                    match Self::reencrypt_record(record, old_password_opt.clone(), new_password) {
+                        Err(e) => Err(e),
+                        Ok(new_record) => Ok(append(records, new_record)),
+                    }
+                }
             }) {
             Err(e) => Err(e),
             Ok(reencrypted_records) => self.update_records(reencrypted_records, dao),
@@ -512,7 +513,11 @@ mod tests {
         );
         let subject = SecureConfigLayer::new();
 
-        let result = subject.change_password(Some("old_password".to_string()), "new_password", &mut writeable);
+        let result = subject.change_password(
+            Some("old_password".to_string()),
+            "new_password",
+            &mut writeable,
+        );
 
         assert_eq!(result, Ok(()));
         let get_params = get_params_arc.lock().unwrap();
@@ -550,8 +555,11 @@ mod tests {
         )));
         let subject = SecureConfigLayer::new();
 
-        let result =
-            subject.change_password(Some("bad_password".to_string()), "new_password", &mut Box::new(dao));
+        let result = subject.change_password(
+            Some("bad_password".to_string()),
+            "new_password",
+            &mut Box::new(dao),
+        );
 
         assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
@@ -567,8 +575,11 @@ mod tests {
         )]));
         let subject = SecureConfigLayer::new();
 
-        let result =
-            subject.reencrypt_records(Some("old_password".to_string()), "new_password", &Box::new(dao));
+        let result = subject.reencrypt_records(
+            Some("old_password".to_string()),
+            "new_password",
+            &Box::new(dao),
+        );
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change due to database corruption: configuration value 'badly_encrypted' cannot be decrypted".to_string())))
     }
@@ -599,8 +610,11 @@ mod tests {
             .set_result(Ok(()));
         let subject = SecureConfigLayer::new();
 
-        let result =
-            subject.reencrypt_records(Some("old_password".to_string()), "new_password", &Box::new(dao));
+        let result = subject.reencrypt_records(
+            Some("old_password".to_string()),
+            "new_password",
+            &Box::new(dao),
+        );
 
         assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change: configuration value 'encrypted_value' could not be set: DatabaseError(\"booga\")".to_string())))
     }

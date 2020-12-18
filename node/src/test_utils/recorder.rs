@@ -14,6 +14,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, GetFinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -53,7 +54,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use crate::sub_lib::configurator::ConfiguratorSubs;
 
 #[derive(Default)]
 pub struct Recorder {
@@ -432,7 +432,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
 pub fn make_configurator_subs_from(addr: &Addr<Recorder>) -> ConfiguratorSubs {
     ConfiguratorSubs {
         bind: recipient!(addr, BindMessage),
-        node_to_ui_sub: recipient! (addr, NodeToUiMessage),
+        node_to_ui_sub: recipient!(addr, NodeToUiMessage),
     }
 }
 

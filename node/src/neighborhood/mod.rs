@@ -59,9 +59,8 @@ use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::messages::UiShutdownRequest;
 use masq_lib::messages::{FromMessageBody, UiNewPasswordBroadcast};
-use masq_lib::messages::UiMessageError::UnexpectedMessage;
-use masq_lib::messages::{UiMessageError, UiShutdownRequest};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::exit_process;
 use neighborhood_database::NeighborhoodDatabase;
@@ -273,11 +272,10 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let (Ok((body, _))) = UiShutdownRequest::fmb (msg.body.clone()) {
-            self.handle_shutdown_order (client_id, body);
-        }
-        else if let (Ok((body, _))) = UiNewPasswordBroadcast::fmb (msg.body) {
-            self.handle_new_password (body.new_password);
+        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
+            self.handle_shutdown_order(client_id, body);
+        } else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(msg.body) {
+            self.handle_new_password(body.new_password);
         }
     }
 }
@@ -1200,7 +1198,7 @@ impl Neighborhood {
     }
 
     fn handle_new_password(&mut self, new_password: String) {
-        self.db_password_opt = Some (new_password);
+        self.db_password_opt = Some(new_password);
     }
 }
 
@@ -1258,11 +1256,12 @@ mod tests {
     use actix::System;
     use itertools::Itertools;
     use masq_lib::constants::TLS_PORT;
+    use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use masq_lib::ui_gateway::MessageBody;
-    use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
+    use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::utils::running_test;
     use serde_cbor;
     use std::cell::RefCell;
@@ -1272,7 +1271,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
-    use masq_lib::messages::{UiNewPasswordBroadcast, ToMessageBody};
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -4181,14 +4179,14 @@ mod tests {
 
     #[test]
     fn new_password_broadcast_works() {
-        let system = System::new ("test");
+        let system = System::new("test");
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
-        let set_past_neighbors_params_arc = Arc::new (Mutex::new(vec![]));
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .set_past_neighbors_params(&set_past_neighbors_params_arc)
             .set_past_neighbors_result(Ok(()));
-        subject.persistent_config_opt = Some(Box::new (persistent_config));
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -4197,8 +4195,9 @@ mod tests {
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
                 body: UiNewPasswordBroadcast {
-                    new_password: "borkety-bork".to_string()
-                }.tmb(0),
+                    new_password: "borkety-bork".to_string(),
+                }
+                .tmb(0),
             })
             .unwrap();
 
@@ -4206,8 +4205,12 @@ mod tests {
         let new_neighbor = make_node_record(1324, true);
         db.add_node(new_neighbor.clone()).unwrap();
         db.add_arbitrary_half_neighbor(new_neighbor.public_key(), root_node_record.public_key());
-        db.node_by_key_mut(root_node_record.public_key()).unwrap().resign();
-        db.node_by_key_mut(new_neighbor.public_key()).unwrap().resign();
+        db.node_by_key_mut(root_node_record.public_key())
+            .unwrap()
+            .resign();
+        db.node_by_key_mut(new_neighbor.public_key())
+            .unwrap()
+            .resign();
         let gossip = GossipBuilder::new(&db)
             .node(new_neighbor.public_key(), true)
             .build();
@@ -4218,12 +4221,11 @@ mod tests {
             payload: gossip,
             payload_len: 0,
         };
-        subject_addr
-            .try_send(cores_package).unwrap();
+        subject_addr.try_send(cores_package).unwrap();
         System::current().stop();
         system.run();
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
-        assert_eq! (set_past_neighbors_params[0].1, "borkety-bork");
+        assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
     }
 
     fn make_standard_subject() -> Neighborhood {

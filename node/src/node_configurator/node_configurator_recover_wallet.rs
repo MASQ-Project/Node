@@ -444,7 +444,10 @@ mod tests {
             .unwrap();
 
         let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
-        assert_eq!(persistent_config.check_password(Some(password.clone())), Ok(true));
+        assert_eq!(
+            persistent_config.check_password(Some(password.clone())),
+            Ok(true)
+        );
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::Spanish).unwrap();
         let seed = Seed::new(&expected_mnemonic, "Mortimer");
         let earning_wallet =

@@ -25,6 +25,7 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperConfig;
@@ -44,7 +45,6 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
-use crate::sub_lib::configurator::ConfiguratorSubs;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -140,8 +140,7 @@ impl ActorSystemFactoryReal {
             actor_factory.make_and_start_ui_gateway(config.ui_gateway_config.clone());
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories.clone());
-        let configurator_subs =
-            actor_factory.make_and_start_configurator();
+        let configurator_subs = actor_factory.make_and_start_configurator();
 
         // collect all the subs
         let peer_actors = PeerActors {
@@ -751,7 +750,7 @@ mod tests {
                 stream_handler_pool: RefCell::new(Some(Recorder::new())),
                 ui_gateway: RefCell::new(Some(Recorder::new())),
                 blockchain_bridge: RefCell::new(Some(Recorder::new())),
-                configurator: RefCell::new (Some(Recorder::new())),
+                configurator: RefCell::new(Some(Recorder::new())),
 
                 parameters: Parameters::new(),
             }
@@ -790,141 +789,6 @@ mod tests {
             recorder.borrow_mut().take().unwrap().start()
         }
     }
-
-    // TODO: Move this test into the Accountant. The new factories mean the connections are now made there.
-    // #[test]
-    // fn make_and_start_accountant_creates_connections_for_daos_and_banned_cache() {
-    //     let _system =
-    //         System::new("make_and_start_accountant_creates_connections_for_daos_and_banned_cache");
-    //     let subject = ActorFactoryReal {};
-    //
-    //     let db_initializer_mock = DbInitializerMock::new()
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
-    //     let data_directory = PathBuf::from_str("yeet_home").unwrap();
-    //     let aconfig = AccountantConfig {
-    //         payable_scan_interval: Duration::from_secs(9),
-    //         payment_received_scan_interval: Duration::from_secs(100),
-    //     };
-    //     let mut config = BootstrapperConfig::new();
-    //     config.accountant_config = aconfig;
-    //     config.consuming_wallet = Some(make_wallet("hi"));
-    //
-    //     let banned_cache_loader = &BannedCacheLoaderMock::default();
-    //
-    //     subject.make_and_start_accountant(
-    //         &config,
-    //         &data_directory,
-    //         &db_initializer_mock,
-    //         banned_cache_loader,
-    //     );
-    //
-    //     let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
-    //     assert_eq!(initialize_parameters.len(),5);
-    //     assert_eq!(
-    //         (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-    //         initialize_parameters[0]
-    //     );
-    //     assert_eq!(
-    //         (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-    //         initialize_parameters[1]
-    //     );
-    //     assert_eq!(
-    //         (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-    //         initialize_parameters[2]
-    //     );
-    //     assert_eq!(
-    //         (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-    //         initialize_parameters[3]
-    //     );
-    //     assert_eq!(
-    //         (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-    //         initialize_parameters[4]
-    //     );
-    //
-    //     let load_parameters = banned_cache_loader.load_params.lock().unwrap();
-    //     assert_eq!(1, load_parameters.len());
-    // }
-
-    // TODO: Move this test into the Accountant. The new factories mean the connections are now made there.
-    // #[test]
-    // #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
-    // fn failed_payable_initialization_produces_panic() {
-    //     let aconfig = AccountantConfig {
-    //         payable_scan_interval: Duration::from_secs(6),
-    //         payment_received_scan_interval: Duration::from_secs(100),
-    //     };
-    //     let mut config = BootstrapperConfig::new();
-    //     config.accountant_config = aconfig;
-    //     config.earning_wallet = make_wallet("hi");
-    //     let db_initializer_mock =
-    //         DbInitializerMock::new().initialize_result(Err(InitializationError::SqliteError(
-    //             rusqlite::Error::InvalidColumnName("booga".to_string()),
-    //         )));
-    //     let subject = ActorFactoryReal {};
-    //     subject.make_and_start_accountant(
-    //         &config,
-    //         &PathBuf::new(),
-    //         &db_initializer_mock,
-    //         &BannedCacheLoaderMock::default(),
-    //     );
-    // }
-
-    // TODO: Move this test into the Accountant. The new factories mean the connections are now made there.
-    // #[test]
-    // #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
-    // fn failed_receivable_initialization_produces_panic() {
-    //     let aconfig = AccountantConfig {
-    //         payable_scan_interval: Duration::from_secs(6),
-    //         payment_received_scan_interval: Duration::from_secs(100),
-    //     };
-    //     let mut config = BootstrapperConfig::new();
-    //     config.accountant_config = aconfig;
-    //     config.earning_wallet = make_wallet("hi");
-    //     let db_initializer_mock = DbInitializerMock::new()
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-    //         .initialize_result(Err(InitializationError::SqliteError(
-    //             rusqlite::Error::InvalidQuery,
-    //         )));
-    //     let subject = ActorFactoryReal {};
-    //
-    //     subject.make_and_start_accountant(
-    //         &config,
-    //         &PathBuf::new(),
-    //         &db_initializer_mock,
-    //         &BannedCacheLoaderMock::default(),
-    //     );
-    // }
-
-    // TODO: Move this test into the Accountant. The new factories mean the connections are now made there.
-    // #[test]
-    // #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
-    // fn failed_ban_cache_initialization_produces_panic() {
-    //     let aconfig = AccountantConfig {
-    //         payable_scan_interval: Duration::from_secs(6),
-    //         payment_received_scan_interval: Duration::from_secs(1000),
-    //     };
-    //     let mut config = BootstrapperConfig::new();
-    //     config.accountant_config = aconfig;
-    //     config.earning_wallet = make_wallet("mine");
-    //     let db_initializer_mock = DbInitializerMock::new()
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-    //         .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-    //         .initialize_result(Err(InitializationError::SqliteError(
-    //             rusqlite::Error::InvalidQuery,
-    //         )));
-    //     let subject = ActorFactoryReal {};
-    //     subject.make_and_start_accountant(
-    //         &config,
-    //         &PathBuf::new(),
-    //         &db_initializer_mock,
-    //         &BannedCacheLoaderMock::default(),
-    //     );
-    // }
 
     #[test]
     #[should_panic(expected = "Invalid blockchain node URL")]

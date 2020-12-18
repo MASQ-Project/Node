@@ -66,7 +66,10 @@ impl PersistentConfigError {
 
 pub trait PersistentConfiguration {
     fn current_schema_version(&self) -> String;
-    fn check_password(&self, db_password_opt: Option<String>) -> Result<bool, PersistentConfigError>;
+    fn check_password(
+        &self,
+        db_password_opt: Option<String>,
+    ) -> Result<bool, PersistentConfigError>;
     fn change_password(
         &mut self,
         old_password_opt: Option<String>,
@@ -129,7 +132,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
-    fn check_password(&self, db_password_opt: Option<String>) -> Result<bool, PersistentConfigError> {
+    fn check_password(
+        &self,
+        db_password_opt: Option<String>,
+    ) -> Result<bool, PersistentConfigError> {
         Ok(self.scl.check_password(db_password_opt, &self.dao)?)
     }
 
@@ -212,8 +218,12 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             encode_bytes(Some(PlainData::new(seed.as_ref())))?.expect("Value disappeared"); //the question mark here is useless, look inside the function
         writer.set(
             "seed",
-            self.scl
-                .encrypt("seed", Some(encoded_seed), Some(db_password.to_string()), &writer)?,
+            self.scl.encrypt(
+                "seed",
+                Some(encoded_seed),
+                Some(db_password.to_string()),
+                &writer,
+            )?,
         )?;
         Ok(writer.commit()?)
     }

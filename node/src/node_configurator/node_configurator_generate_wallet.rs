@@ -494,7 +494,10 @@ mod tests {
             .unwrap();
 
         let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
-        assert_eq!(persistent_config.check_password(Some(password.clone())), Ok(true));
+        assert_eq!(
+            persistent_config.check_password(Some(password.clone())),
+            Ok(true)
+        );
         let mut make_parameters = make_parameters_arc.lock().unwrap();
         assert_eq_debug(
             make_parameters.remove(0),
