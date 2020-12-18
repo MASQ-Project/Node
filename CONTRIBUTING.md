@@ -38,8 +38,6 @@ there are [several other choices](https://medium.com/cloud-native-the-gathering/
 
 * A link to the [MASQ Node GitHub Actions build site](https://github.com/MASQ-Project/Node/actions)
 
-* A link to the [MASQ Node build results site](https://masq-results.github.io/MASQ-results/)
-
 ## One-Time Preparations
 These are the things you'll only need to do one time to set up an environment for working on MASQ Node.
 

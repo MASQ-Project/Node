@@ -1,8 +1,8 @@
 # accountant
-Maintenance of SUB accounts payable and receivable for MASQ Node.
+Maintenance of MASQ accounts payable and receivable for MASQ Node.
 
 ## Purpose
-The purpose of `accountant` is to keep track of SUB owed to other Nodes by the local Node and SUB owed to the local
+The purpose of `accountant` is to keep track of MASQ owed to other Nodes by the local Node and MASQ owed to the local
 Node by other Nodes, and to interact with the future Blockchain Bridge to pay accounts payable and detect payment of accounts
 receivable, and also to detect and report financially-related deadbeat or suspicious behavior by other Nodes.
 

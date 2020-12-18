@@ -21,7 +21,7 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
     let mut facade = PacketFacade::new(buf, length);
     let request_record = RequestRecord {
         timestamp: Instant::now(),
-        opcode: facade.get_opcode().unwrap_or_else(|| 0xFF),
+        opcode: facade.get_opcode().unwrap_or(0xFF),
         queries: facade.get_queries().unwrap_or_else(|| vec![]),
     };
 
@@ -30,7 +30,7 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
     let latency = request_record.timestamp.elapsed();
     let response_record = ResponseRecord {
         latency_ns: latency.as_nanos() as u64,
-        rcode: facade.get_rcode().unwrap_or_else(|| 0xFF),
+        rcode: facade.get_rcode().unwrap_or(0xFF),
         answers: facade.get_answers().unwrap_or_else(|| vec![]),
     };
     write_log(&request_record, &response_record, addr, logger);

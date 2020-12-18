@@ -1,5 +1,7 @@
 # MASQ Node
 
+![ci-matrix](https://github.com/MASQ-Project/Node/workflows/ci-matrix/badge.svg)
+
 ## Source
 The MASQ project was forked from Substratum's Node project in order to carry on development after Substratum ceased 
 operations in October of 2019. All credit for the original idea, the original design, and the first two years of MASQ's

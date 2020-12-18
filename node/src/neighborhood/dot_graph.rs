@@ -35,7 +35,7 @@ impl DotRenderable for NodeRenderable {
         if self.known_source {
             result.push_str(" [style=filled]")
         }
-        result.push_str(";");
+        result.push(';');
         result
     }
 }
