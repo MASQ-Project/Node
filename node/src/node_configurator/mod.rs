@@ -429,7 +429,7 @@ where
     let reader_opt = possible_reader_from_stream(streams);
     let password = read_password_with_reader(reader_opt).expect("Fatal error");
     match verifier(password.clone()) {
-        Ok(_) => Ok(password.clone()),
+        Ok(_) => Ok(password),
         Err(PasswordVerificationError::YourFault(msg)) => Err(PasswordError::VerifyError(msg)),
         Err(PasswordVerificationError::MyFault(pce)) => Err(PasswordError::InternalError(pce)),
     }

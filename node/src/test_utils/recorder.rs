@@ -432,7 +432,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
 pub fn make_configurator_subs_from(addr: &Addr<Recorder>) -> ConfiguratorSubs {
     ConfiguratorSubs {
         bind: recipient!(addr, BindMessage),
-        node_to_ui_sub: recipient!(addr, NodeToUiMessage),
+        node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
 

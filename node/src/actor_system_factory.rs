@@ -23,6 +23,7 @@ use crate::database::db_initializer::{
 };
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::configurator::ConfiguratorSubs;
@@ -41,6 +42,7 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -140,7 +142,7 @@ impl ActorSystemFactoryReal {
             actor_factory.make_and_start_ui_gateway(config.ui_gateway_config.clone());
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories.clone());
-        let configurator_subs = actor_factory.make_and_start_configurator();
+        let configurator_subs = actor_factory.make_and_start_configurator(&config);
 
         // collect all the subs
         let peer_actors = PeerActors {
@@ -225,7 +227,7 @@ pub trait ActorFactory: Send {
         config: &BootstrapperConfig,
         db_initializer: &dyn DbInitializer,
     ) -> BlockchainBridgeSubs;
-    fn make_and_start_configurator(&self) -> ConfiguratorSubs;
+    fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs;
 }
 
 pub struct ActorFactoryReal {}
@@ -393,8 +395,16 @@ impl ActorFactory for ActorFactoryReal {
         BlockchainBridge::make_subs_from(&addr)
     }
 
-    fn make_and_start_configurator(&self) -> ConfiguratorSubs {
-        unimplemented!()
+    fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
+        let configurator = Configurator::new(
+            config.data_directory.clone(),
+            config.blockchain_bridge_config.chain_id,
+        );
+        let addr: Addr<Configurator> = configurator.start();
+        ConfiguratorSubs {
+            bind: recipient!(addr, BindMessage),
+            node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
+        }
     }
 }
 
@@ -678,16 +688,16 @@ mod tests {
             }
         }
 
-        fn make_and_start_configurator(&self) -> ConfiguratorSubs {
+        fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
             self.parameters
                 .configurator_params
                 .lock()
                 .unwrap()
-                .get_or_insert(());
+                .get_or_insert(config.clone());
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.configurator);
             ConfiguratorSubs {
                 bind: recipient!(addr, BindMessage),
-                node_to_ui_sub: recipient!(addr, NodeToUiMessage),
+                node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
             }
         }
     }
@@ -715,7 +725,7 @@ mod tests {
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
         blockchain_bridge_params: Arc<Mutex<Option<BootstrapperConfig>>>,
-        configurator_params: Arc<Mutex<Option<()>>>,
+        configurator_params: Arc<Mutex<Option<BootstrapperConfig>>>,
     }
 
     impl<'a> Parameters<'a> {

@@ -99,7 +99,7 @@ impl SecureConfigLayer {
         if !self.check_password(password_opt.clone(), dao)? {
             return Err(SecureConfigLayerError::PasswordError);
         }
-        match (record.encrypted, record.value_opt, password_opt.clone()) {
+        match (record.encrypted, record.value_opt, password_opt) {
             (false, value_opt, _) => Ok(value_opt),
             (true, Some(value), Some(password)) => match Bip39::decrypt_bytes(&value, &password) {
                 Err(_) => Err(SecureConfigLayerError::DatabaseError(format!(

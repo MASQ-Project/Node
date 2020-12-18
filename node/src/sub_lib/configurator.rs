@@ -2,14 +2,14 @@
 
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Recipient;
-use masq_lib::ui_gateway::NodeToUiMessage;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
 #[derive(Clone)]
 pub struct ConfiguratorSubs {
     pub bind: Recipient<BindMessage>,
-    pub node_to_ui_sub: Recipient<NodeToUiMessage>,
+    pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
 }
 
 impl Debug for ConfiguratorSubs {
@@ -30,7 +30,7 @@ mod tests {
 
         let subject = ConfiguratorSubs {
             bind: recipient!(recorder, BindMessage),
-            node_to_ui_sub: recipient!(recorder, NodeToUiMessage),
+            node_from_ui_sub: recipient!(recorder, NodeFromUiMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "ConfiguratorSubs");

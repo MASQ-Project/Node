@@ -38,11 +38,8 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.configuration_change_subs = Some(vec![msg
-            .peer_actors
-            .neighborhood
-            .from_ui_message_sub
-            .clone()])
+        self.configuration_change_subs =
+            Some(vec![msg.peer_actors.neighborhood.from_ui_message_sub])
     }
 }
 
