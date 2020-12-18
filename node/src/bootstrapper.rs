@@ -94,7 +94,7 @@ impl PortConfiguration {
     }
 }
 
-pub trait EnvironmentWrapper: Send + Sync {
+pub trait EnvironmentWrapper: Send {
     fn var(&self, key: &str) -> Option<String>;
 }
 

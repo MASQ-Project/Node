@@ -360,7 +360,7 @@ impl Accountant {
                 None => {
                     warning!(
                         self.logger,
-                        "database contains no start block; aborting received-payment scan"
+                        "Database contains no start block; aborting received-payment scan"
                     );
                     return;
                 }
@@ -2084,7 +2084,7 @@ pub mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.exists_log_matching(
-            "WARN: Accountant: database contains no start block; aborting received-payment scan",
+            "WARN: Accountant: Database contains no start block; aborting received-payment scan",
         );
     }
 

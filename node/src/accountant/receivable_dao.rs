@@ -94,6 +94,7 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn more_money_received(&mut self, payments: Vec<Transaction>) {
+        unimplemented! ("Make this error message better");
         self.try_multi_insert_payment(payments).unwrap_or_else(|e| {
             error!(self.logger, "Transaction failed, rolling back: {:?}", e);
         })
@@ -277,6 +278,7 @@ impl ReceivableDaoReal {
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
+
     fn try_update(&self, wallet: &Wallet, amount: i64) -> Result<bool, String> {
         let mut stmt = self
             .conn
@@ -325,10 +327,8 @@ impl ReceivableDaoReal {
             .expect("Transaction disappeared from writer");
 
         {
-            let mut stmt = match tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?") {
-                Ok(stm) => stm,
-                Err(e) => return Err(ReceivableDaoError::Other(format!("{:?}", e)))
-            };
+            let mut stmt = tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?")
+                .expect ("Internal SQL error");
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {

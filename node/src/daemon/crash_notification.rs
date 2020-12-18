@@ -41,7 +41,6 @@ struct ChildWaitFailureRecognizer {}
 const CHILD_WAIT_FAILURE_PREFIX: &str = "Child wait failure: ";
 
 impl Recognizer for ChildWaitFailureRecognizer {
-    #[allow(clippy::manual_strip)]
     fn try_convert(
         &self,
         exit_code_opt: Option<i32>,
