@@ -14,6 +14,7 @@
 | Docker Style CLI | [In progress](#docker-cli) |
 | Graphic User Interface (GUI) | [In progress](#gui) |
 | Clandestine Routing | [In progress](#clandestine) |
+| Next Steps | [Navigate](#next-steps) |
 | Tokenomics | [Navigate](#tokenomics)  |
 | Don the MASQ & Get Involved | [Support Us](#support-us) |
 | SUPPORT OUR CAUSE | [Donate](#donate) |
@@ -109,7 +110,6 @@ The GUI will first be a browser-based solution for Alpha and Beta type testing w
 
 * Terminal Intelligence
 
-
 ## MASQ Project GitHub is Open Source
 The MASQ [GitHub] is an Open Source fork of Substratum (the code base was created and developed by Substratum LLC, a registered US company based in Tennessee) – under the GPLv3 license. All the forked source code used from the latest repo of Substratum is cited as such and credit given properly.
 
@@ -155,10 +155,11 @@ Using blockchain analysis tools, the MASQ committee reviewed monthly historical 
 Final snapshot was taken at 3:50pm 6th Feb 2020 PST, which coincides with the Committee announcement of the plans to airdrop the custom MASQ token. This was to avoid both manipulation and speculative trading of other tokens.
 
 ## Tokens Supply Adjustment (completed on May 11, 2020)
-Unallocated tokens (235,575,725.2424265) have been sent to the zero-ethereum address - this occured on 11th May 2020 and the Transaction Hash can be viewed [here](https://etherscan.io/tx/0x9401af799b5aca513081e3541b6a15f6d2de84bd44c982ba1e7feea050f6bf5f) on etherscan.io
+Remaining tokens (235,575,725.2424265) after the completed airdrop, development wallet and committee wallets have been sent to the zero-ethereum address - this occured on 11th May 2020 and the Transaction Hash can be viewed [here](https://etherscan.io/tx/0x9401af799b5aca513081e3541b6a15f6d2de84bd44c982ba1e7feea050f6bf5f) on etherscan.io
 
 ## Suspense - remaining tokens
-There are 9.7 million tokens that were estimated for previous token holders on the COSS exchange. This was before their platform underwent a corporate changeover and discussions stalled in terms of partnership to support holders. Options are still being explored, but these tokens will be repurposed once no appropriate arrangement can be reached between management.
+There are 10M remaining tokens which were earmarked for previous holders on the COSS exchange. This was before their platform underwent a corporate changeover and discussions stalled in terms of partnership to support holders.
+Details around this are still being explored, but these tokens will be repurposed if there is no appropriate arrangement created between management
 
 
 <a id="support-us"></a>
