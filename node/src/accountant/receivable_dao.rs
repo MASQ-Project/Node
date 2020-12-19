@@ -94,9 +94,25 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn more_money_received(&mut self, payments: Vec<Transaction>) {
-        self.try_multi_insert_payment(payments).unwrap_or_else(|e| {
-            error!(self.logger, "Transaction failed, rolling back: {:?}", e);
-        })
+        self.try_multi_insert_payment(&payments)
+            .unwrap_or_else(|e| {
+                let mut report_lines =
+                    vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")];
+                let mut sum = 0u64;
+                payments.iter().for_each(|t| {
+                    report_lines.push(format!(
+                        "{:10} {:42} {:18}",
+                        t.block_number, t.from, t.gwei_amount
+                    ));
+                    sum += t.gwei_amount;
+                });
+                report_lines.push(format!("{:10} {:42} {:18}", "TOTAL", "", sum));
+                let report = report_lines.join("\n");
+                error!(
+                    self.logger,
+                    "Payment reception failed, rolling back: {:?}\n{}", e, report
+                );
+            })
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
@@ -302,7 +318,7 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
-        payments: Vec<Transaction>,
+        payments: &[Transaction],
     ) -> Result<(), ReceivableDaoError> {
         let tx = match self.conn.transaction() {
             Ok(t) => t,
@@ -325,10 +341,8 @@ impl ReceivableDaoReal {
             .expect("Transaction disappeared from writer");
 
         {
-            let mut stmt = match tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?") {
-                Ok(stm) => stm,
-                Err(e) => return Err(ReceivableDaoError::Other(format!("{:?}", e)))
-            };
+            let mut stmt = tx.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?")
+                .expect ("Internal SQL error");
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match jackass_unsigned_to_signed(transaction.gwei_amount) {
@@ -370,7 +384,6 @@ impl ReceivableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::make_receivable_account;
-    use crate::blockchain::blockchain_interface::contract_creation_block_from_chain_id;
     use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
@@ -423,7 +436,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let result = subject.try_multi_insert_payment(payments);
+        let result = subject.try_multi_insert_payment(payments.as_slice());
 
         assert_eq!(
             result,
@@ -454,7 +467,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let result = subject.try_multi_insert_payment(payments);
+        let result = subject.try_multi_insert_payment(payments.as_slice());
 
         assert_eq!(
             result,
@@ -465,6 +478,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "no such table: receivable")]
     fn try_multi_insert_payment_handles_error_adding_receivables() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
@@ -485,18 +499,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let result = subject.try_multi_insert_payment(payments);
-
-        assert_eq!(result, Err(ReceivableDaoError::Other("SqliteFailure(Error { code: Unknown, extended_code: 1 }, Some(\"no such table: receivable\"))".to_string())));
-        let persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        )));
-        assert_eq!(
-            persistent_config.start_block().unwrap().unwrap(),
-            contract_creation_block_from_chain_id(DEFAULT_CHAIN_ID)
-        );
+        let _ = subject.try_multi_insert_payment(payments.as_slice());
     }
 
     #[test]
@@ -688,12 +691,33 @@ mod tests {
         let conn_mock =
             ConnectionWrapperMock::default().transaction_result(Err(Error::InvalidQuery));
         let mut receivable_dao = ReceivableDaoReal::new(Box::new(conn_mock));
+        let payments = vec![
+            Transaction {
+                block_number: 1234567890,
+                from: Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+                gwei_amount: 123456789123456789,
+            },
+            Transaction {
+                block_number: 2345678901,
+                from: Wallet::new("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
+                gwei_amount: 234567891234567891,
+            },
+            Transaction {
+                block_number: 3456789012,
+                from: Wallet::new("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+                gwei_amount: 345678912345678912,
+            },
+        ];
 
-        receivable_dao.more_money_received(vec![]);
+        receivable_dao.more_money_received(payments);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: ReceivableDaoReal: Transaction failed, rolling back: Other(\"{}\")",
-            Error::InvalidQuery
+            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: Other(\"Query is not read-only\")\n\
+            Block #    Wallet                                     Amount            \n\
+            1234567890 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 123456789123456789\n\
+            2345678901 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 234567891234567891\n\
+            3456789012 0xcccccccccccccccccccccccccccccccccccccccc 345678912345678912\n\
+            TOTAL                                                 703703592703703592"
         ));
     }
 
@@ -715,7 +739,7 @@ mod tests {
         receivable_dao.more_money_received(vec![]);
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: ReceivableDaoReal: Transaction failed, rolling back: Other(\"no payments given\")",
+            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: Other(\"no payments given\")",
         );
     }
 

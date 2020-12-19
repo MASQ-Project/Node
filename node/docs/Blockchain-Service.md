@@ -6,7 +6,7 @@ A blockchain service url is a URL that MASQ Node uses to interact with the Ropst
 
 To be fully functional MASQ Node needs access to:
 1. pay SHRD/MASQ to other nodes for routing, blockchain, and exit services consumed, 
-1. determine if other requesting nodes have enough SUB to pay for services -- also ROP/ETH for gas fees, and 
+1. determine if other requesting nodes have enough SHRD/MASQ to pay for services -- also ROP/ETH for gas fees, and 
 1. discover payments from other nodes for routing, blockchain, and exit services provided. This keeps your node from incorrectly banning other nodes for not paying. 
 
 There are two general types of Blockchain Services MASQ Node currently supports.
@@ -33,7 +33,7 @@ Choose one of the following options for the Ropsten testnet:
     > `export MASQ_BLOCKCHAIN_SERVICE_URL = https://ropsten.infura.io/v3/<YOUR-PROJECT-ID>`
 
 Change `<YOUR-PROJECT-ID>` with the PROJECT ID from your Infura.io Project Dashboard. Change the URL to 
-mainnet when ready to spend and earn real SUB. NOTE: the network will initially only be testing on Ropsten. 
+mainnet when ready to spend and earn real MASQ. NOTE: the network will initially only be testing on Ropsten. 
 
 Soon MASQ Node will have the ability to request clandestine blockchain services from other nodes through services like Infura.io. Requests for blockchain services will be routed just as if your 
 browser sent a request to a website through the MASQ Network. In this mode your blockchain service requests will cost SHRD or MASQ.

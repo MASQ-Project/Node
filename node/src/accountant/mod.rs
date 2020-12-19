@@ -324,7 +324,7 @@ impl Accountant {
                 let (balance, age) = Self::balance_and_age(&account);
                 info!(
                     self.logger,
-                    "Wallet {} (balance: {} SUB, age: {} sec) banned for delinquency",
+                    "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
                     account.wallet,
                     balance,
                     age.as_secs()
@@ -339,7 +339,7 @@ impl Accountant {
                 let (balance, age) = Self::balance_and_age(&account);
                 info!(
                     self.logger,
-                    "Wallet {} (balance: {} SUB, age: {} sec) is no longer delinquent: unbanned",
+                    "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
                     account.wallet,
                     balance,
                     age.as_secs()
@@ -2151,7 +2151,7 @@ pub mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.exists_log_matching(
-            "WARN: Accountant: database contains no start block; aborting received-payment scan",
+            "WARN: Accountant: Database contains no start block; aborting received-payment scan",
         );
     }
 
@@ -2221,10 +2221,10 @@ pub mod tests {
         assert!(unban_parameters.contains(&newly_unbanned_2.wallet));
         assert_eq!(2, unban_parameters.len());
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743132333464 \\(balance: 1234 SUB, age: \\d+ sec\\) banned for delinquency");
-        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743233343564 \\(balance: 2345 SUB, age: \\d+ sec\\) banned for delinquency");
-        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574333435366e \\(balance: 3456 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
-        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 SUB, age: \\d+ sec\\) is no longer delinquent: unbanned");
+        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743132333464 \\(balance: 1234 MASQ, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c65743233343564 \\(balance: 2345 MASQ, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574333435366e \\(balance: 3456 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
+        tlh.exists_log_matching("INFO: Accountant: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
     }
 
     #[test]

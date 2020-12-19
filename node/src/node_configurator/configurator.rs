@@ -2,7 +2,11 @@ use std::path::PathBuf;
 
 use actix::{Actor, Context, Handler, Recipient};
 
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast, UiGenerateWalletsRequest};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
+    UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateWalletsRequest,
+    UiNewPasswordBroadcast,
+};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
     MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
@@ -133,11 +137,11 @@ impl Configurator {
         }
     }
 
-    fn handle_generate_wallets (
+    fn handle_generate_wallets(
         &mut self,
-        msg: UiGenerateWalletsRequest,
-        client_id: u64,
-        context_id: u64,
+        _msg: UiGenerateWalletsRequest,
+        _client_id: u64,
+        _context_id: u64,
     ) -> MessageBody {
         unimplemented!()
     }

@@ -18,7 +18,7 @@ determining what route the CORES package should take.
 
 At certain times, the Neighborhood will trigger a round of Gossip. When this happens, the Neighborhood will send a
 CORES package to each of the Nodes to which your Node has a direct TCP connection. (Note: this will not cost you any 
-routing SUB, because since each of these Nodes is right next to you, no Node
+routing MASQ, because since each of these Nodes is right next to you, no Node
 but your own sends any data on your behalf, and therefore there's nobody to pay.) This CORES package will contain part
 of what your Node knows about the current state of the network, including what it has learned from other Nodes when
 they have sent Gossip to it. When you start a decentralized Node, it needs to know how to locate just one other Node

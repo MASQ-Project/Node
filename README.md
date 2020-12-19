@@ -1,5 +1,7 @@
 # MASQ Node
 
+![ci-matrix](https://github.com/MASQ-Project/Node/workflows/ci-matrix/badge.svg)
+
 ## Source
 The MASQ project was forked from Substratum's Node project in order to carry on development after Substratum ceased 
 operations in October of 2019. All credit for the original idea, the original design, and the first two years of MASQ's
@@ -16,7 +18,7 @@ sees the exact same content.
 
 **MASQ Node** is the foundation of the MASQ Network.
 
-It is what the average user runs to earn SUB and dedicate some of their computers' resources towards the network.
+It is what the average user runs to earn MASQ and dedicate some of their computers' resources towards the network.
 People who run a MASQ Node can be rewarded with cryptocurrency for each time they serve content.
 
 MASQ Nodes work together to relay CORES packages and content on the network.
@@ -134,8 +136,8 @@ secret configuration information. (Nothing prevents you from doing this, though,
 ##### Shell Environment
 
 If you see that the command line accepts a parameter such as `--clandestine-port 1234`, then you can supply that same
-parameter in the environment by setting the `SUB_CLANDESTINE_PORT` environment variable to `1234`. Note that you need
-to remove the initial `--` prefix, convert the name to all uppercase, and add a `SUB_` prefix to namespace the parameter
+parameter in the environment by setting the `MASQ_CLANDESTINE_PORT` environment variable to `1234`. Note that you need
+to remove the initial `--` prefix, convert the name to all uppercase, and add a `MASQ_` prefix to namespace the parameter
 against other applications that might look for a similar variable.
 
 ##### Configuration File
@@ -143,7 +145,7 @@ against other applications that might look for a similar variable.
 The configuration file, by default, resides in the data directory (see the `--data-directory` parameter for further
 information) and is named `config.toml`. If you leave the configuration file unspecified, this is where MASQ Node
 will look for it. If it's found, it will be used; if it's not, MASQ Node will act as though it had been found but empty.
-But if you want to use a different file, specify it either as `--config-file` on the command line or as `SUB_CONFIG_FILE`
+But if you want to use a different file, specify it either as `--config-file` on the command line or as `MASQ_CONFIG_FILE`
 in the environment. If you specify a relative filename, MASQ Node will look for the configuration file in the data
 directory; if you specify an absolute filename, MASQ Node will not use the data directory to find the configuration
 file.
@@ -364,7 +366,7 @@ abort its startup with an error.
 This allows you to specify the private key of your consuming wallet without having it related to your earning wallet by
 derivation path. While this method is fully functional, it's mostly useful for testing. If you do use it, keep in mind
 that your consuming wallet private key is sensitive information: anyone who gets hold of it can drain all your funds.
-It's best to specify it in the environment (as SUB_CONSUMING_PRIVATE_KEY) rather than on the command line or in the
+It's best to specify it in the environment (as MASQ_CONSUMING_PRIVATE_KEY) rather than on the command line or in the
 config file. You won't be allowed to use this parameter if you've already specified a consuming wallet derivation path
 in Generate or Recover mode; and if you do use this parameter, you must specify exactly the same private key every time
 you run your MASQ Node. If you always use `--consuming-private-key` and `--earning-wallet` with an address, you can use MASQ Node in
@@ -504,5 +506,5 @@ recommend using a 64-bit version to build.
 
 We do plan to release binaries that will run on 32-bit Windows, but they will likely be built on 64-bit Windows.
 
-
+Copyright (c) 2019-2020, MASQ Network
 Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.

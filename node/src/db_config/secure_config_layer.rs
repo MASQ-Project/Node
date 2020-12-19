@@ -107,10 +107,10 @@ impl SecureConfigLayer {
                     record.name
                 ))),
                 Ok(plain_data) => match String::from_utf8(plain_data.into()) {
-                    Err(_) => Err(SecureConfigLayerError::DatabaseError(format!(
-                        "Database contains a non-UTF-8 value for '{}'",
+                    Err(_) => panic!(
+                        "Database is corrupt: contains a non-UTF-8 value for '{}'",
                         record.name
-                    ))),
+                    ),
                     Ok(plain_text) => Ok(Some(plain_text)),
                 },
             },
@@ -203,13 +203,11 @@ impl SecureConfigLayer {
         match (old_record.encrypted, &old_record.value_opt, &old_password_opt) {
             (false, _, _) => Ok(old_record),
             (true, None, _) => Ok(old_record),
-            (true, Some(_), None) => Err(SecureConfigLayerError::DatabaseError(format!("Aborting password change: configuration value '{}' is encrypted, but database has no password", old_record.name))),
+            (true, Some(_), None) => panic!("Database is corrupt: configuration value '{}' is encrypted, but database has no password", old_record.name),
             (true, Some(value), Some(old_password)) => {
                 let decrypted_value = match Bip39::decrypt_bytes(value, old_password) {
                     Ok(plain_data) => plain_data,
-                    Err(_) => {
-                        return Err(SecureConfigLayerError::DatabaseError(format!("Aborting password change due to database corruption: configuration value '{}' cannot be decrypted", old_record.name)));
-                    }
+                    Err(_) => panic!("Database is corrupt: configuration value '{}' cannot be decrypted", old_record.name),
                 };
                 let reencrypted_value = Bip39::encrypt_bytes(&decrypted_value, new_password).expect("Encryption failed");
                 Ok(ConfigDaoRecord::new(&old_record.name, Some(&reencrypted_value), old_record.encrypted))
@@ -565,6 +563,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Database is corrupt: configuration value 'badly_encrypted' cannot be decrypted"
+    )]
     fn reencrypt_records_balks_when_a_value_is_incorrectly_encrypted() {
         let unencrypted_value = "These are the times that try men's souls.".as_bytes();
         let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "bad_password").unwrap();
@@ -620,14 +621,15 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Database is corrupt: configuration value 'name' is encrypted, but database has no password"
+    )]
     fn reencrypt_record_balks_when_database_has_no_password_but_value_is_encrypted_anyway() {
         let record = ConfigDaoRecord::new("name", Some("value"), true);
         let old_password_opt = None;
         let new_password = "irrelevant";
 
-        let result = SecureConfigLayer::reencrypt_record(record, old_password_opt, new_password);
-
-        assert_eq! (result, Err(SecureConfigLayerError::DatabaseError("Aborting password change: configuration value 'name' is encrypted, but database has no password".to_string())))
+        let _ = SecureConfigLayer::reencrypt_record(record, old_password_opt, new_password);
     }
 
     #[test]
@@ -763,6 +765,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Database is corrupt: contains a non-UTF-8 value for 'attribute_name'"
+    )]
     fn decrypt_objects_if_decrypted_string_violates_utf8() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
@@ -777,14 +782,7 @@ mod tests {
         ))));
         let subject = SecureConfigLayer::new();
 
-        let result = subject.decrypt(record, Some("password".to_string()), &dao);
-
-        assert_eq!(
-            result,
-            Err(SecureConfigLayerError::DatabaseError(
-                "Database contains a non-UTF-8 value for 'attribute_name'".to_string()
-            ))
-        );
+        let _ = subject.decrypt(record, Some("password".to_string()), &dao);
     }
 
     #[test]
