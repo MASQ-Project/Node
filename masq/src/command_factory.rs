@@ -2,6 +2,7 @@
 
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::check_password_command::CheckPasswordCommand;
+use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::commands_common::Command;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
@@ -28,6 +29,10 @@ impl CommandFactory for CommandFactoryReal {
             "check-password" => match CheckPasswordCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => unimplemented!("{}", msg),
+            },
+            "change-password" => match ChangePasswordCommand::new(pieces){
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
             },
             "crash" => match CrashCommand::new(pieces) {
                 Ok(command) => Box::new(command),
@@ -57,6 +62,8 @@ impl CommandFactoryReal {
 mod tests {
     use super::*;
     use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
+    use crate::test_utils::mocks::CommandContextMock;
+    use masq_lib::messages::{UiChangePasswordResponse, ToMessageBody};
 
     #[test]
     fn complains_about_unrecognized_subcommand() {
@@ -91,6 +98,21 @@ mod tests {
             "{}",
             msg
         );
+    }
+
+    #[test]
+    fn make_handles_error_when_the_second_parameter_of_change_password_is_not_supplied() {
+        let factory = CommandFactoryReal::new();
+        let mut context = CommandContextMock::new()
+            .transact_result(Ok(UiChangePasswordResponse {}.tmb(1230)));
+
+        let result:Result<(),CommandFactoryError> = if let Err(e) = factory
+            .make(vec!["change-password"
+                           .to_string(), "abracadabra"
+                           .to_string()])
+        {Err(e)} else {Err((CommandFactoryError::UnrecognizedSubcommand("testing".to_string())))};
+
+        assert_eq!(result, Err(CommandFactoryError::CommandSyntax(String::from("error: The following required arguments were not provided:\n    <new-db-password>\n\nUSAGE:\n    change-password <old-db-password> <new-db-password>\n\nFor more information try --help\n"))));
     }
 
     // Rust isn't a reflective enough language to allow easy test-driving of the make() method
