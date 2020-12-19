@@ -16,8 +16,14 @@ impl ChangePasswordCommand{
             Err(e) => return Err(format!("{}", e)),
         };
         Ok(Self{
-            old_password: matches.value_of("old-db-password")
-                .map(|r| r.to_string()),
+            // Note from Dan:
+            // The Option<String> from clap and the Option<String> in UiChangePasswordRequest have
+            // different meanings, even though they're the same data type. There should be a translation
+            // between meanings here, not just an assignment. (I changed it away from the assignment, but
+            // the final rendering here will depend on your decision of how to design the no-existing-password
+            // version of the command.
+            old_password: Some (matches.value_of("old-db-password")
+                .expect("Old password was omitted while required").to_string()),  // I suppose Clap will take care of that; edit: now also tested
             new_password: matches.value_of("new-db-password")
                 .expect("New password was omitted while required").to_string(),  // I suppose Clap will take care of that; edit: now also tested
         })
@@ -30,7 +36,7 @@ impl Command for ChangePasswordCommand {
             old_password_opt: self.old_password.clone(),
             new_password: self.new_password.clone(),
         };
-        let msg:UiChangePasswordResponse = transaction(input, context, 1000)?;
+        let _: UiChangePasswordResponse = transaction(input, context, 1000)?;
         writeln!(
             context.stdout(),
             "Database password has been changed"
@@ -81,6 +87,15 @@ mod tests {
     }
 
     #[test]
+    fn change_password_command_works_when_changing_from_no_password() {
+        unimplemented!("How will you design me?");
+        // Suggestion:
+        // To express UiChangePasswordRequest {old_password: Some("xxx"), new_password("yyy")}, use "change-password xxx yyy"
+        // To express UiChangePasswordRequest {old_password: None, new_password("yyy")}, use "change-password yyy"
+        // But...your choice. The important thing is that masq can change the password from nothing to something.
+    }
+
+    #[test]
     fn change_password_command_changed_db_password_successfully_with_both_parameters_supplied() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
@@ -123,7 +138,7 @@ mod tests {
                 .to_string()])
         {Err(e)} else {Ok(())};
 
-        assert!(result.is_err())     //error message is too long (chained) and messy, try later, could be more clear
+        assert!(result.is_err())     // TODO: error message is too long (chained) and messy, try later, could be more clear
     }
 }
 
