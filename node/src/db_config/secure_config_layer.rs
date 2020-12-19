@@ -104,7 +104,10 @@ impl SecureConfigLayer {
             (true, Some(value), Some(password)) => match Bip39::decrypt_bytes(&value, password) {
                 Err(_) => Err(SecureConfigLayerError::PasswordError),
                 Ok(plain_data) => match String::from_utf8(plain_data.into()) {
-                    Err(_) => panic! ("Database is corrupt: contains a non-UTF-8 value for '{}'", record.name),
+                    Err(_) => panic!(
+                        "Database is corrupt: contains a non-UTF-8 value for '{}'",
+                        record.name
+                    ),
                     Ok(plain_text) => Ok(Some(plain_text)),
                 },
             },
@@ -119,7 +122,7 @@ impl SecureConfigLayer {
         example_record: ConfigDaoRecord,
     ) -> Result<bool, SecureConfigLayerError> {
         if !example_record.encrypted {
-            panic! ("Database is corrupt: Password example value is not encrypted");
+            panic!("Database is corrupt: Password example value is not encrypted");
         }
         match (db_password_opt, example_record.value_opt) {
             (None, None) => Ok(true),
@@ -129,7 +132,10 @@ impl SecureConfigLayer {
                 match Bip39::decrypt_bytes(&encrypted_example, db_password) {
                     Ok(_) => Ok(true),
                     Err(Bip39Error::DecryptionFailure(_)) => Ok(false),
-                    Err(e) => panic! ("Database is corrupt: password example value can't be read: {:?}", e),
+                    Err(e) => panic!(
+                        "Database is corrupt: password example value can't be read: {:?}",
+                        e
+                    ),
                 }
             }
         }
@@ -345,29 +351,29 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Database is corrupt: Password example value is not encrypted")] // TODO: Modify this test to expect a panic, since database is corrupt
+    #[should_panic(expected = "Database is corrupt: Password example value is not encrypted")] // TODO: Modify this test to expect a panic, since database is corrupt
     fn check_password_fails_when_example_record_is_present_and_unencrypted() {
-        let dao = ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some("booga"),
-                false,
-            )));
+        let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            EXAMPLE_ENCRYPTED,
+            Some("booga"),
+            false,
+        )));
         let subject = SecureConfigLayer::new();
 
         let _ = subject.check_password(Some("bad password"), &Box::new(dao));
     }
 
     #[test]
-    #[should_panic (expected = "Database is corrupt: password example value can't be read: ConversionError(\"Invalid character \\'s\\' at position 1\")")]
+    #[should_panic(
+        expected = "Database is corrupt: password example value can't be read: ConversionError(\"Invalid character \\'s\\' at position 1\")"
+    )]
     fn check_password_fails_when_example_record_is_present_but_corrupt() {
         let bad_encrypted_example = "Aside from that, Mrs. Lincoln, how was the play?";
-        let dao = ConfigDaoMock::new()
-            .get_result(Ok(ConfigDaoRecord::new(
-                EXAMPLE_ENCRYPTED,
-                Some(bad_encrypted_example),
-                true,
-            )));
+        let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            EXAMPLE_ENCRYPTED,
+            Some(bad_encrypted_example),
+            true,
+        )));
         let subject = SecureConfigLayer::new();
 
         let _ = subject.check_password(Some("password"), &Box::new(dao));
@@ -527,7 +533,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Database is corrupt: configuration value 'badly_encrypted' cannot be decrypted")]
+    #[should_panic(
+        expected = "Database is corrupt: configuration value 'badly_encrypted' cannot be decrypted"
+    )]
     fn reencrypt_records_balks_when_a_value_is_incorrectly_encrypted() {
         let unencrypted_value = "These are the times that try men's souls.".as_bytes();
         let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "bad_password").unwrap();
@@ -574,7 +582,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Database is corrupt: configuration value 'name' is encrypted, but database has no password")]
+    #[should_panic(
+        expected = "Database is corrupt: configuration value 'name' is encrypted, but database has no password"
+    )]
     fn reencrypt_record_balks_when_database_has_no_password_but_value_is_encrypted_anyway() {
         let record = ConfigDaoRecord::new("name", Some("value"), true);
         let old_password_opt = None;
@@ -690,10 +700,7 @@ mod tests {
 
         let result = subject.decrypt(record, Some("password"), &dao);
 
-        assert_eq!(
-            result,
-            Err(SecureConfigLayerError::PasswordError)
-        );
+        assert_eq!(result, Err(SecureConfigLayerError::PasswordError));
     }
 
     #[test]
@@ -714,7 +721,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Database is corrupt: contains a non-UTF-8 value for 'attribute_name'")]
+    #[should_panic(
+        expected = "Database is corrupt: contains a non-UTF-8 value for 'attribute_name'"
+    )]
     fn decrypt_objects_if_decrypted_string_violates_utf8() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "password").unwrap();
