@@ -16,13 +16,12 @@ use trust_dns::rr::RecordType;
 const HEADER_BYTES: usize = 12;
 const UNKNOWN: &str = "<unknown>";
 
-#[allow(clippy::redundant_closure)]
 pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger) -> usize {
     let mut facade = PacketFacade::new(buf, length);
     let request_record = RequestRecord {
         timestamp: Instant::now(),
         opcode: facade.get_opcode().unwrap_or(0xFF),
-        queries: facade.get_queries().unwrap_or_else(|| vec![]),
+        queries: facade.get_queries().unwrap_or_default(),
     };
 
     let response_size = make_response(&mut facade);
@@ -31,7 +30,7 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
     let response_record = ResponseRecord {
         latency_ns: latency.as_nanos() as u64,
         rcode: facade.get_rcode().unwrap_or(0xFF),
-        answers: facade.get_answers().unwrap_or_else(|| vec![]),
+        answers: facade.get_answers().unwrap_or_default(),
     };
     write_log(&request_record, &response_record, addr, logger);
     response_size

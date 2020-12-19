@@ -75,7 +75,7 @@ impl PrivilegeDropper for PrivilegeDropperReal {
         if self.id_wrapper.getgid() == 0 {
             let gid_result = self
                 .id_wrapper
-                .setgid(real_user.gid.expect("Group-ID logic not working"));
+                .setgid(real_user.gid_opt.expect("Group-ID logic not working"));
             if gid_result != 0 {
                 panic!("Error code {} resetting group id", gid_result)
             }
@@ -87,7 +87,7 @@ impl PrivilegeDropper for PrivilegeDropperReal {
         if self.id_wrapper.getuid() == 0 {
             let uid_result = self
                 .id_wrapper
-                .setuid(real_user.uid.expect("User-ID logic not working"));
+                .setuid(real_user.uid_opt.expect("User-ID logic not working"));
             if uid_result != 0 {
                 panic!("Error code {} resetting user id", uid_result)
             }
@@ -114,8 +114,8 @@ impl PrivilegeDropper for PrivilegeDropperReal {
             let args = vec![
                 format!(
                     "{}:{}",
-                    real_user.uid.expect("User-ID logic not working"),
-                    real_user.gid.expect("Group-ID logic not working")
+                    real_user.uid_opt.expect("User-ID logic not working"),
+                    real_user.gid_opt.expect("Group-ID logic not working")
                 ),
                 format!("{}", file.display()),
             ];
@@ -190,7 +190,7 @@ mod tests {
         let mut subject = PrivilegeDropperReal::new();
         subject.id_wrapper = Box::new(id_wrapper);
 
-        subject.drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
+        subject.drop_privileges(&RealUser::new(None, None, None).populate(&RealDirsWrapper {}));
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -283,7 +283,7 @@ mod tests {
         let mut subject = PrivilegeDropperReal::new();
         subject.id_wrapper = Box::new(id_wrapper);
 
-        subject.drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
+        subject.drop_privileges(&RealUser::new(None, None, None).populate(&RealDirsWrapper {}));
 
         let setuid_params = setuid_params_arc.lock().unwrap();
         assert!(setuid_params.is_empty());

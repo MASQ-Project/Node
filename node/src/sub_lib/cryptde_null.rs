@@ -8,6 +8,7 @@ use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
 use rand::prelude::*;
+use rustc_hex::ToHex;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 
@@ -208,8 +209,9 @@ impl CryptDENull {
         let prefix_len = std::cmp::min(key_data.len(), data.len());
         let vec = Vec::from(&data.as_slice()[0..prefix_len]);
         format!(
-            "Could not decrypt with {:?} data beginning with {:?}",
-            key_data, vec
+            "Could not decrypt with {} data beginning with {}",
+            key_data.to_hex::<String>(),
+            vec.to_hex::<String>()
         )
     }
 
@@ -303,7 +305,12 @@ mod tests {
 
         let result = subject.decode(&CryptData::new(b"keydata"));
 
-        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")), result.err().unwrap());
+        assert_eq!(
+            CryptdecError::InvalidKey(String::from(
+                "Could not decrypt with 696e76616c69646b6579 data beginning with 6b657964617461"
+            )),
+            result.err().unwrap()
+        );
     }
 
     #[test]
@@ -323,7 +330,7 @@ mod tests {
     fn gen_key_sym_can_be_controlled_and_wraps_properly() {
         let mut subject = main_cryptde().clone();
 
-        subject.set_next_symmetric_key_seed(0xFFFFFFFFFFFFFFFF);
+        subject.set_next_symmetric_key_seed(0xFFFFFFFFFFFFFFFFu64);
         let key1 = subject.gen_key_sym();
         let key2 = subject.gen_key_sym();
 
@@ -416,7 +423,12 @@ mod tests {
 
         let result = subject.decode_sym(&key, &CryptData::new(b"keydata"));
 
-        assert_eq!(CryptdecError::InvalidKey (String::from ("Could not decrypt with [105, 110, 118, 97, 108, 105, 100, 107, 101, 121] data beginning with [107, 101, 121, 100, 97, 116, 97]")), result.err().unwrap());
+        assert_eq!(
+            CryptdecError::InvalidKey(String::from(
+                "Could not decrypt with 696e76616c69646b6579 data beginning with 6b657964617461"
+            )),
+            result.err().unwrap()
+        );
     }
 
     #[test]

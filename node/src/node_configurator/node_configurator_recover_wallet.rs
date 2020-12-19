@@ -1,14 +1,14 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::bip39::Bip39;
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::{
-    app_head, common_validators, consuming_wallet_arg, create_wallet, earning_wallet_arg,
-    flushed_write, language_arg, mnemonic_passphrase_arg, mnemonic_seed_exists,
+    app_head, check_for_past_initialization, common_validators, consuming_wallet_arg,
+    create_wallet, earning_wallet_arg, flushed_write, language_arg, mnemonic_passphrase_arg,
     prepare_initialization_mode, request_password_with_confirmation, request_password_with_retry,
     update_db_password, DirsWrapper, Either, NodeConfigurator, RealDirsWrapper,
     WalletCreationConfig, WalletCreationConfigMaker, DB_PASSWORD_HELP, EARNING_WALLET_HELP,
 };
-use crate::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::cryptde::PlainData;
 use bip39::{Language, Mnemonic};
 use clap::{value_t, values_t, App, Arg};
@@ -31,14 +31,15 @@ impl NodeConfigurator<WalletCreationConfig> for NodeConfiguratorRecoverWallet {
         args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<WalletCreationConfig, ConfiguratorError> {
-        let (multi_config, persistent_config_box) =
+        let (multi_config, mut persistent_config_box) =
             prepare_initialization_mode(self.dirs_wrapper.as_ref(), &self.app, args, streams)?;
-        let persistent_config = persistent_config_box.as_ref();
+        check_for_past_initialization(persistent_config_box.as_ref())?;
+        let persistent_config = persistent_config_box.as_mut();
 
-        let config = self.parse_args(&multi_config, streams, persistent_config);
+        let config = self.parse_args(&multi_config, streams, persistent_config)?;
 
-        create_wallet(&config, persistent_config);
-        update_db_password(&config, persistent_config);
+        update_db_password(&config, persistent_config)?;
+        create_wallet(&config, persistent_config)?;
 
         Ok(config)
     }
@@ -160,14 +161,16 @@ impl NodeConfiguratorRecoverWallet {
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> WalletCreationConfig {
-        if mnemonic_seed_exists(persistent_config) {
-            exit_process(
+    ) -> Result<WalletCreationConfig, ConfiguratorError> {
+        match persistent_config.mnemonic_seed_exists() {
+            Ok(true) => exit_process(
                 1,
                 "Can't recover wallets: mnemonic seed has already been created",
-            )
+            ),
+            Ok(false) => (),
+            Err(pce) => return Err(pce.into_configurator_error("seed")),
         }
-        self.make_wallet_creation_config(multi_config, streams)
+        Ok(self.make_wallet_creation_config(multi_config, streams))
     }
 
     fn request_mnemonic_passphrase(streams: &mut StdStreams) -> Option<String> {
@@ -259,16 +262,19 @@ mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::bootstrapper::RealUser;
-    use crate::config_dao::ConfigDaoReal;
     use crate::database::db_initializer;
     use crate::database::db_initializer::DbInitializer;
+    use crate::db_config::config_dao::ConfigDaoReal;
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfigurationReal,
+    };
     use crate::node_configurator::{initialize_database, DerivationPathWalletInfo};
-    use crate::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::{
         Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::*;
     use bip39::Seed;
     use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
@@ -438,7 +444,7 @@ mod tests {
             .unwrap();
 
         let persistent_config = initialize_database(&home_dir, DEFAULT_CHAIN_ID);
-        assert_eq!(persistent_config.check_password(password), Some(true));
+        assert_eq!(persistent_config.check_password(Some(password)), Ok(true));
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::Spanish).unwrap();
         let seed = Seed::new(&expected_mnemonic, "Mortimer");
         let earning_wallet =
@@ -475,11 +481,13 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&subject.app, vcls).unwrap();
 
-        let config = subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &make_default_persistent_configuration(),
-        );
+        let config = subject
+            .parse_args(
+                &multi_config,
+                &mut FakeStreamHolder::new().streams(),
+                &make_default_persistent_configuration(),
+            )
+            .unwrap();
 
         let expected_mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
         let seed = Seed::new(&expected_mnemonic, "Mortimer");
@@ -503,6 +511,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_handles_failure_of_mnemonic_seed_exists() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
+        let subject = NodeConfiguratorRecoverWallet::new();
+
+        let result = subject.parse_args(
+            &make_multi_config(ArgsBuilder::new()),
+            &mut FakeStreamHolder::new().streams(),
+            &persistent_config,
+        );
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("seed"))
+        );
+    }
+
+    #[test]
     #[should_panic(
         expected = "\"one two three four five six seven eight nine ten eleven twelve\" is not valid for English (invalid word in phrase)"
     )]
@@ -521,11 +547,13 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
-        subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &make_default_persistent_configuration(),
-        );
+        subject
+            .parse_args(
+                &multi_config,
+                &mut FakeStreamHolder::new().streams(),
+                &make_default_persistent_configuration(),
+            )
+            .unwrap();
     }
 
     #[test]
@@ -605,8 +633,11 @@ mod tests {
         let conn = db_initializer::DbInitializerReal::new()
             .initialize(&data_directory, DEFAULT_CHAIN_ID, true)
             .unwrap();
-        let persistent_config =
+        let mut persistent_config =
             PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(conn)));
+        persistent_config
+            .change_password(None, "rick-rolled")
+            .unwrap();
         persistent_config
             .set_mnemonic_seed(b"booga booga", "rick-rolled")
             .unwrap();
@@ -619,11 +650,13 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&subject.app, vec![vcl]).unwrap();
 
-        subject.parse_args(
-            &multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &persistent_config,
-        );
+        subject
+            .parse_args(
+                &multi_config,
+                &mut FakeStreamHolder::new().streams(),
+                &persistent_config,
+            )
+            .unwrap();
     }
 
     #[test]

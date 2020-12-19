@@ -3,13 +3,15 @@
 use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::node_configurator::node_configurator_standard::standard::{
     privileged_parse_args, unprivileged_parse_args,
 };
 use crate::node_configurator::{
     app_head, data_directory_from_context, determine_config_file_path, DirsWrapper, RealDirsWrapper,
 };
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
@@ -99,7 +101,8 @@ impl SetupReporter for SetupReporterReal {
                 }
             };
         let real_user = real_user_opt.unwrap_or_else(|| {
-            crate::bootstrapper::RealUser::null().populate(self.dirs_wrapper.as_ref())
+            crate::bootstrapper::RealUser::new(None, None, None)
+                .populate(self.dirs_wrapper.as_ref())
         });
         let data_directory = match all_but_configured.get("data-directory") {
             Some(uisrv) if uisrv.status == Set => PathBuf::from(&uisrv.value),
@@ -233,7 +236,9 @@ impl SetupReporterReal {
             (Some(_), Some(uisrv)) if uisrv.status == Set => Self::real_user_from_str(&uisrv.value),
             (Some(real_user_str), Some(_)) => Self::real_user_from_str(&real_user_str),
             (None, Some(uisrv)) => Self::real_user_from_str(&uisrv.value),
-            (None, None) => Some(crate::bootstrapper::RealUser::null().populate(dirs_wrapper)),
+            (None, None) => {
+                Some(crate::bootstrapper::RealUser::new(None, None, None).populate(dirs_wrapper))
+            }
         };
         let chain_name = match (
             value_m!(multi_config, "chain", String),
@@ -417,12 +422,12 @@ impl SetupReporterReal {
         let initializer = DbInitializerReal::new();
         match initializer.initialize(data_directory, chain_id, false) {
             Ok(conn) => {
-                let persistent_config = PersistentConfigurationReal::from(conn);
+                let mut persistent_config = PersistentConfigurationReal::from(conn);
                 match unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut streams,
-                    Some(&persistent_config),
+                    Some(&mut persistent_config),
                 ) {
                     Ok(_) => (
                         (bootstrapper_config, Some(Box::new(persistent_config))),
@@ -535,9 +540,16 @@ impl ValueRetriever for ClandestinePort {
         persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        persistent_config_opt
-            .as_ref()
-            .map(|pc| (pc.clandestine_port().to_string(), Default))
+        if let Some(persistent_config) = persistent_config_opt {
+            match persistent_config.clandestine_port() {
+                Ok(clandestine_port_opt) => {
+                    clandestine_port_opt.map(|cp| (cp.to_string(), Default))
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -810,7 +822,7 @@ impl ValueRetriever for RealUser {
         #[cfg(not(target_os = "windows"))]
         {
             Some((
-                crate::bootstrapper::RealUser::default()
+                crate::bootstrapper::RealUser::new(None, None, None)
                     .populate(self.dirs_wrapper.as_ref())
                     .to_string(),
                 Default,
@@ -859,11 +871,11 @@ mod tests {
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::RealUser;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
-    use crate::node_test_utils::MockDirsWrapper;
-    use crate::persistent_configuration::{
+    use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
+    use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
+    use crate::node_test_utils::MockDirsWrapper;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -911,15 +923,19 @@ mod tests {
         let conn = db_initializer
             .initialize(&home_dir, chain_id_from_name(DEFAULT_CHAIN_NAME), true)
             .unwrap();
-        let config = PersistentConfigurationReal::from(conn);
-        config.set_password("password");
-        config.set_clandestine_port(1234);
+        let mut config = PersistentConfigurationReal::from(conn);
+        config.change_password(None, "password").unwrap();
+        config.set_clandestine_port(1234).unwrap();
         config
             .set_mnemonic_seed(b"booga booga", "password")
             .unwrap();
-        config.set_consuming_wallet_derivation_path("m/44'/60'/1'/2/3", "password");
-        config.set_earning_wallet_address("0x0000000000000000000000000000000000000000");
-        config.set_gas_price(1234567890);
+        config
+            .set_consuming_wallet_derivation_path("m/44'/60'/1'/2/3", "password")
+            .unwrap();
+        config
+            .set_earning_wallet_address("0x0000000000000000000000000000000000000000")
+            .unwrap();
+        config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"ABCD"),
             mainnet: true,
@@ -981,7 +997,7 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
-                &RealUser::default()
+                &RealUser::new(None, None, None)
                     .populate(&RealDirsWrapper {})
                     .to_string(),
                 Default,
@@ -1289,7 +1305,7 @@ mod tests {
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
-                &crate::bootstrapper::RealUser::null()
+                &crate::bootstrapper::RealUser::new(None, None, None)
                     .populate(subject.dirs_wrapper.as_ref())
                     .to_string(),
                 Default,
@@ -1445,7 +1461,7 @@ mod tests {
             ),
             (
                 "real-user",
-                &crate::bootstrapper::RealUser::null()
+                &crate::bootstrapper::RealUser::new(None, None, None)
                     .populate(&RealDirsWrapper {})
                     .to_string(),
                 Default,
@@ -1504,7 +1520,7 @@ mod tests {
             ("neighbors", "", Blank),
             (
                 "real-user",
-                &crate::bootstrapper::RealUser::null()
+                &crate::bootstrapper::RealUser::new(None, None, None)
                     .populate(&RealDirsWrapper {})
                     .to_string(),
                 Default,
@@ -1681,7 +1697,9 @@ mod tests {
 
         assert_eq!(
             real_user_opt,
-            Some(crate::bootstrapper::RealUser::null().populate(&RealDirsWrapper {}))
+            Some(
+                crate::bootstrapper::RealUser::new(None, None, None).populate(&RealDirsWrapper {})
+            )
         );
         assert_eq!(data_directory_opt, None);
         assert_eq!(chain_name, DEFAULT_CHAIN_NAME.to_string());
@@ -1987,7 +2005,8 @@ mod tests {
 
     #[test]
     fn clandestine_port_computed_default_present() {
-        let persistent_config = PersistentConfigurationMock::new().clandestine_port_result(1234);
+        let persistent_config =
+            PersistentConfigurationMock::new().clandestine_port_result(Ok(Some(1234)));
         let subject = ClandestinePort {};
 
         let result = subject.computed_default(
@@ -2009,8 +2028,38 @@ mod tests {
     }
 
     #[test]
+    fn clandestine_port_database_field_absent() {
+        let subject = ClandestinePort {};
+        let persistent_config =
+            PersistentConfigurationMock::new().clandestine_port_result(Ok(None));
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &Some(Box::new(persistent_config)),
+            &None,
+        );
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn clandestine_port_database_field_error() {
+        let subject = ClandestinePort {};
+        let persistent_config = PersistentConfigurationMock::new()
+            .clandestine_port_result(Err(PersistentConfigError::NotPresent));
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &Some(Box::new(persistent_config)),
+            &None,
+        );
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
     fn data_directory_computed_default() {
-        let real_user = RealUser::null().populate(&RealDirsWrapper {});
+        let real_user = RealUser::new(None, None, None).populate(&RealDirsWrapper {});
         let expected = data_directory_from_context(&RealDirsWrapper {}, &real_user, &None, "dev")
             .to_string_lossy()
             .to_string();
@@ -2183,7 +2232,7 @@ mod tests {
         assert_eq!(
             result,
             Some((
-                RealUser::default()
+                RealUser::new(None, None, None)
                     .populate(&RealDirsWrapper {})
                     .to_string(),
                 Default

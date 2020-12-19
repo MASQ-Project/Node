@@ -1,7 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{jackass_unsigned_to_signed, PaymentError};
+use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
-use crate::database::db_initializer::ConnectionWrapper;
+use crate::database::dao_utils::DaoFactoryReal;
 use crate::sub_lib::wallet::Wallet;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{Error, OptionalExtension, NO_PARAMS};
@@ -57,6 +58,16 @@ pub trait PayableDao: Debug + Send {
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount>;
 
     fn total(&self) -> u64;
+}
+
+pub trait PayableDaoFactory {
+    fn make(&self) -> Box<dyn PayableDao>;
+}
+
+impl PayableDaoFactory for DaoFactoryReal {
+    fn make(&self) -> Box<dyn PayableDao> {
+        Box::new(PayableDaoReal::new(self.make_connection()))
+    }
 }
 
 #[derive(Debug)]

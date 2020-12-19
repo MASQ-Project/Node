@@ -12,16 +12,17 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
-use crate::accountant::payable_dao::PayableDaoReal;
-use crate::accountant::receivable_dao::ReceivableDaoReal;
-use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal, BannedDaoReal};
+use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
 };
-use crate::config_dao::ConfigDaoReal;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::persistent_configuration::PersistentConfigurationReal;
+use crate::database::dao_utils::DaoFactoryReal;
+use crate::database::db_initializer::{
+    connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
+};
+use crate::db_config::config_dao::ConfigDaoReal;
+use crate::db_config::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::cryptde::CryptDE;
@@ -267,8 +268,9 @@ impl ActorFactory for ActorFactoryReal {
         cryptde: &'static dyn CryptDE,
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
-        let neighborhood = Neighborhood::new(cryptde, config);
-        let addr: Addr<Neighborhood> = Arbiter::start(|_| neighborhood);
+        let config_clone = config.clone();
+        let addr: Addr<Neighborhood> =
+            Arbiter::start(move |_| Neighborhood::new(cryptde, &config_clone));
         Neighborhood::make_subs_from(&addr)
     }
 
@@ -279,85 +281,43 @@ impl ActorFactory for ActorFactoryReal {
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
-        let payable_dao = Box::new(PayableDaoReal::new(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                )
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        let receivable_dao = Box::new(ReceivableDaoReal::new(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                ) // TODO: Should be false
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        let banned_dao = Box::new(BannedDaoReal::new(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                ) // TODO: Should be false
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        banned_cache_loader.load(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                ) // TODO: Should be false
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
+        let cloned_config = config.clone();
+        let chain_id = config.blockchain_bridge_config.chain_id;
+        let payable_dao_factory = DaoFactoryReal::new(
+            data_directory,
+            config.blockchain_bridge_config.chain_id,
+            false,
         );
-        let config_dao = Box::new(ConfigDaoReal::new(
-            db_initializer
-                .initialize(
-                    data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                ) // TODO: Should be false
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        let persistent_configuration = Box::new(PersistentConfigurationReal::new(config_dao));
-        let accountant = Accountant::new(
-            config,
-            payable_dao,
-            receivable_dao,
-            banned_dao,
-            persistent_configuration,
+        let receivable_dao_factory = DaoFactoryReal::new(
+            data_directory,
+            config.blockchain_bridge_config.chain_id,
+            false,
         );
-        let addr: Addr<Accountant> = Arbiter::start(|_| accountant);
+        let banned_dao_factory = DaoFactoryReal::new(
+            data_directory,
+            config.blockchain_bridge_config.chain_id,
+            false,
+        );
+        banned_cache_loader.load(connection_or_panic(
+            db_initializer,
+            data_directory,
+            chain_id,
+            false,
+        ));
+        let config_dao_factory = DaoFactoryReal::new(
+            data_directory,
+            config.blockchain_bridge_config.chain_id,
+            false,
+        );
+        let addr: Addr<Accountant> = Arbiter::start(move |_| {
+            Accountant::new(
+                &cloned_config,
+                Box::new(payable_dao_factory),
+                Box::new(receivable_dao_factory),
+                Box::new(banned_dao_factory),
+                Box::new(config_dao_factory),
+            )
+        });
         Accountant::make_subs_from(&addr)
     }
 
@@ -435,8 +395,8 @@ mod tests {
     use crate::accountant::{ReceivedPayments, SentPayments};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
-    use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
-    use crate::database::db_initializer::{ConnectionWrapper, InitializationError};
+    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
@@ -484,7 +444,6 @@ mod tests {
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
-    use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
@@ -801,162 +760,6 @@ mod tests {
         fn start_recorder(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
             recorder.borrow_mut().take().unwrap().start()
         }
-    }
-
-    #[test]
-    fn make_and_start_accountant_creates_connections_for_daos_and_banned_cache() {
-        let _system =
-            System::new("make_and_start_accountant_creates_connections_for_daos_and_banned_cache");
-        let subject = ActorFactoryReal {};
-
-        let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
-        let data_directory = PathBuf::from_str("yeet_home").unwrap();
-        let aconfig = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(9),
-            payment_received_scan_interval: Duration::from_secs(100),
-        };
-        let mut config = BootstrapperConfig::new();
-        config.accountant_config = aconfig;
-        config.consuming_wallet = Some(make_wallet("hi"));
-
-        let banned_cache_loader = &BannedCacheLoaderMock::default();
-
-        subject.make_and_start_accountant(
-            &config,
-            &data_directory,
-            &db_initializer_mock,
-            banned_cache_loader,
-        );
-
-        let initialize_parameters = db_initializer_mock.initialize_parameters.lock().unwrap();
-        assert_eq!(5, initialize_parameters.len());
-        assert_eq!(
-            (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-            initialize_parameters[0]
-        );
-        assert_eq!(
-            (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-            initialize_parameters[1]
-        );
-        assert_eq!(
-            (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-            initialize_parameters[2]
-        );
-        assert_eq!(
-            (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-            initialize_parameters[3]
-        );
-        assert_eq!(
-            (data_directory.clone(), DEFAULT_CHAIN_ID, true),
-            initialize_parameters[4]
-        );
-
-        let load_parameters = banned_cache_loader.load_params.lock().unwrap();
-        assert_eq!(1, load_parameters.len());
-    }
-
-    #[test]
-    #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
-    fn failed_payable_initialization_produces_panic() {
-        let aconfig = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(6),
-            payment_received_scan_interval: Duration::from_secs(100),
-        };
-        let mut config = BootstrapperConfig::new();
-        config.accountant_config = aconfig;
-        config.earning_wallet = make_wallet("hi");
-        let db_initializer_mock =
-            DbInitializerMock::new().initialize_result(Err(InitializationError::SqliteError(
-                rusqlite::Error::InvalidColumnName("booga".to_string()),
-            )));
-        let subject = ActorFactoryReal {};
-        subject.make_and_start_accountant(
-            &config,
-            &PathBuf::new(),
-            &db_initializer_mock,
-            &BannedCacheLoaderMock::default(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
-    fn failed_receivable_initialization_produces_panic() {
-        let aconfig = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(6),
-            payment_received_scan_interval: Duration::from_secs(100),
-        };
-        let mut config = BootstrapperConfig::new();
-        config.accountant_config = aconfig;
-        config.earning_wallet = make_wallet("hi");
-        let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Err(InitializationError::SqliteError(
-                rusqlite::Error::InvalidQuery,
-            )));
-        let subject = ActorFactoryReal {};
-
-        subject.make_and_start_accountant(
-            &config,
-            &PathBuf::new(),
-            &db_initializer_mock,
-            &BannedCacheLoaderMock::default(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
-    fn failed_banned_dao_initialization_produces_panic() {
-        let aconfig = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(6),
-            payment_received_scan_interval: Duration::from_secs(1000),
-        };
-        let mut config = BootstrapperConfig::new();
-        config.accountant_config = aconfig;
-        config.earning_wallet = make_wallet("mine");
-        let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Err(InitializationError::SqliteError(
-                rusqlite::Error::InvalidQuery,
-            )));
-        let subject = ActorFactoryReal {};
-        subject.make_and_start_accountant(
-            &config,
-            &PathBuf::new(),
-            &db_initializer_mock,
-            &BannedCacheLoaderMock::default(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Failed to connect to database at \"node-data.db\"")]
-    fn failed_ban_cache_initialization_produces_panic() {
-        let aconfig = AccountantConfig {
-            payable_scan_interval: Duration::from_secs(6),
-            payment_received_scan_interval: Duration::from_secs(1000),
-        };
-        let mut config = BootstrapperConfig::new();
-        config.accountant_config = aconfig;
-        config.earning_wallet = make_wallet("mine");
-        let db_initializer_mock = DbInitializerMock::new()
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-            .initialize_result(Err(InitializationError::SqliteError(
-                rusqlite::Error::InvalidQuery,
-            )));
-        let subject = ActorFactoryReal {};
-        subject.make_and_start_accountant(
-            &config,
-            &PathBuf::new(),
-            &db_initializer_mock,
-            &BannedCacheLoaderMock::default(),
-        );
     }
 
     #[test]

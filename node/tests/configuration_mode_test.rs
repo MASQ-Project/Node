@@ -9,7 +9,9 @@ use node_lib::blockchain::bip32::Bip32ECKeyPair;
 use node_lib::database::db_initializer::{
     DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
 };
-use node_lib::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
+use node_lib::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use node_lib::sub_lib::wallet::{
     Wallet, DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
 };
@@ -99,13 +101,13 @@ fn create_database_recovering_both_derivation_paths_integration() {
     );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(CONSUMING_PATH.to_string())
+        Ok(Some(CONSUMING_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(earning_path_wallet())
+        Ok(Some(earning_path_wallet()))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -121,13 +123,13 @@ fn create_database_recovering_neither_derivation_path_integration() {
     let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
+        Ok(Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(default_earning_path_wallet())
+        Ok(Some(default_earning_path_wallet()))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -154,13 +156,13 @@ fn create_database_recovering_only_earning_derivation_path_integration() {
     );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
+        Ok(Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(earning_path_wallet())
+        Ok(Some(earning_path_wallet()))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -187,13 +189,13 @@ fn create_database_recovering_only_earning_address_integration() {
     );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
+        Ok(Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(Wallet::from_str(EARNING_ADDRESS).unwrap())
+        Ok(Some(Wallet::from_str(EARNING_ADDRESS).unwrap()))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -220,13 +222,13 @@ fn create_database_recovering_only_consuming_derivation_path_integration() {
     );
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(CONSUMING_PATH.to_string())
+        Ok(Some(CONSUMING_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(default_earning_path_wallet())
+        Ok(Some(default_earning_path_wallet()))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -245,13 +247,13 @@ fn create_database_generating_both_derivation_paths_integration() {
     let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(CONSUMING_PATH.to_string())
+        Ok(Some(CONSUMING_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(wallet_from_phrase_and_path(&phrase, EARNING_PATH))
+        Ok(Some(wallet_from_phrase_and_path(&phrase, EARNING_PATH)))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -268,16 +270,16 @@ fn create_database_generating_neither_derivation_path_integration() {
     let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
+        Ok(Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(wallet_from_phrase_and_path(
+        Ok(Some(wallet_from_phrase_and_path(
             &phrase,
             DEFAULT_EARNING_DERIVATION_PATH,
-        ))
+        )))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -294,13 +296,13 @@ fn create_database_generating_only_earning_derivation_path_integration() {
     let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
+        Ok(Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(wallet_from_phrase_and_path(&phrase, EARNING_PATH))
+        Ok(Some(wallet_from_phrase_and_path(&phrase, EARNING_PATH)))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -316,13 +318,13 @@ fn create_database_generating_only_earning_address_integration() {
     let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string())
+        Ok(Some(DEFAULT_CONSUMING_DERIVATION_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(Wallet::new(EARNING_ADDRESS))
+        Ok(Some(Wallet::new(EARNING_ADDRESS)))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }
 
 #[test]
@@ -339,14 +341,14 @@ fn create_database_generating_only_consuming_derivation_path_integration() {
     let persistent_config = persistent_config(DEFAULT_CHAIN_ID);
     assert_eq!(
         persistent_config.consuming_wallet_derivation_path(),
-        Some(CONSUMING_PATH.to_string())
+        Ok(Some(CONSUMING_PATH.to_string()))
     );
     assert_eq!(
         persistent_config.earning_wallet_from_address(),
-        Some(wallet_from_phrase_and_path(
+        Ok(Some(wallet_from_phrase_and_path(
             &phrase,
             DEFAULT_EARNING_DERIVATION_PATH,
-        ))
+        )))
     );
-    assert_eq!(persistent_config.consuming_wallet_public_key(), None);
+    assert_eq!(persistent_config.consuming_wallet_public_key(), Ok(None));
 }

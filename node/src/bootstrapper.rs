@@ -4,9 +4,12 @@ use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
-use crate::config_dao::ConfigDaoReal;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::db_config::config_dao::ConfigDaoReal;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::discriminator::DiscriminatorFactory;
 use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
@@ -16,7 +19,6 @@ use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
 use crate::node_configurator::{DirsWrapper, NodeConfigurator};
-use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
@@ -108,11 +110,10 @@ impl EnvironmentWrapper for EnvironmentWrapperReal {
 }
 
 pub struct RealUser {
-    id_wrapper: Box<dyn IdWrapper>,
     environment_wrapper: Box<dyn EnvironmentWrapper>,
-    pub uid: Option<i32>,
-    pub gid: Option<i32>,
-    pub home_dir: Option<PathBuf>,
+    pub uid_opt: Option<i32>,
+    pub gid_opt: Option<i32>,
+    pub home_dir_opt: Option<PathBuf>,
 }
 
 impl Debug for RealUser {
@@ -120,14 +121,16 @@ impl Debug for RealUser {
         write!(
             f,
             "uid: {:?}, gid: {:?}, home_dir: {:?}",
-            self.uid, self.gid, self.home_dir
+            self.uid_opt, self.gid_opt, self.home_dir_opt
         )
     }
 }
 
 impl PartialEq for RealUser {
     fn eq(&self, other: &Self) -> bool {
-        self.uid == other.uid && self.gid == other.gid && self.home_dir == other.home_dir
+        self.uid_opt == other.uid_opt
+            && self.gid_opt == other.gid_opt
+            && self.home_dir_opt == other.home_dir_opt
     }
 }
 
@@ -139,7 +142,7 @@ impl Default for RealUser {
 
 impl Clone for RealUser {
     fn clone(&self) -> Self {
-        RealUser::new(self.uid, self.gid, self.home_dir.clone())
+        RealUser::new(self.uid_opt, self.gid_opt, self.home_dir_opt.clone())
     }
 }
 
@@ -183,32 +186,30 @@ impl RealUser {
         gid_opt: Option<i32>,
         home_dir_opt: Option<PathBuf>,
     ) -> RealUser {
-        RealUser {
-            id_wrapper: Box::new(IdWrapperReal),
+        let mut result = RealUser {
             environment_wrapper: Box::new(EnvironmentWrapperReal),
-            uid: uid_opt,
-            gid: gid_opt,
-            home_dir: home_dir_opt,
-        }
+            uid_opt: None,
+            gid_opt: None,
+            home_dir_opt,
+        };
+        result.initialize_ids(Box::new(IdWrapperReal {}), uid_opt, gid_opt);
+        result
     }
 
     pub fn null() -> RealUser {
-        RealUser::new(None, None, None)
+        RealUser {
+            environment_wrapper: Box::new(EnvironmentWrapperReal),
+            uid_opt: None,
+            gid_opt: None,
+            home_dir_opt: None,
+        }
     }
 
     pub fn populate(&self, dirs_wrapper: &dyn DirsWrapper) -> RealUser {
-        let uid = Self::first_present(vec![
-            self.uid,
-            self.id_from_env("SUDO_UID"),
-            Some(self.id_wrapper.getuid()),
-        ]);
-        let gid = Self::first_present(vec![
-            self.gid,
-            self.id_from_env("SUDO_GID"),
-            Some(self.id_wrapper.getgid()),
-        ]);
+        let uid = Self::first_present(vec![self.uid_opt, self.id_from_env("SUDO_UID")]);
+        let gid = Self::first_present(vec![self.gid_opt, self.id_from_env("SUDO_GID")]);
         let home_dir = Self::first_present(vec![
-            self.home_dir.clone(),
+            self.home_dir_opt.clone(),
             self.sudo_home_from_sudo_user_and_home(dirs_wrapper),
             dirs_wrapper.home_dir(),
         ]);
@@ -243,6 +244,22 @@ impl RealUser {
             .expect("Nothing was present")
             .expect("Internal error")
     }
+
+    fn initialize_ids(
+        &mut self,
+        id_wrapper: Box<dyn IdWrapper>,
+        uid_opt: Option<i32>,
+        gid_opt: Option<i32>,
+    ) {
+        self.uid_opt = Some(uid_opt.unwrap_or_else(|| {
+            self.id_from_env("SUDO_UID")
+                .unwrap_or_else(|| id_wrapper.getuid())
+        }));
+        self.gid_opt = Some(gid_opt.unwrap_or_else(|| {
+            self.id_from_env("SUDO_GID")
+                .unwrap_or_else(|| id_wrapper.getgid())
+        }));
+    }
 }
 
 impl Display for RealUser {
@@ -250,15 +267,15 @@ impl Display for RealUser {
         write!(
             f,
             "{}:{}:{}",
-            match self.uid {
+            match self.uid_opt {
                 Some(uid) => format!("{}", uid),
                 None => "".to_string(),
             },
-            match self.gid {
+            match self.gid_opt {
                 Some(gid) => format!("{}", gid),
                 None => "".to_string(),
             },
-            match &self.home_dir {
+            match &self.home_dir_opt {
                 Some(home_dir) => home_dir.to_string_lossy().to_string(),
                 None => "".to_string(),
             },
@@ -323,7 +340,7 @@ impl BootstrapperConfig {
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
-            real_user: RealUser::null(),
+            real_user: RealUser::new(None, None, None),
 
             // These fields must be set without privilege: otherwise the database will be created as root
             db_password_opt: None,
@@ -417,7 +434,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
         let unprivileged_config = NodeConfiguratorStandardUnprivileged::new(&self.config)
             .configure(&args.to_vec(), streams)?;
         self.config.merge_unprivileged(unprivileged_config);
-        self.establish_clandestine_port();
+        self.set_up_clandestine_port();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
             &self.config.main_cryptde_null_opt,
             &self.config.alias_cryptde_null_opt,
@@ -511,7 +528,7 @@ impl Bootstrapper {
         descriptor
     }
 
-    fn establish_clandestine_port(&mut self) {
+    fn set_up_clandestine_port(&mut self) {
         if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
             &self.config.neighborhood_config.mode
         {
@@ -523,11 +540,8 @@ impl Bootstrapper {
                 )
                 .expect("Cannot initialize database");
             let config_dao = ConfigDaoReal::new(conn);
-            let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-            if let Some(clandestine_port) = self.config.clandestine_port_opt {
-                persistent_config.set_clandestine_port(clandestine_port)
-            }
-            let clandestine_port = persistent_config.clandestine_port();
+            let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
+            let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
             let mut listener_handler = self.listener_handler_factory.make();
             listener_handler
                 .bind_port_and_configuration(
@@ -551,6 +565,31 @@ impl Bootstrapper {
             .clandestine_discriminator_factories
             .push(Box::new(JsonDiscriminatorFactory::new()));
     }
+
+    fn establish_clandestine_port(
+        &self,
+        persistent_config: &mut dyn PersistentConfiguration,
+    ) -> u16 {
+        if let Some(clandestine_port) = self.config.clandestine_port_opt {
+            match persistent_config.set_clandestine_port(clandestine_port) {
+                Ok(_) => (),
+                Err(pce) => panic!(
+                    "Database is corrupt: error setting clandestine port: {:?}",
+                    pce
+                ),
+            }
+        }
+        match persistent_config.clandestine_port() {
+            Ok(clandestine_port_opt) => match clandestine_port_opt {
+                Some(clandestine_port) => clandestine_port,
+                None => panic!("Database is corrupt: clandestine port is missing"),
+            },
+            Err(pce) => panic!(
+                "Database is corrupt: error reading clandestine port: {:?}",
+                pce
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -558,14 +597,16 @@ mod tests {
     use super::*;
     use crate::actor_system_factory::ActorFactory;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::config_dao::ConfigDaoReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::db_config::config_dao::ConfigDaoReal;
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
+    };
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, IdWrapperMock, MockDirsWrapper};
-    use crate::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
@@ -578,6 +619,7 @@ mod tests {
     use crate::test_utils::logging::TestLog;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::main_cryptde;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
@@ -836,11 +878,37 @@ mod tests {
 
     #[test]
     fn empty_real_user_to_string() {
-        let subject = RealUser::from_str("::").unwrap();
+        let subject = RealUser::null();
 
         let result = subject.to_string();
 
         assert_eq!(result, "::".to_string());
+    }
+
+    #[test]
+    fn initialize_ids_handles_full_parameters() {
+        let id_wrapper = Box::new(IdWrapperMock::new());
+        let environment_wrapper = EnvironmentWrapperMock::new(None, None, None);
+        let mut subject = RealUser::null();
+        subject.environment_wrapper = Box::new(environment_wrapper);
+
+        subject.initialize_ids(id_wrapper, Some(1234), Some(4321));
+
+        assert_eq!(subject.uid_opt, Some(1234));
+        assert_eq!(subject.gid_opt, Some(4321));
+    }
+
+    #[test]
+    fn initialize_ids_handles_empty_parameters() {
+        let id_wrapper = Box::new(IdWrapperMock::new().getuid_result(1234).getgid_result(4321));
+        let environment_wrapper = EnvironmentWrapperMock::new(None, None, None);
+        let mut subject = RealUser::null();
+        subject.environment_wrapper = Box::new(environment_wrapper);
+
+        subject.initialize_ids(id_wrapper, None, None);
+
+        assert_eq!(subject.uid_opt, Some(1234));
+        assert_eq!(subject.gid_opt, Some(4321));
     }
 
     #[test]
@@ -1506,7 +1574,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_specified_port_in_standard_mode() {
+    fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_specified_port",
@@ -1535,14 +1603,17 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::new()
             .initialize(&data_dir, chain_id, true)
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        assert_eq!(1234u16, persistent_config.clandestine_port());
+        assert_eq!(
+            1234u16,
+            persistent_config.clandestine_port().unwrap().unwrap()
+        );
         assert_eq!(
             subject
                 .config
@@ -1575,7 +1646,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_unspecified_port_in_standard_mode() {
+    fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1604,14 +1675,14 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::new()
             .initialize(&data_dir, chain_id, true)
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        let clandestine_port = persistent_config.clandestine_port();
+        let clandestine_port = persistent_config.clandestine_port().unwrap().unwrap();
         assert_eq!(
             subject
                 .config
@@ -1625,7 +1696,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_originate_only() {
+    fn set_up_clandestine_port_handles_originate_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1652,7 +1723,7 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         assert!(subject
             .config
@@ -1663,7 +1734,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_consume_only() {
+    fn set_up_clandestine_port_handles_consume_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), DEFAULT_CHAIN_ID);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1687,7 +1758,7 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         assert!(subject
             .config
@@ -1698,7 +1769,7 @@ For more information try --help".to_string()
     }
 
     #[test]
-    fn establish_clandestine_port_handles_zero_hop() {
+    fn set_up_clandestine_port_handles_zero_hop() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "establish_clandestine_port_handles_zero_hop",
@@ -1715,7 +1786,7 @@ For more information try --help".to_string()
             .config(config)
             .build();
 
-        subject.establish_clandestine_port();
+        subject.set_up_clandestine_port();
 
         assert!(subject
             .config
@@ -1726,19 +1797,53 @@ For more information try --help".to_string()
     }
 
     #[test]
+    #[should_panic(
+        expected = "Database is corrupt: error setting clandestine port: TransactionError"
+    )]
+    fn establish_clandestine_port_handles_error_setting_port() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_clandestine_port_result(Err(PersistentConfigError::TransactionError));
+        let mut config = BootstrapperConfig::new();
+        config.clandestine_port_opt = Some(1234);
+        let subject = BootstrapperBuilder::new().config(config).build();
+
+        let _ = subject.establish_clandestine_port(&mut persistent_config);
+    }
+
+    #[test]
+    #[should_panic(expected = "Database is corrupt: error reading clandestine port: NotPresent")]
+    fn establish_clandestine_port_handles_error_reading_port() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .clandestine_port_result(Err(PersistentConfigError::NotPresent));
+        let subject = BootstrapperBuilder::new().build();
+
+        let _ = subject.establish_clandestine_port(&mut persistent_config);
+    }
+
+    #[test]
+    #[should_panic(expected = "Database is corrupt: clandestine port is missing")]
+    fn establish_clandestine_port_handles_missing_port() {
+        let mut persistent_config =
+            PersistentConfigurationMock::new().clandestine_port_result(Ok(None));
+        let subject = BootstrapperBuilder::new().build();
+
+        let _ = subject.establish_clandestine_port(&mut persistent_config);
+    }
+
+    #[test]
     fn real_user_null() {
         let subject = RealUser::null();
 
-        assert_eq!(subject, RealUser::new(None, None, None));
+        assert_eq!(subject.uid_opt, None);
+        assert_eq!(subject.gid_opt, None);
+        assert_eq!(subject.home_dir_opt, None);
     }
 
     #[test]
     fn configurator_beats_all() {
-        let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
         let environment_wrapper =
             EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
         let mut from_configurator = RealUser::new(Some(1), Some(2), Some("three".into()));
-        from_configurator.id_wrapper = Box::new(id_wrapper);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         let result = from_configurator.populate(&MockDirsWrapper::new());
@@ -1752,8 +1857,8 @@ For more information try --help".to_string()
         let environment_wrapper =
             EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
         let mut from_configurator = RealUser::null();
-        from_configurator.id_wrapper = Box::new(id_wrapper);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
+        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
 
         let result = from_configurator
             .populate(&MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
@@ -1777,7 +1882,7 @@ For more information try --help".to_string()
         let environment_wrapper =
             EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
         let mut from_configurator = RealUser::null();
-        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         from_configurator.populate(&MockDirsWrapper::new().home_dir_result(Some("/".into())));
@@ -1788,7 +1893,7 @@ For more information try --help".to_string()
         let environment_wrapper = EnvironmentWrapperMock::new(None, None, None);
         let id_wrapper = IdWrapperMock::new().getuid_result(123).getgid_result(456);
         let mut from_configurator = RealUser::null();
-        from_configurator.id_wrapper = Box::new(id_wrapper);
+        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         let result = from_configurator

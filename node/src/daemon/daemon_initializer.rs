@@ -120,7 +120,7 @@ impl DaemonInitializer {
                 .data_dir()
                 .expect("No data directory")
                 .join("MASQ"),
-            &RealUser::null().populate(dirs_wrapper),
+            &RealUser::new(None, None, None).populate(dirs_wrapper),
             LevelFilter::Trace,
             Some("daemon"),
         );

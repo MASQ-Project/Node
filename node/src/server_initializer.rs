@@ -38,49 +38,50 @@ pub struct ServerInitializer {
 impl Command for ServerInitializer {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let mut result: Result<(), ConfiguratorError> = Ok(());
-        let exit_code =
-            if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
-                self.privilege_dropper
-                    .drop_privileges(&RealUser::null().populate(&RealDirsWrapper {}));
-                result = Self::combine_results(
-                    result,
-                    NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams),
-                );
-                0
-            } else {
-                result = Self::combine_results(
-                    result,
-                    self.dns_socket_server
-                        .as_mut()
-                        .initialize_as_privileged(args, streams),
-                );
-                result = Self::combine_results(
-                    result,
-                    self.bootstrapper
-                        .as_mut()
-                        .initialize_as_privileged(args, streams),
-                );
+        let exit_code = if args.contains(&"--help".to_string())
+            || args.contains(&"--version".to_string())
+        {
+            self.privilege_dropper
+                .drop_privileges(&RealUser::new(None, None, None).populate(&RealDirsWrapper {}));
+            result = Self::combine_results(
+                result,
+                NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams),
+            );
+            0
+        } else {
+            result = Self::combine_results(
+                result,
+                self.dns_socket_server
+                    .as_mut()
+                    .initialize_as_privileged(args, streams),
+            );
+            result = Self::combine_results(
+                result,
+                self.bootstrapper
+                    .as_mut()
+                    .initialize_as_privileged(args, streams),
+            );
 
-                let config = self.bootstrapper.get_configuration();
-                let real_user = config.real_user.populate(&RealDirsWrapper {});
-                self.privilege_dropper
-                    .chown(&config.data_directory, &real_user);
-                self.privilege_dropper.drop_privileges(&real_user);
+            let config = self.bootstrapper.get_configuration();
+            let real_user = config.real_user.populate(&RealDirsWrapper {});
+            self.privilege_dropper
+                .chown(&config.data_directory, &real_user);
+            self.privilege_dropper.drop_privileges(&real_user);
 
-                result = Self::combine_results(
-                    result,
-                    self.dns_socket_server
-                        .as_mut()
-                        .initialize_as_unprivileged(args, streams),
-                );
-                result = Self::combine_results(
-                    result,
-                    self.bootstrapper
-                        .as_mut()
-                        .initialize_as_unprivileged(args, streams),
-                );
-                1
-            };
+            result = Self::combine_results(
+                result,
+                self.dns_socket_server
+                    .as_mut()
+                    .initialize_as_unprivileged(args, streams),
+            );
+            result = Self::combine_results(
+                result,
+                self.bootstrapper
+                    .as_mut()
+                    .initialize_as_unprivileged(args, streams),
+            );
+            1
+        };
         if let Some(err) = result.err() {
             err.param_errors.into_iter().for_each(|param_error| {
                 writeln!(

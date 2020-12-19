@@ -2,12 +2,14 @@
 use crate::blockchain::blockchain_interface::{
     chain_name_from_id, contract_creation_block_from_chain_id,
 };
+use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
-use rusqlite::{Connection, Error, OpenFlags, Statement, Transaction, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
@@ -18,31 +20,6 @@ use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: &str = "0.0.10";
-
-pub trait ConnectionWrapper: Debug + Send {
-    fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
-    fn transaction(&mut self) -> Result<Transaction, rusqlite::Error>;
-}
-
-#[derive(Debug)]
-pub struct ConnectionWrapperReal {
-    conn: Connection,
-}
-
-impl ConnectionWrapper for ConnectionWrapperReal {
-    fn prepare(&self, query: &str) -> Result<Statement, Error> {
-        self.conn.prepare(query)
-    }
-    fn transaction(&mut self) -> Result<Transaction, Error> {
-        self.conn.transaction()
-    }
-}
-
-impl ConnectionWrapperReal {
-    pub fn new(conn: Connection) -> Self {
-        Self { conn }
-    }
-}
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -152,7 +129,7 @@ impl DbInitializerReal {
             "create table if not exists config (
                 name text not null,
                 value text,
-                encrypted integer
+                encrypted integer not null
             )",
             NO_PARAMS,
         )
@@ -170,7 +147,7 @@ impl DbInitializerReal {
         conn: &Connection,
         chain_id: u8,
     ) -> Result<(), InitializationError> {
-        Self::set_config_value(conn, "example_encrypted", None, false, "example_encrypted");
+        Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
             "clandestine_port",
@@ -353,10 +330,28 @@ impl DbInitializerReal {
     }
 }
 
+pub fn connection_or_panic(
+    db_initializer: &dyn DbInitializer,
+    path: &PathBuf,
+    chain_id: u8,
+    create_if_necessary: bool,
+) -> Box<dyn ConnectionWrapper> {
+    db_initializer
+        .initialize(path, chain_id, create_if_necessary)
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to connect to database at {:?}",
+                path.join(DATABASE_FILE)
+            )
+        })
+}
+
 #[cfg(test)]
 pub mod test_utils {
-    use crate::database::db_initializer::{ConnectionWrapper, DbInitializer, InitializationError};
-    use rusqlite::{Error, Statement, Transaction};
+    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::database::db_initializer::{DbInitializer, InitializationError};
+    use rusqlite::Transaction;
+    use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -391,7 +386,7 @@ pub mod test_utils {
             self.prepare_results.borrow_mut().remove(0)
         }
 
-        fn transaction(&mut self) -> Result<Transaction, Error> {
+        fn transaction<'x: 'y, 'y>(&'x mut self) -> Result<Transaction<'y>, Error> {
             self.transaction_results.borrow_mut().remove(0)
         }
     }
@@ -454,7 +449,7 @@ mod tests {
         DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
     use rusqlite::types::Type::Null;
-    use rusqlite::OpenFlags;
+    use rusqlite::{Error, OpenFlags};
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -580,7 +575,7 @@ mod tests {
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
             conn.execute(
-                "insert into config (name, value) values ('preexisting', 'yes')",
+                "insert into config (name, value, encrypted) values ('preexisting', 'yes', 0)",
                 NO_PARAMS,
             )
             .unwrap();
@@ -613,7 +608,7 @@ mod tests {
         verify(&mut config_vec, "consuming_wallet_derivation_path", None);
         verify(&mut config_vec, "consuming_wallet_public_key", None);
         verify(&mut config_vec, "earning_wallet_address", None);
-        verify(&mut config_vec, "example_encrypted", None);
+        verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
         verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
         verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database

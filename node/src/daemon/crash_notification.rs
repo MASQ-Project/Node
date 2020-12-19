@@ -41,15 +41,18 @@ struct ChildWaitFailureRecognizer {}
 const CHILD_WAIT_FAILURE_PREFIX: &str = "Child wait failure: ";
 
 impl Recognizer for ChildWaitFailureRecognizer {
-    fn try_convert(&self, exit_code: Option<i32>, stderr: &Option<String>) -> Option<CrashReason> {
-        if exit_code.is_some() {
+    fn try_convert(
+        &self,
+        exit_code_opt: Option<i32>,
+        stderr_opt: &Option<String>,
+    ) -> Option<CrashReason> {
+        if exit_code_opt.is_some() {
             return None;
         }
-        if let Some(stderr) = stderr {
+        if let Some(stderr) = stderr_opt {
             if stderr.starts_with(CHILD_WAIT_FAILURE_PREFIX) {
-                return stderr
-                    .strip_prefix(CHILD_WAIT_FAILURE_PREFIX)
-                    .map(|err_msg| CrashReason::ChildWaitFailure(err_msg.to_string()));
+                let err_msg = stderr.trim_start_matches(CHILD_WAIT_FAILURE_PREFIX);
+                return Some(CrashReason::ChildWaitFailure(err_msg.to_string()));
             }
         }
         None
