@@ -16,6 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::result::Result;
 use std::str::FromStr;
 use web3::types::{Address, H256};
+use masq_lib::messages::UiGeneratedWallet;
 
 pub const DEFAULT_CONSUMING_DERIVATION_PATH: &str = "m/44'/60'/0'/0/0";
 pub const DEFAULT_EARNING_DERIVATION_PATH: &str = "m/44'/60'/0'/0/1";
@@ -223,6 +224,14 @@ impl From<Bip32ECKeyPair> for Wallet {
         Self {
             kind: WalletKind::KeyPair(keypair),
         }
+    }
+}
+
+impl TryInto<UiGeneratedWallet> for Wallet {
+    type Error = String;
+
+    fn try_into(self) -> Result<UiGeneratedWallet, Self::Error> {
+        unimplemented!()
     }
 }
 
