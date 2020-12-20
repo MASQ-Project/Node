@@ -11,19 +11,19 @@ use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
 
 #[derive(Debug, PartialEq)]
-pub enum CommandFactoryError {
+pub enum CommandFactoryError{
     UnrecognizedSubcommand(String),
     CommandSyntax(String),
 }
 
-pub trait CommandFactory {
+pub trait CommandFactory{
     fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError>;
 }
 
 #[derive(Default)]
-pub struct CommandFactoryReal {}
+pub struct CommandFactoryReal{}
 
-impl CommandFactory for CommandFactoryReal {
+impl CommandFactory for CommandFactoryReal{
     fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError> {
         let boxed_command: Box<dyn Command> = match pieces[0].as_str() {
             "check-password" => match CheckPasswordCommand::new(pieces) {
@@ -51,7 +51,7 @@ impl CommandFactory for CommandFactoryReal {
     }
 }
 
-impl CommandFactoryReal {
+impl CommandFactoryReal{
     #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
@@ -59,14 +59,14 @@ impl CommandFactoryReal {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests{
     use super::*;
     use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{UiChangePasswordResponse, ToMessageBody};
 
     #[test]
-    fn complains_about_unrecognized_subcommand() {
+    fn complains_about_unrecognized_subcommand(){
         let subject = CommandFactoryReal::new();
 
         let result = subject
@@ -78,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn complains_about_setup_command_with_bad_syntax() {
+    fn complains_about_setup_command_with_bad_syntax(){
         let subject = CommandFactoryReal::new();
 
         let result = subject
@@ -98,21 +98,6 @@ mod tests {
             "{}",
             msg
         );
-    }
-
-    #[test]
-    fn make_handles_error_when_the_second_parameter_of_change_password_is_not_supplied() {
-        let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new()
-            .transact_result(Ok(UiChangePasswordResponse {}.tmb(1230)));
-
-        let result:Result<(),CommandFactoryError> = if let Err(e) = factory
-            .make(vec!["change-password"
-                           .to_string(), "abracadabra"
-                           .to_string()])
-        {Err(e)} else {Err((CommandFactoryError::UnrecognizedSubcommand("testing".to_string())))};
-
-        assert_eq!(result, Err(CommandFactoryError::CommandSyntax(String::from("error: The following required arguments were not provided:\n    <new-db-password>\n\nUSAGE:\n    change-password <old-db-password> <new-db-password>\n\nFor more information try --help\n"))));
     }
 
     // Rust isn't a reflective enough language to allow easy test-driving of the make() method
