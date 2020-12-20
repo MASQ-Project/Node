@@ -173,7 +173,7 @@ mod tests {
 
     use actix::System;
 
-    use masq_lib::messages::{ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast, UiStartOrder, UiGenerateWalletsResponse};
+    use masq_lib::messages::{ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast, UiStartOrder, UiGenerateWalletsResponse, UiGeneratedWallet};
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
 
     use crate::db_config::persistent_configuration::{
@@ -187,6 +187,12 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use std::thread;
+    use bip39::{Mnemonic, Language};
+    use crate::sub_lib::cryptde::PlainData;
+    use crate::blockchain::bip39::Bip39;
+    use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::sub_lib::wallet::Wallet;
+    use std::convert::TryInto;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -436,14 +442,21 @@ mod tests {
             system.run();
         });
         ui_gateway_awaiter.await_message_count(1);
-        join_handle.join();
+        join_handle.join().unwrap();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (generated_wallets, context_id) = UiGenerateWalletsResponse::fmb (response.body.clone()).unwrap();
         assert_eq! (context_id, 4321);
         assert_eq! (generated_wallets.mnemonic_phrase.len(), 24);
-        // TODO Use mnemonic phrase to make a seed; find the wallets at the derivation paths; compare their addresses to the ones returned
-        unimplemented! ("Keep asserting!");
+        let passphrase = generated_wallets.mnemonic_phrase.join(" ");
+        let mnemonic = Mnemonic::from_phrase(&passphrase, Language::English).unwrap();
+        let seed = PlainData::new(Bip39::seed(&mnemonic, &passphrase).as_ref());
+        let consuming_keypair = Bip32ECKeyPair::from_raw(seed.as_slice(), &generated_wallets.consuming_wallet.derivation_path).unwrap();
+        let generated_consuming_wallet: UiGeneratedWallet = Wallet::from(consuming_keypair).try_into().unwrap();
+        assert_eq! (&generated_consuming_wallet, &generated_wallets.consuming_wallet);
+        let earning_keypair = Bip32ECKeyPair::from_raw(seed.as_slice(), &generated_wallets.earning_wallet.derivation_path).unwrap();
+        let generated_earning_wallet: UiGeneratedWallet = Wallet::from(earning_keypair).try_into().unwrap();
+        assert_eq! (&generated_earning_wallet, &generated_wallets.earning_wallet);
     }
 
     fn make_subject(persistent_config_opt: Option<PersistentConfigurationMock>) -> Configurator {
