@@ -14,7 +14,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, GetFinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
-use crate::sub_lib::configurator::ConfiguratorSubs;
+use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -109,6 +109,7 @@ recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
 recorder_message_handler!(IncipientCoresPackage);
 recorder_message_handler!(NeighborhoodDotGraphRequest);
+recorder_message_handler!(NewPasswordMessage);
 recorder_message_handler!(NodeFromUiMessage);
 recorder_message_handler!(NodeToUiMessage);
 recorder_message_handler!(NodeRecordMetadataMessage);
@@ -391,6 +392,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+        new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
     }
 }
 

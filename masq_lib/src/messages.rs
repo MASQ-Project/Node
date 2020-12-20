@@ -465,7 +465,7 @@ pub struct UiConsumingWallet {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiEarningWallet {
     #[serde(rename = "derivationPathOpt")]
-    pub derivation_path_opt: Optional<String>,
+    pub derivation_path_opt: Option<String>,
     pub address: String,
 }
 

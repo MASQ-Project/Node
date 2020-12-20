@@ -19,6 +19,7 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::configurator::NewPasswordMessage;
 
 pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
 pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
@@ -26,7 +27,7 @@ pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub: Option<Recipient<NodeToUiMessage>>,
-    configuration_change_subs: Option<Vec<Recipient<NodeFromUiMessage>>>,
+    new_password_subs: Option<Vec<Recipient<NewPasswordMessage>>>,
     logger: Logger,
 }
 
@@ -39,8 +40,8 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.configuration_change_subs =
-            Some(vec![msg.peer_actors.neighborhood.from_ui_message_sub])
+        self.new_password_subs =
+            Some(vec![msg.peer_actors.neighborhood.new_password_sub])
     }
 }
 
@@ -67,7 +68,7 @@ impl From<Box<dyn PersistentConfiguration>> for Configurator {
         Configurator {
             persistent_config,
             node_to_ui_sub: None,
-            configuration_change_subs: None,
+            new_password_subs: None,
             logger: Logger::new("Configurator"),
         }
     }
@@ -117,11 +118,9 @@ impl Configurator {
             .change_password(msg.old_password_opt.clone(), &msg.new_password)
         {
             Ok(_) => {
-                let broadcast = UiNewPasswordBroadcast {
-                    new_password: msg.new_password,
-                }
+                let broadcast = UiNewPasswordBroadcast {}
                 .tmb(0);
-                self.send_configuration_changes(broadcast.clone());
+                self.send_password_changes(msg.new_password.clone());
                 self.send_to_ui_gateway(MessageTarget::AllExcept(client_id), broadcast);
                 UiChangePasswordResponse {}.tmb(context_id)
             }
@@ -155,15 +154,15 @@ impl Configurator {
             .expect("UiGateway is dead");
     }
 
-    fn send_configuration_changes(&self, body: MessageBody) {
-        let msg = NodeFromUiMessage { client_id: 0, body };
-        self.configuration_change_subs
+    fn send_password_changes(&self, new_password: String) {
+        let msg = NewPasswordMessage {new_password};
+        self.new_password_subs
             .as_ref()
             .expect("Configurator is unbound")
             .iter()
             .for_each(|sub| {
                 sub.try_send(msg.clone())
-                    .expect("Configuration change recipient is dead")
+                    .expect("New password recipient is dead")
             });
     }
 }
@@ -174,10 +173,7 @@ mod tests {
 
     use actix::System;
 
-    use masq_lib::messages::{
-        ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiNewPasswordBroadcast, UiStartOrder,
-    };
+    use masq_lib::messages::{ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiNewPasswordBroadcast, UiStartOrder, UiGenerateWalletsResponse};
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
 
     use crate::db_config::persistent_configuration::{
@@ -190,6 +186,7 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use std::thread;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -204,7 +201,7 @@ mod tests {
         let recorder_addr = recorder.start();
         let mut subject = Configurator::new(data_dir, DEFAULT_CHAIN_ID);
         subject.node_to_ui_sub = Some(recorder_addr.recipient());
-        subject.configuration_change_subs = Some(vec![]);
+        subject.new_password_subs = Some(vec![]);
 
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
@@ -345,9 +342,7 @@ mod tests {
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
                 target: MessageTarget::AllExcept(1234),
-                body: UiNewPasswordBroadcast {
-                    new_password: "new_password".to_string(),
-                }
+                body: UiNewPasswordBroadcast {}
                 .tmb(0)
             }
         );
@@ -360,13 +355,9 @@ mod tests {
         );
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         assert_eq!(
-            neighborhood_recording.get_record::<NodeFromUiMessage>(0),
-            &NodeFromUiMessage {
-                client_id: 0,
-                body: UiNewPasswordBroadcast {
-                    new_password: "new_password".to_string(),
-                }
-                .tmb(0)
+            neighborhood_recording.get_record::<NewPasswordMessage>(0),
+            &NewPasswordMessage {
+                new_password: "new_password".to_string()
             }
         );
         assert_eq!(neighborhood_recording.len(), 1);
@@ -400,6 +391,59 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             r#"WARN: Configurator: Failed to change password: DatabaseError("Didn\'t work good")"#,
         );
+    }
+
+    #[test]
+    fn handle_generate_wallets_works() {
+        let check_password_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_consuming_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        let join_handle = thread::spawn(move || {
+            let persistent_config = PersistentConfigurationMock::new()
+                .check_password_params(&check_password_params_arc)
+                .check_password_result(Ok(true))
+                .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
+                .set_mnemonic_seed_result(Ok(()))
+                .set_consuming_wallet_derivation_path_params(&set_consuming_wallet_derivation_path_params_arc)
+                .set_consuming_wallet_derivation_path_result(Ok(()))
+                .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
+                .set_earning_wallet_address_result(Ok(()));
+            let subject = make_subject(Some(persistent_config));
+            let subject_addr = subject.start();
+            let peer_actors = peer_actors_builder()
+                .ui_gateway(ui_gateway)
+                .build();
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+            subject_addr
+                .try_send(NodeFromUiMessage {
+                    client_id: 1234,
+                    body: UiGenerateWalletsRequest {
+                        db_password: "password".to_string(),
+                        mnemonic_phrase_size: 24,
+                        mnemonic_phrase_language: "English".to_string(),
+                        consuming_derivation_path: "m/44'/60'/0'/0/4".to_string(),
+                        earning_derivation_path: "m/44'/60'/0'/0/5".to_string()
+                    }
+                        .tmb(4321),
+                })
+                .unwrap();
+
+            let system = System::new("test");
+            System::current().stop();
+            system.run();
+        });
+        ui_gateway_awaiter.await_message_count(1);
+        join_handle.join();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        let (generated_wallets, context_id) = UiGenerateWalletsResponse::fmb (response.body.clone()).unwrap();
+        assert_eq! (context_id, 4321);
+        assert_eq! (generated_wallets.mnemonic_phrase.len(), 24);
+        // TODO Use mnemonic phrase to make a seed; find the wallets at the derivation paths; compare their addresses to the ones returned
+        unimplemented! ("Keep asserting!");
     }
 
     fn make_subject(persistent_config_opt: Option<PersistentConfigurationMock>) -> Configurator {

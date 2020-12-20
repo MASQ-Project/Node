@@ -1,7 +1,8 @@
 use clap::{SubCommand, Arg, App};
 use crate::commands::commands_common::{Command, CommandError, transaction};
 use crate::command_context::CommandContext;
-use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse};
+use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast};
+use std::io::Write;
 
 #[derive(Debug)]
 pub struct ChangePasswordCommand {
@@ -27,6 +28,10 @@ impl ChangePasswordCommand{
             new_password: matches.value_of("new-db-password")
                 .expect("New password was omitted while required").to_string(),  // I suppose Clap will take care of that; edit: now also tested
         })
+    }
+
+    pub fn handle_broadcast (_msg: UiNewPasswordBroadcast, stdout: &mut dyn Write, _stderr: &mut dyn Write) {
+        write! (stdout, "\nThe Node's database password has changed.\n\nmasq> ").expect ("write! failed");
     }
 }
 
@@ -65,9 +70,7 @@ pub fn change_password_subcommand() -> App<'static, 'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_context::ContextError;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal, CommandFactoryError};
-    use crate::commands::commands_common::{Command, CommandError};
+    use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};

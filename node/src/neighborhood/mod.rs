@@ -60,7 +60,7 @@ use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::messages::UiShutdownRequest;
-use masq_lib::messages::{FromMessageBody, UiNewPasswordBroadcast};
+use masq_lib::messages::{FromMessageBody};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::exit_process;
 use neighborhood_database::NeighborhoodDatabase;
@@ -69,6 +69,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use crate::sub_lib::configurator::NewPasswordMessage;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
@@ -274,9 +275,15 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
         let client_id = msg.client_id;
         if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
-        } else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(msg.body) {
-            self.handle_new_password(body.new_password);
         }
+    }
+}
+
+impl Handler<NewPasswordMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewPasswordMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_new_password(msg.new_password);
     }
 }
 
@@ -391,6 +398,7 @@ impl Neighborhood {
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+            new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
         }
     }
 
@@ -1256,7 +1264,6 @@ mod tests {
     use actix::System;
     use itertools::Itertools;
     use masq_lib::constants::TLS_PORT;
-    use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
@@ -4178,7 +4185,7 @@ mod tests {
     }
 
     #[test]
-    fn new_password_broadcast_works() {
+    fn new_password_message_works() {
         let system = System::new("test");
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
@@ -4192,12 +4199,8 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: UiNewPasswordBroadcast {
-                    new_password: "borkety-bork".to_string(),
-                }
-                .tmb(0),
+            .try_send(NewPasswordMessage {
+                new_password: "borkety-bork".to_string(),
             })
             .unwrap();
 

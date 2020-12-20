@@ -467,6 +467,7 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
+    use crate::sub_lib::configurator::NewPasswordMessage;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -587,6 +588,7 @@ mod tests {
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
                 from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+                new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
             }
         }
 

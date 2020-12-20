@@ -11,7 +11,6 @@ use masq_lib::messages::{
     SETUP_ERROR,
 };
 use masq_lib::shared_schema::shared_app;
-use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::index_of_from;
 use std::fmt::Debug;
 use std::io::Write;
@@ -74,8 +73,7 @@ impl SetupCommand {
         Ok(Self { values })
     }
 
-    pub fn handle_broadcast(msg: MessageBody, stdout: &mut dyn Write, _stderr: &mut dyn Write) {
-        let (response, _) = UiSetupBroadcast::fmb(msg).expect("Bad UiSetupBroadcast");
+    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write, _stderr: &mut dyn Write) {
         writeln!(stdout, "\nDaemon setup has changed:\n").expect("writeln! failed");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");
@@ -284,8 +282,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
                 UiSetupResponseValue::new("clandestine-port", "8534", Default),
             ],
             errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
-        }
-        .tmb(0);
+        };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, mut stderr) = stream_factory.make();
 
