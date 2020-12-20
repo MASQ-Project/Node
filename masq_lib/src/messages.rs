@@ -545,13 +545,13 @@ conversation_message!(UiFinancialsResponse, "financials");
 pub struct UiGenerateWalletsRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
-    #[serde(rename = "")]
+    #[serde(rename = "mnemonicPhraseSize")]
     pub mnemonic_phrase_size: u64,
-    #[serde(rename = "")]
+    #[serde(rename = "mnemonicPhraseLanguage")]
     pub mnemonic_phrase_language: String,
-    #[serde(rename = "")]
+    #[serde(rename = "consumingDerivationPath")]
     pub consuming_derivation_path: String,
-    #[serde(rename = "")]
+    #[serde(rename = "earningDerivationPath")]
     pub earning_derivation_path: String,
 }
 conversation_message!(UiGenerateWalletsRequest, "generateWallets");

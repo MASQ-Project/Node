@@ -2,11 +2,7 @@ use std::path::PathBuf;
 
 use actix::{Actor, Context, Handler, Recipient};
 
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
-    UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateWalletsRequest,
-    UiNewPasswordBroadcast,
-};
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateWalletsRequest, UiNewPasswordBroadcast, UiGenerateWalletsResponse, UiGeneratedWallet};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
     MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
@@ -140,9 +136,23 @@ impl Configurator {
         &mut self,
         _msg: UiGenerateWalletsRequest,
         _client_id: u64,
-        _context_id: u64,
+        context_id: u64,
     ) -> MessageBody {
-        unimplemented!()
+        UiGenerateWalletsResponse {
+            mnemonic_phrase: vec!["ooga".to_string(), "booga".to_string()],
+            consuming_wallet: UiGeneratedWallet {
+                derivation_path: "nothing".to_string(),
+                public_key: "nothing".to_string(),
+                private_key: "nothing".to_string(),
+                address: "nothing".to_string()
+            },
+            earning_wallet: UiGeneratedWallet {
+                derivation_path: "nothing".to_string(),
+                public_key: "nothing".to_string(),
+                private_key: "nothing".to_string(),
+                address: "nothing".to_string()
+            }
+        }.tmb(context_id)
     }
 
     fn send_to_ui_gateway(&self, target: MessageTarget, body: MessageBody) {
@@ -186,7 +196,6 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use std::thread;
     use bip39::{Mnemonic, Language};
     use crate::sub_lib::cryptde::PlainData;
     use crate::blockchain::bip39::Bip39;
@@ -405,58 +414,58 @@ mod tests {
         let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
         let set_consuming_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));
         let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-        let join_handle = thread::spawn(move || {
-            let persistent_config = PersistentConfigurationMock::new()
-                .check_password_params(&check_password_params_arc)
-                .check_password_result(Ok(true))
-                .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
-                .set_mnemonic_seed_result(Ok(()))
-                .set_consuming_wallet_derivation_path_params(&set_consuming_wallet_derivation_path_params_arc)
-                .set_consuming_wallet_derivation_path_result(Ok(()))
-                .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
-                .set_earning_wallet_address_result(Ok(()));
-            let subject = make_subject(Some(persistent_config));
-            let subject_addr = subject.start();
-            let peer_actors = peer_actors_builder()
-                .ui_gateway(ui_gateway)
-                .build();
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_params(&check_password_params_arc)
+            .check_password_result(Ok(true))
+            .mnemonic_seed_exists_result(Ok(false))
+            .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
+            .set_mnemonic_seed_result(Ok(()))
+            .set_consuming_wallet_derivation_path_params(&set_consuming_wallet_derivation_path_params_arc)
+            .set_consuming_wallet_derivation_path_result(Ok(()))
+            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
+            .set_earning_wallet_address_result(Ok(()));
+        let subject = make_subject(Some(persistent_config));
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder()
+            .ui_gateway(ui_gateway)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            subject_addr
-                .try_send(NodeFromUiMessage {
-                    client_id: 1234,
-                    body: UiGenerateWalletsRequest {
-                        db_password: "password".to_string(),
-                        mnemonic_phrase_size: 24,
-                        mnemonic_phrase_language: "English".to_string(),
-                        consuming_derivation_path: "m/44'/60'/0'/0/4".to_string(),
-                        earning_derivation_path: "m/44'/60'/0'/0/5".to_string()
-                    }
-                        .tmb(4321),
-                })
-                .unwrap();
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiGenerateWalletsRequest {
+                    db_password: "password".to_string(),
+                    mnemonic_phrase_size: 24,
+                    mnemonic_phrase_language: "English".to_string(),
+                    consuming_derivation_path: "m/44'/60'/0'/0/4".to_string(),
+                    earning_derivation_path: "m/44'/60'/0'/0/5".to_string()
+                }
+                    .tmb(4321),
+            })
+            .unwrap();
 
-            let system = System::new("test");
-            System::current().stop();
-            system.run();
-        });
-        ui_gateway_awaiter.await_message_count(1);
-        join_handle.join().unwrap();
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (generated_wallets, context_id) = UiGenerateWalletsResponse::fmb (response.body.clone()).unwrap();
         assert_eq! (context_id, 4321);
         assert_eq! (generated_wallets.mnemonic_phrase.len(), 24);
+        assert_eq! (&generated_wallets.consuming_wallet.derivation_path, "m/44'/60'/0'/0/4");
+        assert_eq! (&generated_wallets.earning_wallet.derivation_path, "m/44'/60'/0'/0/5");
         let passphrase = generated_wallets.mnemonic_phrase.join(" ");
         let mnemonic = Mnemonic::from_phrase(&passphrase, Language::English).unwrap();
         let seed = PlainData::new(Bip39::seed(&mnemonic, &passphrase).as_ref());
-        let consuming_keypair = Bip32ECKeyPair::from_raw(seed.as_slice(), &generated_wallets.consuming_wallet.derivation_path).unwrap();
+        let consuming_keypair = Bip32ECKeyPair::from_raw(seed.as_slice(), "m/44'/60'/0'/0/4").unwrap();
         let generated_consuming_wallet: UiGeneratedWallet = Wallet::from(consuming_keypair).try_into().unwrap();
         assert_eq! (&generated_consuming_wallet, &generated_wallets.consuming_wallet);
-        let earning_keypair = Bip32ECKeyPair::from_raw(seed.as_slice(), &generated_wallets.earning_wallet.derivation_path).unwrap();
+        let earning_keypair = Bip32ECKeyPair::from_raw(seed.as_slice(), &"m/44'/60'/0'/0/5").unwrap();
         let generated_earning_wallet: UiGeneratedWallet = Wallet::from(earning_keypair).try_into().unwrap();
         assert_eq! (&generated_earning_wallet, &generated_wallets.earning_wallet);
+        // TODO: Assert on persistent_config mock
     }
 
     fn make_subject(persistent_config_opt: Option<PersistentConfigurationMock>) -> Configurator {
