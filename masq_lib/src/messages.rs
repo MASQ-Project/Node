@@ -445,6 +445,52 @@ pub struct UiCheckPasswordResponse {
 conversation_message!(UiCheckPasswordResponse, "checkPassword");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConfigurationChangedBroadcast {}
+fire_and_forget_message!(UiConfigurationChangedBroadcast, "configurationChanged");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConfigurationRequest {
+    #[serde(rename = "dbPasswordOpt")]
+    db_password_opt: Option<String>,
+}
+conversation_message!(UiConfigurationRequest, "configuration");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConsumingWallet {
+    #[serde(rename = "derivationPath")]
+    pub derivation_path: String,
+    pub address: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiEarningWallet {
+    #[serde(rename = "derivationPathOpt")]
+    pub derivation_path_opt: Optional<String>,
+    pub address: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConfigurationResponse {
+    #[serde(rename = "currentSchemaVersion")]
+    current_schema_version: String,
+    #[serde(rename = "clandestinePort")]
+    clandestine_port: u16,
+    #[serde(rename = "gasPrice")]
+    gas_price: u64,
+    #[serde(rename = "mnemonicSeedOpt")]
+    mnemonic_seed_opt: Option<String>,
+    #[serde(rename = "consumingWalletOpt")]
+    consuming_wallet_opt: Option<UiConsumingWallet>,
+    #[serde(rename = "earningWalletOpt")]
+    earning_wallet_opt: Option<UiEarningWallet>,
+    #[serde(rename = "pastNeighbors")]
+    past_neighbors: Vec<String>,
+    #[serde(rename = "startBlock")]
+    start_block: u64,
+}
+conversation_message!(UiConfigurationResponse, "configuration");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorRequest {}
 conversation_message!(UiDescriptorRequest, "descriptor");
 
@@ -533,10 +579,7 @@ pub struct UiGenerateWalletsResponse {
 conversation_message!(UiGenerateWalletsResponse, "generateWallets");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UiNewPasswordBroadcast {
-    #[serde(rename = "newPassword")]
-    pub new_password: String,
-}
+pub struct UiNewPasswordBroadcast {}
 fire_and_forget_message!(UiNewPasswordBroadcast, "newPassword");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
