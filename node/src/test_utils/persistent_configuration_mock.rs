@@ -7,8 +7,6 @@ use crate::sub_lib::wallet::Wallet;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
-type MnemonicSeedParam = (Vec<u8>, String);
-
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct PersistentConfigurationMock {
@@ -27,7 +25,7 @@ pub struct PersistentConfigurationMock {
     mnemonic_seed_results: RefCell<Vec<Result<Option<PlainData>, PersistentConfigError>>>,
     mnemonic_seed_exists_params: Arc<Mutex<Vec<()>>>,
     mnemonic_seed_exists_results: RefCell<Vec<Result<bool, PersistentConfigError>>>,
-    set_mnemonic_seed_params: Arc<Mutex<Vec<MnemonicSeedParam>>>,
+    set_mnemonic_seed_params: Arc<Mutex<Vec<(PlainData, String)>>>,
     set_mnemonic_seed_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     consuming_wallet_public_key_results:
         RefCell<Vec<Result<Option<PlainData>, PersistentConfigError>>>,
@@ -119,7 +117,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_mnemonic_seed_params
             .lock()
             .unwrap()
-            .push((seed.as_ref().to_vec(), db_password.to_string()));
+            .push((PlainData::from (seed.as_ref()), db_password.to_string()));
         self.set_mnemonic_seed_results.borrow_mut().remove(0)
     }
 
@@ -315,7 +313,7 @@ impl PersistentConfigurationMock {
 
     pub fn set_mnemonic_seed_params(
         mut self,
-        params: &Arc<Mutex<Vec<MnemonicSeedParam>>>,
+        params: &Arc<Mutex<Vec<(PlainData, String)>>>,
     ) -> PersistentConfigurationMock {
         self.set_mnemonic_seed_params = params.clone();
         self

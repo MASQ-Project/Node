@@ -546,9 +546,11 @@ pub struct UiGenerateWalletsRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
     #[serde(rename = "mnemonicPhraseSize")]
-    pub mnemonic_phrase_size: u64,
+    pub mnemonic_phrase_size: usize,
     #[serde(rename = "mnemonicPhraseLanguage")]
     pub mnemonic_phrase_language: String,
+    #[serde(rename = "mnemonicPassphraseOpt")]
+    pub mnemonic_passphrase_opt: Option<String>,
     #[serde(rename = "consumingDerivationPath")]
     pub consuming_derivation_path: String,
     #[serde(rename = "earningDerivationPath")]

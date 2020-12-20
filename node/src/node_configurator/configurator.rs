@@ -16,9 +16,13 @@ use crate::db_config::persistent_configuration::{
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::configurator::NewPasswordMessage;
+use crate::blockchain::bip39::Bip39;
+use bip39::{MnemonicType, Language, Seed};
 
 pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
 pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
+pub const UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR: u64 = CONFIGURATOR_PREFIX | 2;
+pub const ILLEGAL_MNEMONIC_WORD_COUNT_ERROR: u64 = CONFIGURATOR_PREFIX | 3;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -70,7 +74,10 @@ impl From<Box<dyn PersistentConfiguration>> for Configurator {
     }
 }
 
+type MessageError = (u64, String);
+
 impl Configurator {
+
     pub fn new(data_directory: PathBuf, chain_id: u8) -> Self {
         let initializer = DbInitializerReal::new();
         let conn = initializer
@@ -134,12 +141,35 @@ impl Configurator {
 
     fn handle_generate_wallets(
         &mut self,
-        _msg: UiGenerateWalletsRequest,
+        msg: UiGenerateWalletsRequest,
         _client_id: u64,
         context_id: u64,
     ) -> MessageBody {
-        UiGenerateWalletsResponse {
-            mnemonic_phrase: vec!["ooga".to_string(), "booga".to_string()],
+        match self.unfriendly_handle_generate_wallets(msg, context_id) {
+            Ok (message_body) => message_body,
+            Err ((code, msg)) => unimplemented! (), //MessageBody {
+            //     opcode: "generateWallets".to_string(),
+            //     path: MessagePath::Conversation(context_id),
+            //     payload: Err ((code, msg))
+            // }
+        }
+    }
+
+    fn unfriendly_handle_generate_wallets(
+        &mut self,
+        msg: UiGenerateWalletsRequest,
+        context_id: u64,
+    ) -> Result<MessageBody, MessageError> {
+        let (seed, mut mnemonic_phrase) = Self::generate_mnemonic (
+            &msg.mnemonic_passphrase_opt,
+            &msg.mnemonic_phrase_language,
+            msg.mnemonic_phrase_size
+        )?;
+        if let Some (mnemonic_passphrase) = &msg.mnemonic_passphrase_opt {
+            mnemonic_phrase.push (mnemonic_passphrase.to_string())
+        }
+        Ok(UiGenerateWalletsResponse {
+            mnemonic_phrase,
             consuming_wallet: UiGeneratedWallet {
                 derivation_path: "nothing".to_string(),
                 public_key: "nothing".to_string(),
@@ -152,7 +182,49 @@ impl Configurator {
                 private_key: "nothing".to_string(),
                 address: "nothing".to_string()
             }
-        }.tmb(context_id)
+        }.tmb(context_id))
+    }
+
+    fn generate_mnemonic (passphrase_opt: &Option<String>, language_str: &str, word_count: usize) -> Result<(Seed, Vec<String>), MessageError> {
+        let language = Self::parse_language (language_str)?;
+        let mnemonic_type = Self::parse_word_count (word_count)?;
+        let mnemonic = Bip39::mnemonic(mnemonic_type, language);
+        let mnemonic_passphrase = match passphrase_opt {
+            Some (phrase) => phrase.to_string(),
+            None => unimplemented! (), //"".to_string(),
+        };
+        let seed = Bip39::seed (&mnemonic, &mnemonic_passphrase);
+        let phrase_words: Vec<String> = mnemonic.into_phrase().split (" ").map (|w| w.to_string()).collect();
+        Ok ((seed, phrase_words))
+    }
+
+    fn parse_language (language_str: &str) -> Result<Language, MessageError> {
+        match vec![
+            ("English", Language::English)
+            // ("Chinese", Language::ChineseSimplified)
+            // ("Traditional Chinese", Language::ChineseTraditional)
+            // ("French", Language::French)
+            // ("Italian", Language::Italian)
+            // ("Japanese", Language::Japanese)
+            // ("Korean", Language::Korean)
+            // ("Spanish", Language::Spanish)
+        ].into_iter().find(|(name, _)| name == &language_str) {
+            Some ((_, language)) => Ok (language),
+            None => unimplemented!(), // Err ((UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, language_str.to_string()))
+        }
+    }
+
+    fn parse_word_count (word_count: usize) -> Result<MnemonicType, MessageError> {
+        match vec![
+            MnemonicType::Words12,
+            MnemonicType::Words15,
+            MnemonicType::Words18,
+            MnemonicType::Words21,
+            MnemonicType::Words24,
+        ].into_iter().find (|mt| mt.word_count() == word_count) {
+            Some (mt) => Ok (mt),
+            None => unimplemented!(), // Err ((ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, word_count.to_string())),
+        }
     }
 
     fn send_to_ui_gateway(&self, target: MessageTarget, body: MessageBody) {
@@ -439,6 +511,7 @@ mod tests {
                     db_password: "password".to_string(),
                     mnemonic_phrase_size: 24,
                     mnemonic_phrase_language: "English".to_string(),
+                    mnemonic_passphrase_opt: Some ("booga".to_string()),
                     consuming_derivation_path: "m/44'/60'/0'/0/4".to_string(),
                     earning_derivation_path: "m/44'/60'/0'/0/5".to_string()
                 }
@@ -453,7 +526,8 @@ mod tests {
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (generated_wallets, context_id) = UiGenerateWalletsResponse::fmb (response.body.clone()).unwrap();
         assert_eq! (context_id, 4321);
-        assert_eq! (generated_wallets.mnemonic_phrase.len(), 24);
+        assert_eq! (generated_wallets.mnemonic_phrase.len(), 25);
+        assert_eq! (generated_wallets.mnemonic_phrase[24], "booga".to_string());
         assert_eq! (&generated_wallets.consuming_wallet.derivation_path, "m/44'/60'/0'/0/4");
         assert_eq! (&generated_wallets.earning_wallet.derivation_path, "m/44'/60'/0'/0/5");
         let passphrase = generated_wallets.mnemonic_phrase.join(" ");
@@ -465,7 +539,14 @@ mod tests {
         let earning_keypair = Bip32ECKeyPair::from_raw(seed.as_slice(), &"m/44'/60'/0'/0/5").unwrap();
         let generated_earning_wallet: UiGeneratedWallet = Wallet::from(earning_keypair).try_into().unwrap();
         assert_eq! (&generated_earning_wallet, &generated_wallets.earning_wallet);
-        // TODO: Assert on persistent_config mock
+        let check_password_params = check_password_params_arc.lock().unwrap();
+        assert_eq! (*check_password_params, vec![Some("password".to_string())]);
+        let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
+        assert_eq! (*set_mnemonic_seed_params, vec![(seed, "password".to_string())]);
+        let set_consuming_wallet_derivation_path_params = set_consuming_wallet_derivation_path_params_arc.lock().unwrap();
+        assert_eq! (*set_consuming_wallet_derivation_path_params, vec![("m/44'/60'/0'/0/4".to_string(), "password".to_string())]);
+        let set_earning_wallet_address_params = set_earning_wallet_address_params_arc.lock().unwrap();
+        assert_eq! (*set_earning_wallet_address_params, vec![generated_earning_wallet.address]);
     }
 
     fn make_subject(persistent_config_opt: Option<PersistentConfigurationMock>) -> Configurator {
