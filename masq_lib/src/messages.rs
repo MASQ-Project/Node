@@ -559,24 +559,13 @@ pub struct UiGenerateWalletsRequest {
 conversation_message!(UiGenerateWalletsRequest, "generateWallets");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UiGeneratedWallet {
-    #[serde(rename = "derivationPath")]
-    pub derivation_path: String,
-    #[serde(rename = "publicKey")]
-    pub public_key: String,
-    #[serde(rename = "privateKey")]
-    pub private_key: String,
-    pub address: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiGenerateWalletsResponse {
     #[serde(rename = "mnemonicPhrase")]
     pub mnemonic_phrase: Vec<String>,
-    #[serde(rename = "consumingWallet")]
-    pub consuming_wallet: UiGeneratedWallet,
-    #[serde(rename = "earningWallet")]
-    pub earning_wallet: UiGeneratedWallet,
+    #[serde(rename = "consumingWalletAddress")]
+    pub consuming_wallet_address: String,
+    #[serde(rename = "earningWalletAddress")]
+    pub earning_wallet_address: String,
 }
 conversation_message!(UiGenerateWalletsResponse, "generateWallets");
 
