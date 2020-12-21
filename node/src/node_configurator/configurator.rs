@@ -33,6 +33,7 @@ pub const ILLEGAL_MNEMONIC_WORD_COUNT_ERROR: u64 = CONFIGURATOR_PREFIX | 4;
 pub const KEY_PAIR_CONSTRUCTION_ERROR: u64 = CONFIGURATOR_PREFIX | 5;
 pub const BAD_PASSWORD_ERROR: u64 = CONFIGURATOR_PREFIX | 6;
 pub const ALREADY_INITIALIZED_ERROR: u64 = CONFIGURATOR_PREFIX | 7;
+pub const DERIVATION_PATH_ERROR: u64 = CONFIGURATOR_PREFIX | 8;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -189,7 +190,10 @@ impl Configurator {
         if let Err(e) = persistent_config
             .set_consuming_wallet_derivation_path(&msg.consuming_derivation_path, &msg.db_password)
         {
-            unimplemented!("{:?}", e);
+            unimplemented!();                    //return Err((DERIVATION_PATH_ERROR, format!{"Consuming wallet derivation path could not be set: {:?}", e} ));
+            //I think this error branch should be eliminated as this condition has been already tested in generate_wallet at the line 185.
+            //If it turns out that usages of set_consuming_derivation_path goes down from two to only this one (because generating wallet with the subcommand
+            //belonging to Deamon may be dropped eventually), I would vote to cut this assertion out of set_consuming_wallet_derivation_path.
         };
         if let Err(e) =
             persistent_config.set_earning_wallet_address(&earning_wallet.address().to_string())
@@ -261,7 +265,7 @@ impl Configurator {
 
     fn generate_wallet(seed: &Seed, derivation_path: &str) -> Result<Wallet, MessageError> {
         match Bip32ECKeyPair::from_raw(seed.as_bytes(), derivation_path) {
-            Err(e) => unimplemented!("{:?}", e),
+            Err(e) => Err((DERIVATION_PATH_ERROR, format!("Bad syntax of the derivation path: {}: {}", e, derivation_path))),
             Ok(kp) => Ok(Wallet::from(kp)),
         }
     }
@@ -645,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_generate_wallets_handles_error_if_chosen_language_isnt_in_list() {
+    fn handle_generate_wallets_manages_error_if_chosen_language_isnt_in_list() {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok((true)))
             .mnemonic_seed_exists_result(Ok(false));
@@ -665,6 +669,32 @@ mod tests {
             opcode: "generateWallets".to_string(),
             path: MessagePath::Conversation(4321),
             payload: Err ((UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, "SuperSpecial".to_string()))
+        })
+    }
+
+    #[test]
+    fn handle_generate_wallets_works_if_wrong_derivation_path_format_for_consuming_wallet_used() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok((true)))
+            .mnemonic_seed_exists_result(Ok(false))
+            .set_mnemonic_seed_result(Ok(()))
+            .set_consuming_wallet_derivation_path_result(Err(PersistentConfigError::BadDerivationPathFormat("m/44'/6000'/0'/0/4".to_string())));
+        let mut subject = make_subject(Some(persistent_config));
+        let msg = UiGenerateWalletsRequest{
+            db_password: "blabla".to_string(),
+            mnemonic_phrase_size: 18,
+            mnemonic_phrase_language: "English".to_string(),
+            mnemonic_passphrase_opt: Some("hoooo".to_string()),
+            consuming_derivation_path: "m/44'/jk60'/0'/0/4".to_string(),
+            earning_derivation_path: "m/44'/60'/0'/0/5".to_string()
+        };
+
+        let result = subject.handle_generate_wallets(msg, 4321);
+
+        assert_eq! (result, MessageBody {
+            opcode: "generateWallets".to_string(),
+            path: MessagePath::Conversation(4321),
+            payload: Err ((DERIVATION_PATH_ERROR, r#"Bad syntax of the derivation path: InvalidChildNumber: m/44'/jk60'/0'/0/4"#.to_string()))
         })
     }
 

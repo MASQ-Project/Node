@@ -15,29 +15,29 @@ impl ChangePasswordCommand {
         match pieces.len() {
             3 => match change_password_subcommand().get_matches_from_safe(pieces) {
                 Ok(matches) => {
-                    return Ok(Self {
-                        old_password: Some(
-                            matches
+                        Ok(Self {
+                            old_password: Some(
+                                matches
                                 .value_of("old-db-password")
                                 .expect("change password: Clipy: internal error")
                                 .to_string(),
-                        ),
-                        new_password: matches
-                            .value_of("new-db-password")
-                            .expect("change password: Clipy: internal error")
-                            .to_string(),
+                            ),
+                            new_password: matches
+                                .value_of("new-db-password")
+                                .expect("change password: Clipy: internal error")
+                                .to_string(),
                     })
                 }
                 Err(e) => Err(format!("{}", e)),
             },
             2 => match set_password_subcommand().get_matches_from_safe(pieces) {
                 Ok(matches) => {
-                    return Ok(Self {
-                        old_password: None,
-                        new_password: matches
-                            .value_of("new-db-password")
-                            .expect("change-password: Clipy: internal error")
-                            .to_string(),
+                        Ok(Self {
+                            old_password: None,
+                            new_password: matches
+                                .value_of("new-db-password")
+                                .expect("change-password: Clipy: internal error")
+                                .to_string(),
                     })
                 }
                 Err(e) => Err(format!("{}", e)),
