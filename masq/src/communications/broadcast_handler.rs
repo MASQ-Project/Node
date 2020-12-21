@@ -1,14 +1,16 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
+use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::notifications::crashed_notification::CrashNotifier;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
-use masq_lib::messages::{UiNodeCrashedBroadcast, UiSetupBroadcast, FromMessageBody, UiNewPasswordBroadcast};
+use masq_lib::messages::{
+    FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
+};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
-use crate::commands::change_password_command::ChangePasswordCommand;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
@@ -62,18 +64,15 @@ impl BroadcastHandlerReal {
         stderr: &mut dyn Write,
     ) {
         match message_body_result {
-            Err(_) => return, // Receiver died; masq is going down
+            Err(_) => (), // Receiver died; masq is going down
             Ok(message_body) => {
                 if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
-                    SetupCommand::handle_broadcast (body, stdout, stderr);
-                }
-                else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
-                    CrashNotifier::handle_broadcast (body, stdout, stderr);
-                }
-                else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
-                    ChangePasswordCommand::handle_broadcast (body, stdout, stderr);
-                }
-                else {
+                    SetupCommand::handle_broadcast(body, stdout, stderr);
+                } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
+                    CrashNotifier::handle_broadcast(body, stdout, stderr);
+                } else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
+                    ChangePasswordCommand::handle_broadcast(body, stdout, stderr);
+                } else {
                     write!(
                         stderr,
                         "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",
@@ -81,7 +80,7 @@ impl BroadcastHandlerReal {
                     )
                     .expect("write! failed");
                 }
-            },
+            }
         }
     }
 

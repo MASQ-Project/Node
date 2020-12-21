@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
-use crate::commands::check_password_command::CheckPasswordCommand;
 use crate::commands::change_password_command::ChangePasswordCommand;
+use crate::commands::check_password_command::CheckPasswordCommand;
 use crate::commands::commands_common::Command;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
@@ -11,26 +11,26 @@ use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
 
 #[derive(Debug, PartialEq)]
-pub enum CommandFactoryError{
+pub enum CommandFactoryError {
     UnrecognizedSubcommand(String),
     CommandSyntax(String),
 }
 
-pub trait CommandFactory{
+pub trait CommandFactory {
     fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError>;
 }
 
 #[derive(Default)]
-pub struct CommandFactoryReal{}
+pub struct CommandFactoryReal {}
 
-impl CommandFactory for CommandFactoryReal{
+impl CommandFactory for CommandFactoryReal {
     fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError> {
         let boxed_command: Box<dyn Command> = match pieces[0].as_str() {
             "check-password" => match CheckPasswordCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => unimplemented!("{}", msg),
             },
-            "change-password" => match ChangePasswordCommand::new(pieces){
+            "change-password" => match ChangePasswordCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
@@ -51,7 +51,7 @@ impl CommandFactory for CommandFactoryReal{
     }
 }
 
-impl CommandFactoryReal{
+impl CommandFactoryReal {
     #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
@@ -59,14 +59,12 @@ impl CommandFactoryReal{
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
     use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
-    use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::messages::{UiChangePasswordResponse, ToMessageBody};
 
     #[test]
-    fn complains_about_unrecognized_subcommand(){
+    fn complains_about_unrecognized_subcommand() {
         let subject = CommandFactoryReal::new();
 
         let result = subject
@@ -78,7 +76,7 @@ mod tests{
     }
 
     #[test]
-    fn complains_about_setup_command_with_bad_syntax(){
+    fn complains_about_setup_command_with_bad_syntax() {
         let subject = CommandFactoryReal::new();
 
         let result = subject

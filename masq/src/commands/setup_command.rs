@@ -5,7 +5,6 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{value_t, App, SubCommand};
-use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     SETUP_ERROR,
@@ -73,7 +72,11 @@ impl SetupCommand {
         Ok(Self { values })
     }
 
-    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write, _stderr: &mut dyn Write) {
+    pub fn handle_broadcast(
+        response: UiSetupBroadcast,
+        stdout: &mut dyn Write,
+        _stderr: &mut dyn Write,
+    ) {
         writeln!(stdout, "\nDaemon setup has changed:\n").expect("writeln! failed");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");

@@ -20,6 +20,7 @@ use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
 use crate::stream_messages::RemovedStreamType;
+use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -59,8 +60,8 @@ use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
-use masq_lib::messages::{FromMessageBody};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::exit_process;
 use neighborhood_database::NeighborhoodDatabase;
@@ -69,7 +70,6 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::sub_lib::configurator::NewPasswordMessage;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
@@ -273,7 +273,7 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
+        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body) {
             self.handle_shutdown_order(client_id, body);
         }
     }

@@ -426,6 +426,7 @@ mod tests {
         ReportExitServiceConsumedMessage, ReportExitServiceProvidedMessage,
     };
     use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, ReportAccountsPayable};
+    use crate::sub_lib::configurator::NewPasswordMessage;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -467,7 +468,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
-    use crate::sub_lib::configurator::NewPasswordMessage;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {

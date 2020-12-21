@@ -1675,7 +1675,7 @@ mod tests {
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
-            vec![(PlainData::from (seed.as_ref()), "db password".to_string())]
+            vec![(PlainData::from(seed.as_ref()), "db password".to_string())]
         );
         let set_consuming_wallet_derivation_path_params =
             set_consuming_wallet_derivation_path_params_arc
@@ -1722,7 +1722,10 @@ mod tests {
         let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
         assert_eq!(
             *set_mnemonic_seed_params,
-            vec![(PlainData::from (vec![1u8, 2u8, 3u8, 4u8]), "db password".to_string())]
+            vec![(
+                PlainData::from(vec![1u8, 2u8, 3u8, 4u8]),
+                "db password".to_string()
+            )]
         );
         let set_consuming_wallet_derivation_path_params =
             set_consuming_wallet_derivation_path_params_arc

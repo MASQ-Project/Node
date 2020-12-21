@@ -7,7 +7,11 @@ use std::io::Write;
 pub struct CrashNotifier {}
 
 impl CrashNotifier {
-    pub fn handle_broadcast(response: UiNodeCrashedBroadcast, stdout: &mut dyn Write, _stderr: &mut dyn Write) {
+    pub fn handle_broadcast(
+        response: UiNodeCrashedBroadcast,
+        stdout: &mut dyn Write,
+        _stderr: &mut dyn Write,
+    ) {
         if response.crash_reason == CrashReason::DaemonCrashed {
             exit_process(1, "The Daemon is no longer running; masq is terminating.\n");
         }
@@ -48,7 +52,6 @@ impl CrashNotifier {
 mod tests {
     use super::*;
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
-    use masq_lib::ui_gateway::MessagePath;
     use masq_lib::utils::running_test;
 
     #[test]

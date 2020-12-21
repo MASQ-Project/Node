@@ -117,7 +117,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_mnemonic_seed_params
             .lock()
             .unwrap()
-            .push((PlainData::from (seed.as_ref()), db_password.to_string()));
+            .push((PlainData::from(seed.as_ref()), db_password.to_string()));
         self.set_mnemonic_seed_results.borrow_mut().remove(0)
     }
 
