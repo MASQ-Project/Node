@@ -239,7 +239,7 @@ impl Configurator {
         .find(|(name, _)| name == &language_str)
         {
             Some((_, language)) => Ok(language),
-            None => unimplemented!(), // Err ((UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, language_str.to_string()))
+            None => Err ((UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, language_str.to_string()))
         }
     }
 
@@ -641,6 +641,30 @@ mod tests {
             opcode: "generateWallets".to_string(),
             path: MessagePath::Conversation(4321),
             payload: Err ((CONFIGURATOR_READ_ERROR, "Error checking mnemonic seed: NotPresent".to_string()))
+        })
+    }
+
+    #[test]
+    fn handle_generate_wallets_handles_error_if_chosen_language_isnt_in_list() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok((true)))
+            .mnemonic_seed_exists_result(Ok(false));
+        let mut subject = make_subject(Some(persistent_config));
+        let msg = UiGenerateWalletsRequest{
+            db_password: "blabla".to_string(),
+            mnemonic_phrase_size: 24,
+            mnemonic_phrase_language: "SuperSpecial".to_string(),
+            mnemonic_passphrase_opt: None,
+            consuming_derivation_path: "m/44'/60'/0'/0/4".to_string(),
+            earning_derivation_path: "m/44'/60'/0'/0/5".to_string()
+        };
+
+        let result = subject.handle_generate_wallets(msg, 4321);
+
+        assert_eq! (result, MessageBody {
+            opcode: "generateWallets".to_string(),
+            path: MessagePath::Conversation(4321),
+            payload: Err ((UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, "SuperSpecial".to_string()))
         })
     }
 
