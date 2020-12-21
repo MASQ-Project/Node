@@ -550,6 +550,75 @@ The `payables` and `receivables` arrays are not in any particular order.
 For security reasons, the Node does not keep track of individual blockchain transactions, with the exception
 of payments that have not yet been confirmed. Only cumulative account balances are retained.
 
+#### `generateWallets`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPassword": <string>,
+    "mnemonicPhraseSize": <number>,
+    "mnemonicPhraseLanguage": <string>,
+    "mnemonicPassphraseOpt": <optional string>,
+    "consumingDerivationPath": <string>,
+    "earningDerivationPath": <string>
+}
+```
+##### Description:
+This message directs the Node to generate a pair of wallets and report their mnemonic phrase and their addresses
+back to the UI. If the database already contains a wallet pair, the wallet generation will fail.
+
+`dbPassword` is the current database password. If this is incorrect, the wallet generation will fail.
+
+`mnemonicPhraseSize` is the number of words that should be generated in the mnemonic phrase. The acceptable values
+are 12, 15, 18, 21, and 24. It's recommended that UIs default to 24-word phrases and require the user to specifically
+demand a lower value, if desired.
+
+`mnemonicPhraseLanguage` is the language in which the mnemonic phrase should be generated. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+
+`mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
+(it can be any word; it's not constrained to the official mnemonic-phrase list) that will be used along with the
+24 standard words to generate the seed number from which the wallet keys are derived. If this value is supplied,
+then the user will have to specify it as well as the 24 standard words in order to recover the wallet pair. Note
+that neither the 24 standard words nor this value is persisted anywhere: it's up to the user to keep track of them.
+
+`consumingDerivationPath` is the derivation path from the generated seed number to be used to generate the consuming
+wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
+by the Node.
+
+`earningDerivationPath` is the derivation path from the generated seed number to be used to generate the earning
+wallet. By convention, it is "m/60'/44'/0'/0/1", but in this message it is required and no defaulting is performed
+by the Node.
+
+If the user wants to consume from and earn into the same wallet, he should provide the same derivation path for both.
+
+#### `generateWallets`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "mnemonicPhrase": [
+        <string>,
+        <string>,
+        [...]
+    ],
+    "consumingWalletAddress": <string>,
+    "earningWalletAddress": <string>
+}
+```
+##### Description:
+This message describes the pair of wallets that has been generated and configured on the Node.
+
+`mnemonicPhrase` is the list of 24 (or 12 or 15 or 18 or 21) words that, when combined with the mnemonic passphrase,
+if specified, will produce the seed from which the consuming and earning wallets are derived. They are rendered in
+the requested language, including non-ASCII Unicode characters encoded in UTF-8 where appropriate.
+
+`consumingWalletAddress` is the address of the generated consuming wallet.
+
+`earningWalletAddress` is the address of the generated earning wallet.
+
 #### `newPassword`
 ##### Direction: Broadcast
 ##### Correspondent: Node
