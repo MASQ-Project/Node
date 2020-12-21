@@ -1,9 +1,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::{
-    UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
-};
+use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast, ToMessageBody, FromMessageBody};
 use std::io::Write;
 
 #[derive(Debug, PartialEq)]
@@ -32,7 +30,7 @@ impl ChangePasswordCommand {
                 }
                 Err(e) => Err(format!("{}", e)),
             },
-            2 => match change_password_subcommand_initial().get_matches_from_safe(pieces) {
+            2 => match set_password_subcommand().get_matches_from_safe(pieces) {
                 Ok(matches) => {
                     return Ok(Self {
                         old_password: None,
@@ -68,7 +66,7 @@ impl Command for ChangePasswordCommand {
             old_password_opt: self.old_password.clone(),
             new_password: self.new_password.clone(),
         };
-        let _: UiChangePasswordResponse = transaction(input, context, 1000)?;
+        let _:UiChangePasswordResponse = transaction(input, context, 1000)?;
         writeln!(context.stdout(), "Database password has been changed").expect("writeln! failed");
         Ok(())
     }
@@ -76,29 +74,29 @@ impl Command for ChangePasswordCommand {
 
 pub fn change_password_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("change-password")
-        .about("XXXXXXXXXXXXXXXX") //TODO write info
+        .about("Changes the existing password on the Node database")
         .arg(
             Arg::with_name("old-db-password")
-                .help("XXXXXXXXXXXXXXXXXX") //TODO
+                .help("The existing password")
                 .index(1)
                 .required(true)
                 .case_insensitive(false),
         )
         .arg(
             Arg::with_name("new-db-password")
-                .help("XXXXXXXXXXXXXXXXXX") //TODO
+                .help("The new password to set")
                 .index(2)
                 .required(true)
                 .case_insensitive(false),
         )
 }
 
-pub fn change_password_subcommand_initial() -> App<'static, 'static> {
-    SubCommand::with_name("change-password")
-        .about("XXXXXXXXXXXXXXXX") //TODO write info
+pub fn set_password_subcommand() -> App<'static, 'static> {
+    SubCommand::with_name("set-password")
+        .about("Sets an initial password on the Node database")
         .arg(
             Arg::with_name("new-db-password")
-                .help("XXXXXXXXXXXXXXXXXX") //TODO
+                .help("Password to be set; must not already exist")
                 .index(1)
                 .required(true)
                 .case_insensitive(false),
@@ -114,12 +112,15 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};
+    use crate::command_context::ContextError;
+    use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
     #[test]
     fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context =
-            CommandContextMock::new().transact_result(Ok(UiChangePasswordResponse {}.tmb(1230)));
+            CommandContextMock::new().transact_result(Ok(UiChangePasswordResponse {
+            }.tmb(1230)));
         let subject = factory
             .make(vec![
                 "change-password".to_string(),
@@ -134,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn change_password_command_works_when_changing_from_no_password() {
+    fn set_password_command_works_when_changing_from_no_password() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -144,7 +145,7 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(vec![
-                "change-password".to_string(),
+                "set-password".to_string(),
                 "abracadabra".to_string(),
             ])
             .unwrap();
@@ -165,7 +166,7 @@ mod tests {
                     old_password_opt: None,
                     new_password: "abracadabra".to_string()
                 }
-                .tmb(0), // there is hard-coded 0 as irrelevant in configurator, nothing else can come back
+                .tmb(0), // there is hard-coded 0
                 1000
             )]
         )
@@ -176,7 +177,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
+            .transact_result(Ok(UiChangePasswordResponse{}.tmb(0)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
@@ -204,19 +205,11 @@ mod tests {
                     old_password_opt: Some("abracadabra".to_string()),
                     new_password: "boringPassword".to_string()
                 }
-                .tmb(0),
+                    .tmb(0),
                 1000
             )]
         )
     }
-
-    // #[test]
-    // fn clipy_argues_about_typo_in_arguments_for_short_command() {
-    //     let result:Result<ChangePasswordCommand,String> = ChangePasswordCommand::new(
-    //         vec!["cha-word".to_string(),"myIdeas".to_string(),"yourIdeas".to_string()]);
-    //
-    //     assert_eq!(result, Err("change-password: Invalid number of arguments".to_string()))
-    // }
 
     #[test]
     fn change_password_new_handles_error_of_missing_both_arguments() {
@@ -225,85 +218,6 @@ mod tests {
         assert_eq!(
             result,
             Err("change-password: Invalid number of arguments".to_string())
-        )
-    }
-
-    #[test]
-    fn change_password_command_with_one_arg_causes_error_when_password_already_exists() {
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut context = CommandContextMock::new()
-            .transact_params(&transact_params_arc)
-            .transact_result(Err(Other("Database password already exists".to_string())));
-        let stderr_arc = context.stderr_arc();
-        let factory = CommandFactoryReal::new();
-        let subject = factory
-            .make(vec![
-                "change-password".to_string(),
-                "abracadabra".to_string(),
-            ])
-            .unwrap();
-
-        let result = subject.execute(&mut context);
-
-        assert_eq!(
-            result,
-            Err(CommandError::Transmission(
-                "Database password already exists".to_string()
-            ))
-        ); // TODO error type transmission?
-
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
-        let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![(
-                UiChangePasswordRequest {
-                    old_password_opt: None,
-                    new_password: "abracadabra".to_string()
-                }
-                .tmb(0),
-                1000
-            )]
-        )
-    }
-
-    #[test]
-    fn change_password_command_with_two_args_causes_error_when_no_password_exists() {
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut context = CommandContextMock::new()
-            .transact_params(&transact_params_arc)
-            .transact_result(Err(Other("There is no password to be changed".to_string()))); // TODO..is there a proper reaction on the side of Deamon?
-        let stderr_arc = context.stderr_arc();
-        let factory = CommandFactoryReal::new();
-        let subject = factory
-            .make(vec![
-                "change-password".to_string(),
-                "boring*** password".to_string(),
-                "abracadabra".to_string(),
-            ])
-            .unwrap();
-
-        let result = subject.execute(&mut context);
-
-        assert_eq!(
-            result,
-            Err(CommandError::Transmission(
-                "There is no password to be changed".to_string()
-            ))
-        ); // TODO really error type transmission?
-
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
-        let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![(
-                UiChangePasswordRequest {
-                    old_password_opt: Some("boring*** password".to_string()),
-                    new_password: "abracadabra".to_string()
-                }
-                .tmb(0),
-                1000
-            )]
         )
     }
 }

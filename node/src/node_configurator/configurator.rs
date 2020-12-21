@@ -56,7 +56,6 @@ impl Handler<NodeFromUiMessage> for Configurator {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
-            //hmm I don't like that clone.
             let response = self.handle_check_password(body, context_id);
             self.send_to_ui_gateway(ClientId(msg.client_id), response);
         } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
@@ -129,7 +128,7 @@ impl Configurator {
                 let broadcast = UiNewPasswordBroadcast {}.tmb(0);
                 self.send_password_changes(msg.new_password.clone());
                 self.send_to_ui_gateway(MessageTarget::AllExcept(client_id), broadcast);
-                UiChangePasswordResponse {}.tmb(context_id)
+                UiChangePasswordResponse{}.tmb(context_id)
             }
 
             Err(e) => {

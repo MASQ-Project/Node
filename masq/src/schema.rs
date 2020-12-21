@@ -8,6 +8,7 @@ use crate::commands::start_command::start_subcommand;
 use clap::{App, AppSettings, Arg};
 use lazy_static::lazy_static;
 use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use crate::commands::change_password_command::{set_password_subcommand, change_password_subcommand};
 
 lazy_static! {
     static ref UI_PORT_HELP: String = format!(
@@ -43,6 +44,8 @@ pub fn app() -> App<'static, 'static> {
                 .validator(validate_ui_port)
                 .help(UI_PORT_HELP.as_str()),
         )
+        .subcommand(set_password_subcommand())
+        .subcommand(change_password_subcommand())
         .subcommand(check_password_subcommand())
         .subcommand(crash_subcommand())
         .subcommand(descriptor_subcommand())

@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use actix::Message;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum MessageTarget {
@@ -9,7 +10,7 @@ pub enum MessageTarget {
     AllClients,
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum MessagePath {
     FireAndForget,
     Conversation(u64), // context_id
