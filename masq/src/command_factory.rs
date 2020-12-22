@@ -6,10 +6,10 @@ use crate::commands::check_password_command::CheckPasswordCommand;
 use crate::commands::commands_common::Command;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
+use crate::commands::generate_wallets_command::GenerateWalletsCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
-use crate::commands::generate_wallets_command::GenerateWalletsCommand;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandFactoryError {
@@ -33,7 +33,7 @@ impl CommandFactory for CommandFactoryReal {
             },
             "check-password" => match CheckPasswordCommand::new(pieces) {
                 Ok(command) => Box::new(command),
-                Err(msg) => return Err(CommandSyntax(msg)),            //untested, error cannot be triggered as long as we allow passwords with white spaces
+                Err(msg) => return Err(CommandSyntax(msg)), //untested, error cannot be triggered as long as we allow passwords with white spaces
             },
             "crash" => match CrashCommand::new(pieces) {
                 Ok(command) => Box::new(command),

@@ -6,9 +6,9 @@ use crate::commands::commands_common::CommandError::{
 };
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
+use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
-use std::any::Any;
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 5000;
 

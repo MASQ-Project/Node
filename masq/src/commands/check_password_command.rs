@@ -4,7 +4,6 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
-use std::any::Any;
 
 #[derive(Debug, PartialEq)]
 pub struct CheckPasswordCommand {
@@ -37,7 +36,7 @@ impl Command for CheckPasswordCommand {
                 "Password is incorrect"
             }
         )
-            .expect("writeln! failed");
+        .expect("writeln! failed");
         Ok(())
     }
 }
@@ -58,7 +57,7 @@ impl CheckPasswordCommand {
 mod tests {
     use super::*;
     use crate::command_context::ContextError;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal, CommandFactoryError};
+    use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse};
