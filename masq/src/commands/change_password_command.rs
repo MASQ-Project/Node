@@ -1,7 +1,10 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast, ToMessageBody, FromMessageBody};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
+    UiNewPasswordBroadcast,
+};
 use std::io::Write;
 
 #[derive(Debug, PartialEq)]
@@ -14,32 +17,28 @@ impl ChangePasswordCommand {
     pub(crate) fn new(pieces: Vec<String>) -> Result<Self, String> {
         match pieces.len() {
             3 => match change_password_subcommand().get_matches_from_safe(pieces) {
-                Ok(matches) => {
-                        Ok(Self {
-                            old_password: Some(
-                                matches
-                                .value_of("old-db-password")
-                                .expect("change password: Clipy: internal error")
-                                .to_string(),
-                            ),
-                            new_password: matches
-                                .value_of("new-db-password")
-                                .expect("change password: Clipy: internal error")
-                                .to_string(),
-                    })
-                }
+                Ok(matches) => Ok(Self {
+                    old_password: Some(
+                        matches
+                            .value_of("old-db-password")
+                            .expect("change password: Clipy: internal error")
+                            .to_string(),
+                    ),
+                    new_password: matches
+                        .value_of("new-db-password")
+                        .expect("change password: Clipy: internal error")
+                        .to_string(),
+                }),
                 Err(e) => Err(format!("{}", e)),
             },
             2 => match set_password_subcommand().get_matches_from_safe(pieces) {
-                Ok(matches) => {
-                        Ok(Self {
-                            old_password: None,
-                            new_password: matches
-                                .value_of("new-db-password")
-                                .expect("change-password: Clipy: internal error")
-                                .to_string(),
-                    })
-                }
+                Ok(matches) => Ok(Self {
+                    old_password: None,
+                    new_password: matches
+                        .value_of("new-db-password")
+                        .expect("change-password: Clipy: internal error")
+                        .to_string(),
+                }),
                 Err(e) => Err(format!("{}", e)),
             },
 
@@ -66,7 +65,7 @@ impl Command for ChangePasswordCommand {
             old_password_opt: self.old_password.clone(),
             new_password: self.new_password.clone(),
         };
-        let _:UiChangePasswordResponse = transaction(input, context, 1000)?;
+        let _: UiChangePasswordResponse = transaction(input, context, 1000)?;
         writeln!(context.stdout(), "Database password has been changed").expect("writeln! failed");
         Ok(())
     }
@@ -106,21 +105,20 @@ pub fn set_password_subcommand() -> App<'static, 'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command_context::ContextError;
     use crate::command_context::ContextError::Other;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
-    use std::sync::{Arc, Mutex};
-    use crate::command_context::ContextError;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context =
-            CommandContextMock::new().transact_result(Ok(UiChangePasswordResponse {
-            }.tmb(1230)));
+            CommandContextMock::new().transact_result(Ok(UiChangePasswordResponse {}.tmb(1230)));
         let subject = factory
             .make(vec![
                 "change-password".to_string(),
@@ -144,10 +142,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec![
-                "set-password".to_string(),
-                "abracadabra".to_string(),
-            ])
+            .make(vec!["set-password".to_string(), "abracadabra".to_string()])
             .unwrap();
 
         let result = subject.execute(&mut context);
@@ -177,7 +172,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiChangePasswordResponse{}.tmb(0)));
+            .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
@@ -205,7 +200,7 @@ mod tests {
                     old_password_opt: Some("abracadabra".to_string()),
                     new_password: "boringPassword".to_string()
                 }
-                    .tmb(0),
+                .tmb(0),
                 1000
             )]
         )
