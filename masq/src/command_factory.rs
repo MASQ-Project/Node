@@ -41,8 +41,8 @@ impl CommandFactory for CommandFactoryReal {
             },
             "descriptor" => Box::new(DescriptorCommand::new()),
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
-                Ok(command) => unimplemented!(),   //Box::new(command),
-                Err(msg) => unimplemented!(),   // return Err(CommandSyntax(msg)),
+                Ok(command) => Box::new(command),
+                Err(msg) => unimplemented!("{}", msg), //return Err(CommandSyntax(msg)),
             },
             "set-password" => match ChangePasswordCommand::new(pieces) {
                 Ok(command) => Box::new(command),
