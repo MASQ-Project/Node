@@ -2,7 +2,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
+    ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
     UiNewPasswordBroadcast,
 };
 use std::io::Write;
@@ -105,13 +105,9 @@ pub fn set_password_subcommand() -> App<'static, 'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_context::ContextError;
-    use crate::command_context::ContextError::Other;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::commands::commands_common::CommandError;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
-    use masq_lib::ui_gateway::{MessageBody, MessagePath};
     use std::sync::{Arc, Mutex};
 
     #[test]
