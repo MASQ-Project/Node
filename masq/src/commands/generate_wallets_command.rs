@@ -56,7 +56,7 @@ impl Command for GenerateWalletsCommand {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
+    fn as_any(&self) -> &dyn Any {     //for testing
         self
     }
 }
