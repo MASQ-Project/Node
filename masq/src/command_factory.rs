@@ -33,7 +33,7 @@ impl CommandFactory for CommandFactoryReal {
             },
             "check-password" => match CheckPasswordCommand::new(pieces) {
                 Ok(command) => Box::new(command),
-                Err(msg) => unimplemented!("{}", msg),
+                Err(msg) => return Err(CommandSyntax(msg)),            //untested, error cannot be triggered as long as we allow passwords with white spaces
             },
             "crash" => match CrashCommand::new(pieces) {
                 Ok(command) => Box::new(command),
