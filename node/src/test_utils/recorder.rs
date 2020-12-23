@@ -510,6 +510,11 @@ impl PeerActorsBuilder {
         self
     }
 
+    pub fn configurator (mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.configurator = recorder;
+        self
+    }
+
     // This must be called after System.new and before System.run
     pub fn build(self) -> PeerActors {
         let proxy_server_addr = self.proxy_server.start();

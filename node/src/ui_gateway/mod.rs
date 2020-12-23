@@ -61,6 +61,7 @@ impl Handler<BindMessage> for UiGateway {
             msg.peer_actors.neighborhood.from_ui_message_sub.clone(),
             msg.peer_actors.blockchain_bridge.ui_sub.clone(),
             msg.peer_actors.dispatcher.ui_sub.clone(),
+            msg.peer_actors.configurator.node_from_ui_sub.clone(),
         ];
         self.websocket_supervisor = match WebSocketSupervisorReal::new(
             self.port,
@@ -116,7 +117,7 @@ impl Handler<NodeFromUiMessage> for UiGateway {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::recorder::{make_recorder, Recording};
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
@@ -128,8 +129,17 @@ mod tests {
 
     #[test]
     fn inbound_ui_message_is_disseminated_properly() {
+        // These actors should receive NodeFromUiMessages
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let (blockchain, _, blockchain_recording_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let (configurator, _, configurator_recording_arc) = make_recorder();
+        // These actors should not receive NodeFromUiMessages
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let (hopper, _, hopper_recording_arc) = make_recorder();
         let subject = UiGateway::new(&UiGatewayConfig {
             ui_port: find_free_port(),
             node_descriptor: String::from(""),
@@ -139,6 +149,13 @@ mod tests {
         let peer_actors = peer_actors_builder()
             .accountant(accountant)
             .neighborhood(neighborhood)
+            .blockchain_bridge (blockchain)
+            .dispatcher (dispatcher)
+            .configurator (configurator)
+            .ui_gateway (ui_gateway)
+            .proxy_server (proxy_server)
+            .proxy_client (proxy_client)
+            .hopper (hopper)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let msg = NodeFromUiMessage {
@@ -154,16 +171,23 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(
-            accountant_recording.get_record::<NodeFromUiMessage>(0),
-            &msg
-        );
-        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        assert_eq!(
-            neighborhood_recording.get_record::<NodeFromUiMessage>(0),
-            &msg
-        );
+        let did_receive = |recording_arc: Arc<Mutex<Recording>>| {
+            let recording = recording_arc.lock().unwrap();
+            assert_eq! (recording.get_record::<NodeFromUiMessage> (0), &msg);
+        };
+        let did_not_receive = |recording_arc: Arc<Mutex<Recording>>| {
+            let recording = recording_arc.lock().unwrap();
+            assert_eq! (recording.len(), 0);
+        };
+        did_receive (accountant_recording_arc);
+        did_receive (neighborhood_recording_arc);
+        did_receive (blockchain_recording_arc);
+        did_receive (dispatcher_recording_arc);
+        did_receive (configurator_recording_arc);
+        did_not_receive (ui_gateway_recording_arc);
+        did_not_receive (proxy_client_recording_arc);
+        did_not_receive (proxy_server_recording_arc);
+        did_not_receive (hopper_recording_arc);
     }
 
     #[test]
