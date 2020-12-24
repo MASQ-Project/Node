@@ -148,11 +148,10 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::messages::{
-        ToMessageBody, UiGenerateWalletsRequest,
-        UiGenerateWalletsResponse,
-    };
+    use masq_lib::messages::{ToMessageBody, UiGenerateWalletsRequest, UiGenerateWalletsResponse, UiMessageError};
     use std::sync::{Arc, Mutex};
+    use masq_lib::ui_gateway::{MessageBody, MessagePath};
+    use crate::command_context::ContextError::PayloadError;
 
     #[test]
     fn testing_command_factory_here() {

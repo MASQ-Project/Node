@@ -60,13 +60,17 @@ impl Handler<NodeFromUiMessage> for Configurator {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
+            debug! (&self.logger, "Handling {} message from client {}", msg.body.opcode, msg.client_id);
             let response = self.handle_check_password(body, context_id);
             self.send_to_ui_gateway(ClientId(msg.client_id), response);
         } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
+            debug! (&self.logger, "Handling {} message from client {}", msg.body.opcode, msg.client_id);
             let response = self.handle_change_password(body, msg.client_id, context_id);
             self.send_to_ui_gateway(ClientId(msg.client_id), response);
         } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.clone().body) {
+            debug! (&self.logger, "Handling {} message from client {}", msg.body.opcode, msg.client_id);
             let response = self.handle_generate_wallets(body, context_id);
+debug! (&self.logger, "Sending response to generateWallets command:\n{:?}", response);
             self.send_to_ui_gateway(ClientId(msg.client_id), response);
         }
     }

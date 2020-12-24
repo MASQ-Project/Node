@@ -4,6 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
+use std::any::Any;
 
 #[derive(Debug, PartialEq)]
 pub struct CheckPasswordCommand {
@@ -39,6 +40,10 @@ impl Command for CheckPasswordCommand {
         .expect("writeln! failed");
         Ok(())
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl CheckPasswordCommand {
@@ -57,24 +62,48 @@ impl CheckPasswordCommand {
 mod tests {
     use super::*;
     use crate::command_context::ContextError;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::command_factory::{CommandFactory, CommandFactoryReal, CommandFactoryError};
     use crate::commands::commands_common::{Command, CommandError};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse};
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn testing_command_factory_here() {
-        let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new()
-            .transact_result(Ok(UiCheckPasswordResponse { matches: true }.tmb(0)));
-        let subject = factory
-            .make(vec!["check-password".to_string(), "bonkers".to_string()])
+    fn testing_command_factory_with_good_command() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec![
+                "check-password".to_string(),
+                "bonkers".to_string(),
+            ])
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let check_password_command: &CheckPasswordCommand =
+            result.as_any().downcast_ref().unwrap();
+        assert_eq!(
+            check_password_command,
+            &CheckPasswordCommand {
+                db_password_opt: Some ("bonkers".to_string()),
+            }
+        );
+    }
 
-        assert_eq!(result, Ok(()));
+    #[test]
+    fn testing_command_factory_with_bad_command() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec![
+                "check-password".to_string(),
+                "bonkers".to_string(),
+                "invalid".to_string(),
+            ]);
+
+        match result {
+            Err(CommandFactoryError::CommandSyntax(msg)) => assert_eq! (msg.contains ("error: Found argument 'invalid'"), true),
+            x => panic! ("Expected CommandSyntax error, got {:?}", x),
+        }
     }
 
     #[test]
