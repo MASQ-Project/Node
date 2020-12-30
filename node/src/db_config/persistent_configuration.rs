@@ -100,6 +100,15 @@ pub trait PersistentConfiguration {
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError>;
+
+    fn set_wallet_info (
+        &mut self,
+        mnemonic_seed: &dyn AsRef<[u8]>,
+        consuming_wallet_derivation_path: &str,
+        earning_wallet_address: &str,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError>;
+
     fn past_neighbors(
         &self,
         db_password: &str,
@@ -349,6 +358,36 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
     }
 
+    fn set_wallet_info (
+        &mut self,
+        mnemonic_seed: &dyn AsRef<[u8]>,
+        consuming_wallet_derivation_path: &str,
+        earning_wallet_address: &str,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        if self.mnemonic_seed_exists()? {
+            unimplemented!()
+        }
+        if self.consuming_wallet_public_key()?.is_some() {
+            unimplemented!()
+        }
+        if self.consuming_wallet_derivation_path()?.is_some() {
+            unimplemented!()
+        }
+        if self.earning_wallet_address()?.is_some() {
+            unimplemented!()
+        }
+        let encoded_seed_opt = encode_bytes(Some(PlainData::new(mnemonic_seed.as_ref())))?;
+        let encrypted_seed_opt = self.scl.encrypt("seed", encoded_seed_opt, Some(db_password.to_string()), &self.dao)?;
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("seed", encrypted_seed_opt)?;
+        // TODO: Validate this first
+        writer.set("consuming_wallet_derivation_path", Some (consuming_wallet_derivation_path.to_string()))?;
+        // TODO: Validate this first
+        writer.set("earning_wallet_address", Some (earning_wallet_address.to_string()))?;
+        Ok(writer.commit()?)
+    }
+
     fn past_neighbors(
         &self,
         db_password: &str,
@@ -433,6 +472,7 @@ mod tests {
     use rustc_hex::FromHex;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
+    use bip39::{Language, MnemonicType};
 
     #[test]
     fn from_config_dao_error() {
@@ -742,170 +782,6 @@ mod tests {
     }
 
     #[test]
-    fn start_block_success() {
-        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
-            "start_block",
-            Some("6"),
-            false,
-        ))));
-        let subject = PersistentConfigurationReal::new(config_dao);
-
-        let start_block = subject.start_block().unwrap();
-
-        assert_eq!(start_block, Some(6));
-    }
-
-    #[test]
-    fn set_start_block_success() {
-        let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
-                .get_result(Ok(ConfigDaoRecord::new("start_block", Some("1234"), false)))
-                .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
-        );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
-        let mut subject = PersistentConfigurationReal::new(config_dao);
-
-        let result = subject.set_start_block(1234);
-
-        assert_eq!(result, Ok(()));
-        let set_params = set_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_params,
-            vec![("start_block".to_string(), Some("1234".to_string()))]
-        )
-    }
-
-    #[test]
-    fn gas_price() {
-        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
-            "gas_price",
-            Some("3"),
-            false,
-        ))));
-
-        let subject = PersistentConfigurationReal::new(config_dao);
-        let gas_price = subject.gas_price().unwrap();
-
-        assert_eq!(gas_price, Some(3));
-    }
-
-    #[test]
-    fn set_gas_price_succeeds() {
-        let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
-                .get_result(Ok(ConfigDaoRecord::new("gas_price", Some("1234"), false)))
-                .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
-        );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
-        let mut subject = PersistentConfigurationReal::new(config_dao);
-
-        let result = subject.set_gas_price(1234);
-
-        assert_eq!(result, Ok(()));
-        let set_params = set_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_params,
-            vec![("gas_price".to_string(), Some("1234".to_string()))]
-        )
-    }
-
-    #[test]
-    fn past_neighbors_success() {
-        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
-        let node_descriptors = vec![
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
-        ];
-        let node_descriptors_bytes =
-            PlainData::new(&serde_cbor::ser::to_vec(&node_descriptors).unwrap());
-        let node_descriptors_string = encode_bytes(Some(node_descriptors_bytes)).unwrap().unwrap();
-        let node_descriptors_enc =
-            Bip39::encrypt_bytes(&node_descriptors_string.as_bytes(), "password").unwrap();
-        let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = Box::new(
-            ConfigDaoMock::new()
-                .get_params(&get_params_arc)
-                .get_result(Ok(ConfigDaoRecord::new(
-                    "past_neighbors",
-                    Some(&node_descriptors_enc),
-                    true,
-                )))
-                .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
-                    true,
-                ))),
-        );
-        let subject = PersistentConfigurationReal::new(config_dao);
-
-        let result = subject.past_neighbors("password").unwrap();
-
-        assert_eq!(result, Some(node_descriptors));
-        let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_params,
-            vec!["past_neighbors".to_string(), EXAMPLE_ENCRYPTED.to_string()]
-        );
-    }
-
-    #[test]
-    fn set_past_neighbors_success() {
-        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
-        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
-        let node_descriptors = vec![
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
-        ];
-        let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
-                .get_result(Ok(ConfigDaoRecord::new(
-                    EXAMPLE_ENCRYPTED,
-                    Some(&example_encrypted),
-                    true,
-                )))
-                .get_result(Ok(ConfigDaoRecord::new(
-                    "past_neighbors",
-                    Some("irrelevant"),
-                    true,
-                )))
-                .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
-        );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
-        let mut subject = PersistentConfigurationReal::new(config_dao);
-
-        subject
-            .set_past_neighbors(Some(node_descriptors.clone()), "password")
-            .unwrap();
-
-        let set_params = set_params_arc.lock().unwrap();
-        assert_eq!(set_params[0].0, "past_neighbors".to_string());
-        let encrypted_serialized_node_descriptors = set_params[0].1.clone().unwrap();
-        let encoded_serialized_node_descriptors =
-            Bip39::decrypt_bytes(&encrypted_serialized_node_descriptors, "password").unwrap();
-        let serialized_node_descriptors = decode_bytes(Some(
-            String::from_utf8(encoded_serialized_node_descriptors.into()).unwrap(),
-        ))
-        .unwrap()
-        .unwrap();
-        let actual_node_descriptors = serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(
-            &serialized_node_descriptors.as_slice(),
-        )
-        .unwrap();
-        assert_eq!(actual_node_descriptors, node_descriptors);
-        assert_eq!(set_params.len(), 1);
-    }
-
-    #[test]
     fn consuming_wallet_public_key_retrieves_existing_key() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let public_key = PlainData::from("My first test".as_bytes());
@@ -941,7 +817,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: both consuming wallet public key and derivation path are set"
+    expected = "Database is corrupt: both consuming wallet public key and derivation path are set"
     )]
     fn consuming_wallet_public_key_panics_if_both_are_set() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1030,7 +906,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: both consuming wallet public key and derivation path are set"
+    expected = "Database is corrupt: both consuming wallet public key and derivation path are set"
     )]
     fn consuming_wallet_derivation_path_panics_if_both_are_set() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1083,6 +959,212 @@ mod tests {
                 "consuming_wallet_derivation_path"
             ]
         )
+    }
+
+    #[test]
+    fn earning_wallet_address() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "earning_wallet_address",
+                Some("existing_address"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.earning_wallet_address().unwrap().unwrap();
+
+        assert_eq!(result, "existing_address".to_string());
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["earning_wallet_address".to_string()]);
+    }
+
+    #[test]
+    fn earning_wallet_from_address_if_address_is_missing() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "earning_wallet_address",
+                None,
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.earning_wallet_from_address().unwrap();
+
+        assert_eq!(result, None);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["earning_wallet_address".to_string()]);
+    }
+
+    #[test]
+    #[should_panic(
+    expected = "Database corrupt: invalid earning wallet address '123456invalid': InvalidAddress"
+    )]
+    fn earning_wallet_from_address_if_address_is_set_and_invalid() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "earning_wallet_address",
+                Some("123456invalid"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let _ = subject.earning_wallet_from_address();
+    }
+
+    #[test]
+    fn earning_wallet_from_address_if_address_is_set_and_valid() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "earning_wallet_address",
+                Some("0x7d6dabd6b5c75291a3258c29b418f5805792a875"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.earning_wallet_from_address().unwrap();
+
+        assert_eq!(
+            result,
+            Some(Wallet::from_str("0x7d6dabd6b5c75291a3258c29b418f5805792a875").unwrap())
+        );
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["earning_wallet_address".to_string()]);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    ////                                  CHANGE TESTS BELOW                                  ////
+    //////////////////////////////////////////////////////////////////////////////////////////////
+
+    fn make_wallet_info (db_password: &str) -> (PlainData, String, String, String) {
+        let mnemonic = Bip39::mnemonic(MnemonicType::Words24, Language::English);
+        let mnemonic_seed = Bip39::seed (&mnemonic, "");
+        let seed_bytes = PlainData::new (mnemonic_seed.as_ref());
+        let encoded_seed = encode_bytes (Some (seed_bytes.clone())).unwrap().unwrap();
+        let encrypted_seed = Bip39::encrypt_bytes(&encoded_seed, db_password).unwrap();
+        let consuming_wallet_derivation_path = "m/66'/40'/0'/0/0".to_string();
+        let key_pair = Bip32ECKeyPair::from_raw(seed_bytes.as_slice(), "m/66'/40'/0'/0/1").unwrap();
+        let earning_wallet = Wallet::from(key_pair);
+        let earning_wallet_address = earning_wallet.to_string();
+        (seed_bytes, encrypted_seed, consuming_wallet_derivation_path, earning_wallet_address)
+    }
+
+    #[test]
+    fn set_wallet_info_success() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .commit_params(&commit_params_arc)
+                .commit_result(Ok(())),
+        );
+        let config_dao = Box::new(ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "seed",
+                None,
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "earning_wallet_address",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "seed",
+                None,
+                true,
+            )))
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+        let (seed_plain, _, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
+
+        let result = subject.set_wallet_info(&seed_plain, &consuming_wallet_derivation_path, &earning_wallet_address, "password");
+
+        assert_eq!(result, Ok(()));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec![
+                "seed".to_string(),
+                "consuming_wallet_public_key".to_string(),
+                "consuming_wallet_derivation_path".to_string(),
+                "consuming_wallet_public_key".to_string(),
+                "consuming_wallet_derivation_path".to_string(),
+                "earning_wallet_address".to_string(),
+                EXAMPLE_ENCRYPTED.to_string(),
+                "seed".to_string(),
+            ]
+        );
+        let mut set_params = set_params_arc.lock().unwrap();
+        let (_, encrypted_seed) = set_params.remove(0);
+        let encoded_seed_bytes = Bip39::decrypt_bytes (&encrypted_seed.unwrap(), "password").unwrap();
+        let encoded_seed_string = String::from_utf8(encoded_seed_bytes.into()).unwrap();
+        let actual_seed_plain = decode_bytes (Some(encoded_seed_string)).unwrap().unwrap();
+        assert_eq! (actual_seed_plain, seed_plain);
+        assert_eq!(
+            *set_params,
+            vec![
+                ("consuming_wallet_derivation_path".to_string(), Some (consuming_wallet_derivation_path)),
+                ("earning_wallet_address".to_string(), Some (earning_wallet_address))
+            ]
+        );
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()]);
+    }
+
+    #[test]
+    fn set_mnemonic_seed_fails_if_one_already_exists() {
+        unimplemented!();
+    }
+
+    #[test]
+    fn set_mnemonic_seed_fails_if_consuming_wallet_info_exists() {
+        unimplemented!();
+    }
+
+    #[test]
+    fn set_mnemonic_seed_fails_if_earning_wallet_info_exists() {
+        unimplemented!();
     }
 
     #[test]
@@ -1588,84 +1670,6 @@ mod tests {
     }
 
     #[test]
-    fn earning_wallet_address() {
-        let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                "earning_wallet_address",
-                Some("existing_address"),
-                false,
-            )));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-        let result = subject.earning_wallet_address().unwrap().unwrap();
-
-        assert_eq!(result, "existing_address".to_string());
-        let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(*get_params, vec!["earning_wallet_address".to_string()]);
-    }
-
-    #[test]
-    fn earning_wallet_from_address_if_address_is_missing() {
-        let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                "earning_wallet_address",
-                None,
-                false,
-            )));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-        let result = subject.earning_wallet_from_address().unwrap();
-
-        assert_eq!(result, None);
-        let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(*get_params, vec!["earning_wallet_address".to_string()]);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Database corrupt: invalid earning wallet address '123456invalid': InvalidAddress"
-    )]
-    fn earning_wallet_from_address_if_address_is_set_and_invalid() {
-        let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                "earning_wallet_address",
-                Some("123456invalid"),
-                false,
-            )));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-        let _ = subject.earning_wallet_from_address();
-    }
-
-    #[test]
-    fn earning_wallet_from_address_if_address_is_set_and_valid() {
-        let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoMock::new()
-            .get_params(&get_params_arc)
-            .get_result(Ok(ConfigDaoRecord::new(
-                "earning_wallet_address",
-                Some("0x7d6dabd6b5c75291a3258c29b418f5805792a875"),
-                false,
-            )));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-
-        let result = subject.earning_wallet_from_address().unwrap();
-
-        assert_eq!(
-            result,
-            Some(Wallet::from_str("0x7d6dabd6b5c75291a3258c29b418f5805792a875").unwrap())
-        );
-        let get_params = get_params_arc.lock().unwrap();
-        assert_eq!(*get_params, vec!["earning_wallet_address".to_string()]);
-    }
-
-    #[test]
     fn set_earning_wallet_address_works_if_no_address_exists() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1774,5 +1778,173 @@ mod tests {
                 "invalid address".to_string()
             ))
         );
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    ////                                  CHANGE TESTS ABOVE                                  ////
+    //////////////////////////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn start_block_success() {
+        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "start_block",
+            Some("6"),
+            false,
+        ))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let start_block = subject.start_block().unwrap();
+
+        assert_eq!(start_block, Some(6));
+    }
+
+    #[test]
+    fn set_start_block_success() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new("start_block", Some("1234"), false)))
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .commit_result(Ok(())),
+        );
+        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_start_block(1234);
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("start_block".to_string(), Some("1234".to_string()))]
+        )
+    }
+
+    #[test]
+    fn gas_price() {
+        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "gas_price",
+            Some("3"),
+            false,
+        ))));
+
+        let subject = PersistentConfigurationReal::new(config_dao);
+        let gas_price = subject.gas_price().unwrap();
+
+        assert_eq!(gas_price, Some(3));
+    }
+
+    #[test]
+    fn set_gas_price_succeeds() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new("gas_price", Some("1234"), false)))
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .commit_result(Ok(())),
+        );
+        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_gas_price(1234);
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("gas_price".to_string(), Some("1234".to_string()))]
+        )
+    }
+
+    #[test]
+    fn past_neighbors_success() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let node_descriptors = vec![
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+        ];
+        let node_descriptors_bytes =
+            PlainData::new(&serde_cbor::ser::to_vec(&node_descriptors).unwrap());
+        let node_descriptors_string = encode_bytes(Some(node_descriptors_bytes)).unwrap().unwrap();
+        let node_descriptors_enc =
+            Bip39::encrypt_bytes(&node_descriptors_string.as_bytes(), "password").unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
+                .get_params(&get_params_arc)
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "past_neighbors",
+                    Some(&node_descriptors_enc),
+                    true,
+                )))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&example_encrypted),
+                    true,
+                ))),
+        );
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.past_neighbors("password").unwrap();
+
+        assert_eq!(result, Some(node_descriptors));
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec!["past_neighbors".to_string(), EXAMPLE_ENCRYPTED.to_string()]
+        );
+    }
+
+    #[test]
+    fn set_past_neighbors_success() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let node_descriptors = vec![
+            NodeDescriptor::from_str(main_cryptde(), "AQIDBA@1.2.3.4:1234").unwrap(),
+            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+        ];
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .get_result(Ok(ConfigDaoRecord::new(
+                    EXAMPLE_ENCRYPTED,
+                    Some(&example_encrypted),
+                    true,
+                )))
+                .get_result(Ok(ConfigDaoRecord::new(
+                    "past_neighbors",
+                    Some("irrelevant"),
+                    true,
+                )))
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .commit_result(Ok(())),
+        );
+        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        subject
+            .set_past_neighbors(Some(node_descriptors.clone()), "password")
+            .unwrap();
+
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(set_params[0].0, "past_neighbors".to_string());
+        let encrypted_serialized_node_descriptors = set_params[0].1.clone().unwrap();
+        let encoded_serialized_node_descriptors =
+            Bip39::decrypt_bytes(&encrypted_serialized_node_descriptors, "password").unwrap();
+        let serialized_node_descriptors = decode_bytes(Some(
+            String::from_utf8(encoded_serialized_node_descriptors.into()).unwrap(),
+        ))
+            .unwrap()
+            .unwrap();
+        let actual_node_descriptors = serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(
+            &serialized_node_descriptors.as_slice(),
+        )
+            .unwrap();
+        assert_eq!(actual_node_descriptors, node_descriptors);
+        assert_eq!(set_params.len(), 1);
     }
 }

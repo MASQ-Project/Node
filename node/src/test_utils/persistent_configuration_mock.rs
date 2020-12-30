@@ -40,6 +40,8 @@ pub struct PersistentConfigurationMock {
     earning_wallet_address_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_earning_wallet_address_params: Arc<Mutex<Vec<String>>>,
     set_earning_wallet_address_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    set_wallet_info_params: Arc<Mutex<Vec<(PlainData, String, String, String)>>>,
+    set_wallet_info_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
     past_neighbors_results:
         RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
@@ -172,6 +174,23 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_earning_wallet_address_results
             .borrow_mut()
             .remove(0)
+    }
+
+    fn set_wallet_info (
+        &mut self,
+        mnemonic_seed: &dyn AsRef<[u8]>,
+        consuming_wallet_derivation_path: &str,
+        earning_wallet_address: &str,
+        db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_wallet_info_params.lock().unwrap()
+            .push ((
+                PlainData::new (mnemonic_seed.as_ref()),
+                consuming_wallet_derivation_path.to_string(),
+                earning_wallet_address.to_string(),
+                db_password.to_string(),
+            ));
+        self.set_wallet_info_results.borrow_mut().remove(0)
     }
 
     fn past_neighbors(
@@ -344,6 +363,19 @@ impl PersistentConfigurationMock {
         self.consuming_wallet_derivation_path_results
             .borrow_mut()
             .push(result);
+        self
+    }
+
+    pub fn set_wallet_info_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(PlainData, String, String, String)>>>,
+    ) -> PersistentConfigurationMock {
+        self.set_wallet_info_params = params.clone();
+        self
+    }
+
+    pub fn set_wallet_info_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_wallet_info_results.borrow_mut().push(result);
         self
     }
 
