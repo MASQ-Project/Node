@@ -366,16 +366,16 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
         if self.mnemonic_seed_exists()? {
-            unimplemented!()
+            return Err(PersistentConfigError::Collision("Mnemonic seed already populated; cannot replace".to_string()))
         }
         if self.consuming_wallet_public_key()?.is_some() {
-            unimplemented!()
+            return Err(PersistentConfigError::Collision("Consuming wallet public key already populated; cannot replace".to_string()))
         }
         if self.consuming_wallet_derivation_path()?.is_some() {
-            unimplemented!()
+            return Err(PersistentConfigError::Collision("Consuming wallet derivation path already populated; cannot replace".to_string()))
         }
         if self.earning_wallet_address()?.is_some() {
-            unimplemented!()
+            return Err(PersistentConfigError::Collision("Earning wallet address already populated; cannot replace".to_string()))
         }
         let encoded_seed_opt = encode_bytes(Some(PlainData::new(mnemonic_seed.as_ref())))?;
         let encrypted_seed_opt = self.scl.encrypt("seed", encoded_seed_opt, Some(db_password.to_string()), &self.dao)?;
@@ -1154,17 +1154,125 @@ mod tests {
 
     #[test]
     fn set_mnemonic_seed_fails_if_one_already_exists() {
-        unimplemented!();
+        let config_dao = Box::new(ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                "seed",
+                Some ("irrelevant"),
+                true,
+            )))
+        );
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+        let (seed_plain, _, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
+
+        let result = subject.set_wallet_info(&seed_plain, &consuming_wallet_derivation_path, &earning_wallet_address, "password");
+
+        assert_eq!(result, Err(PersistentConfigError::Collision("Mnemonic seed already populated; cannot replace".to_string())));
     }
 
     #[test]
-    fn set_mnemonic_seed_fails_if_consuming_wallet_info_exists() {
-        unimplemented!();
+    fn set_mnemonic_seed_fails_if_consuming_wallet_public_key_exists() {
+        let config_dao = Box::new(ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                "seed",
+                None,
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                Some("00000000"),
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                None,
+                false,
+            )))
+        );
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+        let (seed_plain, _, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
+
+        let result = subject.set_wallet_info(&seed_plain, &consuming_wallet_derivation_path, &earning_wallet_address, "password");
+
+        assert_eq!(result, Err(PersistentConfigError::Collision("Consuming wallet public key already populated; cannot replace".to_string())));
     }
 
     #[test]
-    fn set_mnemonic_seed_fails_if_earning_wallet_info_exists() {
-        unimplemented!();
+    fn set_mnemonic_seed_fails_if_consuming_wallet_derivation_path_exists() {
+        let config_dao = Box::new(ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                "seed",
+                None,
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                Some("m/60'/44'/0'/4/4"),
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                Some("m/60'/44'/0'/4/4"),
+                false,
+            )))
+        );
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+        let (seed_plain, _, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
+
+        let result = subject.set_wallet_info(&seed_plain, &consuming_wallet_derivation_path, &earning_wallet_address, "password");
+
+        assert_eq!(result, Err(PersistentConfigError::Collision("Consuming wallet derivation path already populated; cannot replace".to_string())));
+    }
+
+    #[test]
+    fn set_mnemonic_seed_fails_if_earning_wallet_address_exists() {
+        let config_dao = Box::new(ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                "seed",
+                None,
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "earning_wallet_address",
+                Some ("irrelevant"),
+                false,
+            )))
+        );
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+        let (seed_plain, _, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
+
+        let result = subject.set_wallet_info(&seed_plain, &consuming_wallet_derivation_path, &earning_wallet_address, "password");
+
+        assert_eq!(result, Err(PersistentConfigError::Collision("Earning wallet address already populated; cannot replace".to_string())));
     }
 
     #[test]
