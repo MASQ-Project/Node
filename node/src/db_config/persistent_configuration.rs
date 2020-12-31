@@ -377,6 +377,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         if self.earning_wallet_address()?.is_some() {
             return Err(PersistentConfigError::Collision("Earning wallet address already populated; cannot replace".to_string()))
         }
+        // TODO: Validate the seed first
         let encoded_seed_opt = encode_bytes(Some(PlainData::new(mnemonic_seed.as_ref())))?;
         let encrypted_seed_opt = self.scl.encrypt("seed", encoded_seed_opt, Some(db_password.to_string()), &self.dao)?;
         let mut writer = self.dao.start_transaction()?;
