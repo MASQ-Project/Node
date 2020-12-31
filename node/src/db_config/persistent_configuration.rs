@@ -339,6 +339,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         new_address: &'b str,
     ) -> Result<(), PersistentConfigError> {
+       // let new_address = if &new_address[0..=1] == "0x" {&new_address[2..]} else {new_address};
         if Wallet::from_str(new_address).is_err() {
             return Err(PersistentConfigError::BadAddressFormat(
                 new_address.to_string(),

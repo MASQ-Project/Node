@@ -223,7 +223,7 @@ impl Configurator {
             ));
         };
         if let Err(e) =
-            persistent_config.set_earning_wallet_address(&earning_wallet.address().to_string())
+            persistent_config.set_earning_wallet_address(&earning_wallet.string_address_from_keypair())
         {
             return Err((
                 CONFIGURATOR_WRITE_ERROR,
@@ -331,6 +331,9 @@ impl Configurator {
             });
     }
 }
+// pub fn testing_util_for_generate_wallet(seed:&Seed,deriv_path:&str)-> Result<Wallet, MessageError>{
+//     Configurator::generate_wallet(seed,deriv_path)
+// }
 
 #[cfg(test)]
 mod tests {
@@ -359,6 +362,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use crate::blockchain::test_utils::make_meaningless_seed;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -638,7 +642,7 @@ mod tests {
             set_earning_wallet_address_params_arc.lock().unwrap();
         assert_eq!(
             *set_earning_wallet_address_params,
-            vec![earning_wallet.address().to_string()]
+            vec![earning_wallet.string_address_from_keypair()]
         );
     }
 
@@ -834,6 +838,50 @@ mod tests {
         )
     }
 
+    // #[test]
+    // fn handle_generate_wallets_works_for_wallet_received_from_outside() {
+    //     //Tests whether the wallet address has been correctly converted into String
+    //     //If simple Display trait is used the output is invalid; can be a cause of troubles
+    //     let derivation_path = "m/44'/60'/0'/0/5";
+    //     let seed = make_meaningless_seed();
+    //     let wallet = testing_util_for_generate_wallet(&seed,derivation_path).unwrap();
+    //         let writer = Box::new(ConfigDaoWriteableMock::new()
+    //                 .get_result(Ok(ConfigDaoRecord::new(
+    //                     "earning_wallet_address",
+    //                     Some(&earning_address),
+    //                     false,
+    //                 ))),
+    //         );
+    //     let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+    //     let mut persistent_config = PersistentConfigurationReal::new(config_dao);
+    //
+    //     // let persistent_config = PersistentConfigurationMock::new()
+    //     //     .check_password_result(Ok(true))
+    //     //     .mnemonic_seed_exists_result(Ok(false))
+    //     //     .set_mnemonic_seed_result(Ok(()))
+    //     //     .set_consuming_wallet_derivation_path_result(Ok(()))
+    //     //     .set_earning_wallet_address_result(Err(PersistentConfigError::BadAddressFormat(
+    //     //         "booga".to_string(),
+    //     //     )));
+    //     let mut subject = make_subject(Some(persistent_config));
+    //
+    //
+    //     let result = subject.handle_generate_wallets(make_example_generate_wallets_request(), 4321);
+    //
+    //     assert_eq!(
+    //         result,
+    //         MessageBody {
+    //             opcode: "generateWallets".to_string(),
+    //             path: MessagePath::Conversation(4321),
+    //             payload: Err((
+    //                 CONFIGURATOR_WRITE_ERROR,
+    //                 "Earning wallet could not be set: BadAddressFormat(\"booga\")".to_string()
+    //             ))
+    //         }
+    //     )
+    // }
+    //
+
     #[test]
     fn parse_language_handles_expected_languages() {
         vec![
@@ -894,6 +942,14 @@ mod tests {
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let expected_seed = Bip39::seed(&mnemonic, "");
         assert_eq!(actual_seed.as_ref(), expected_seed.as_ref());
+    }
+
+    #[test]
+    fn generate_wallet_generates_sensible_values(){
+        let derivation_path = "m/44'/60'/0'/0/5";
+        let seed = make_meaningless_seed();
+        let wallet = Configurator::generate_wallet(&seed,derivation_path);
+        eprintln!("{:?}",wallet)
     }
 
     fn make_example_generate_wallets_request() -> UiGenerateWalletsRequest {
