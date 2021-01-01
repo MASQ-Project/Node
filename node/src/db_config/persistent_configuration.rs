@@ -88,17 +88,12 @@ pub trait PersistentConfiguration {
         seed: &dyn AsRef<[u8]>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
-    // fn consuming_wallet_public_key(&self) -> Result<Option<PlainData>, PersistentConfigError>;
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_consuming_wallet_derivation_path(
         &mut self,
         derivation_path: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
-    // fn set_consuming_wallet_public_key(
-    //     &mut self,
-    //     public_key: &PlainData,
-    // ) -> Result<(), PersistentConfigError>;
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError>;

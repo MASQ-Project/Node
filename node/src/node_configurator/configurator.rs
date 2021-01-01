@@ -359,7 +359,6 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use crate::blockchain::test_utils::make_meaningless_seed;
 
     #[test]
     fn constructor_connects_with_database() {
