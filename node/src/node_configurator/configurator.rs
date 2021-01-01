@@ -897,14 +897,6 @@ mod tests {
         assert_eq!(actual_seed.as_ref(), expected_seed.as_ref());
     }
 
-    #[test]
-    fn generate_wallet_generates_sensible_values(){
-        let derivation_path = "m/44'/60'/0'/0/5";
-        let seed = make_meaningless_seed();
-        let wallet = Configurator::generate_wallet(&seed,derivation_path);
-        eprintln!("{:?}",wallet)
-    }
-
     fn make_example_generate_wallets_request() -> UiGenerateWalletsRequest {
         UiGenerateWalletsRequest {
             db_password: "password".to_string(),
