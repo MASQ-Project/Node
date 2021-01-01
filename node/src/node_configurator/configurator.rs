@@ -223,7 +223,7 @@ impl Configurator {
             ));
         };
         if let Err(e) =
-            persistent_config.set_earning_wallet_address(&earning_wallet.address().to_string())
+            persistent_config.set_earning_wallet_address(&earning_wallet.string_address_from_keypair())
         {
             return Err((
                 CONFIGURATOR_WRITE_ERROR,
@@ -359,6 +359,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use crate::blockchain::test_utils::make_meaningless_seed;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -638,7 +639,7 @@ mod tests {
             set_earning_wallet_address_params_arc.lock().unwrap();
         assert_eq!(
             *set_earning_wallet_address_params,
-            vec![earning_wallet.address().to_string()]
+            vec![earning_wallet.string_address_from_keypair()]
         );
     }
 
@@ -894,6 +895,14 @@ mod tests {
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let expected_seed = Bip39::seed(&mnemonic, "");
         assert_eq!(actual_seed.as_ref(), expected_seed.as_ref());
+    }
+
+    #[test]
+    fn generate_wallet_generates_sensible_values(){
+        let derivation_path = "m/44'/60'/0'/0/5";
+        let seed = make_meaningless_seed();
+        let wallet = Configurator::generate_wallet(&seed,derivation_path);
+        eprintln!("{:?}",wallet)
     }
 
     fn make_example_generate_wallets_request() -> UiGenerateWalletsRequest {

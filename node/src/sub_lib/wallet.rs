@@ -135,6 +135,10 @@ impl Wallet {
         }
     }
 
+    pub fn string_address_from_keypair(&self) -> String {
+        format!("{:#x}",self.address())
+    }
+
     pub fn sign(&self, msg: &dyn AsRef<[u8]>) -> Result<Signature, WalletError> {
         match self.kind {
             WalletKind::KeyPair(ref key_pair) => key_pair
@@ -442,6 +446,7 @@ mod tests {
     use std::collections::hash_map::DefaultHasher;
     use std::convert::TryFrom;
     use std::str::FromStr;
+    use crate::blockchain::test_utils::make_meaningless_seed;
 
     #[test]
     fn can_create_with_str_address() {
@@ -480,6 +485,17 @@ mod tests {
             "|0xcafedeadbeefbabefacecafedeadbeefbabeface|".to_string(),
             result
         );
+    }
+
+    #[test]
+    fn string_address_from_keypair_works(){
+        let derivation_path = "m/44'/60'/0'/0/5";
+        let expected_seed= make_meaningless_seed();
+        let wallet = Wallet::from(Bip32ECKeyPair::from_raw(expected_seed.as_bytes(), derivation_path).unwrap());
+
+        let result = wallet.string_address_from_keypair();
+
+        assert_eq!(result,"0x30ff09882f583e76e965f21f1893ad9cdf03f02d")
     }
 
     #[test]
