@@ -510,7 +510,7 @@ impl PeerActorsBuilder {
         self
     }
 
-    pub fn configurator (mut self, recorder: Recorder) -> PeerActorsBuilder {
+    pub fn configurator(mut self, recorder: Recorder) -> PeerActorsBuilder {
         self.configurator = recorder;
         self
     }

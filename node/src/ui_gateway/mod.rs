@@ -117,8 +117,8 @@ impl Handler<NodeFromUiMessage> for UiGateway {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::recorder::{make_recorder, Recording};
     use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::recorder::{make_recorder, Recording};
     use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
@@ -149,13 +149,13 @@ mod tests {
         let peer_actors = peer_actors_builder()
             .accountant(accountant)
             .neighborhood(neighborhood)
-            .blockchain_bridge (blockchain)
-            .dispatcher (dispatcher)
-            .configurator (configurator)
-            .ui_gateway (ui_gateway)
-            .proxy_server (proxy_server)
-            .proxy_client (proxy_client)
-            .hopper (hopper)
+            .blockchain_bridge(blockchain)
+            .dispatcher(dispatcher)
+            .configurator(configurator)
+            .ui_gateway(ui_gateway)
+            .proxy_server(proxy_server)
+            .proxy_client(proxy_client)
+            .hopper(hopper)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let msg = NodeFromUiMessage {
@@ -173,21 +173,21 @@ mod tests {
         system.run();
         let did_receive = |recording_arc: Arc<Mutex<Recording>>| {
             let recording = recording_arc.lock().unwrap();
-            assert_eq! (recording.get_record::<NodeFromUiMessage> (0), &msg);
+            assert_eq!(recording.get_record::<NodeFromUiMessage>(0), &msg);
         };
         let did_not_receive = |recording_arc: Arc<Mutex<Recording>>| {
             let recording = recording_arc.lock().unwrap();
-            assert_eq! (recording.len(), 0);
+            assert_eq!(recording.len(), 0);
         };
-        did_receive (accountant_recording_arc);
-        did_receive (neighborhood_recording_arc);
-        did_receive (blockchain_recording_arc);
-        did_receive (dispatcher_recording_arc);
-        did_receive (configurator_recording_arc);
-        did_not_receive (ui_gateway_recording_arc);
-        did_not_receive (proxy_client_recording_arc);
-        did_not_receive (proxy_server_recording_arc);
-        did_not_receive (hopper_recording_arc);
+        did_receive(accountant_recording_arc);
+        did_receive(neighborhood_recording_arc);
+        did_receive(blockchain_recording_arc);
+        did_receive(dispatcher_recording_arc);
+        did_receive(configurator_recording_arc);
+        did_not_receive(ui_gateway_recording_arc);
+        did_not_receive(proxy_client_recording_arc);
+        did_not_receive(proxy_server_recording_arc);
+        did_not_receive(hopper_recording_arc);
     }
 
     #[test]

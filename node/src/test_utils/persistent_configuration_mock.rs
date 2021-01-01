@@ -172,20 +172,19 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .remove(0)
     }
 
-    fn set_wallet_info (
+    fn set_wallet_info(
         &mut self,
         mnemonic_seed: &dyn AsRef<[u8]>,
         consuming_wallet_derivation_path: &str,
         earning_wallet_address: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
-        self.set_wallet_info_params.lock().unwrap()
-            .push ((
-                PlainData::new (mnemonic_seed.as_ref()),
-                consuming_wallet_derivation_path.to_string(),
-                earning_wallet_address.to_string(),
-                db_password.to_string(),
-            ));
+        self.set_wallet_info_params.lock().unwrap().push((
+            PlainData::new(mnemonic_seed.as_ref()),
+            consuming_wallet_derivation_path.to_string(),
+            earning_wallet_address.to_string(),
+            db_password.to_string(),
+        ));
         self.set_wallet_info_results.borrow_mut().remove(0)
     }
 
