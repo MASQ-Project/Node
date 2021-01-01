@@ -372,17 +372,26 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         earning_wallet_address: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError> {
-        if self.mnemonic_seed_exists()? {
-            return Err(PersistentConfigError::Collision("Mnemonic seed already populated; cannot replace".to_string()))
+        match self.mnemonic_seed(db_password)? {
+            None => (),
+            Some (existing_mnemonic_seed) => if PlainData::new (mnemonic_seed.as_ref()) != existing_mnemonic_seed {
+                return Err(PersistentConfigError::Collision("Mnemonic seed already populated; cannot replace".to_string()))
+            }
         }
         if self.consuming_wallet_public_key()?.is_some() {
             return Err(PersistentConfigError::Collision("Consuming wallet public key already populated; cannot replace".to_string()))
         }
-        if self.consuming_wallet_derivation_path()?.is_some() {
-            return Err(PersistentConfigError::Collision("Consuming wallet derivation path already populated; cannot replace".to_string()))
+        match self.consuming_wallet_derivation_path()? {
+            None => (),
+            Some (existing_consuming_wallet_derivation_path) => if consuming_wallet_derivation_path != &existing_consuming_wallet_derivation_path {
+                return Err(PersistentConfigError::Collision("Consuming wallet derivation path already populated; cannot replace".to_string()))
+            }
         }
-        if self.earning_wallet_address()?.is_some() {
-            return Err(PersistentConfigError::Collision("Earning wallet address already populated; cannot replace".to_string()))
+        match self.earning_wallet_address()? {
+            None => (),
+            Some (existing_earning_wallet_address) => if earning_wallet_address != &existing_earning_wallet_address {
+                return Err(PersistentConfigError::Collision("Earning wallet address already populated; cannot replace".to_string()))
+            }
         }
         if !Self::validate_mnemonic_seed (mnemonic_seed) {
             return Err(PersistentConfigError::BadMnemonicSeed(PlainData::new (mnemonic_seed.as_ref())))
@@ -1071,12 +1080,17 @@ mod tests {
     ////                                  CHANGE TESTS BELOW                                  ////
     //////////////////////////////////////////////////////////////////////////////////////////////
 
-    fn make_wallet_info (db_password: &str) -> (PlainData, String, String, String) {
+    fn make_seed_info (db_password: &str) -> (PlainData, String) {
         let mnemonic = Bip39::mnemonic(MnemonicType::Words24, Language::English);
         let mnemonic_seed = Bip39::seed (&mnemonic, "");
         let seed_bytes = PlainData::new (mnemonic_seed.as_ref());
-        let encoded_seed = encode_bytes (Some (seed_bytes.clone())).unwrap().unwrap();
-        let encrypted_seed = Bip39::encrypt_bytes(&encoded_seed, db_password).unwrap();
+        let encoded_seed = encode_bytes(Some(seed_bytes.clone())).unwrap().unwrap();
+        let encrypted_seed = Bip39::encrypt_bytes (&encoded_seed.as_bytes(), db_password).unwrap();
+        (seed_bytes, encrypted_seed)
+    }
+
+    fn make_wallet_info (db_password: &str) -> (PlainData, String, String, String) {
+        let (seed_bytes, encrypted_seed) = make_seed_info(db_password);
         let consuming_wallet_derivation_path = "m/66'/40'/0'/0/0".to_string();
         let key_pair = Bip32ECKeyPair::from_raw(seed_bytes.as_slice(), "m/66'/40'/0'/0/1").unwrap();
         let earning_wallet = Wallet::from(key_pair);
@@ -1106,6 +1120,11 @@ mod tests {
                 "seed",
                 None,
                 true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_public_key",
@@ -1154,6 +1173,7 @@ mod tests {
             *get_params,
             vec![
                 "seed".to_string(),
+                EXAMPLE_ENCRYPTED.to_string(),
                 "consuming_wallet_public_key".to_string(),
                 "consuming_wallet_derivation_path".to_string(),
                 "consuming_wallet_public_key".to_string(),
@@ -1182,15 +1202,23 @@ mod tests {
 
     #[test]
     fn set_wallet_info_fails_if_mnemonic_seed_already_exists() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let (_, encrypted_seed) = make_seed_info("password");
         let config_dao = Box::new(ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "seed",
-                Some ("irrelevant"),
+                Some (&encrypted_seed),
                 true,
             )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
+            )))
         );
-        let mut subject = PersistentConfigurationReal::new(config_dao);
         let (seed_plain, _, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
+        let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_wallet_info(&seed_plain, &consuming_wallet_derivation_path, &earning_wallet_address, "password");
 
@@ -1199,11 +1227,18 @@ mod tests {
 
     #[test]
     fn set_wallet_info_fails_if_consuming_wallet_public_key_exists() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let config_dao = Box::new(ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "seed",
                 None,
                 true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_public_key",
@@ -1226,11 +1261,19 @@ mod tests {
 
     #[test]
     fn set_wallet_info_fails_if_consuming_wallet_derivation_path_exists() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let (seed_plain, _, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
         let config_dao = Box::new(ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "seed",
                 None,
                 true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_public_key",
@@ -1254,7 +1297,6 @@ mod tests {
             )))
         );
         let mut subject = PersistentConfigurationReal::new(config_dao);
-        let (seed_plain, _, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
 
         let result = subject.set_wallet_info(&seed_plain, &consuming_wallet_derivation_path, &earning_wallet_address, "password");
 
@@ -1263,11 +1305,18 @@ mod tests {
 
     #[test]
     fn set_wallet_info_fails_if_earning_wallet_address_exists() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let config_dao = Box::new(ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "seed",
                 None,
                 true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_public_key",
@@ -1291,7 +1340,7 @@ mod tests {
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "earning_wallet_address",
-                Some ("irrelevant"),
+                Some ("m/60'/44'/0'/4/5"),
                 false,
             )))
         );
@@ -1304,12 +1353,85 @@ mod tests {
     }
 
     #[test]
+    fn set_wallet_info_works_okay_if_incoming_values_are_same_as_existing_values() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
+        let writer = Box::new(
+            ConfigDaoWriteableMock::new()
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .commit_result(Ok(())),
+        );
+        let (seed_plain, seed_encrypted, consuming_wallet_derivation_path, earning_wallet_address) = make_wallet_info("password");
+        let config_dao = Box::new(ConfigDaoMock::new()
+            .get_result(Ok(ConfigDaoRecord::new(
+                "seed",
+                Some (&seed_encrypted),
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                Some (&consuming_wallet_derivation_path),
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_public_key",
+                None,
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "consuming_wallet_derivation_path",
+                Some (&consuming_wallet_derivation_path),
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "earning_wallet_address",
+                Some (&earning_wallet_address),
+                false,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "seed",
+                Some (&seed_encrypted),
+                true,
+            )))
+            .start_transaction_result(Ok(writer)));
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_wallet_info(&seed_plain, &consuming_wallet_derivation_path, &earning_wallet_address, "password");
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
     fn set_wallet_info_fails_if_mnemonic_seed_is_invalid() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let config_dao = Box::new(ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "seed",
                 None,
                 true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_public_key",
@@ -1347,11 +1469,18 @@ mod tests {
 
     #[test]
     fn set_wallet_info_fails_if_consuming_derivation_path_is_invalid() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let config_dao = Box::new(ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "seed",
                 None,
                 true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_public_key",
@@ -1389,11 +1518,18 @@ mod tests {
 
     #[test]
     fn set_wallet_info_fails_if_earning_wallet_address_is_invalid() {
+        let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
+        let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let config_dao = Box::new(ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 "seed",
                 None,
                 true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_public_key",
@@ -1446,6 +1582,11 @@ mod tests {
                 "seed",
                 None,
                 true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(&example_encrypted),
+                true
             )))
             .get_result(Ok(ConfigDaoRecord::new(
                 "consuming_wallet_public_key",

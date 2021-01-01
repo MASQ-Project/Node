@@ -20,6 +20,7 @@ impl ConfigDaoRead for ConfigDaoMock {
     }
 
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
+eprintln! ("ConfigDaoMock seeking value for '{}'", name);
         self.get_params.lock().unwrap().push(name.to_string());
         self.get_results.borrow_mut().remove(0)
     }

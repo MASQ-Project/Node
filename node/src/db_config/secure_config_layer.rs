@@ -64,6 +64,7 @@ impl SecureConfigLayer {
         self.install_example_for_password(new_password, dao)?;
         Ok(())
     }
+
     #[allow(clippy::borrowed_box)]
     pub fn encrypt<T: ConfigDaoRead + ?Sized>(
         &self,
