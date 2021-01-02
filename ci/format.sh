@@ -5,7 +5,7 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 final_exit_code=0
 
 format() {
-  pushd $1
+  pushd "$1"
 
   cargo fmt --all -- --check
   exit_code="$?"
