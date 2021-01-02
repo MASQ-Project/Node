@@ -1,9 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 pub mod configurator;
-pub mod node_configurator_generate_wallet;
 pub mod node_configurator_initialization;
-pub mod node_configurator_recover_wallet;
 pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;

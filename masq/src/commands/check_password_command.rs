@@ -97,7 +97,13 @@ mod tests {
 
         match result {
             Err(CommandFactoryError::CommandSyntax(msg)) => {
-                assert_eq!(msg.contains("error: Found argument 'invalid'"), true)
+                // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
+                assert_eq!(
+                    msg.contains("which wasn't expected, or isn't valid in this context"),
+                    true,
+                    "{}",
+                    msg
+                )
             }
             x => panic!("Expected CommandSyntax error, got {:?}", x),
         }
