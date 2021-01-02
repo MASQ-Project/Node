@@ -2,6 +2,7 @@
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
+use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
@@ -252,6 +253,7 @@ pub struct NeighborhoodSubs {
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
+    pub new_password_sub: Recipient<NewPasswordMessage>,
 }
 
 impl Debug for NeighborhoodSubs {
@@ -439,6 +441,7 @@ mod tests {
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
+            new_password_sub: recipient!(recorder, NewPasswordMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "NeighborhoodSubs");

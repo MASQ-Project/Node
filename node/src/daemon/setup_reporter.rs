@@ -876,7 +876,7 @@ mod tests {
     };
     use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
     use crate::node_test_utils::MockDirsWrapper;
-    use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
@@ -927,13 +927,15 @@ mod tests {
         config.change_password(None, "password").unwrap();
         config.set_clandestine_port(1234).unwrap();
         config
-            .set_mnemonic_seed(b"booga booga", "password")
-            .unwrap();
-        config
-            .set_consuming_wallet_derivation_path("m/44'/60'/1'/2/3", "password")
-            .unwrap();
-        config
-            .set_earning_wallet_address("0x0000000000000000000000000000000000000000")
+            .set_wallet_info(
+                &PlainData::new(
+                    b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+                )
+                .as_ref(),
+                "m/44'/60'/1'/2/3",
+                "0x0000000000000000000000000000000000000000",
+                "password",
+            )
             .unwrap();
         config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {

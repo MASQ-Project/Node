@@ -1,6 +1,11 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::commands::change_password_command::{
+    change_password_subcommand, set_password_subcommand,
+};
+use crate::commands::check_password_command::check_password_subcommand;
 use crate::commands::crash_command::crash_subcommand;
 use crate::commands::descriptor_command::descriptor_subcommand;
+use crate::commands::generate_wallets_command::generate_wallets_subcommand;
 use crate::commands::setup_command::setup_subcommand;
 use crate::commands::shutdown_command::shutdown_subcommand;
 use crate::commands::start_command::start_subcommand;
@@ -42,8 +47,12 @@ pub fn app() -> App<'static, 'static> {
                 .validator(validate_ui_port)
                 .help(UI_PORT_HELP.as_str()),
         )
+        .subcommand(set_password_subcommand())
+        .subcommand(change_password_subcommand())
+        .subcommand(check_password_subcommand())
         .subcommand(crash_subcommand())
         .subcommand(descriptor_subcommand())
+        .subcommand(generate_wallets_subcommand())
         .subcommand(setup_subcommand())
         .subcommand(start_subcommand())
         .subcommand(shutdown_subcommand())

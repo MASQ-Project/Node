@@ -100,6 +100,7 @@ fn distill_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip39::Bip39;
     use crate::blockchain::blockchain_interface::{
         chain_id_from_name, contract_creation_block_from_chain_id,
     };
@@ -107,13 +108,14 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
     };
-    use crate::sub_lib::cryptde::PlainData;
     use crate::test_utils::ArgsBuilder;
+    use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
+    use serde_json::value::Value::Null;
 
     #[test]
     fn dump_config_creates_database_if_nonexistent() {
@@ -170,11 +172,17 @@ mod tests {
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
+            persistent_config.change_password(None, "password").unwrap();
             persistent_config
-                .set_consuming_wallet_public_key(&PlainData::new(&[1, 2, 3, 4]))
-                .unwrap();
-            persistent_config
-                .set_earning_wallet_address("0x0123456789012345678901234567890123456789")
+                .set_wallet_info(
+                    &Seed::new(
+                        &Bip39::mnemonic(MnemonicType::Words24, Language::English),
+                        "",
+                    ),
+                    "m/60'/44'/0'/4/4",
+                    "0x0123456789012345678901234567890123456789",
+                    "password",
+                )
                 .unwrap();
             persistent_config.set_clandestine_port(3456).unwrap();
         }
@@ -189,19 +197,34 @@ mod tests {
 
         assert_eq!(result, 0);
         let output = holder.stdout.get_string();
-        let actual_value: Value = serde_json::from_str(&output).unwrap();
-        let expected_value = json!({
-           "clandestinePort": "3456",
-           "consumingWalletDerivationPath": null,
-           "consumingWalletPublicKey": "01020304",
-           "earningWalletAddress": "0x0123456789012345678901234567890123456789",
-           "exampleEncrypted": null,
-           "gasPrice": "1",
-           "pastNeighbors": null,
-           "schemaVersion": CURRENT_SCHEMA_VERSION,
-           "seed": null,
-           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
-        });
-        assert_eq!(actual_value, expected_value);
+        let map = match serde_json::from_str(&output).unwrap() {
+            Value::Object(map) => map,
+            x => panic!("Expected JSON object; found {:?}", x),
+        };
+        let check = |key: &str, expected_value: &str| {
+            let actual_value = match map.get(key).unwrap() {
+                Value::String(s) => s,
+                x => panic!("Expected JSON string; found {:?}", x),
+            };
+            assert_eq!(actual_value, expected_value);
+        };
+        let check_null = |key: &str| assert_eq!(map.get(key), Some(&Null));
+        let check_present = |key: &str| assert_eq!(map.get(key).is_some(), true);
+        check("clandestinePort", "3456");
+        check("consumingWalletDerivationPath", "m/60'/44'/0'/4/4");
+        check(
+            "earningWalletAddress",
+            "0x0123456789012345678901234567890123456789",
+        );
+        check("gasPrice", "1");
+        check_null("pastNeighbors");
+        check("schemaVersion", CURRENT_SCHEMA_VERSION);
+        check(
+            "startBlock",
+            &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
+                .to_string(),
+        );
+        check_present("exampleEncrypted");
+        check_present("seed");
     }
 }

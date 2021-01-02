@@ -6,6 +6,7 @@ use crate::commands::commands_common::CommandError::{
 };
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
+use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
 
@@ -37,6 +38,10 @@ impl Display for CommandError {
 
 pub trait Command: Debug {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError>;
+
+    fn as_any(&self) -> &dyn Any {
+        unimplemented!("If your tests don't use this, don't implement it");
+    }
 }
 
 pub fn send<I>(input: I, context: &mut dyn CommandContext) -> Result<(), CommandError>

@@ -32,7 +32,7 @@ struct Main {
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let broadcast_stream_factory = StreamFactoryReal::new();
-        let mut processor = match self
+        let mut command_processor = match self
             .processor_factory
             .make(Box::new(broadcast_stream_factory), args)
         {
@@ -44,14 +44,14 @@ impl command::Command for Main {
         };
         let result = match Self::extract_subcommand(args) {
             Some(command_parts) => {
-                match self.handle_command(&mut *processor, command_parts, streams.stderr) {
+                match self.handle_command(&mut *command_processor, command_parts, streams.stderr) {
                     Ok(_) => 0,
                     Err(_) => 1,
                 }
             }
-            None => self.go_interactive(&mut *processor, streams),
+            None => self.go_interactive(&mut *command_processor, streams),
         };
-        processor.close();
+        command_processor.close();
         result
     }
 }

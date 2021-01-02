@@ -437,7 +437,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let result = subject.try_multi_insert_payment(&payments);
+        let result = subject.try_multi_insert_payment(&payments.as_slice());
 
         assert_eq!(
             result,
@@ -468,7 +468,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let result = subject.try_multi_insert_payment(&payments);
+        let result = subject.try_multi_insert_payment(&payments.as_slice());
 
         assert_eq!(
             result,
@@ -500,7 +500,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let _ = subject.try_multi_insert_payment(&payments);
+        let _ = subject.try_multi_insert_payment(payments.as_slice());
     }
 
     #[test]

@@ -418,6 +418,78 @@ fire_and_forget_message!(UiUnmarshalError, "unmarshalError");
 ///////////////////////////////////////////////////////////////////
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiChangePasswordRequest {
+    #[serde(rename = "oldPasswordOpt")]
+    pub old_password_opt: Option<String>,
+    #[serde(rename = "newPassword")]
+    pub new_password: String,
+}
+conversation_message!(UiChangePasswordRequest, "changePassword");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiChangePasswordResponse {}
+conversation_message!(UiChangePasswordResponse, "changePassword");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiCheckPasswordRequest {
+    #[serde(rename = "dbPasswordOpt")]
+    pub db_password_opt: Option<String>,
+}
+conversation_message!(UiCheckPasswordRequest, "checkPassword");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiCheckPasswordResponse {
+    pub matches: bool,
+}
+conversation_message!(UiCheckPasswordResponse, "checkPassword");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConfigurationChangedBroadcast {}
+fire_and_forget_message!(UiConfigurationChangedBroadcast, "configurationChanged");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConfigurationRequest {
+    #[serde(rename = "dbPasswordOpt")]
+    db_password_opt: Option<String>,
+}
+conversation_message!(UiConfigurationRequest, "configuration");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConsumingWallet {
+    #[serde(rename = "derivationPath")]
+    pub derivation_path: String,
+    pub address: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiEarningWallet {
+    #[serde(rename = "derivationPathOpt")]
+    pub derivation_path_opt: Option<String>,
+    pub address: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConfigurationResponse {
+    #[serde(rename = "currentSchemaVersion")]
+    current_schema_version: String,
+    #[serde(rename = "clandestinePort")]
+    clandestine_port: u16,
+    #[serde(rename = "gasPrice")]
+    gas_price: u64,
+    #[serde(rename = "mnemonicSeedOpt")]
+    mnemonic_seed_opt: Option<String>,
+    #[serde(rename = "consumingWalletOpt")]
+    consuming_wallet_opt: Option<UiConsumingWallet>,
+    #[serde(rename = "earningWalletOpt")]
+    earning_wallet_opt: Option<UiEarningWallet>,
+    #[serde(rename = "pastNeighbors")]
+    past_neighbors: Vec<String>,
+    #[serde(rename = "startBlock")]
+    start_block: u64,
+}
+conversation_message!(UiConfigurationResponse, "configuration");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorRequest {}
 conversation_message!(UiDescriptorRequest, "descriptor");
 
@@ -467,6 +539,55 @@ pub struct UiFinancialsResponse {
     pub total_receivable: u64,
 }
 conversation_message!(UiFinancialsResponse, "financials");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiGenerateWalletsRequest {
+    #[serde(rename = "dbPassword")]
+    pub db_password: String,
+    #[serde(rename = "mnemonicPhraseSize")]
+    pub mnemonic_phrase_size: usize,
+    #[serde(rename = "mnemonicPhraseLanguage")]
+    pub mnemonic_phrase_language: String,
+    #[serde(rename = "mnemonicPassphraseOpt")]
+    pub mnemonic_passphrase_opt: Option<String>,
+    #[serde(rename = "consumingDerivationPath")]
+    pub consuming_derivation_path: String,
+    #[serde(rename = "earningDerivationPath")]
+    pub earning_derivation_path: String,
+}
+conversation_message!(UiGenerateWalletsRequest, "generateWallets");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiGenerateWalletsResponse {
+    #[serde(rename = "mnemonicPhrase")]
+    pub mnemonic_phrase: Vec<String>,
+    #[serde(rename = "consumingWalletAddress")]
+    pub consuming_wallet_address: String,
+    #[serde(rename = "earningWalletAddress")]
+    pub earning_wallet_address: String,
+}
+conversation_message!(UiGenerateWalletsResponse, "generateWallets");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiNewPasswordBroadcast {}
+fire_and_forget_message!(UiNewPasswordBroadcast, "newPassword");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiRecoverWalletsRequest {
+    #[serde(rename = "dbPassword")]
+    db_password: String,
+    #[serde(rename = "mnemonicPhrase")]
+    mnemonic_phrase: Vec<String>,
+    #[serde(rename = "consumingDerivationPath")]
+    consuming_derivation_path: String, // default to "m/44'/60'/0'/0/0"
+    #[serde(rename = "earningWallet")]
+    earning_wallet: String, // either derivation path (default to "m/44'/60'/0'/0/1") or address
+}
+conversation_message!(UiRecoverWalletsRequest, "recoverWallet");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiRecoverWalletsResponse {}
+conversation_message!(UiRecoverWalletsResponse, "recoverWallet");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiShutdownRequest {}
