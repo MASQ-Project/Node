@@ -233,8 +233,8 @@ impl Configurator {
         }
         Ok(UiGenerateWalletsResponse {
             mnemonic_phrase,
-            consuming_wallet_address: consuming_wallet.address().to_string(),
-            earning_wallet_address: earning_wallet.address().to_string(),
+            consuming_wallet_address: consuming_wallet.string_address_from_keypair(),
+            earning_wallet_address: earning_wallet.string_address_from_keypair(),
         }
         .tmb(context_id))
     }
@@ -604,13 +604,13 @@ mod tests {
             Wallet::from(Bip32ECKeyPair::from_raw(seed.as_slice(), "m/44'/60'/0'/0/4").unwrap());
         assert_eq!(
             generated_wallets.consuming_wallet_address,
-            consuming_wallet.address().to_string()
+            consuming_wallet.string_address_from_keypair()
         );
         let earning_wallet =
             Wallet::from(Bip32ECKeyPair::from_raw(seed.as_slice(), &"m/44'/60'/0'/0/5").unwrap());
         assert_eq!(
             generated_wallets.earning_wallet_address,
-            earning_wallet.address().to_string()
+            earning_wallet.string_address_from_keypair()
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![Some("password".to_string())]);
@@ -621,7 +621,7 @@ mod tests {
             vec![(
                 seed,
                 "m/44'/60'/0'/0/4".to_string(),
-                earning_wallet.string_address_from_keypair().to_string(),
+                earning_wallet.string_address_from_keypair(),
                 "password".to_string(),
             )]
         );

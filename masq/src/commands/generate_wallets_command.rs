@@ -18,7 +18,7 @@ impl GenerateWalletsCommand {
     pub fn new(pieces: Vec<String>) -> Result<Self, String> {
         let matches = match generate_wallets_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
-            Err(e) => unimplemented!("{:?}", e), //return Err(format!("{}", e)),
+            Err(e) => return Err(format!("{}", e)),
         };
 
         Ok(GenerateWalletsCommand {
@@ -126,7 +126,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
             .takes_value (true)
         )
         .arg(Arg::with_name ("consuming-path")
-            .help ("Derivation path from which to generate the consuming wallet from which your bills will be paid")
+            .help ("Derivation path from which to generate the consuming wallet from which your bills will be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems")
             .long ("consuming-path")
             .value_name ("CONSUMING-PATH")
             .required (false)
@@ -134,7 +134,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
             .takes_value (true)
         )
         .arg(Arg::with_name ("earning-path")
-            .help ("Derivation path from which to generate the earning wallet from which your bills will be paid. Can be the same as consuming-path")
+            .help ("Derivation path from which to generate the earning wallet from which your bills will be paid. Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single quotes will cause problems")
             .long ("earning-path")
             .value_name ("EARNING-PATH")
             .required (false)
@@ -186,6 +186,18 @@ mod tests {
                 earning_path: "m/60'/44'/0'/100/0/201".to_string()
             }
         )
+    }
+
+    #[test]
+    fn constructor_handles_bad_syntax() {
+        let result = GenerateWalletsCommand::new (vec![
+            "bipplety".to_string(),
+            "bopplety".to_string(),
+            "boop".to_string(),
+        ]);
+
+        let msg = result.err().unwrap();
+        assert_eq! (msg.contains ("or isn't valid in this context"), true, "{}", msg);
     }
 
     #[test]

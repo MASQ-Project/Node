@@ -42,7 +42,7 @@ impl CommandFactory for CommandFactoryReal {
             "descriptor" => Box::new(DescriptorCommand::new()),
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
-                Err(msg) => unimplemented!("{}", msg), //return Err(CommandSyntax(msg)),
+                Err(msg) => return Err(CommandSyntax(msg)),
             },
             "set-password" => match ChangePasswordCommand::new(pieces) {
                 Ok(command) => Box::new(command),
@@ -105,6 +105,24 @@ mod tests {
             "{}",
             msg
         );
+    }
+
+    #[test]
+    fn complains_about_generate_wallets_command_with_bad_syntax() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make (vec!["generate-wallets".to_string(), "--invalid".to_string(), "password".to_string()])
+            .err()
+            .unwrap();
+
+        let msg = match result {
+            CommandSyntax(msg) => msg,
+            x => panic! ("Expected syntax error, got {:?}", x),
+        };
+        assert_eq!(msg.contains("Found argument"), true, "{}", msg);
+        assert_eq!(msg.contains("--invalid"), true, "{}", msg);
+        assert_eq!(msg.contains("which wasn't expected, or isn't valid in this context"), true, "{}", msg);
     }
 
     // Rust isn't a reflective enough language to allow easy test-driving of the make() method
