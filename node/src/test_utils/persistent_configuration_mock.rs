@@ -29,13 +29,9 @@ pub struct PersistentConfigurationMock {
     set_mnemonic_seed_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     consuming_wallet_derivation_path_results:
         RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
-    set_consuming_wallet_derivation_path_params: Arc<Mutex<Vec<(String, String)>>>,
-    set_consuming_wallet_derivation_path_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     earning_wallet_from_address_results:
         RefCell<Vec<Result<Option<Wallet>, PersistentConfigError>>>,
     earning_wallet_address_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
-    set_earning_wallet_address_params: Arc<Mutex<Vec<String>>>,
-    set_earning_wallet_address_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     set_wallet_info_params: Arc<Mutex<Vec<(PlainData, String, String, String)>>>,
     set_wallet_info_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
@@ -107,52 +103,9 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.mnemonic_seed_exists_results)
     }
 
-    fn set_mnemonic_seed(
-        &mut self,
-        seed: &dyn AsRef<[u8]>,
-        db_password: &str,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_mnemonic_seed_params
-            .lock()
-            .unwrap()
-            .push((PlainData::from(seed.as_ref()), db_password.to_string()));
-        self.set_mnemonic_seed_results.borrow_mut().remove(0)
-    }
-    //
-    // fn consuming_wallet_public_key(&self) -> Result<Option<PlainData>, PersistentConfigError> {
-    //     Self::result_from(&self.consuming_wallet_public_key_results)
-    // }
-
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError> {
         Self::result_from(&self.consuming_wallet_derivation_path_results)
     }
-
-    fn set_consuming_wallet_derivation_path(
-        &mut self,
-        derivation_path: &str,
-        db_password: &str,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_consuming_wallet_derivation_path_params
-            .lock()
-            .unwrap()
-            .push((derivation_path.to_string(), db_password.to_string()));
-        self.set_consuming_wallet_derivation_path_results
-            .borrow_mut()
-            .remove(0)
-    }
-    //
-    // fn set_consuming_wallet_public_key(
-    //     &mut self,
-    //     public_key: &PlainData,
-    // ) -> Result<(), PersistentConfigError> {
-    //     self.set_consuming_wallet_public_key_params
-    //         .lock()
-    //         .unwrap()
-    //         .push(public_key.clone());
-    //     self.set_consuming_wallet_public_key_results
-    //         .borrow_mut()
-    //         .remove(0)
-    // }
 
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError> {
         Self::result_from(&self.earning_wallet_from_address_results)
@@ -315,22 +268,6 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_mnemonic_seed_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(PlainData, String)>>>,
-    ) -> PersistentConfigurationMock {
-        self.set_mnemonic_seed_params = params.clone();
-        self
-    }
-
-    pub fn set_mnemonic_seed_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
-        self.set_mnemonic_seed_results.borrow_mut().push(result);
-        self
-    }
-
     pub fn consuming_wallet_derivation_path_result(
         self,
         result: Result<Option<String>, PersistentConfigError>,
@@ -406,24 +343,6 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_consuming_wallet_derivation_path_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(String, String)>>>,
-    ) -> PersistentConfigurationMock {
-        self.set_consuming_wallet_derivation_path_params = params.clone();
-        self
-    }
-
-    pub fn set_consuming_wallet_derivation_path_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
-        self.set_consuming_wallet_derivation_path_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
     pub fn earning_wallet_from_address_result(
         self,
         result: Result<Option<Wallet>, PersistentConfigError>,
@@ -439,24 +358,6 @@ impl PersistentConfigurationMock {
         result: Result<Option<String>, PersistentConfigError>,
     ) -> PersistentConfigurationMock {
         self.earning_wallet_address_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn set_earning_wallet_address_params(
-        mut self,
-        params: &Arc<Mutex<Vec<String>>>,
-    ) -> PersistentConfigurationMock {
-        self.set_earning_wallet_address_params = params.clone();
-        self
-    }
-
-    pub fn set_earning_wallet_address_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
-        self.set_earning_wallet_address_results
             .borrow_mut()
             .push(result);
         self

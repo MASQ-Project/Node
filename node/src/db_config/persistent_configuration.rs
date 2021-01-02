@@ -2,7 +2,7 @@
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReadWrite, ConfigDaoReal};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
     decode_bytes, decode_u64, encode_bytes, encode_u64, TypedConfigLayerError,
@@ -83,23 +83,12 @@ pub trait PersistentConfiguration {
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
     fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError>;
-    fn set_mnemonic_seed(
-        &mut self,
-        seed: &dyn AsRef<[u8]>,
-        db_password: &str,
-    ) -> Result<(), PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn set_consuming_wallet_derivation_path(
-        &mut self,
-        derivation_path: &str,
-        db_password: &str,
-    ) -> Result<(), PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-    // fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError>;
 
     fn set_wallet_info(
         &mut self,
@@ -237,68 +226,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
         Ok(self.dao.get("earning_wallet_address")?.value_opt)
-    }
-
-    // TODO: Delete me
-    fn set_mnemonic_seed<'b, 'c>(
-        &mut self,
-        seed: &'b dyn AsRef<[u8]>,
-        db_password: &'c str,
-    ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        let encoded_seed =
-            encode_bytes(Some(PlainData::new(seed.as_ref())))?.expect("Value disappeared"); //the question mark here is useless, look inside the function
-        writer.set(
-            "seed",
-            self.scl.encrypt(
-                "seed",
-                Some(encoded_seed),
-                Some(db_password.to_string()),
-                &writer,
-            )?,
-        )?;
-        Ok(writer.commit()?)
-    }
-
-    // TODO: Delete me
-    fn set_consuming_wallet_derivation_path<'b, 'c>(
-        &mut self,
-        derivation_path: &'b str,
-        db_password: &'c str,
-    ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        let key_rec = writer.get("consuming_wallet_public_key")?;
-        let seed_opt = decode_bytes(self.scl.decrypt(
-            writer.get("seed")?,
-            Some(db_password.to_string()),
-            &writer,
-        )?)?;
-        let path_rec = writer.get("consuming_wallet_derivation_path")?;
-        let check_and_set = |writer: &mut Box<dyn ConfigDaoReadWrite>, seed: PlainData| {
-            if Bip32ECKeyPair::from_raw(seed.as_ref(), derivation_path).is_ok() {
-                writer.set(
-                    "consuming_wallet_derivation_path",
-                    Some(derivation_path.to_string()),
-                )?;
-                Ok(writer.commit()?)
-            } else {
-                Err(PersistentConfigError::BadDerivationPathFormat(
-                    derivation_path.to_string(),
-                ))
-            }
-        };
-        match (key_rec.value_opt, seed_opt, path_rec.value_opt) {
-            (None, Some (seed), None) => {
-                check_and_set (&mut writer, seed)
-            },
-            (None, Some (seed), Some (existing_path)) if existing_path == derivation_path => {
-                check_and_set (&mut writer, seed)
-            },
-            (None, Some (_), Some (_)) => Err (PersistentConfigError::Collision("Cannot change existing consuming wallet derivation path".to_string())),
-            (None, None, _) => Err (PersistentConfigError::DatabaseError("Can't set consuming wallet derivation path without a mnemonic seed".to_string())),
-            (Some (_), _, None) => Err (PersistentConfigError::Collision("Cannot set consuming wallet derivation path: consuming wallet public key is already set".to_string())),
-            (Some (_), _, Some(_)) => panic!("Database is corrupt: both consuming wallet public key and derivation path are set")
-        }
     }
 
     fn set_wallet_info(

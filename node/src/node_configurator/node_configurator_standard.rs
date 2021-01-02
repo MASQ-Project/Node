@@ -2864,25 +2864,18 @@ mod tests {
         let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
         config.consuming_wallet = Some(Wallet::from(keypair));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(Some(earning_address.to_string())))
-            .set_earning_wallet_address_result(Ok(()))
             .consuming_wallet_derivation_path_result(Ok(None))
             .set_gas_price_result(Ok(()))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
-            .set_clandestine_port_result(Ok(()))
-            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
-            .set_earning_wallet_address_result(Ok(()));
+            .set_clandestine_port_result(Ok(()));
 
         let result = standard::configure_database(&config, &mut persistent_config);
 
         assert_eq!(result, Ok(()));
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
-        let set_earning_wallet_address_params =
-            set_earning_wallet_address_params_arc.lock().unwrap();
-        assert_eq!(set_earning_wallet_address_params.len(), 0);
     }
 
     #[test]
@@ -2895,7 +2888,6 @@ mod tests {
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(None))
-            .set_earning_wallet_address_result(Ok(()))
             .consuming_wallet_derivation_path_result(Ok(None))
             .set_gas_price_result(Ok(()))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
