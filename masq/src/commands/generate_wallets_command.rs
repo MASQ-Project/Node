@@ -146,12 +146,14 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command_context::ContextError::PayloadError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::messages::{ToMessageBody, UiGenerateWalletsRequest, UiGenerateWalletsResponse, UiMessageError};
-    use std::sync::{Arc, Mutex};
+    use masq_lib::messages::{
+        ToMessageBody, UiGenerateWalletsRequest, UiGenerateWalletsResponse, UiMessageError,
+    };
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
-    use crate::command_context::ContextError::PayloadError;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn testing_command_factory_here() {
@@ -245,7 +247,7 @@ mod tests {
 
         let result = subject.execute(&mut context);
 
-        assert_eq! (result, Ok(()));
+        assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,

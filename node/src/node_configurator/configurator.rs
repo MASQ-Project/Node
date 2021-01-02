@@ -220,11 +220,11 @@ impl Configurator {
         )?;
         let consuming_wallet = Self::generate_wallet(&seed, &msg.consuming_derivation_path)?;
         let earning_wallet = Self::generate_wallet(&seed, &msg.earning_derivation_path)?;
-        if let Err(e) = persistent_config.set_wallet_info (
+        if let Err(e) = persistent_config.set_wallet_info(
             &seed,
             &msg.consuming_derivation_path,
             &earning_wallet.string_address_from_keypair(),
-            &msg.db_password
+            &msg.db_password,
         ) {
             return Err((
                 CONFIGURATOR_WRITE_ERROR,
@@ -747,7 +747,9 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .mnemonic_seed_exists_result(Ok(false))
-            .set_wallet_info_result(Err(PersistentConfigError::BadDerivationPathFormat("booga".to_string())));
+            .set_wallet_info_result(Err(PersistentConfigError::BadDerivationPathFormat(
+                "booga".to_string(),
+            )));
         let mut subject = make_subject(Some(persistent_config));
 
         let result = subject.handle_generate_wallets(make_example_generate_wallets_request(), 4321);

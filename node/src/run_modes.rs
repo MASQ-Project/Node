@@ -3,9 +3,7 @@
 use crate::daemon::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal, RerunnerReal};
 use crate::daemon::ChannelFactoryReal;
 use crate::database::config_dumper;
-use crate::node_configurator::node_configurator_generate_wallet::NodeConfiguratorGenerateWallet;
 use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
-use crate::node_configurator::node_configurator_recover_wallet::NodeConfiguratorRecoverWallet;
 use crate::node_configurator::{NodeConfigurator, RealDirsWrapper, WalletCreationConfig};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::server_initializer::{LoggerInitializerWrapperReal, ServerInitializer};
@@ -16,8 +14,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 
 #[derive(Debug, PartialEq)]
 enum Mode {
-    GenerateWallet,
-    RecoverWallet,
     DumpConfig,
     Initialization,
     Service,
@@ -58,8 +54,6 @@ impl RunModes {
             }
         }
         match match mode {
-            Mode::GenerateWallet => self.generate_wallet(args, streams),
-            Mode::RecoverWallet => self.recover_wallet(args, streams),
             Mode::DumpConfig => self.runner.dump_config(args, streams),
             Mode::Initialization => self.runner.initialization(args, streams),
             Mode::Service => self.runner.run_service(args, streams),
@@ -113,43 +107,11 @@ impl RunModes {
     fn determine_mode_and_priv_req(&self, args: &[String]) -> (Mode, bool) {
         if args.contains(&"--dump-config".to_string()) {
             (Mode::DumpConfig, false)
-        } else if args.contains(&"--recover-wallet".to_string()) {
-            (Mode::RecoverWallet, false)
-        } else if args.contains(&"--generate-wallet".to_string()) {
-            (Mode::GenerateWallet, false)
         } else if args.contains(&"--initialization".to_string()) {
             (Mode::Initialization, true)
         } else {
             (Mode::Service, true)
         }
-    }
-
-    fn generate_wallet(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError> {
-        let configurator = NodeConfiguratorGenerateWallet::new();
-        self.runner.configuration_run(
-            args,
-            streams,
-            &configurator,
-            self.privilege_dropper.as_ref(),
-        )
-    }
-
-    fn recover_wallet(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError> {
-        let configurator = NodeConfiguratorRecoverWallet::new();
-        self.runner.configuration_run(
-            args,
-            streams,
-            &configurator,
-            self.privilege_dropper.as_ref(),
-        )
     }
 }
 
@@ -367,20 +329,6 @@ mod tests {
     }
 
     #[test]
-    fn generate_wallet() {
-        [["--generate-wallet"]]
-            .iter()
-            .for_each(|args| check_mode(args, Mode::GenerateWallet, false));
-    }
-
-    #[test]
-    fn recover_wallet() {
-        [["--recover-wallet"]]
-            .iter()
-            .for_each(|args| check_mode(args, Mode::RecoverWallet, false));
-    }
-
-    #[test]
     fn dump_config() {
         [["--dump-config"]]
             .iter()
@@ -395,40 +343,10 @@ mod tests {
     }
 
     #[test]
-    fn both_generate_and_recover() {
-        [
-            ["--generate-wallet", "--recover-wallet"],
-            ["--recover-wallet", "--generate-wallet"],
-        ]
-        .iter()
-        .for_each(|args| check_mode(args, Mode::RecoverWallet, false));
-    }
-
-    #[test]
     fn everything_beats_initialization() {
-        check_mode(
-            &["--initialization", "--generate-wallet"],
-            Mode::GenerateWallet,
-            false,
-        );
-        check_mode(
-            &["--initialization", "--recover-wallet"],
-            Mode::RecoverWallet,
-            false,
-        );
         check_mode(
             &["--initialization", "--dump-config"],
             Mode::DumpConfig,
-            false,
-        );
-        check_mode(
-            &["--generate-wallet", "--initialization"],
-            Mode::GenerateWallet,
-            false,
-        );
-        check_mode(
-            &["--recover-wallet", "--initialization"],
-            Mode::RecoverWallet,
             false,
         );
         check_mode(
@@ -440,19 +358,9 @@ mod tests {
 
     #[test]
     fn dump_config_rules_all() {
-        [
-            ["--booga", "--goober", "--generate-wallet", "--dump-config"],
-            ["--booga", "--goober", "--recover-wallet", "--dump-config"],
-            ["--booga", "--goober", "--initialization", "--dump-config"],
-            [
-                "--generate-wallet",
-                "--recover_wallet",
-                "--initialization",
-                "--dump-config",
-            ],
-        ]
-        .iter()
-        .for_each(|args| check_mode(args, Mode::DumpConfig, false));
+        [["--booga", "--goober", "--initialization", "--dump-config"]]
+            .iter()
+            .for_each(|args| check_mode(args, Mode::DumpConfig, false));
     }
 
     #[test]
@@ -631,35 +539,13 @@ parm2 - msg2\n"
             .expect_privilege_result(false)
             .expect_privilege_result(false);
         subject.privilege_dropper = Box::new(privilege_dropper);
-        let mut generate_wallet_holder = FakeStreamHolder::new();
-        let mut recover_wallet_holder = FakeStreamHolder::new();
         let mut dump_config_holder = FakeStreamHolder::new();
 
-        let generate_wallet_exit_code = subject.go(
-            &["--generate-wallet".to_string()],
-            &mut generate_wallet_holder.streams(),
-        );
-        let recover_wallet_exit_code = subject.go(
-            &["--recover-wallet".to_string()],
-            &mut recover_wallet_holder.streams(),
-        );
         let dump_config_exit_code = subject.go(
             &["--dump-config".to_string()],
             &mut dump_config_holder.streams(),
         );
 
-        assert_eq!(generate_wallet_exit_code, 0);
-        assert_eq!(generate_wallet_holder.stdout.get_string(), "");
-        assert_eq!(
-            generate_wallet_holder.stderr.get_string(),
-            RunModes::privilege_mismatch_message(&Mode::GenerateWallet, false)
-        );
-        assert_eq!(recover_wallet_exit_code, 0);
-        assert_eq!(recover_wallet_holder.stdout.get_string(), "");
-        assert_eq!(
-            recover_wallet_holder.stderr.get_string(),
-            RunModes::privilege_mismatch_message(&Mode::RecoverWallet, false)
-        );
         assert_eq!(dump_config_exit_code, 0);
         assert_eq!(dump_config_holder.stdout.get_string(), "");
         assert_eq!(
@@ -667,16 +553,9 @@ parm2 - msg2\n"
             RunModes::privilege_mismatch_message(&Mode::DumpConfig, false)
         );
         let params = dropper_params_arc.lock().unwrap();
-        assert_eq!(*params, vec![false, false, false]);
+        assert_eq!(*params, vec![false]);
         let params = runner_params_arc.lock().unwrap();
-        assert_eq!(
-            *params,
-            vec![
-                vec!["--generate-wallet"],
-                vec!["--recover-wallet"],
-                vec!["--dump-config"]
-            ]
-        )
+        assert_eq!(*params, vec![vec!["--dump-config"]])
     }
 
     fn check_mode(args: &[&str], expected_mode: Mode, privilege_required: bool) {

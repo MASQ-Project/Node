@@ -23,6 +23,7 @@ use masq_lib::shared_schema::{
 use std::str::FromStr;
 use unindent::unindent;
 
+// TODO: Remove this file: nothing should be using it.
 pub struct NodeConfiguratorGenerateWallet {
     dirs_wrapper: Box<dyn DirsWrapper>,
     app: App<'static, 'static>,

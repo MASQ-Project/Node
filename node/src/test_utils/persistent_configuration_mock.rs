@@ -341,6 +341,7 @@ impl PersistentConfigurationMock {
         self
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn set_wallet_info_params(
         mut self,
         params: &Arc<Mutex<Vec<(PlainData, String, String, String)>>>,

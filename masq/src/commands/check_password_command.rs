@@ -62,7 +62,7 @@ impl CheckPasswordCommand {
 mod tests {
     use super::*;
     use crate::command_context::ContextError;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal, CommandFactoryError};
+    use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse};
@@ -73,18 +73,14 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec![
-                "check-password".to_string(),
-                "bonkers".to_string(),
-            ])
+            .make(vec!["check-password".to_string(), "bonkers".to_string()])
             .unwrap();
 
-        let check_password_command: &CheckPasswordCommand =
-            result.as_any().downcast_ref().unwrap();
+        let check_password_command: &CheckPasswordCommand = result.as_any().downcast_ref().unwrap();
         assert_eq!(
             check_password_command,
             &CheckPasswordCommand {
-                db_password_opt: Some ("bonkers".to_string()),
+                db_password_opt: Some("bonkers".to_string()),
             }
         );
     }
@@ -93,16 +89,17 @@ mod tests {
     fn testing_command_factory_with_bad_command() {
         let subject = CommandFactoryReal::new();
 
-        let result = subject
-            .make(vec![
-                "check-password".to_string(),
-                "bonkers".to_string(),
-                "invalid".to_string(),
-            ]);
+        let result = subject.make(vec![
+            "check-password".to_string(),
+            "bonkers".to_string(),
+            "invalid".to_string(),
+        ]);
 
         match result {
-            Err(CommandFactoryError::CommandSyntax(msg)) => assert_eq! (msg.contains ("error: Found argument 'invalid'"), true),
-            x => panic! ("Expected CommandSyntax error, got {:?}", x),
+            Err(CommandFactoryError::CommandSyntax(msg)) => {
+                assert_eq!(msg.contains("error: Found argument 'invalid'"), true)
+            }
+            x => panic!("Expected CommandSyntax error, got {:?}", x),
         }
     }
 

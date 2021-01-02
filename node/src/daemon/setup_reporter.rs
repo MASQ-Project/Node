@@ -876,7 +876,7 @@ mod tests {
     };
     use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
     use crate::node_test_utils::MockDirsWrapper;
-    use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
@@ -926,12 +926,17 @@ mod tests {
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
         config.set_clandestine_port(1234).unwrap();
-        config.set_wallet_info(
-            b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
-            "m/44'/60'/1'/2/3",
-            "0x0000000000000000000000000000000000000000",
-            "password"
-        ).unwrap();
+        config
+            .set_wallet_info(
+                &PlainData::new(
+                    b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+                )
+                .as_ref(),
+                "m/44'/60'/1'/2/3",
+                "0x0000000000000000000000000000000000000000",
+                "password",
+            )
+            .unwrap();
         config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"ABCD"),

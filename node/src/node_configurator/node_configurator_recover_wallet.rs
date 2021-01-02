@@ -20,6 +20,7 @@ use masq_lib::shared_schema::{
 };
 use masq_lib::utils::exit_process;
 
+// TODO: Remove this file; nobody should be using it for anything.
 pub struct NodeConfiguratorRecoverWallet {
     dirs_wrapper: Box<dyn DirsWrapper>,
     app: App<'static, 'static>,

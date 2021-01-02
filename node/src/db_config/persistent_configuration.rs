@@ -321,7 +321,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         match self.consuming_wallet_derivation_path()? {
             None => (),
             Some(existing_consuming_wallet_derivation_path) => {
-                if consuming_wallet_derivation_path != &existing_consuming_wallet_derivation_path {
+                if consuming_wallet_derivation_path != existing_consuming_wallet_derivation_path {
                     return Err(PersistentConfigError::Collision(
                         "Consuming wallet derivation path already populated; cannot replace"
                             .to_string(),
@@ -332,7 +332,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         match self.earning_wallet_address()? {
             None => (),
             Some(existing_earning_wallet_address) => {
-                if earning_wallet_address != &existing_earning_wallet_address {
+                if earning_wallet_address != existing_earning_wallet_address {
                     return Err(PersistentConfigError::Collision(
                         "Earning wallet address already populated; cannot replace".to_string(),
                     ));
