@@ -172,32 +172,24 @@ pub fn create_wallet(
     config: &WalletCreationConfig,
     persistent_config: &mut (dyn PersistentConfiguration),
 ) -> Result<(), ConfiguratorError> {
-    if let Some(address) = &config.earning_wallet_address_opt {
-        match persistent_config.set_earning_wallet_address(address) {
-            Ok(_) => (),
-            Err(pce) => return Err(pce.into_configurator_error("earning-wallet")),
-        }
-    }
-    if let Some(derivation_path_info) = &config.derivation_path_info_opt {
-        match persistent_config.set_mnemonic_seed(
-            &derivation_path_info.mnemonic_seed,
-            &derivation_path_info.db_password,
+    let (mnemonic_seed_opt, consuming_wallet_derivation_path_opt, db_password_opt) = match &config.derivation_path_info_opt {
+        None => (None, None, None),
+        Some (derivation_path_info) => (
+            Some (derivation_path_info.mnemonic_seed.clone()),
+            derivation_path_info.consuming_derivation_path_opt.clone(),
+            Some (derivation_path_info.db_password.clone())
+        )
+    };
+    let earning_wallet_address_opt = config.earning_wallet_address_opt.clone();
+    match (mnemonic_seed_opt, consuming_wallet_derivation_path_opt, earning_wallet_address_opt, db_password_opt) {
+        (Some (ms), Some (cwdp), Some (ewa), Some (dp)) => match persistent_config.set_wallet_info(
+            &ms, &cwdp, &ewa, &dp
         ) {
-            Ok(_) => (),
-            Err(pce) => return Err(pce.into_configurator_error("mnemonic")),
-        };
-        if let Some(consuming_derivation_path) = &derivation_path_info.consuming_derivation_path_opt
-        {
-            match persistent_config.set_consuming_wallet_derivation_path(
-                consuming_derivation_path,
-                &derivation_path_info.db_password,
-            ) {
-                Ok(_) => (),
-                Err(pce) => return Err(pce.into_configurator_error("consuming-wallet")),
-            }
-        }
+            Ok (_) => Ok(()),
+            Err (pce) => Err (pce.into_configurator_error("[wallet info]")),
+        },
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 pub fn initialize_database(
@@ -743,7 +735,7 @@ mod tests {
     use crate::sub_lib::wallet::{Wallet, DEFAULT_EARNING_DERIVATION_PATH};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::ArgsBuilder;
-    use bip39::{Mnemonic, MnemonicType, Seed};
+    use bip39::{Mnemonic, Seed};
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{db_password_arg, ParamError};
@@ -1641,57 +1633,7 @@ mod tests {
     }
 
     #[test]
-    fn create_wallet_configures_database_with_earning_path() {
-        let earning_path = "m/44'/60'/3'/2/1";
-        let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
-        let seed = Seed::new(&mnemonic, "passphrase");
-        let earning_keypair = Bip32ECKeyPair::from_raw(seed.as_ref(), earning_path).unwrap();
-        let earning_address = Wallet::from(earning_keypair).to_string();
-        let config = WalletCreationConfig {
-            earning_wallet_address_opt: Some(earning_address.clone()),
-            derivation_path_info_opt: Some(DerivationPathWalletInfo {
-                mnemonic_seed: PlainData::new(seed.as_ref()),
-                db_password: "db password".to_string(),
-                consuming_derivation_path_opt: Some("m/44'/60'/1'/2/3".to_string()),
-            }),
-            real_user: RealUser::null(),
-        };
-        let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_consuming_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
-            .set_mnemonic_seed_result(Ok(()))
-            .set_consuming_wallet_derivation_path_params(
-                &set_consuming_wallet_derivation_path_params_arc,
-            )
-            .set_consuming_wallet_derivation_path_result(Ok(()))
-            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
-            .set_earning_wallet_address_result(Ok(()));
-
-        let result = create_wallet(&config, &mut persistent_config);
-
-        assert_eq!(result, Ok(()));
-        let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_mnemonic_seed_params,
-            vec![(PlainData::from(seed.as_ref()), "db password".to_string())]
-        );
-        let set_consuming_wallet_derivation_path_params =
-            set_consuming_wallet_derivation_path_params_arc
-                .lock()
-                .unwrap();
-        assert_eq!(
-            *set_consuming_wallet_derivation_path_params,
-            vec![("m/44'/60'/1'/2/3".to_string(), "db password".to_string())]
-        );
-        let set_earning_wallet_address_params =
-            set_earning_wallet_address_params_arc.lock().unwrap();
-        assert_eq!(*set_earning_wallet_address_params, vec![earning_address]);
-    }
-
-    #[test]
-    fn create_wallet_configures_database_with_earning_address() {
+    fn create_wallet_configures_database_with_wallet_info() {
         let config = WalletCreationConfig {
             earning_wallet_address_opt: Some(
                 "0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q".to_string(),
@@ -1703,85 +1645,42 @@ mod tests {
             }),
             real_user: RealUser::null(),
         };
-        let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_consuming_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_wallet_info_params_arc = Arc::new (Mutex::new (vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
-            .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
-            .set_mnemonic_seed_result(Ok(()))
-            .set_consuming_wallet_derivation_path_params(
-                &set_consuming_wallet_derivation_path_params_arc,
-            )
-            .set_consuming_wallet_derivation_path_result(Ok(()))
-            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
-            .set_earning_wallet_address_result(Ok(()));
+            .set_wallet_info_params (&set_wallet_info_params_arc)
+            .set_wallet_info_result (Ok(()));
 
         let result = create_wallet(&config, &mut persistent_config);
 
         assert_eq!(result, Ok(()));
-        let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_mnemonic_seed_params,
-            vec![(
-                PlainData::from(vec![1u8, 2u8, 3u8, 4u8]),
-                "db password".to_string()
-            )]
-        );
-        let set_consuming_wallet_derivation_path_params =
-            set_consuming_wallet_derivation_path_params_arc
-                .lock()
-                .unwrap();
-        assert_eq!(
-            *set_consuming_wallet_derivation_path_params,
-            vec![("m/44'/60'/1'/2/3".to_string(), "db password".to_string())]
-        );
-        let set_earning_wallet_address_params =
-            set_earning_wallet_address_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_earning_wallet_address_params,
-            vec!["0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q".to_string()]
-        );
+        let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
+        assert_eq!(*set_wallet_info_params, vec![(
+            PlainData::from(vec![1u8, 2u8, 3u8, 4u8]),
+            "m/44'/60'/1'/2/3".to_string(),
+            "0x9707f21F95B9839A54605100Ca69dCc2e7eaA26q".to_string(),
+            "db password".to_string()
+        )]);
     }
 
     #[test]
-    pub fn create_wallet_handles_error_setting_earning_wallet() {
+    pub fn create_wallet_handles_error_setting_wallet_info() {
         let config = WalletCreationConfig {
             earning_wallet_address_opt: Some("irrelevant".to_string()),
-            derivation_path_info_opt: None,
-            real_user: RealUser::new(None, None, None),
-        };
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .set_earning_wallet_address_result(Err(PersistentConfigError::NotPresent));
-
-        let result = create_wallet(&config, &mut persistent_config);
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("earning-wallet"))
-        );
-    }
-
-    #[test]
-    pub fn create_wallet_handles_error_setting_consuming_wallet_derivation_path() {
-        let config = WalletCreationConfig {
-            earning_wallet_address_opt: Some("irrelevant".to_string()),
-            derivation_path_info_opt: Some(DerivationPathWalletInfo {
-                mnemonic_seed: PlainData::new(b""),
-                db_password: "password".to_string(),
-                consuming_derivation_path_opt: Some("irrelevant".to_string()),
+            derivation_path_info_opt: Some (DerivationPathWalletInfo {
+                mnemonic_seed: PlainData::new (b"irrelevant"),
+                consuming_derivation_path_opt: Some ("irrelevant".to_string()),
+                db_password: "irrelevant".to_string(),
             }),
             real_user: RealUser::new(None, None, None),
         };
         let mut persistent_config = PersistentConfigurationMock::new()
-            .set_earning_wallet_address_result(Ok(()))
-            .set_mnemonic_seed_result(Ok(()))
-            .set_consuming_wallet_derivation_path_result(Err(PersistentConfigError::NotPresent));
+            .set_wallet_info_result (Err(PersistentConfigError::NotPresent));
 
         let result = create_wallet(&config, &mut persistent_config);
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-wallet"))
+            Err(PersistentConfigError::NotPresent.into_configurator_error("[wallet info]"))
         );
     }
 

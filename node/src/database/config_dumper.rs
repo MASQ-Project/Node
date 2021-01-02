@@ -173,22 +173,15 @@ mod tests {
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
-            persistent_config
-                .set_mnemonic_seed(
-                    &Seed::new(
+            persistent_config.set_wallet_info (
+                &Seed::new(
                         &Bip39::mnemonic(MnemonicType::Words24, Language::English),
                         "",
-                    )
-                    .as_ref(),
-                    "password",
-                )
-                .unwrap();
-            persistent_config
-                .set_consuming_wallet_derivation_path("m/60'/44'/0'/4/4", "password")
-                .unwrap();
-            persistent_config
-                .set_earning_wallet_address("0x0123456789012345678901234567890123456789")
-                .unwrap();
+                    ),
+                "m/60'/44'/0'/4/4",
+                "0x0123456789012345678901234567890123456789",
+                "password"
+            ).unwrap();
             persistent_config.set_clandestine_port(3456).unwrap();
         }
         let args_vec: Vec<String> = ArgsBuilder::new()

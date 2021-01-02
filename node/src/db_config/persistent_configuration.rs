@@ -99,7 +99,7 @@ pub trait PersistentConfiguration {
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError>;
+    // fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError>;
 
     fn set_wallet_info(
         &mut self,
@@ -298,30 +298,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             (None, None, _) => Err (PersistentConfigError::DatabaseError("Can't set consuming wallet derivation path without a mnemonic seed".to_string())),
             (Some (_), _, None) => Err (PersistentConfigError::Collision("Cannot set consuming wallet derivation path: consuming wallet public key is already set".to_string())),
             (Some (_), _, Some(_)) => panic!("Database is corrupt: both consuming wallet public key and derivation path are set")
-        }
-    }
-
-    // TODO: Delete me
-    fn set_earning_wallet_address<'b>(
-        &mut self,
-        new_address: &'b str,
-    ) -> Result<(), PersistentConfigError> {
-        if Wallet::from_str(new_address).is_err() {
-            return Err(PersistentConfigError::BadAddressFormat(
-                new_address.to_string(),
-            ));
-        }
-        let mut writer = self.dao.start_transaction()?;
-        let existing_address_opt = writer.get("earning_wallet_address")?.value_opt;
-        match existing_address_opt {
-            None => {
-                writer.set("earning_wallet_address", Some(new_address.to_string()))?;
-                Ok(writer.commit()?)
-            }
-            Some(existing_address) if new_address == existing_address => Ok(()),
-            Some(_) => Err(PersistentConfigError::Collision(
-                "Cannot change existing earning wallet address".to_string(),
-            )),
         }
     }
 

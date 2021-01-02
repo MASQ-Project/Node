@@ -926,15 +926,12 @@ mod tests {
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
         config.set_clandestine_port(1234).unwrap();
-        config
-            .set_mnemonic_seed(b"booga booga", "password")
-            .unwrap();
-        config
-            .set_consuming_wallet_derivation_path("m/44'/60'/1'/2/3", "password")
-            .unwrap();
-        config
-            .set_earning_wallet_address("0x0000000000000000000000000000000000000000")
-            .unwrap();
+        config.set_wallet_info(
+            b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            "m/44'/60'/1'/2/3",
+            "0x0000000000000000000000000000000000000000",
+            "password"
+        ).unwrap();
         config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"ABCD"),

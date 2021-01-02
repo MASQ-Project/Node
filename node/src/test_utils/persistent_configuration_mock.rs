@@ -162,16 +162,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.earning_wallet_address_results)
     }
 
-    fn set_earning_wallet_address(&mut self, address: &str) -> Result<(), PersistentConfigError> {
-        self.set_earning_wallet_address_params
-            .lock()
-            .unwrap()
-            .push(address.to_string());
-        self.set_earning_wallet_address_results
-            .borrow_mut()
-            .remove(0)
-    }
-
     fn set_wallet_info(
         &mut self,
         mnemonic_seed: &dyn AsRef<[u8]>,

@@ -220,28 +220,17 @@ impl Configurator {
         )?;
         let consuming_wallet = Self::generate_wallet(&seed, &msg.consuming_derivation_path)?;
         let earning_wallet = Self::generate_wallet(&seed, &msg.earning_derivation_path)?;
-        if let Err(e) = persistent_config.set_mnemonic_seed(&seed, &msg.db_password) {
+        if let Err(e) = persistent_config.set_wallet_info (
+            &seed,
+            &msg.consuming_derivation_path,
+            &earning_wallet.string_address_from_keypair(),
+            &msg.db_password
+        ) {
             return Err((
                 CONFIGURATOR_WRITE_ERROR,
-                format!("Mnemonic seed could not be set: {:?}", e),
+                format!("Wallet information could not be set: {:?}", e),
             ));
-        };
-        if let Err(e) = persistent_config
-            .set_consuming_wallet_derivation_path(&msg.consuming_derivation_path, &msg.db_password)
-        {
-            return Err((
-                CONFIGURATOR_WRITE_ERROR,
-                format!("Consuming wallet could not be set: {:?}", e),
-            ));
-        };
-        if let Err(e) = persistent_config
-            .set_earning_wallet_address(&earning_wallet.string_address_from_keypair())
-        {
-            return Err((
-                CONFIGURATOR_WRITE_ERROR,
-                format!("Earning wallet could not be set: {:?}", e),
-            ));
-        };
+        }
         Ok(UiGenerateWalletsResponse {
             mnemonic_phrase,
             consuming_wallet_address: consuming_wallet.address().to_string(),
@@ -579,22 +568,14 @@ mod tests {
     #[test]
     fn handle_generate_wallets_works() {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_mnemonic_seed_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_consuming_wallet_derivation_path_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_params(&check_password_params_arc)
             .check_password_result(Ok(true))
             .mnemonic_seed_exists_result(Ok(false))
-            .set_mnemonic_seed_params(&set_mnemonic_seed_params_arc)
-            .set_mnemonic_seed_result(Ok(()))
-            .set_consuming_wallet_derivation_path_params(
-                &set_consuming_wallet_derivation_path_params_arc,
-            )
-            .set_consuming_wallet_derivation_path_result(Ok(()))
-            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
-            .set_earning_wallet_address_result(Ok(()));
+            .set_wallet_info_params(&set_wallet_info_params_arc)
+            .set_wallet_info_result(Ok(()));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -633,24 +614,16 @@ mod tests {
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![Some("password".to_string())]);
-        let set_mnemonic_seed_params = set_mnemonic_seed_params_arc.lock().unwrap();
+
+        let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
-            *set_mnemonic_seed_params,
-            vec![(seed, "password".to_string())]
-        );
-        let set_consuming_wallet_derivation_path_params =
-            set_consuming_wallet_derivation_path_params_arc
-                .lock()
-                .unwrap();
-        assert_eq!(
-            *set_consuming_wallet_derivation_path_params,
-            vec![("m/44'/60'/0'/0/4".to_string(), "password".to_string())]
-        );
-        let set_earning_wallet_address_params =
-            set_earning_wallet_address_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_earning_wallet_address_params,
-            vec![earning_wallet.string_address_from_keypair()]
+            *set_wallet_info_params,
+            vec![(
+                seed,
+                "m/44'/60'/0'/0/4".to_string(),
+                earning_wallet.string_address_from_keypair().to_string(),
+                "password".to_string(),
+            )]
         );
     }
 
@@ -770,11 +743,11 @@ mod tests {
     }
 
     #[test]
-    fn handle_generate_wallets_works_if_mnemonic_seed_cant_be_set() {
+    fn handle_generate_wallets_works_if_wallet_info_cant_be_set() {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .mnemonic_seed_exists_result(Ok(false))
-            .set_mnemonic_seed_result(Err(PersistentConfigError::PasswordError));
+            .set_wallet_info_result(Err(PersistentConfigError::BadDerivationPathFormat("booga".to_string())));
         let mut subject = make_subject(Some(persistent_config));
 
         let result = subject.handle_generate_wallets(make_example_generate_wallets_request(), 4321);
@@ -786,61 +759,8 @@ mod tests {
                 path: MessagePath::Conversation(4321),
                 payload: Err((
                     CONFIGURATOR_WRITE_ERROR,
-                    "Mnemonic seed could not be set: PasswordError".to_string()
-                ))
-            }
-        )
-    }
-
-    #[test]
-    fn handle_generate_wallets_works_if_consuming_wallet_derivation_path_cant_be_set() {
-        let persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Ok(true))
-            .mnemonic_seed_exists_result(Ok(false))
-            .set_mnemonic_seed_result(Ok(()))
-            .set_consuming_wallet_derivation_path_result(Err(
-                PersistentConfigError::BadDerivationPathFormat("booga".to_string()),
-            ));
-        let mut subject = make_subject(Some(persistent_config));
-
-        let result = subject.handle_generate_wallets(make_example_generate_wallets_request(), 4321);
-
-        assert_eq!(
-            result,
-            MessageBody {
-                opcode: "generateWallets".to_string(),
-                path: MessagePath::Conversation(4321),
-                payload: Err((
-                    CONFIGURATOR_WRITE_ERROR,
-                    "Consuming wallet could not be set: BadDerivationPathFormat(\"booga\")"
+                    "Wallet information could not be set: BadDerivationPathFormat(\"booga\")"
                         .to_string()
-                ))
-            }
-        )
-    }
-
-    #[test]
-    fn handle_generate_wallets_works_if_earning_wallet_address_cant_be_set() {
-        let persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Ok(true))
-            .mnemonic_seed_exists_result(Ok(false))
-            .set_mnemonic_seed_result(Ok(()))
-            .set_consuming_wallet_derivation_path_result(Ok(()))
-            .set_earning_wallet_address_result(Err(PersistentConfigError::BadAddressFormat(
-                "booga".to_string(),
-            )));
-        let mut subject = make_subject(Some(persistent_config));
-
-        let result = subject.handle_generate_wallets(make_example_generate_wallets_request(), 4321);
-
-        assert_eq!(
-            result,
-            MessageBody {
-                opcode: "generateWallets".to_string(),
-                path: MessagePath::Conversation(4321),
-                payload: Err((
-                    CONFIGURATOR_WRITE_ERROR,
-                    "Earning wallet could not be set: BadAddressFormat(\"booga\")".to_string()
                 ))
             }
         )

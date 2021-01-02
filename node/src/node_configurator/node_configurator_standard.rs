@@ -346,17 +346,6 @@ pub mod standard {
                 return Err(pce.into_configurator_error("clandestine-port"));
             }
         }
-        match persistent_config.earning_wallet_address() {
-            Ok(Some(_)) => (),
-            Ok(None) => {
-                if let Err(pce) =
-                    persistent_config.set_earning_wallet_address(&config.earning_wallet.to_string())
-                {
-                    return Err(pce.into_configurator_error("earning-wallet"));
-                }
-            }
-            Err(pce) => return Err(pce.into_configurator_error("earning-wallet")),
-        }
 
         if let Err(pce) = persistent_config.set_gas_price(config.blockchain_bridge_config.gas_price)
         {
@@ -853,23 +842,6 @@ pub mod standard {
         }
 
         #[test]
-        fn configure_database_handles_error_during_setting_earning_wallet_address() {
-            let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = None;
-            let mut persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_address_result(Ok(None))
-                .set_earning_wallet_address_result(Err(PersistentConfigError::TransactionError));
-
-            let result = configure_database(&config, &mut persistent_config);
-
-            assert_eq!(
-                result,
-                Err(PersistentConfigError::TransactionError
-                    .into_configurator_error("earning-wallet"))
-            )
-        }
-
-        #[test]
         fn configure_database_handles_error_during_setting_gas_price() {
             let mut config = BootstrapperConfig::new();
             config.clandestine_port_opt = None;
@@ -884,24 +856,6 @@ pub mod standard {
             assert_eq!(
                 result,
                 Err(PersistentConfigError::TransactionError.into_configurator_error("gas-price"))
-            )
-        }
-
-        #[test]
-        fn configure_database_handles_error_setting_earning_wallet_address() {
-            let mut config = BootstrapperConfig::new();
-            config.clandestine_port_opt = None;
-            let mut persistent_config = PersistentConfigurationMock::new()
-                .earning_wallet_address_result(Err(PersistentConfigError::BadAddressFormat(
-                    "baaad".to_string(),
-                )));
-
-            let result = configure_database(&config, &mut persistent_config);
-
-            assert_eq!(
-                result,
-                Err(PersistentConfigError::BadAddressFormat("baaad".to_string())
-                    .into_configurator_error("earning-wallet"))
             )
         }
 
@@ -939,7 +893,7 @@ pub mod standard {
             assert_eq!(
                 result,
                 Err(ConfiguratorError::new(vec![ParamError::new(
-                    "consuming-wallet",
+                    "consuming-private-key",
                     &format!(
                         "{:?}",
                         PersistentConfigError::Collision("irrelevant".to_string())
@@ -2180,8 +2134,6 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_consuming_wallet_derivation_path() {
-        let consuming_private_key_hex =
-            "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
         let multi_config = test_utils::make_multi_config(ArgsBuilder::new());
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
@@ -2882,15 +2834,12 @@ mod tests {
         config.consuming_wallet = Some(Wallet::from(keypair));
         config.blockchain_bridge_config.gas_price = gas_price;
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(None))
             .consuming_wallet_derivation_path_result(Ok(None))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_clandestine_port_result(Ok(()))
-            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
-            .set_earning_wallet_address_result(Ok(()))
             .set_gas_price_params(&set_gas_price_params_arc)
             .set_gas_price_result(Ok(()));
 
@@ -2899,12 +2848,6 @@ mod tests {
         assert_eq!(result, Ok(()));
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
-        let set_earning_wallet_address_params =
-            set_earning_wallet_address_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_earning_wallet_address_params,
-            vec![earning_address.to_string()]
-        );
         let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
         assert_eq!(*set_gas_price_params, vec![gas_price]);
     }
@@ -2950,16 +2893,13 @@ mod tests {
         config.consuming_wallet = None;
         config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_earning_wallet_address_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(None))
             .set_earning_wallet_address_result(Ok(()))
             .consuming_wallet_derivation_path_result(Ok(None))
             .set_gas_price_result(Ok(()))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
-            .set_clandestine_port_result(Ok(()))
-            .set_earning_wallet_address_params(&set_earning_wallet_address_params_arc)
-            .set_earning_wallet_address_result(Ok(()));
+            .set_clandestine_port_result(Ok(()));
 
         let result = standard::configure_database(&config, &mut persistent_config);
 
@@ -2967,11 +2907,5 @@ mod tests {
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         let no_ports: Vec<u16> = vec![];
         assert_eq!(*set_clandestine_port_params, no_ports);
-        let set_earning_wallet_address_params =
-            set_earning_wallet_address_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_earning_wallet_address_params,
-            vec![DEFAULT_EARNING_WALLET.to_string()]
-        )
     }
 }
