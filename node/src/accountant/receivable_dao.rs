@@ -209,14 +209,8 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        let min_amt = match jackass_unsigned_to_signed(minimum_amount) {
-            Ok(n) => n,
-            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
-        };
-        let max_age = match jackass_unsigned_to_signed(maximum_age) {
-            Ok(n) => n,
-            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
-        };
+        let min_amt = jackass_unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let max_age = jackass_unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let min_timestamp = dao_utils::now_time_t() - max_age;
         let mut stmt = self
             .conn

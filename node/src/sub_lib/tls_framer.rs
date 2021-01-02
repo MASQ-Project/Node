@@ -85,7 +85,7 @@ impl TlsFramer {
     }
 
     fn is_valid_content_type(candidate: u8) -> bool {
-        (candidate >= 0x14) && (candidate <= 0x17)
+        (0x14..=0x17).contains(&candidate)
     }
 
     // TODO: This should accept 0x0300, 0x0301, 0x0302, and 0x0303. See SC-227/GH-165.

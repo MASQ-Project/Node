@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 
+#[allow(clippy::result_unit_err)]
 pub trait ReceiverWrapper<T: Send>: Send {
     fn poll(&mut self) -> Result<Async<Option<T>>, ()>;
 }

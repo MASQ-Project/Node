@@ -18,7 +18,6 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
-use std::iter::FromIterator;
 use std::net::{IpAddr, SocketAddr};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,7 +108,10 @@ impl GossipNodeRecord {
                 human_readable.push_str(&format!("\n\t\trate_pack: {:?},", nri.rate_pack));
                 human_readable.push_str(&format!(
                     "\n\t\tneighbors: {:?},",
-                    Vec::from_iter(nri.neighbors.clone().into_iter())
+                    nri.neighbors
+                        .clone()
+                        .into_iter()
+                        .collect::<Vec<PublicKey>>()
                 ));
                 human_readable.push_str(&format!("\n\t\tversion: {:?},", nri.version));
                 human_readable.push_str("\n\t},");

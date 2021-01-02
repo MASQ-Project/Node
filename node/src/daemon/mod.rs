@@ -30,7 +30,6 @@ use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 
 pub struct Recipients {
     ui_gateway_from_sub: Recipient<NodeFromUiMessage>,
@@ -383,7 +382,7 @@ impl Daemon {
     fn compare_setup_clusters(left: &SetupCluster, right: &SetupCluster) -> Result<(), String> {
         let mut left_not_right = HashSet::new();
         let mut unequal = HashSet::new();
-        let mut right_not_left: HashSet<String> = HashSet::from_iter(right.keys().cloned());
+        let mut right_not_left: HashSet<String> = right.keys().cloned().collect();
         left.iter().for_each(|(k, v_left)| match right.get(k) {
             Some(v_right) => {
                 let _ = right_not_left.remove(k);
