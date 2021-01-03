@@ -106,7 +106,7 @@ going on at once, this might happen:
 If each conversation has its own ID, it'll be a lot easier to tell what's going on when a message arrives
 than it will be if every message is part of conversation 555.
 
-Some messages are always isolated, and never part of any conversation, like the Broadcast n step 5 above. 
+Some messages are always isolated, and never part of any conversation, like the Broadcast in step 5 above. 
 These messages will be identifiable by their `opcode`, and their `contextId` should be ignored. (In the 
 real world, it's always zero, but depending on that might be dangerous.)
 
@@ -314,6 +314,8 @@ code, where the high-order eight bits are 0x01.
 }
 ```
 ##### Description:
+NOTE: This message is planned, but not yet implemented.
+
 This message requests a dump of the Node's current configuration information. If you know the database password,
 provide it, and the response will contain the secrets in the database. If you don't supply a password, or you
 do but it's wrong, you'll still get a response, but it will have only public information: the secrets will be
@@ -330,15 +332,9 @@ Another reason the secrets might be missing is that there are not yet any secret
     "currentSchemaVersion": <string>,
     "clandestinePort": <string>,
     "gasPrice": <number>,
-    "mnemonic_seed": <optional string>,
-    "consuming_wallet": { <optional object>
-        derivationPath: <string>,
-        address: <String>
-    },
-    "earning_wallet": { <optional object>
-        derivationPathOpt: <optional string>,
-        address: <String>
-    },
+    "mnemonicSeedOpt": <optional string>,
+    "consumingWalletDerivationPathOpt": <optional string>,
+    "earningWalletAddressOpt": <optional string>,
     "pastNeighbors": [
         <string>,
         <string>, ...
@@ -347,6 +343,8 @@ Another reason the secrets might be missing is that there are not yet any secret
 }
 ```
 ##### Description:
+NOTE: This message is planned, but not yet implemented.
+
 This conveys the Node's current configuration information. Some of it is optional: if it's missing, it might be
 because it hasn't been configured yet, or it might be because it's secret and you didn't provide the correct
 database password. If you want to know whether the password you have is the correct one, try the
@@ -362,22 +360,14 @@ version. If this attempt fails for some reason, this value can be used to diagno
 * `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
 
 * `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
-phrase. You won't see this if the password isn't correct. You also won't see it if the password is correct
-but the seed hasn't been set yet.
+phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
+won't see it if the password is correct but the seed hasn't been set yet.
 
-* `consumingWalletOpt`: This object has subfields that tell about the consuming wallet. Nothing here is secret,
-so if you don't get this field, it's because it hasn't been set yet.
-  *  `derivationPath`: This is the derivation path (from the mnemonic seed) of the consuming wallet. More than
-likely, it's m/44'/60'/0'/0/0.
-  * `address`: The wallet address for the consuming wallet.
+* `consumingWalletDerivationPathOpt`: This is the derivation path (from the mnemonic seed) of the consuming wallet.
+More than likely, it's m/44'/60'/0'/0/0.
   
-* `earningWalletOpt`: This object has subfields that tell about the earning wallet. Nothing here is secret, so
+* `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
 if you don't get this field, it's because it hasn't been set yet.
-  *  `derivationPathOpt`: If the earning wallet is derived from the mnemonic seed (which it will be if the Node
-generated the wallet pair), this is the derivation path used for it. More than likely, it's m/44'/60'/0'/0/1.
-If the earning wallet was not derived from the mnemonic seed, or if it is but the Node doesn't know that, this
-field will be omitted.
-  * `address`: The wallet address for the earning wallet.
 
 * `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
 try to connect to when it starts up next time.
@@ -394,6 +384,8 @@ it left off last time.
 "payload": {}
 ```
 ##### Description:
+NOTE: This message is planned, but not yet implemented.
+
 If you receive this broadcast message, then something about the Node's configuration has changed. If you're
 interested, you can send a `configuration` request and get the new info; or you can just ignore this message
 if you don't care. If you're caching the configuration information, this would be a good time to invalidate
