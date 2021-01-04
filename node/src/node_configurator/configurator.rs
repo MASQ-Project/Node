@@ -2,7 +2,12 @@ use std::path::PathBuf;
 
 use actix::{Actor, Context, Handler, Recipient};
 
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateWalletsRequest, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiConfigurationRequest, UiConfigurationResponse};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
+    UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
+    UiConfigurationResponse, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
+    UiNewPasswordBroadcast,
+};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
     MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
@@ -12,14 +17,16 @@ use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
-use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal, PersistentConfigError};
+use crate::db_config::persistent_configuration::{
+    PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
+};
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::main_cryptde;
 use bip39::{Language, MnemonicType, Seed};
 use rustc_hex::ToHex;
-use crate::test_utils::main_cryptde;
 
 pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
 pub const CONFIGURATOR_READ_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
@@ -81,7 +88,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
                 "Sending response to {} command:\n{:?}", msg.body.opcode, response
             );
             self.send_to_ui_gateway(ClientId(msg.client_id), response);
-        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb (msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.clone().body) {
             debug!(
                 &self.logger,
                 "Handling {} message from client {}", msg.body.opcode, msg.client_id
@@ -324,8 +331,7 @@ impl Configurator {
         msg: UiConfigurationRequest,
         context_id: u64,
     ) -> MessageBody {
-        match Self::unfriendly_handle_configuration(msg, context_id, &mut self.persistent_config)
-        {
+        match Self::unfriendly_handle_configuration(msg, context_id, &mut self.persistent_config) {
             Ok(message_body) => message_body,
             Err((code, msg)) => MessageBody {
                 opcode: "configuration".to_string(),
@@ -342,28 +348,43 @@ impl Configurator {
     ) -> Result<MessageBody, MessageError> {
         let good_password = match &msg.db_password_opt {
             None => None,
-            Some (db_password) => match persistent_config.check_password(Some (db_password.clone())) {
-                Ok (true) => Some (db_password),
-                Ok (false) => None,
-                Err (_) => return Err((CONFIGURATOR_READ_ERROR, "dbPassword".to_string()))
-            },
+            Some(db_password) => {
+                match persistent_config.check_password(Some(db_password.clone())) {
+                    Ok(true) => Some(db_password),
+                    Ok(false) => None,
+                    Err(_) => return Err((CONFIGURATOR_READ_ERROR, "dbPassword".to_string())),
+                }
+            }
         };
         let current_schema_version = persistent_config.current_schema_version();
-        let clandestine_port = Self::value_required (persistent_config.clandestine_port(), "clandestinePort")?;
-        let gas_price = Self::value_required (persistent_config.gas_price(), "gasPrice")?;
-        let consuming_wallet_derivation_path_opt = Self::value_not_required (persistent_config.consuming_wallet_derivation_path(), "consumingWalletDerivationPathOpt")?;
-        let earning_wallet_address_opt = Self::value_not_required (persistent_config.earning_wallet_address(), "earningWalletAddressOpt")?;
-        let start_block = Self::value_required (persistent_config.start_block(), "startBlock")?;
+        let clandestine_port =
+            Self::value_required(persistent_config.clandestine_port(), "clandestinePort")?;
+        let gas_price = Self::value_required(persistent_config.gas_price(), "gasPrice")?;
+        let consuming_wallet_derivation_path_opt = Self::value_not_required(
+            persistent_config.consuming_wallet_derivation_path(),
+            "consumingWalletDerivationPathOpt",
+        )?;
+        let earning_wallet_address_opt = Self::value_not_required(
+            persistent_config.earning_wallet_address(),
+            "earningWalletAddressOpt",
+        )?;
+        let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
         let (mnemonic_seed_opt, past_neighbors) = match good_password {
-            Some (password) => {
-                let mnemonic_seed_opt = Self::value_not_required (persistent_config.mnemonic_seed(password), "mnemonicSeedOpt")?
-                    .map (|bytes| bytes.as_slice().to_hex::<String>());
-                let past_neighbors = Self::value_required (persistent_config.past_neighbors (password), "pastNeighbors")?
-                    .into_iter()
-                    .map(|nd| nd.to_string(main_cryptde()))
-                    .collect::<Vec<String>>();
+            Some(password) => {
+                let mnemonic_seed_opt = Self::value_not_required(
+                    persistent_config.mnemonic_seed(password),
+                    "mnemonicSeedOpt",
+                )?
+                .map(|bytes| bytes.as_slice().to_hex::<String>());
+                let past_neighbors = Self::value_required(
+                    persistent_config.past_neighbors(password),
+                    "pastNeighbors",
+                )?
+                .into_iter()
+                .map(|nd| nd.to_string(main_cryptde()))
+                .collect::<Vec<String>>();
                 (mnemonic_seed_opt, past_neighbors)
-            },
+            }
             None => (None, vec![]),
         };
         let response = UiConfigurationResponse {
@@ -376,21 +397,27 @@ impl Configurator {
             past_neighbors,
             start_block,
         };
-        Ok(response.tmb (context_id))
+        Ok(response.tmb(context_id))
     }
 
-    fn value_required<T> (result: Result<Option<T>, PersistentConfigError>, field_name: &str) -> Result<T, MessageError> {
+    fn value_required<T>(
+        result: Result<Option<T>, PersistentConfigError>,
+        field_name: &str,
+    ) -> Result<T, MessageError> {
         match result {
-            Ok (Some (v)) => Ok (v),
-            Ok (None) => Err ((VALUE_MISSING_ERROR, field_name.to_string())),
-            Err (_) => Err ((CONFIGURATOR_READ_ERROR, field_name.to_string()))
+            Ok(Some(v)) => Ok(v),
+            Ok(None) => Err((VALUE_MISSING_ERROR, field_name.to_string())),
+            Err(_) => Err((CONFIGURATOR_READ_ERROR, field_name.to_string())),
         }
     }
 
-    fn value_not_required<T> (result: Result<Option<T>, PersistentConfigError>, field_name: &str) -> Result<Option<T>, MessageError> {
+    fn value_not_required<T>(
+        result: Result<Option<T>, PersistentConfigError>,
+        field_name: &str,
+    ) -> Result<Option<T>, MessageError> {
         match result {
-            Ok (option) => Ok (option),
-            Err (_) => Err ((CONFIGURATOR_READ_ERROR, field_name.to_string()))
+            Ok(option) => Ok(option),
+            Err(_) => Err((CONFIGURATOR_READ_ERROR, field_name.to_string())),
         }
     }
 
@@ -422,7 +449,11 @@ mod tests {
 
     use actix::System;
 
-    use masq_lib::messages::{ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder, UiConfigurationRequest, UiConfigurationResponse};
+    use masq_lib::messages::{
+        ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
+        UiConfigurationRequest, UiConfigurationResponse, UiGenerateWalletsResponse,
+        UiNewPasswordBroadcast, UiStartOrder,
+    };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
 
     use crate::db_config::persistent_configuration::{
@@ -437,12 +468,12 @@ mod tests {
     use crate::blockchain::bip39::Bip39;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rustc_hex::ToHex;
-    use crate::sub_lib::neighborhood::NodeDescriptor;
-    use crate::sub_lib::cryptde_null::CryptDENull;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -915,23 +946,25 @@ mod tests {
 
     #[test]
     fn configuration_works_with_good_password() {
-        let public_key = crate::sub_lib::cryptde::PublicKey::new (b"Throckmorton");
+        let public_key = crate::sub_lib::cryptde::PublicKey::new(b"Throckmorton");
         let cryptde = CryptDENull::from(&public_key, DEFAULT_CHAIN_ID);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .current_schema_version_result("1.2.3")
-            .clandestine_port_result (Ok (Some (1234)))
-            .gas_price_result (Ok (Some (2345)))
-            .mnemonic_seed_result (Ok (Some (PlainData::new (b"booga"))))
-            .consuming_wallet_derivation_path_result (Ok (Some ("m/60'/44'/0'/4/4".to_string())))
-            .earning_wallet_address_result (Ok (Some ("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string())))
-            .past_neighbors_result (Ok (Some (vec! [
+            .clandestine_port_result(Ok(Some(1234)))
+            .gas_price_result(Ok(Some(2345)))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(b"booga"))))
+            .consuming_wallet_derivation_path_result(Ok(Some("m/60'/44'/0'/4/4".to_string())))
+            .earning_wallet_address_result(Ok(Some(
+                "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
+            )))
+            .past_neighbors_result(Ok(Some(vec![
                 NodeDescriptor::from_str(&cryptde, "QUJDREVGRw@1.2.3.4:1234").unwrap(),
                 NodeDescriptor::from_str(&cryptde, "QkNERUZHSA@2.3.4.5:2345").unwrap(),
                 NodeDescriptor::from_str(&cryptde, "Q0RFRkdISQ@3.4.5.6:3456").unwrap(),
             ])))
-            .start_block_result (Ok (Some (3456)));
+            .start_block_result(Ok(Some(3456)));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -940,9 +973,10 @@ mod tests {
         subject_addr
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
-                body: UiConfigurationRequest{
-                    db_password_opt: Some ("password".to_string())
-                }.tmb(4321),
+                body: UiConfigurationRequest {
+                    db_password_opt: Some("password".to_string()),
+                }
+                .tmb(4321),
             })
             .unwrap();
 
@@ -954,20 +988,25 @@ mod tests {
         let (configuration, context_id) =
             UiConfigurationResponse::fmb(response.body.clone()).unwrap();
         assert_eq!(context_id, 4321);
-        assert_eq!(configuration, UiConfigurationResponse {
-            current_schema_version: "1.2.3".to_string(),
-            clandestine_port: 1234,
-            gas_price: 2345,
-            mnemonic_seed_opt: Some (PlainData::new (b"booga").as_slice().to_hex()),
-            consuming_wallet_derivation_path_opt: Some ("m/60'/44'/0'/4/4".to_string()),
-            earning_wallet_address_opt: Some ("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string()),
-            past_neighbors: vec![
-                "QUJDREVGRw@1.2.3.4:1234".to_string(),
-                "QkNERUZHSA@2.3.4.5:2345".to_string(),
-                "Q0RFRkdISQ@3.4.5.6:3456".to_string(),
-            ],
-            start_block: 3456
-        });
+        assert_eq!(
+            configuration,
+            UiConfigurationResponse {
+                current_schema_version: "1.2.3".to_string(),
+                clandestine_port: 1234,
+                gas_price: 2345,
+                mnemonic_seed_opt: Some(PlainData::new(b"booga").as_slice().to_hex()),
+                consuming_wallet_derivation_path_opt: Some("m/60'/44'/0'/4/4".to_string()),
+                earning_wallet_address_opt: Some(
+                    "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string()
+                ),
+                past_neighbors: vec![
+                    "QUJDREVGRw@1.2.3.4:1234".to_string(),
+                    "QkNERUZHSA@2.3.4.5:2345".to_string(),
+                    "Q0RFRkdISQ@3.4.5.6:3456".to_string(),
+                ],
+                start_block: 3456
+            }
+        );
     }
 
     #[test]
@@ -975,31 +1014,40 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(false))
             .current_schema_version_result("1.2.3")
-            .clandestine_port_result (Ok (Some (1234)))
-            .gas_price_result (Ok (Some (2345)))
-            .consuming_wallet_derivation_path_result (Ok (Some ("m/60'/44'/0'/4/4".to_string())))
-            .earning_wallet_address_result (Ok (Some ("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string())))
-            .start_block_result (Ok (Some (3456)));
+            .clandestine_port_result(Ok(Some(1234)))
+            .gas_price_result(Ok(Some(2345)))
+            .consuming_wallet_derivation_path_result(Ok(Some("m/60'/44'/0'/4/4".to_string())))
+            .earning_wallet_address_result(Ok(Some(
+                "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
+            )))
+            .start_block_result(Ok(Some(3456)));
         let mut subject = make_subject(Some(persistent_config));
 
-        let (configuration, context_id) = UiConfigurationResponse::fmb (subject.handle_configuration (
-            UiConfigurationRequest {
-                db_password_opt: Some ("password".to_string())
-            },
-            4321
-        )).unwrap();
+        let (configuration, context_id) =
+            UiConfigurationResponse::fmb(subject.handle_configuration(
+                UiConfigurationRequest {
+                    db_password_opt: Some("password".to_string()),
+                },
+                4321,
+            ))
+            .unwrap();
 
         assert_eq!(context_id, 4321);
-        assert_eq!(configuration, UiConfigurationResponse {
-            current_schema_version: "1.2.3".to_string(),
-            clandestine_port: 1234,
-            gas_price: 2345,
-            mnemonic_seed_opt: None,
-            consuming_wallet_derivation_path_opt: Some ("m/60'/44'/0'/4/4".to_string()),
-            earning_wallet_address_opt: Some ("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string()),
-            past_neighbors: vec![],
-            start_block: 3456
-        });
+        assert_eq!(
+            configuration,
+            UiConfigurationResponse {
+                current_schema_version: "1.2.3".to_string(),
+                clandestine_port: 1234,
+                gas_price: 2345,
+                mnemonic_seed_opt: None,
+                consuming_wallet_derivation_path_opt: Some("m/60'/44'/0'/4/4".to_string()),
+                earning_wallet_address_opt: Some(
+                    "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string()
+                ),
+                past_neighbors: vec![],
+                start_block: 3456
+            }
+        );
     }
 
     #[test]
@@ -1007,33 +1055,38 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .current_schema_version_result("1.2.3")
-            .clandestine_port_result (Ok (Some (1234)))
-            .gas_price_result (Ok (Some (2345)))
-            .mnemonic_seed_result (Ok (None))
-            .consuming_wallet_derivation_path_result (Ok (None))
-            .past_neighbors_result (Ok (Some (vec! [])))
-            .earning_wallet_address_result (Ok (None))
-            .start_block_result (Ok (Some (3456)));
+            .clandestine_port_result(Ok(Some(1234)))
+            .gas_price_result(Ok(Some(2345)))
+            .mnemonic_seed_result(Ok(None))
+            .consuming_wallet_derivation_path_result(Ok(None))
+            .past_neighbors_result(Ok(Some(vec![])))
+            .earning_wallet_address_result(Ok(None))
+            .start_block_result(Ok(Some(3456)));
         let mut subject = make_subject(Some(persistent_config));
 
-        let (configuration, context_id) = UiConfigurationResponse::fmb (subject.handle_configuration (
-            UiConfigurationRequest {
-                db_password_opt: None
-            },
-            4321
-        )).unwrap();
+        let (configuration, context_id) =
+            UiConfigurationResponse::fmb(subject.handle_configuration(
+                UiConfigurationRequest {
+                    db_password_opt: None,
+                },
+                4321,
+            ))
+            .unwrap();
 
         assert_eq!(context_id, 4321);
-        assert_eq!(configuration, UiConfigurationResponse {
-            current_schema_version: "1.2.3".to_string(),
-            clandestine_port: 1234,
-            gas_price: 2345,
-            mnemonic_seed_opt: None,
-            consuming_wallet_derivation_path_opt: None,
-            earning_wallet_address_opt: None,
-            past_neighbors: vec![],
-            start_block: 3456
-        });
+        assert_eq!(
+            configuration,
+            UiConfigurationResponse {
+                current_schema_version: "1.2.3".to_string(),
+                clandestine_port: 1234,
+                gas_price: 2345,
+                mnemonic_seed_opt: None,
+                consuming_wallet_derivation_path_opt: None,
+                earning_wallet_address_opt: None,
+                past_neighbors: vec![],
+                start_block: 3456
+            }
+        );
     }
 
     #[test]
@@ -1042,39 +1095,44 @@ mod tests {
             .check_password_result(Err(PersistentConfigError::NotPresent));
         let mut subject = make_subject(Some(persistent_config));
 
-        let result = subject.handle_configuration (
+        let result = subject.handle_configuration(
             UiConfigurationRequest {
-                db_password_opt: Some ("password".to_string())
+                db_password_opt: Some("password".to_string()),
             },
-            4321
+            4321,
         );
 
-        assert_eq! (result, MessageBody {
-            opcode: "configuration".to_string(),
-            path: MessagePath::Conversation(4321),
-            payload: Err ((CONFIGURATOR_READ_ERROR, "dbPassword".to_string()))
-        });
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "configuration".to_string(),
+                path: MessagePath::Conversation(4321),
+                payload: Err((CONFIGURATOR_READ_ERROR, "dbPassword".to_string()))
+            }
+        );
     }
 
     #[test]
     fn value_required_handles_absent_value() {
-        let result: Result<String, MessageError> = Configurator::value_required (Ok (None), "Field");
+        let result: Result<String, MessageError> = Configurator::value_required(Ok(None), "Field");
 
-        assert_eq! (result, Err((VALUE_MISSING_ERROR, "Field".to_string())))
+        assert_eq!(result, Err((VALUE_MISSING_ERROR, "Field".to_string())))
     }
 
     #[test]
     fn value_required_handles_read_error() {
-        let result: Result<String, MessageError> = Configurator::value_required(Err(PersistentConfigError::NotPresent), "Field");
+        let result: Result<String, MessageError> =
+            Configurator::value_required(Err(PersistentConfigError::NotPresent), "Field");
 
-        assert_eq! (result, Err((CONFIGURATOR_READ_ERROR, "Field".to_string())))
+        assert_eq!(result, Err((CONFIGURATOR_READ_ERROR, "Field".to_string())))
     }
 
     #[test]
     fn value_not_required_handles_read_error() {
-        let result: Result<Option<String>, MessageError> = Configurator::value_not_required(Err(PersistentConfigError::NotPresent), "Field");
+        let result: Result<Option<String>, MessageError> =
+            Configurator::value_not_required(Err(PersistentConfigError::NotPresent), "Field");
 
-        assert_eq! (result, Err((CONFIGURATOR_READ_ERROR, "Field".to_string())))
+        assert_eq!(result, Err((CONFIGURATOR_READ_ERROR, "Field".to_string())))
     }
 
     fn make_example_generate_wallets_request() -> UiGenerateWalletsRequest {
