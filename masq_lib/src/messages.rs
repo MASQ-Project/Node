@@ -450,28 +450,28 @@ fire_and_forget_message!(UiConfigurationChangedBroadcast, "configurationChanged"
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationRequest {
     #[serde(rename = "dbPasswordOpt")]
-    db_password_opt: Option<String>,
+    pub db_password_opt: Option<String>,
 }
 conversation_message!(UiConfigurationRequest, "configuration");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationResponse {
     #[serde(rename = "currentSchemaVersion")]
-    current_schema_version: String,
+    pub current_schema_version: String,
     #[serde(rename = "clandestinePort")]
-    clandestine_port: u16,
+    pub clandestine_port: u16,
     #[serde(rename = "gasPrice")]
-    gas_price: u64,
+    pub gas_price: u64,
     #[serde(rename = "mnemonicSeedOpt")]
-    mnemonic_seed_opt: Option<String>,
+    pub mnemonic_seed_opt: Option<String>,
     #[serde(rename = "consumingWalletDerivationPathOpt")]
-    consuming_wallet_derivation_path_opt: Option<String>,
+    pub consuming_wallet_derivation_path_opt: Option<String>,
     #[serde(rename = "earningWalletAddressOpt")]
-    earning_wallet_address_opt: Option<String>,
+    pub earning_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
-    past_neighbors: Vec<String>,
+    pub past_neighbors: Vec<String>,
     #[serde(rename = "startBlock")]
-    start_block: u64,
+    pub start_block: u64,
 }
 conversation_message!(UiConfigurationResponse, "configuration");
 
