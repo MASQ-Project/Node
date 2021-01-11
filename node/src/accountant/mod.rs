@@ -749,6 +749,7 @@ pub mod tests {
     use std::cell::RefCell;
     use std::convert::TryFrom;
     use std::ops::Sub;
+    use std::rc::Rc;
     use std::sync::Mutex;
     use std::sync::{Arc, MutexGuard};
     use std::thread;
@@ -877,11 +878,13 @@ pub mod tests {
     }
 
     pub struct PayableDaoFactoryMock {
+        called: Rc<RefCell<bool>>,
         mock: RefCell<Option<PayableDaoMock>>,
     }
 
     impl PayableDaoFactory for PayableDaoFactoryMock {
         fn make(&self) -> Box<dyn PayableDao> {
+            *self.called.borrow_mut() = true;
             Box::new(self.mock.borrow_mut().take().unwrap())
         }
     }
@@ -889,8 +892,14 @@ pub mod tests {
     impl PayableDaoFactoryMock {
         fn new(mock: PayableDaoMock) -> Self {
             Self {
+                called: Rc::new(RefCell::new(false)),
                 mock: RefCell::new(Some(mock)),
             }
+        }
+
+        fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
+            self.called = called.clone();
+            self
         }
     }
 
@@ -1056,11 +1065,13 @@ pub mod tests {
     }
 
     pub struct ReceivableDaoFactoryMock {
+        called: Rc<RefCell<bool>>,
         mock: RefCell<Option<ReceivableDaoMock>>,
     }
 
     impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
         fn make(&self) -> Box<dyn ReceivableDao> {
+            *self.called.borrow_mut() = true;
             Box::new(self.mock.borrow_mut().take().unwrap())
         }
     }
@@ -1068,8 +1079,14 @@ pub mod tests {
     impl ReceivableDaoFactoryMock {
         fn new(mock: ReceivableDaoMock) -> Self {
             Self {
+                called: Rc::new(RefCell::new(false)),
                 mock: RefCell::new(Some(mock)),
             }
+        }
+
+        fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
+            self.called = called.clone();
+            self
         }
     }
 
@@ -1123,11 +1140,13 @@ pub mod tests {
     }
 
     pub struct BannedDaoFactoryMock {
+        called: Rc<RefCell<bool>>,
         mock: RefCell<Option<BannedDaoMock>>,
     }
 
     impl BannedDaoFactory for BannedDaoFactoryMock {
         fn make(&self) -> Box<dyn BannedDao> {
+            *self.called.borrow_mut() = true;
             Box::new(self.mock.borrow_mut().take().unwrap())
         }
     }
@@ -1135,17 +1154,25 @@ pub mod tests {
     impl BannedDaoFactoryMock {
         fn new(mock: BannedDaoMock) -> Self {
             Self {
+                called: Rc::new(RefCell::new(false)),
                 mock: RefCell::new(Some(mock)),
             }
+        }
+
+        fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
+            self.called = called.clone();
+            self
         }
     }
 
     pub struct ConfigDaoFactoryMock {
+        called: Rc<RefCell<bool>>,
         mock: RefCell<Option<ConfigDaoMock>>,
     }
 
     impl ConfigDaoFactory for ConfigDaoFactoryMock {
         fn make(&self) -> Box<dyn ConfigDao> {
+            *self.called.borrow_mut() = true;
             Box::new(self.mock.borrow_mut().take().unwrap())
         }
     }
@@ -1153,9 +1180,49 @@ pub mod tests {
     impl ConfigDaoFactoryMock {
         fn new(mock: ConfigDaoMock) -> Self {
             Self {
+                called: Rc::new(RefCell::new(false)),
                 mock: RefCell::new(Some(mock)),
             }
         }
+
+        fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
+            self.called = called.clone();
+            self
+        }
+    }
+
+    #[test]
+    fn new_calls_factories_properly() {
+        let config = BootstrapperConfig::new();
+        let payable_dao_factory_called = Rc::new(RefCell::new(false));
+        let payable_dao = PayableDaoMock::new();
+        let payable_dao_factory =
+            PayableDaoFactoryMock::new(payable_dao).called(&payable_dao_factory_called);
+        let receivable_dao_factory_called = Rc::new(RefCell::new(false));
+        let receivable_dao = ReceivableDaoMock::new();
+        let receivable_dao_factory =
+            ReceivableDaoFactoryMock::new(receivable_dao).called(&receivable_dao_factory_called);
+        let banned_dao_factory_called = Rc::new(RefCell::new(false));
+        let banned_dao = BannedDaoMock::new();
+        let banned_dao_factory =
+            BannedDaoFactoryMock::new(banned_dao).called(&banned_dao_factory_called);
+        let config_dao_factory_called = Rc::new(RefCell::new(false));
+        let config_dao = ConfigDaoMock::new();
+        let config_dao_factory =
+            ConfigDaoFactoryMock::new(config_dao).called(&config_dao_factory_called);
+
+        let _ = Accountant::new(
+            &config,
+            Box::new(payable_dao_factory),
+            Box::new(receivable_dao_factory),
+            Box::new(banned_dao_factory),
+            Box::new(config_dao_factory),
+        );
+
+        assert_eq!(payable_dao_factory_called.as_ref(), &RefCell::new(true));
+        assert_eq!(receivable_dao_factory_called.as_ref(), &RefCell::new(true));
+        assert_eq!(banned_dao_factory_called.as_ref(), &RefCell::new(true));
+        assert_eq!(config_dao_factory_called.as_ref(), &RefCell::new(true));
     }
 
     #[test]

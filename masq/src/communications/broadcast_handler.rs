@@ -1,9 +1,12 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
+use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::notifications::crashed_notification::CrashNotifier;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
-use masq_lib::messages::{UiNodeCrashedBroadcast, UiSetupBroadcast};
+use masq_lib::messages::{
+    FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
+};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
@@ -60,24 +63,23 @@ impl BroadcastHandlerReal {
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
     ) {
-        let message_body = match message_body_result {
-            Ok(mb) => mb,
-            Err(_) => return, // Receiver died; masq is going down
-        };
-        match &message_body.opcode {
-            o if o == UiSetupBroadcast::type_opcode() => {
-                SetupCommand::handle_broadcast(message_body, stdout, stderr)
-            }
-            o if o == UiNodeCrashedBroadcast::type_opcode() => {
-                CrashNotifier::handle_broadcast(message_body, stdout, stderr)
-            }
-            opcode => {
-                write!(
-                    stderr,
-                    "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",
-                    opcode
-                )
-                .expect("write! failed");
+        match message_body_result {
+            Err(_) => (), // Receiver died; masq is going down
+            Ok(message_body) => {
+                if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
+                    SetupCommand::handle_broadcast(body, stdout);
+                } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
+                    CrashNotifier::handle_broadcast(body, stdout);
+                } else if let Ok((_, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
+                    ChangePasswordCommand::handle_broadcast(stdout);
+                } else {
+                    write!(
+                        stderr,
+                        "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",
+                        message_body.opcode
+                    )
+                    .expect("write! failed");
+                }
             }
         }
     }
@@ -178,6 +180,28 @@ mod tests {
         assert_eq!(
             stdout,
             "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string()
+        );
+        assert_eq!(
+            handle.stderr_so_far(),
+            "".to_string(),
+            "stderr: '{}'",
+            stdout
+        );
+    }
+
+    #[test]
+    fn broadcast_of_new_password_triggers_correct_handler() {
+        let (factory, handle) = TestStreamFactory::new();
+        // This thread will leak, and will only stop when the tests stop running.
+        let subject = BroadcastHandlerReal::new().start(Box::new(factory));
+        let message = UiNewPasswordBroadcast {}.tmb(0);
+
+        subject.send(message);
+
+        let stdout = handle.stdout_so_far();
+        assert_eq!(
+            stdout,
+            "\nThe Node's database password has changed.\n\nmasq> ".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),

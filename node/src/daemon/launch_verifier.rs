@@ -96,20 +96,15 @@ impl VerifierToolsReal {
 
     #[cfg(target_os = "linux")]
     fn is_alive(process_status: ProcessStatus) -> bool {
-        match process_status {
-            ProcessStatus::Dead => false,
-            ProcessStatus::Zombie => false,
-            _ => true,
-        }
+        !matches!(process_status, ProcessStatus::Dead | ProcessStatus::Zombie)
     }
 
     #[cfg(target_os = "macos")]
     fn is_alive(process_status: ProcessStatus) -> bool {
-        match process_status {
-            ProcessStatus::Zombie => false,
-            ProcessStatus::Unknown(0) => false, // This value was observed in practice; its meaning is unclear.
-            _ => true,
-        }
+        !matches!(
+            process_status,
+            ProcessStatus::Zombie | ProcessStatus::Unknown(0)
+        )
     }
 
     #[cfg(target_os = "windows")]

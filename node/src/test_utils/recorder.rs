@@ -14,6 +14,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, GetFinancialStatisticsMessage};
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
+use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -108,6 +109,7 @@ recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
 recorder_message_handler!(IncipientCoresPackage);
 recorder_message_handler!(NeighborhoodDotGraphRequest);
+recorder_message_handler!(NewPasswordMessage);
 recorder_message_handler!(NodeFromUiMessage);
 recorder_message_handler!(NodeToUiMessage);
 recorder_message_handler!(NodeRecordMetadataMessage);
@@ -390,6 +392,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+        new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
     }
 }
 
@@ -428,6 +431,13 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
     }
 }
 
+pub fn make_configurator_subs_from(addr: &Addr<Recorder>) -> ConfiguratorSubs {
+    ConfiguratorSubs {
+        bind: recipient!(addr, BindMessage),
+        node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
+    }
+}
+
 pub fn peer_actors_builder() -> PeerActorsBuilder {
     PeerActorsBuilder::new()
 }
@@ -442,6 +452,7 @@ pub struct PeerActorsBuilder {
     accountant: Recorder,
     ui_gateway: Recorder,
     blockchain_bridge: Recorder,
+    configurator: Recorder,
 }
 
 impl PeerActorsBuilder {
@@ -455,6 +466,7 @@ impl PeerActorsBuilder {
             accountant: Recorder::new(),
             ui_gateway: Recorder::new(),
             blockchain_bridge: Recorder::new(),
+            configurator: Recorder::new(),
         }
     }
 
@@ -498,6 +510,11 @@ impl PeerActorsBuilder {
         self
     }
 
+    pub fn configurator(mut self, recorder: Recorder) -> PeerActorsBuilder {
+        self.configurator = recorder;
+        self
+    }
+
     // This must be called after System.new and before System.run
     pub fn build(self) -> PeerActors {
         let proxy_server_addr = self.proxy_server.start();
@@ -508,6 +525,7 @@ impl PeerActorsBuilder {
         let accountant_addr = self.accountant.start();
         let ui_gateway_addr = self.ui_gateway.start();
         let blockchain_bridge_addr = self.blockchain_bridge.start();
+        let configurator_addr = self.configurator.start();
 
         PeerActors {
             proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
@@ -518,6 +536,7 @@ impl PeerActorsBuilder {
             accountant: make_accountant_subs_from(&accountant_addr),
             ui_gateway: make_ui_gateway_subs_from(&ui_gateway_addr),
             blockchain_bridge: make_blockchain_bridge_subs_from(&blockchain_bridge_addr),
+            configurator: make_configurator_subs_from(&configurator_addr),
         }
     }
 }

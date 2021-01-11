@@ -103,24 +103,6 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    pub fn run_generate(config: CommandConfig) -> String {
-        let mut command = MASQNode::make_generate_command(config);
-        let output = command.output().unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
-    }
-
-    #[allow(dead_code)]
-    pub fn run_recover(config: CommandConfig) -> String {
-        let mut command = MASQNode::make_recover_command(config);
-        let output = command.output().unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
-    }
-
-    #[allow(dead_code)]
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
         let regex = regex::Regex::new(pattern).unwrap();
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
@@ -243,24 +225,6 @@ impl MASQNode {
         command
     }
 
-    fn make_generate_command(config: CommandConfig) -> process::Command {
-        Self::remove_database();
-        let mut command = command_to_start();
-        let mut args = Self::generate_args();
-        args.extend(Self::get_extra_args(Some(config)));
-        command.args(&args);
-        command
-    }
-
-    fn make_recover_command(config: CommandConfig) -> process::Command {
-        Self::remove_database();
-        let mut command = command_to_start();
-        let mut args = Self::recover_args();
-        args.extend(Self::get_extra_args(Some(config)));
-        command.args(&args);
-        command
-    }
-
     fn daemon_args() -> Vec<String> {
         apply_prefix_parameters(CommandConfig::new())
             .opt("--initialization")
@@ -283,18 +247,6 @@ impl MASQNode {
     fn dump_config_args() -> Vec<String> {
         apply_prefix_parameters(CommandConfig::new())
             .opt("--dump-config")
-            .args
-    }
-
-    fn generate_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new())
-            .opt("--generate-wallet")
-            .args
-    }
-
-    fn recover_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new())
-            .opt("--recover-wallet")
             .args
     }
 

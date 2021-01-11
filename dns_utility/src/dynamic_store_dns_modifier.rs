@@ -161,10 +161,10 @@ impl DynamicStoreDnsModifier {
             })
             .collect();
 
-        if self.store.set_dictionary_string_cfpl(
-            &dns_base_path[..],
-            HashMap::from_iter(keys_and_values.into_iter()),
-        ) {
+        if self
+            .store
+            .set_dictionary_string_cfpl(&dns_base_path[..], keys_and_values.into_iter().collect())
+        {
             Ok(())
         } else {
             Err(String::from(

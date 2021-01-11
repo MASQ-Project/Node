@@ -23,12 +23,14 @@ impl<'a> BinaryTraverser<'a> {
         self.position < self.plain_data.len()
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn next_bytes(&mut self, count: usize) -> Result<&[u8], ()> {
         let position = self.offset();
         self.advance(count)?;
         Ok(&self.plain_data.as_slice()[position..(position + count)])
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn advance(&mut self, bytes: usize) -> Result<(), ()> {
         self.position += bytes;
         if self.position > self.plain_data.len() {
@@ -38,26 +40,31 @@ impl<'a> BinaryTraverser<'a> {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn get_u8(&mut self) -> Result<u8, ()> {
         self.advance(1)?;
         Self::convert_result(self.plain_data.get_u8(self.position - 1))
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn get_u16(&mut self) -> Result<u16, ()> {
         self.advance(2)?;
         Self::convert_result(self.plain_data.get_u16(self.position - 2))
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn get_u24(&mut self) -> Result<u32, ()> {
         self.advance(3)?;
         Self::convert_result(self.plain_data.get_u24(self.position - 3))
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn get_u32(&mut self) -> Result<u32, ()> {
         self.advance(4)?;
         Self::convert_result(self.plain_data.get_u32(self.position - 4))
     }
 
+    #[allow(clippy::result_unit_err)]
     fn convert_result<T>(option: Option<T>) -> Result<T, ()> {
         match option {
             Some(value) => Ok(value),

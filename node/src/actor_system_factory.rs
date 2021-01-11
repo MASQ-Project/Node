@@ -23,8 +23,10 @@ use crate::database::db_initializer::{
 };
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperConfig;
@@ -40,6 +42,7 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -139,6 +142,7 @@ impl ActorSystemFactoryReal {
             actor_factory.make_and_start_ui_gateway(config.ui_gateway_config.clone());
         let stream_handler_pool_subs = actor_factory
             .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories.clone());
+        let configurator_subs = actor_factory.make_and_start_configurator(&config);
 
         // collect all the subs
         let peer_actors = PeerActors {
@@ -150,6 +154,7 @@ impl ActorSystemFactoryReal {
             accountant: accountant_subs,
             ui_gateway: ui_gateway_subs,
             blockchain_bridge: blockchain_bridge_subs,
+            configurator: configurator_subs,
         };
 
         //bind all the actors
@@ -161,6 +166,7 @@ impl ActorSystemFactoryReal {
         send_bind_message!(peer_actors.accountant, peer_actors);
         send_bind_message!(peer_actors.ui_gateway, peer_actors);
         send_bind_message!(peer_actors.blockchain_bridge, peer_actors);
+        send_bind_message!(peer_actors.configurator, peer_actors);
         stream_handler_pool_subs
             .bind
             .try_send(PoolBindMessage {
@@ -221,6 +227,7 @@ pub trait ActorFactory: Send {
         config: &BootstrapperConfig,
         db_initializer: &dyn DbInitializer,
     ) -> BlockchainBridgeSubs;
+    fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs;
 }
 
 pub struct ActorFactoryReal {}
@@ -387,6 +394,18 @@ impl ActorFactory for ActorFactoryReal {
         let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
         BlockchainBridge::make_subs_from(&addr)
     }
+
+    fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
+        let configurator = Configurator::new(
+            config.data_directory.clone(),
+            config.blockchain_bridge_config.chain_id,
+        );
+        let addr: Addr<Configurator> = configurator.start();
+        ConfiguratorSubs {
+            bind: recipient!(addr, BindMessage),
+            node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -407,6 +426,7 @@ mod tests {
         ReportExitServiceConsumedMessage, ReportExitServiceProvidedMessage,
     };
     use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, ReportAccountsPayable};
+    use crate::sub_lib::configurator::NewPasswordMessage;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -470,6 +490,7 @@ mod tests {
         stream_handler_pool: RefCell<Option<Recorder>>,
         ui_gateway: RefCell<Option<Recorder>>,
         blockchain_bridge: RefCell<Option<Recorder>>,
+        configurator: RefCell<Option<Recorder>>,
 
         parameters: Parameters<'a>,
     }
@@ -567,6 +588,7 @@ mod tests {
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
                 from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+                new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
             }
         }
 
@@ -667,6 +689,19 @@ mod tests {
                 ui_sub: addr.clone().recipient::<NodeFromUiMessage>(),
             }
         }
+
+        fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
+            self.parameters
+                .configurator_params
+                .lock()
+                .unwrap()
+                .get_or_insert(config.clone());
+            let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.configurator);
+            ConfiguratorSubs {
+                bind: recipient!(addr, BindMessage),
+                node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
+            }
+        }
     }
 
     struct Recordings {
@@ -679,6 +714,7 @@ mod tests {
         stream_handler_pool: Arc<Mutex<Recording>>,
         ui_gateway: Arc<Mutex<Recording>>,
         blockchain_bridge: Arc<Mutex<Recording>>,
+        configurator: Arc<Mutex<Recording>>,
     }
 
     #[derive(Clone)]
@@ -691,6 +727,7 @@ mod tests {
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
         blockchain_bridge_params: Arc<Mutex<Option<BootstrapperConfig>>>,
+        configurator_params: Arc<Mutex<Option<BootstrapperConfig>>>,
     }
 
     impl<'a> Parameters<'a> {
@@ -703,6 +740,7 @@ mod tests {
                 accountant_params: Arc::new(Mutex::new(None)),
                 ui_gateway_params: Arc::new(Mutex::new(None)),
                 blockchain_bridge_params: Arc::new(Mutex::new(None)),
+                configurator_params: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -724,6 +762,7 @@ mod tests {
                 stream_handler_pool: RefCell::new(Some(Recorder::new())),
                 ui_gateway: RefCell::new(Some(Recorder::new())),
                 blockchain_bridge: RefCell::new(Some(Recorder::new())),
+                configurator: RefCell::new(Some(Recorder::new())),
 
                 parameters: Parameters::new(),
             }
@@ -750,6 +789,7 @@ mod tests {
                     .as_ref()
                     .unwrap()
                     .get_recording(),
+                configurator: self.configurator.borrow().as_ref().unwrap().get_recording(),
             }
         }
 
@@ -836,6 +876,7 @@ mod tests {
         Recording::get::<BindMessage>(&recordings.accountant, 0);
         Recording::get::<BindMessage>(&recordings.ui_gateway, 0);
         Recording::get::<BindMessage>(&recordings.blockchain_bridge, 0);
+        Recording::get::<BindMessage>(&recordings.configurator, 0);
         Recording::get::<PoolBindMessage>(&recordings.stream_handler_pool, 0);
         Recording::get::<StartMessage>(&recordings.neighborhood, 1);
     }

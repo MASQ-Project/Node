@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -22,6 +23,7 @@ pub struct PeerActors {
     pub accountant: AccountantSubs,
     pub ui_gateway: UiGatewaySubs,
     pub blockchain_bridge: BlockchainBridgeSubs,
+    pub configurator: ConfiguratorSubs,
 }
 
 impl Debug for PeerActors {

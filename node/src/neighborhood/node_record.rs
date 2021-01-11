@@ -15,7 +15,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
-use std::iter::FromIterator;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -131,7 +130,7 @@ impl NodeRecord {
     }
 
     pub fn half_neighbor_keys(&self) -> HashSet<&PublicKey> {
-        HashSet::from_iter(self.inner.neighbors.iter())
+        self.inner.neighbors.iter().collect()
     }
 
     pub fn has_half_neighbor(&self, key: &PublicKey) -> bool {
@@ -561,13 +560,12 @@ mod tests {
         assert_eq!(full_neighbors.len(), 2);
         assert_eq!(
             this_node.full_neighbor_keys(&database),
-            HashSet::from_iter(
-                vec![
-                    full_neighbor_one.public_key(),
-                    full_neighbor_two.public_key()
-                ]
-                .into_iter()
-            )
+            vec![
+                full_neighbor_one.public_key(),
+                full_neighbor_two.public_key()
+            ]
+            .into_iter()
+            .collect::<HashSet<&PublicKey>>()
         );
         assert_eq!(
             this_node.has_full_neighbor(&database, full_neighbor_one.public_key()),

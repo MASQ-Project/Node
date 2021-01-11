@@ -135,6 +135,10 @@ impl Wallet {
         }
     }
 
+    pub fn string_address_from_keypair(&self) -> String {
+        format!("{:#x}", self.address())
+    }
+
     pub fn sign(&self, msg: &dyn AsRef<[u8]>) -> Result<Signature, WalletError> {
         match self.kind {
             WalletKind::KeyPair(ref key_pair) => key_pair
@@ -433,6 +437,7 @@ impl Serialize for Wallet {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
+    use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use bip39::{Language, Mnemonic, Seed};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
@@ -480,6 +485,19 @@ mod tests {
             "|0xcafedeadbeefbabefacecafedeadbeefbabeface|".to_string(),
             result
         );
+    }
+
+    #[test]
+    fn string_address_from_keypair_works() {
+        let derivation_path = "m/44'/60'/0'/0/5";
+        let expected_seed = make_meaningless_seed();
+        let wallet = Wallet::from(
+            Bip32ECKeyPair::from_raw(expected_seed.as_bytes(), derivation_path).unwrap(),
+        );
+
+        let result = wallet.string_address_from_keypair();
+
+        assert_eq!(result, "0x30ff09882f583e76e965f21f1893ad9cdf03f02d")
     }
 
     #[test]

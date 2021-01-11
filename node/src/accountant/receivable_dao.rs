@@ -209,14 +209,8 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        let min_amt = match jackass_unsigned_to_signed(minimum_amount) {
-            Ok(n) => n,
-            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
-        };
-        let max_age = match jackass_unsigned_to_signed(maximum_age) {
-            Ok(n) => n,
-            Err(_) => 0x7FFF_FFFF_FFFF_FFFF,
-        };
+        let min_amt = jackass_unsigned_to_signed(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
+        let max_age = jackass_unsigned_to_signed(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
         let min_timestamp = dao_utils::now_time_t() - max_age;
         let mut stmt = self
             .conn
@@ -437,7 +431,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let result = subject.try_multi_insert_payment(&payments);
+        let result = subject.try_multi_insert_payment(&payments.as_slice());
 
         assert_eq!(
             result,
@@ -468,7 +462,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let result = subject.try_multi_insert_payment(&payments);
+        let result = subject.try_multi_insert_payment(&payments.as_slice());
 
         assert_eq!(
             result,
@@ -500,7 +494,7 @@ mod tests {
             gwei_amount: 18446744073709551615,
         }];
 
-        let _ = subject.try_multi_insert_payment(&payments);
+        let _ = subject.try_multi_insert_payment(payments.as_slice());
     }
 
     #[test]

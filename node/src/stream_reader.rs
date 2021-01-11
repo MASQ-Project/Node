@@ -33,7 +33,7 @@ impl Future for StreamReaderReal {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<()>, ()> {
-        let mut buf = [0u8; 0x10_000];
+        let mut buf = [0u8; 0x0001_0000];
         loop {
             match self.stream.poll_read(&mut buf) {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),

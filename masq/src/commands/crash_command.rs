@@ -22,6 +22,7 @@ pub fn crash_subcommand() -> App<'static, 'static> {
                 "BlockchainBridge",
                 "Dispatcher",
                 // "Accountant",
+                // "Configurator",
                 // "Hopper",
                 // "Neighborhood",
                 // "ProxyClient",
@@ -53,7 +54,7 @@ impl Command for CrashCommand {
 }
 
 impl CrashCommand {
-    pub fn new(pieces: &[String]) -> Result<Self, String> {
+    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
         let matches = match crash_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
@@ -161,7 +162,7 @@ mod tests {
     fn crash_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
             .send_result(Err(ContextError::ConnectionDropped("blah".to_string())));
-        let subject = CrashCommand::new(&[
+        let subject = CrashCommand::new(vec![
             "crash".to_string(),
             "BlockchainBridge".to_string(),
             "message".to_string(),

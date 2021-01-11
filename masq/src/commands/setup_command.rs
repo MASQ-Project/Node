@@ -5,13 +5,11 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{value_t, App, SubCommand};
-use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     SETUP_ERROR,
 };
 use masq_lib::shared_schema::shared_app;
-use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::index_of_from;
 use std::fmt::Debug;
 use std::io::Write;
@@ -74,8 +72,7 @@ impl SetupCommand {
         Ok(Self { values })
     }
 
-    pub fn handle_broadcast(msg: MessageBody, stdout: &mut dyn Write, _stderr: &mut dyn Write) {
-        let (response, _) = UiSetupBroadcast::fmb(msg).expect("Bad UiSetupBroadcast");
+    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write) {
         writeln!(stdout, "\nDaemon setup has changed:\n").expect("writeln! failed");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");
@@ -284,12 +281,11 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
                 UiSetupResponseValue::new("clandestine-port", "8534", Default),
             ],
             errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
-        }
-        .tmb(0);
+        };
         let (stream_factory, handle) = TestStreamFactory::new();
-        let (mut stdout, mut stderr) = stream_factory.make();
+        let (mut stdout, _) = stream_factory.make();
 
-        SetupCommand::handle_broadcast(message, &mut stdout, &mut stderr);
+        SetupCommand::handle_broadcast(message, &mut stdout);
 
         assert_eq! (handle.stdout_so_far(),
 "\n\

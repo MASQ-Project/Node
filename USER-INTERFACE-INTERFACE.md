@@ -84,15 +84,31 @@ only ever sent from the UI to the Node, and the other type is only ever sent fro
 
 The `contextId` is a positive integer best thought of as a conversation number. Just as there can be many UIs 
 connected to the same Node, each UI can be carrying on many simultaneous conversations with the Node. When a 
-request is sent as part of a particular conversation, the Daemon and the Node guarantee that the next message 
+request is sent as part of a unique conversation, the Daemon and the Node guarantee that the next message 
 received in that conversation will be the response to that request. It is the responsibility of each UI to 
 manage `contextId`s. When the UI wants to start a new conversation, it merely mentions a new `contextId` in 
 the first message of that conversation; when it's done with a conversation, it just stops mentioning that 
 conversation's `contextId`.
 
-Some messages are always isolated, and never part of any conversation. These messages will be identifiable by
-their `opcode`, and their `contextId` should be ignored. (In the real world, it's always zero, but depending on
-that might be dangerous.)
+It may be tempting to use a single `contextId` for all the messages a UI sends in its lifetime, and this is
+perfectly legal as far as the Node and Daemon are concerned; but if the UI does this, it will have to determine
+for itself which conversation each incoming message is part of. For example, if there are three conversations
+going on at once, this might happen:
+
+1. → Request for conversation 1
+1. → Request for conversation 2
+1. ← Response for conversation 1
+1. → Request for conversation 3
+1. ← Broadcast from Node
+1. ← Response for conversation 3
+1. ← Response for conversation 2
+
+If each conversation has its own ID, it'll be a lot easier to tell what's going on when a message arrives
+than it will be if every message is part of conversation 555.
+
+Some messages are always isolated, and never part of any conversation, like the Broadcast in step 5 above. 
+These messages will be identifiable by their `opcode`, and their `contextId` should be ignored. (In the 
+real world, it's always zero, but depending on that might be dangerous.)
 
 Neither the Daemon nor the Node will ever start a conversation, although they will send isolated, non-conversational
 messages.
@@ -171,6 +187,34 @@ Redirect payload.  If it's a valid Node message, the Node should respond appropr
 
 ### Node
 
+#### Database password
+
+The Node stores its configuration information in a database. A UI should certainly never attempt to write to
+this database, but it also shouldn't attempt to read from it, for two reasons: first, some of the information
+in the database is encrypted because it's sensitive; and second, the Node does some caching work for performance
+reasons, so what a UI finds in the database might be several minutes or more old. The UI should ask the Node
+directly for the information it needs.
+
+The information in the database that's encrypted needs a password to decrypt it. When the Node is first installed,
+there is no secret information in the database; therefore, the database has no password. A password can be set 
+on the database without storing any secrets in it, if desired, but in order to store secrets, a password _must_
+be set on the database.
+
+The password is never stored anywhere but in memory by the Node; it should not be persisted anywhere by a UI
+either. In order to carry out certain instructions, the Node will need the password from the UI, which means the
+UI will need to get it from the user.
+
+Using `MASQNode-UIv2` messages, the UI can check to see if a password is correct; it can change the database
+password (if it knows the old one); and it can be notified when some other UI changes the password (so that it
+knows the one it's aware of is no longer valid).
+
+#### Configuration
+
+The configuration information with which the Node runs (which is different from the setup information with
+which the Daemon starts a Node) is available via `MASQNode-UIv2` as well. A UI can request the configuration
+information, and if the information changes for some reason, all UIs will be notified so that--if desired--they
+can request the latest version.
+
 #### Shutdown
 
 The Shutdown operation causes the Node to cease operations and terminate. The UI will receive a response, and then
@@ -193,6 +237,159 @@ by the Daemon or Node.
 
 The various errors that can result from each request are not specifically mentioned unless they indicate a
 condition the UI can correct.
+
+#### `changePassword`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "oldPasswordOpt": <optional string>,
+    "newPassword": <string>,
+}
+```
+##### Description:
+This message is used to change the database password, provided the UI knows the existing password or is
+correctly aware of the fact that there is no existing password.
+
+If the database currently has no password, omit the `oldPasswordOpt` field. If there's already a database
+password, there is no way to remove it, even if the database does not yet contain secrets.
+
+#### `changePassword`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+}
+```
+##### Description:
+If the password was successfully changed, this is a simple acknowledgment that the change is complete.
+
+#### `checkPassword`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPasswordOpt": <string>
+}
+```
+##### Description:
+This message is used to check whether a password the UI knows is actually the real database
+password.
+
+Note that under some circumstances, during the first few minutes after installation, a new MASQNode
+may not have any database password at all.
+
+There's no way to make the Node tell you what the database password is, but if you have an idea
+what it might be, you can check your idea by sending this message with your idea in the
+`dbPasswordOpt` field. If you're checking to see whether there's no password, omit this
+field.
+
+#### `checkPassword`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "matches": <boolean>
+}
+```
+##### Description:
+If you send a `checkPassword` request to the Node, it will respond with this message. If the
+password you proposed (or the absence-of-password you proposed) matched the database password,
+the `matches` field will be `true`; otherwise it will be `false`.
+
+If there was an error checking the password, you'll get a standard error response with a 64-bit
+code, where the high-order eight bits are 0x01.
+
+#### `configuration`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPasswordOpt": <optional string>
+}
+```
+##### Description:
+NOTE: This message is planned, but not yet implemented.
+
+This message requests a dump of the Node's current configuration information. If you know the database password,
+provide it, and the response will contain the secrets in the database. If you don't supply a password, or you
+do but it's wrong, you'll still get a response, but it will have only public information: the secrets will be
+missing.
+
+Another reason the secrets might be missing is that there are not yet any secrets in the database.
+
+#### `configuration`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "currentSchemaVersion": <string>,
+    "clandestinePort": <string>,
+    "gasPrice": <number>,
+    "mnemonicSeedOpt": <optional string>,
+    "consumingWalletDerivationPathOpt": <optional string>,
+    "earningWalletAddressOpt": <optional string>,
+    "pastNeighbors": [
+        <string>,
+        <string>, ...
+    ],
+    "startBlock": <number>
+}
+```
+##### Description:
+NOTE: This message is planned, but not yet implemented.
+
+This conveys the Node's current configuration information. Some of it is optional: if it's missing, it might be
+because it hasn't been configured yet, or it might be because it's secret and you didn't provide the correct
+database password. If you want to know whether the password you have is the correct one, try the
+`checkPassword` message.
+
+* `currentSchemaVersion`: This will be a three-part version number for the database schema. This will always
+be the same for a given version of Node. If you upgrade your Node, and the new Node wants to see a later
+schema version in the database, it will migrate your existing data to the new schema and update its schema
+version. If this attempt fails for some reason, this value can be used to diagnose the issue.
+
+* `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
+
+* `gasPrice`: The Node will not pay more than this number of Gwei for gas to complete a transaction.
+
+* `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
+phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
+won't see it if the password is correct but the seed hasn't been set yet.
+
+* `consumingWalletDerivationPathOpt`: This is the derivation path (from the mnemonic seed) of the consuming wallet.
+More than likely, it's m/44'/60'/0'/0/0.
+  
+* `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
+if you don't get this field, it's because it hasn't been set yet.
+
+* `pastNeighbors`: This is an array containing the Node descriptors of the neighbors the Node is planning to
+try to connect to when it starts up next time.
+
+* `startBlock`: When the Node scans for incoming payments, it can't scan the whole blockchain: that would take
+much too long. So instead, it scans starting from wherever it left off last time. This block number is where
+it left off last time.
+
+#### `configurationChanged`
+##### Direction: Broadcast
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {}
+```
+##### Description:
+NOTE: This message is planned, but not yet implemented.
+
+If you receive this broadcast message, then something about the Node's configuration has changed. If you're
+interested, you can send a `configuration` request and get the new info; or you can just ignore this message
+if you don't care. If you're caching the configuration information, this would be a good time to invalidate
+your cache.
 
 #### `crash`
 ##### Direction: Request
@@ -242,6 +439,28 @@ The `crashReason` field is rather clumsy, and there's a card (GH-323) in the bac
 it's an object with one field, which may be named "ChildWaitFailure", "NoInformation", or "Unrecognized". If the
 field is named "ChildWaitFailure" or "Unrecognized", the value is a string with additional information. If the key
 is "NoInformation", the value is `null`.
+
+#### `descriptor`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {}
+```
+##### Description:
+Requests the Node descriptor from a Node.
+
+#### `descriptor`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "nodeDescriptor": <string>
+}
+```
+##### Description:
+Contains a Node's Node descriptor.
 
 #### `financials`
 ##### Direction: Request
@@ -323,27 +542,85 @@ The `payables` and `receivables` arrays are not in any particular order.
 For security reasons, the Node does not keep track of individual blockchain transactions, with the exception
 of payments that have not yet been confirmed. Only cumulative account balances are retained.
 
-#### `descriptor`
+#### `generateWallets`
 ##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPassword": <string>,
+    "mnemonicPhraseSize": <number>,
+    "mnemonicPhraseLanguage": <string>,
+    "mnemonicPassphraseOpt": <optional string>,
+    "consumingDerivationPath": <string>,
+    "earningDerivationPath": <string>
+}
+```
+##### Description:
+This message directs the Node to generate a pair of wallets and report their mnemonic phrase and their addresses
+back to the UI. If the database already contains a wallet pair, the wallet generation will fail.
+
+`dbPassword` is the current database password. If this is incorrect, the wallet generation will fail.
+
+`mnemonicPhraseSize` is the number of words that should be generated in the mnemonic phrase. The acceptable values
+are 12, 15, 18, 21, and 24. It's recommended that UIs default to 24-word phrases and require the user to specifically
+demand a lower value, if desired.
+
+`mnemonicPhraseLanguage` is the language in which the mnemonic phrase should be generated. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+
+`mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
+(it can be any word; it's not constrained to the official mnemonic-phrase list) that will be used along with the
+24 standard words to generate the seed number from which the wallet keys are derived. If this value is supplied,
+then the user will have to specify it as well as the 24 standard words in order to recover the wallet pair. Note
+that neither the 24 standard words nor this value is persisted anywhere: it's up to the user to keep track of them.
+
+`consumingDerivationPath` is the derivation path from the generated seed number to be used to generate the consuming
+wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
+by the Node.
+
+`earningDerivationPath` is the derivation path from the generated seed number to be used to generate the earning
+wallet. By convention, it is "m/60'/44'/0'/0/1", but in this message it is required and no defaulting is performed
+by the Node.
+
+If the user wants to consume from and earn into the same wallet, he should provide the same derivation path for both.
+
+#### `generateWallets`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "mnemonicPhrase": [
+        <string>,
+        <string>,
+        [...]
+    ],
+    "consumingWalletAddress": <string>,
+    "earningWalletAddress": <string>
+}
+```
+##### Description:
+This message describes the pair of wallets that has been generated and configured on the Node.
+
+`mnemonicPhrase` is the list of 24 (or 12 or 15 or 18 or 21) words that, when combined with the mnemonic passphrase,
+if specified, will produce the seed from which the consuming and earning wallets are derived. They are rendered in
+the requested language, including non-ASCII Unicode characters encoded in UTF-8 where appropriate.
+
+`consumingWalletAddress` is the address of the generated consuming wallet.
+
+`earningWalletAddress` is the address of the generated earning wallet.
+
+#### `newPassword`
+##### Direction: Broadcast
 ##### Correspondent: Node
 ##### Layout:
 ```
 "payload": {}
 ```
 ##### Description:
-Requests the Node descriptor from a Node.
-
-#### `descriptor`
-##### Direction: Response
-##### Correspondent: Node
-##### Layout:
-```
-"payload": {
-    "nodeDescriptor": <string>
-}
-```
-##### Description:
-Contains a Node's Node descriptor.
+No data comes with this message; it's merely used to inform a UI that the database password has changed.
+If the UI is remembering the database password, it should forget it when this message is received.
 
 #### `redirect`
 ##### Direction: Unsolicited Response
