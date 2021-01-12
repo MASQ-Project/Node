@@ -630,7 +630,6 @@ mod tests {
     use actix::System;
     use lazy_static::lazy_static;
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
-    use masq_lib::shared_schema::ParamError;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
@@ -1036,15 +1035,19 @@ mod tests {
         let result =
             subject.initialize_as_privileged(args_slice, &mut FakeStreamHolder::new().streams());
 
-        assert_eq! (result, Err(ConfiguratorError::new(vec![ParamError {
-            parameter: "<unknown>".to_string(),
-            reason: "Unfamiliar message: error: Found argument '--booga' which wasn't expected, or isn't valid in this context
-
-USAGE:
-    MASQNode [OPTIONS]
-
-For more information try --help".to_string()
-        }])));
+        let error = match result {
+            Err(configurator_error) => configurator_error,
+            x => panic!("Expected ConfiguratorError, got {:?}", x),
+        };
+        assert_eq!(error.param_errors.len(), 1);
+        let param_error = &error.param_errors[0];
+        assert_eq!(param_error.parameter, "<unknown>".to_string());
+        assert_eq!(
+            param_error.reason.contains("Unfamiliar message"),
+            true,
+            "{}",
+            param_error.reason
+        );
     }
 
     #[test]

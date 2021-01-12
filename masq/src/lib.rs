@@ -5,8 +5,10 @@ pub mod command_factory;
 pub mod command_processor;
 pub mod commands;
 pub mod communications;
+pub mod line_reader;
 mod notifications;
 mod schema;
+pub mod utils;
 
 #[macro_use]
 extern crate crossbeam_channel;
