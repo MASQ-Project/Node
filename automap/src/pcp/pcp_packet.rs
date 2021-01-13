@@ -47,7 +47,7 @@ pub trait OpcodeData {
 }
 
 #[derive (PartialEq, Debug)]
-struct UnrecognizedData {
+pub struct UnrecognizedData {
 
 }
 
@@ -58,7 +58,7 @@ impl OpcodeData for UnrecognizedData {
 }
 
 impl UnrecognizedData {
-    fn new () -> UnrecognizedData {
+    pub fn new () -> UnrecognizedData {
         UnrecognizedData {}
     }
 }
@@ -90,9 +90,9 @@ pub struct PcpPacket<'a> {
 }
 
 impl<'a> PcpPacket<'a> {
-    pub fn new(input: &'a mut dyn AsMut<[u8]>) -> Result<Self, PcpParseError> {
+    pub fn new(input: &'a mut [u8]) -> Result<Self, PcpParseError> {
         let mut result = PcpPacket {
-            buf: input.as_mut(),
+            buf: input,
             version: 0,
             direction: Direction::Request,
             opcode: Opcode::Other (0),
@@ -115,16 +115,20 @@ impl<'a> PcpPacket<'a> {
         result.lifetime = u32_at (result.buf, 4);
         match result.direction {
             Direction::Request => {
-                result.client_ip_opt = Some (IpAddr::V6(Ipv6Addr::new (
-                    u16_at (result.buf, 8),
-                    u16_at (result.buf, 10),
-                    u16_at (result.buf, 12),
-                    u16_at (result.buf, 14),
-                    u16_at (result.buf, 16),
-                    u16_at (result.buf, 18),
-                    u16_at (result.buf, 20),
-                    u16_at (result.buf, 22),
-                )));
+                let ipv6_addr = Ipv6Addr::new(
+                    u16_at(result.buf, 8),
+                    u16_at(result.buf, 10),
+                    u16_at(result.buf, 12),
+                    u16_at(result.buf, 14),
+                    u16_at(result.buf, 16),
+                    u16_at(result.buf, 18),
+                    u16_at(result.buf, 20),
+                    u16_at(result.buf, 22),
+                );
+                match ipv6_addr.to_ipv4() {
+                    Some (ipv4_addr) => result.client_ip_opt = Some (IpAddr::V4 (ipv4_addr)),
+                    None => result.client_ip_opt = Some (IpAddr::V6 (ipv6_addr)),
+                }
             },
             Direction::Response => {
                 result.result_code_opt = Some (result.buf[3]);
@@ -146,14 +150,13 @@ impl<'a> PcpPacket<'a> {
         match self.direction {
             Direction::Request => match self.client_ip_opt {
                 Some (ip_addr) => {
-                    match ip_addr {
-                        IpAddr::V4(addr) => unimplemented!("Test-drive me"),
-                        IpAddr::V6(addr) => {
-                            let octets = addr.octets();
-                            for n in 0..16 {
-                                self.buf[8 + n] = octets[n]
-                            }
-                        }
+                    let ipv6_addr = match ip_addr {
+                        IpAddr::V4(addr) => addr.to_ipv6_mapped(),
+                        IpAddr::V6(addr) => addr,
+                    };
+                    let octets = ipv6_addr.octets();
+                    for n in 0..16 {
+                        self.buf[8 + n] = octets[n]
                     }
                 },
                 None => {
@@ -202,9 +205,10 @@ pub fn u16_into (buf: &mut [u8], offset: usize, value: u16) {
 mod tests {
     use super::*;
     use std::str::FromStr;
+    use std::net::Ipv4Addr;
 
     #[test]
-    fn from_works_for_unknown_request() {
+    fn from_works_for_unknown_request_with_ipv6() {
         let mut buffer: [u8; 24] = [
             0x12, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
             0x78, 0x56, 0x34, 0x12, // requested lifetime
@@ -225,6 +229,22 @@ mod tests {
         assert_eq! (subject.epoch_time_opt, None);
         assert_eq! (subject.opcode_data.as_any().downcast_ref::<UnrecognizedData>().unwrap(), &UnrecognizedData::new());
         assert_eq! (subject.options.is_empty(), true);
+    }
+
+    #[test]
+    fn from_works_for_unknown_request_with_ipv4() {
+        let mut buffer: [u8; 24] = [
+            0x12, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
+            0x78, 0x56, 0x34, 0x12, // requested lifetime
+            0x00, 0x00, 0x00, 0x00, // client IP address
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xFF, 0xFF,
+            0x33, 0x22, 0x11, 0x00,
+        ];
+
+        let subject = PcpPacket::new (&mut buffer).unwrap();
+
+        assert_eq! (subject.client_ip_opt, Some (IpAddr::V4(Ipv4Addr::new (0x33, 0x22, 0x11, 0x00))));
     }
 
     #[test]
@@ -261,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn marshal_works_for_unknown_request() {
+    fn marshal_works_for_unknown_request_ipv6() {
         let mut buffer = [0u8; 24];
         let mut subject = PcpPacket::new (&mut buffer).unwrap();
         subject.version = 0x12;
@@ -283,6 +303,34 @@ mod tests {
             0xFF, 0xEE, 0xDD, 0xCC, // client IP address
             0xBB, 0xAA, 0x99, 0x88,
             0x77, 0x66, 0x55, 0x44,
+            0x33, 0x22, 0x11, 0x00,
+        ];
+        assert_eq! (buffer, expected_buffer);
+    }
+
+    #[test]
+    fn marshal_works_for_unknown_request_ipv4() {
+        let mut buffer = [0u8; 24];
+        let mut subject = PcpPacket::new (&mut buffer).unwrap();
+        subject.version = 0x12;
+        subject.direction = Direction::Request;
+        subject.opcode = Opcode::Other(0x55);
+        subject.result_code_opt = None;
+        subject.lifetime = 0x78563412;
+        subject.client_ip_opt = Some (IpAddr::V4(Ipv4Addr::new (0x33, 0x22, 0x11, 0x00)));
+        subject.epoch_time_opt = None;
+        subject.opcode_data = Box::new (UnrecognizedData::new());
+        subject.options = vec![];
+
+        let result = subject.marshal().unwrap();
+
+        assert_eq! (result, 24);
+        let expected_buffer: [u8; 24] = [
+            0x12, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
+            0x78, 0x56, 0x34, 0x12, // requested lifetime
+            0x00, 0x00, 0x00, 0x00, // client IP address
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xFF, 0xFF,
             0x33, 0x22, 0x11, 0x00,
         ];
         assert_eq! (buffer, expected_buffer);

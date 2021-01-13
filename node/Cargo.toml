@@ -8,7 +8,7 @@ description = "MASQ Node is the foundation of  MASQ Network, an open-source netw
 edition = "2018"
 
 [workspace]
-members = ["../multinode_integration_tests", "../masq_lib", "../masq", "../automap"]
+members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "= 0.7.9"
