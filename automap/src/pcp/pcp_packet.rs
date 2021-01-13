@@ -9,6 +9,15 @@ pub enum Direction {
     Response,
 }
 
+impl Direction {
+    pub fn code (&self) -> u8 {
+        match self {
+            Direction::Request => 0x00,
+            Direction::Response => 0x80,
+        }
+    }
+}
+
 #[derive (Clone, PartialEq, Debug)]
 pub enum Opcode {
     // Announce is 0, Map is 1, Peer is 2
@@ -20,6 +29,15 @@ impl From<u8> for Opcode {
     fn from(input: u8) -> Self {
         match input {
             _ => Opcode::Other (input)
+        }
+    }
+}
+
+impl Opcode {
+    pub fn code (&self) -> u8 {
+        match self {
+            Opcode::Map => unimplemented!(),
+            Opcode::Other(code) => *code,
         }
     }
 }
@@ -118,19 +136,35 @@ impl<'a> PcpPacket<'a> {
 
     pub fn marshal (&mut self) -> Result<usize, PcpMarshalError> {
         self.buf[0] = self.version;
-        self.buf[1] = self.direction.code() & self.opcode.code();
+        self.buf[1] = self.direction.code() | self.opcode.code();
         self.buf[2] = 0x00;
         match self.direction {
             Direction::Request => self.buf[3] = 0x00,
-            Direction::Response => self.buf[4] = unimplemented!(), //self.result_code_opt.unwrap_or (0x00),
+            Direction::Response => self.buf[3] = self.result_code_opt.unwrap_or (0x00),
         }
         u32_into (self.buf, 4, self.lifetime);
-        match self.client_ip_opt {
-            Some (ip_addr) => {
-                ip_addr.
+        match self.direction {
+            Direction::Request => match self.client_ip_opt {
+                Some (ip_addr) => {
+                    match ip_addr {
+                        IpAddr::V4(addr) => unimplemented!("Test-drive me"),
+                        IpAddr::V6(addr) => {
+                            let octets = addr.octets();
+                            for n in 0..16 {
+                                self.buf[8 + n] = octets[n]
+                            }
+                        }
+                    }
+                },
+                None => {
+                    u32_into (self.buf, 8, 0);
+                    u32_into (self.buf, 12, 0);
+                    u32_into (self.buf, 16, 0);
+                    u32_into (self.buf, 20, 0);
+                }
             },
-            None => {
-                u32_into (self.buf, 8, 0);
+            Direction::Response => {
+                u32_into (self.buf, 8, self.epoch_time_opt.unwrap_or(0));
                 u32_into (self.buf, 12, 0);
                 u32_into (self.buf, 16, 0);
                 u32_into (self.buf, 20, 0);
@@ -157,6 +191,11 @@ pub fn u32_into (buf: &mut [u8], offset: usize, value: u32) {
 pub fn u16_at (buf: &[u8], offset: usize) -> u16 {
     ((buf[offset] as u16) << 8) +
         (buf[offset + 1] as u16)
+}
+
+pub fn u16_into (buf: &mut [u8], offset: usize, value: u16) {
+    buf[offset] = (value >> 8) as u8;
+    buf[offset + 1] = (value & 0xFF) as u8;
 }
 
 #[cfg(test)]
@@ -245,6 +284,34 @@ mod tests {
             0xBB, 0xAA, 0x99, 0x88,
             0x77, 0x66, 0x55, 0x44,
             0x33, 0x22, 0x11, 0x00,
+        ];
+        assert_eq! (buffer, expected_buffer);
+    }
+
+    #[test]
+    fn marshal_works_for_unknown_response() {
+        let mut buffer = [0u8; 24];
+        let mut subject = PcpPacket::new (&mut buffer).unwrap();
+        subject.version = 0x13;
+        subject.direction = Direction::Response;
+        subject.opcode = Opcode::Other(0x55);
+        subject.result_code_opt = Some(0xAA);
+        subject.lifetime = 0x78563412;
+        subject.epoch_time_opt = Some (0x12345678);
+        subject.client_ip_opt = None;
+        subject.opcode_data = Box::new (UnrecognizedData::new());
+        subject.options = vec![];
+
+        let result = subject.marshal().unwrap();
+
+        assert_eq! (result, 24);
+        let expected_buffer: [u8; 24] = [
+            0x13, 0xD5, 0x00, 0xAA, // version, direction, opcode, reserved, result code
+            0x78, 0x56, 0x34, 0x12, // lifetime
+            0x12, 0x34, 0x56, 0x78, // epoch time
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
         ];
         assert_eq! (buffer, expected_buffer);
     }
