@@ -2,8 +2,9 @@
 
 use std::net::{IpAddr, UdpSocket, SocketAddr};
 use std::str::FromStr;
-use automap_lib::pcp::pcp_packet::{PcpPacket, Direction, Opcode, UnrecognizedData};
-use automap_lib::pcp::map_packet::{MapOpcodeData, Protocol};
+use automap_lib::protocols::pcp::map_packet::{Protocol, MapOpcodeData};
+use automap_lib::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
+use automap_lib::protocols::utils::Direction;
 
 pub fn main() {
     let args = std::env::args().collect::<Vec<String>>();

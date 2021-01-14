@@ -1,9 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::net::{IpAddr, Ipv4Addr};
-use crate::pcp::pcp_packet::{OpcodeData, ip_addr_at, PcpMarshalError, u16_into, ip_addr_into};
 use std::any::Any;
-use crate::pcp::pcp_packet::u16_at;
+use crate::protocols::utils::{u16_at, u16_into, OpcodeData, ipv6_addr_into, ipv6_addr_at, MarshalError, Direction, ParseError};
+use crate::protocols::pcp::pcp_packet::PcpOpcodeData;
 
 #[derive (Clone, PartialEq, Debug)]
 pub enum Protocol {
@@ -38,8 +38,8 @@ pub struct MapOpcodeData {
 }
 
 impl OpcodeData for MapOpcodeData {
-    fn marshal(&self, buf: &mut [u8]) -> Result<(), PcpMarshalError> {
-        if buf.len() < self.len() {
+    fn marshal(&self, direction: Direction, buf: &mut [u8]) -> Result<(), MarshalError> {
+        if buf.len() < self.len(direction) {
             unimplemented!()
         }
         for n in 0..12 {
@@ -51,11 +51,11 @@ impl OpcodeData for MapOpcodeData {
         buf[15] = 0x00;
         u16_into(buf, 16, self.internal_port);
         u16_into(buf, 18, self.external_port);
-        ip_addr_into(buf, 20, &self.external_ip_address);
+        ipv6_addr_into(buf, 20, &self.external_ip_address);
         Ok(())
     }
 
-    fn len(&self) -> usize {
+    fn len(&self, _: Direction) -> usize {
         36
     }
 
@@ -64,8 +64,13 @@ impl OpcodeData for MapOpcodeData {
     }
 }
 
+impl PcpOpcodeData for MapOpcodeData {}
+
 impl MapOpcodeData {
-    pub fn new (buf: &[u8]) -> Self {
+    pub fn new (buf: &[u8]) -> Result<Self, ParseError> {
+        if buf.len() < 36 {
+            unimplemented!()
+        }
         let mut data = Self {
             mapping_nonce: [0u8; 12],
             protocol: Protocol::Udp,
@@ -79,8 +84,8 @@ impl MapOpcodeData {
         data.protocol = Protocol::from (buf[12]);
         data.internal_port = u16_at (buf, 16);
         data.external_port = u16_at (buf, 18);
-        data.external_ip_address = ip_addr_at(buf, 20);
-        data
+        data.external_ip_address = ipv6_addr_at(buf, 20);
+        Ok (data)
     }
 }
 
@@ -88,12 +93,13 @@ impl MapOpcodeData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocols::utils::Direction;
 
     #[test]
     fn map_opcode_data_knows_its_length() {
-        let subject = MapOpcodeData::new (&[0u8; 64]);
+        let subject = MapOpcodeData::new (&[0u8; 64]).unwrap();
 
-        let result = subject.len();
+        let result = subject.len(Direction::Request);
 
         assert_eq! (result, 36);
     }

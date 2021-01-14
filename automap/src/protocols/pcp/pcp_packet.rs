@@ -1,35 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::convert::From;
-use std::net::{IpAddr, Ipv6Addr};
-use std::any::Any;
-use crate::pcp::map_packet::MapOpcodeData;
-
-#[derive (Clone, PartialEq, Debug)]
-pub enum Direction {
-    Request,
-    Response,
-}
-
-impl From<u8> for Direction {
-    fn from(input: u8) -> Self {
-        if (input & 0x80) > 0 {
-            Direction::Response
-        }
-        else {
-            Direction::Request
-        }
-    }
-}
-
-impl Direction {
-    pub fn code (&self) -> u8 {
-        match self {
-            Direction::Request => 0x00,
-            Direction::Response => 0x80,
-        }
-    }
-}
+use std::net::{IpAddr};
+use crate::protocols::utils::{u32_into, ipv6_addr_into, u32_at, ipv6_addr_at, Direction, ParseError, MarshalError, OpcodeData, UnrecognizedData};
+use crate::protocols::pcp::map_packet::MapOpcodeData;
 
 #[derive (Clone, PartialEq, Debug)]
 pub enum Opcode {
@@ -60,58 +34,22 @@ impl Opcode {
         }
     }
 
-    pub fn parse_data (&self, buf: &[u8]) -> Box<dyn OpcodeData> {
+    pub fn parse_data (&self, buf: &[u8]) -> Result<Box<dyn PcpOpcodeData>, ParseError> {
         match self {
             Opcode::Announce => unimplemented!(),
-            Opcode::Map => Box::new (MapOpcodeData::new (buf)),
+            Opcode::Map => Ok(Box::new (MapOpcodeData::new (buf)?)),
             Opcode::Peer => unimplemented!(),
-            Opcode::Other(code) => Box::new (UnrecognizedData::new()),
+            Opcode::Other(_) => Ok(Box::new (UnrecognizedData::new())),
         }
     }
 }
 
-pub trait OpcodeData {
-    fn marshal (&self, buf: &mut [u8]) -> Result<(), PcpMarshalError>;
-    fn len(&self) -> usize;
-    fn as_any(&self) -> &dyn Any;
-}
+pub trait PcpOpcodeData: OpcodeData {}
 
-#[derive (PartialEq, Debug)]
-pub struct UnrecognizedData {
-
-}
-
-impl OpcodeData for UnrecognizedData {
-    fn marshal(&self, _buf: &mut [u8]) -> Result<(), PcpMarshalError> {
-        Ok(())
-    }
-
-    fn len(&self) -> usize {
-        0
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl UnrecognizedData {
-    pub fn new () -> UnrecognizedData {
-        UnrecognizedData {}
-    }
-}
+impl PcpOpcodeData for UnrecognizedData {}
 
 pub trait PcpOption {
 
-}
-
-#[derive (Clone, PartialEq, Debug)]
-pub enum PcpParseError {
-    ShortBuffer,
-}
-
-#[derive (Clone, PartialEq, Debug)]
-pub enum PcpMarshalError {
 }
 
 pub struct PcpPacket<'a> {
@@ -123,12 +61,12 @@ pub struct PcpPacket<'a> {
     pub lifetime: u32,
     pub client_ip_opt: Option<IpAddr>,
     pub epoch_time_opt: Option<u32>,
-    pub opcode_data: Box<dyn OpcodeData>,
+    pub opcode_data: Box<dyn PcpOpcodeData>,
     pub options: Vec<Box<dyn PcpOption>>,
 }
 
 impl<'a> PcpPacket<'a> {
-    pub fn new(input: &'a mut [u8]) -> Result<Self, PcpParseError> {
+    pub fn new(input: &'a mut [u8]) -> Result<Self, ParseError> {
         let mut result = PcpPacket {
             buf: input,
             version: 0,
@@ -142,7 +80,7 @@ impl<'a> PcpPacket<'a> {
             options: vec![],
         };
         if result.buf.len() < 24 {
-            return Err(PcpParseError::ShortBuffer)
+            return Err(ParseError::ShortBuffer)
         }
         result.version = result.buf[0];
         result.direction = Direction::from (result.buf[1]);
@@ -150,19 +88,19 @@ impl<'a> PcpPacket<'a> {
         result.lifetime = u32_at (result.buf, 4);
         match result.direction {
             Direction::Request => {
-                result.client_ip_opt = Some (ip_addr_at (result.buf, 8));
+                result.client_ip_opt = Some (ipv6_addr_at(result.buf, 8));
             },
             Direction::Response => {
                 result.result_code_opt = Some (result.buf[3]);
                 result.epoch_time_opt = Some (u32_at (result.buf, 8));
             },
         }
-        result.opcode_data = result.opcode.parse_data (&result.buf[24..]);
+        result.opcode_data = result.opcode.parse_data (&result.buf[24..])?;
         Ok(result)
     }
 
-    pub fn marshal (&mut self) -> Result<usize, PcpMarshalError> {
-        if self.buf.len() < (24 + self.opcode_data.len()) {
+    pub fn marshal (&mut self) -> Result<usize, MarshalError> {
+        if self.buf.len() < (24 + self.opcode_data.len(self.direction)) {
             unimplemented!()
         }
         self.buf[0] = self.version;
@@ -176,7 +114,7 @@ impl<'a> PcpPacket<'a> {
         match self.direction {
             Direction::Request => match self.client_ip_opt {
                 Some (ip_addr) => {
-                    ip_addr_into (self.buf, 8, &ip_addr);
+                    ipv6_addr_into(self.buf, 8, &ip_addr);
                 },
                 None => {
                     u32_into (self.buf, 8, 0);
@@ -192,62 +130,10 @@ impl<'a> PcpPacket<'a> {
                 u32_into (self.buf, 20, 0);
             }
         }
-        match self.opcode_data.marshal (&mut self.buf[24..]) {
-            Ok (_) => Ok (24 + self.opcode_data.len()),
+        match self.opcode_data.marshal (self.direction, &mut self.buf[24..]) {
+            Ok (_) => Ok (24 + self.opcode_data.len(self.direction)),
             Err (e) => unimplemented!("{:?}", e),
         }
-    }
-}
-
-pub fn u32_at (buf: &[u8], offset: usize) -> u32 {
-    ((buf[offset] as u32) << 24) +
-        ((buf[offset + 1] as u32) << 16) +
-        ((buf[offset + 2] as u32) << 8) +
-        (buf[offset + 3] as u32)
-}
-
-pub fn u32_into (buf: &mut [u8], offset: usize, value: u32) {
-    buf[offset] = (value >> 24) as u8;
-    buf[offset + 1] = ((value >> 16) & 0xFF) as u8;
-    buf[offset + 2] = ((value >> 8) & 0xFF) as u8;
-    buf[offset + 3] = (value & 0xFF) as u8;
-}
-
-pub fn u16_at (buf: &[u8], offset: usize) -> u16 {
-    ((buf[offset] as u16) << 8) +
-        (buf[offset + 1] as u16)
-}
-
-pub fn u16_into (buf: &mut [u8], offset: usize, value: u16) {
-    buf[offset] = (value >> 8) as u8;
-    buf[offset + 1] = (value & 0xFF) as u8;
-}
-
-pub fn ip_addr_at (buf: &[u8], offset: usize) -> IpAddr {
-    let ipv6_addr = Ipv6Addr::new(
-        u16_at(buf, offset),
-        u16_at(buf, offset + 2),
-        u16_at(buf, offset + 4),
-        u16_at(buf, offset + 6),
-        u16_at(buf, offset + 8),
-        u16_at(buf, offset + 10),
-        u16_at(buf, offset + 12),
-        u16_at(buf, offset + 14),
-    );
-    match ipv6_addr.to_ipv4() {
-        Some (ipv4_addr) => IpAddr::V4 (ipv4_addr),
-        None => IpAddr::V6 (ipv6_addr),
-    }
-}
-
-pub fn ip_addr_into (buf: &mut [u8], offset: usize, value: &IpAddr) {
-    let ipv6_addr = match value {
-        IpAddr::V4(addr) => addr.to_ipv6_mapped(),
-        IpAddr::V6(addr) => addr.clone(),
-    };
-    let octets = ipv6_addr.octets();
-    for n in 0..16 {
-        buf[offset + n] = octets[n]
     }
 }
 
@@ -256,7 +142,7 @@ mod tests {
     use super::*;
     use std::str::FromStr;
     use std::net::Ipv4Addr;
-    use crate::pcp::map_packet::{MapOpcodeData, Protocol};
+    use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 
     #[test]
     fn from_works_for_unknown_request_with_ipv6() {
@@ -366,7 +252,7 @@ mod tests {
 
         let result = PcpPacket::new (&mut buffer).err().unwrap();
 
-        assert_eq! (result, PcpParseError::ShortBuffer);
+        assert_eq! (result, ParseError::ShortBuffer);
     }
 
     #[test]
@@ -501,20 +387,6 @@ mod tests {
     }
 
     #[test]
-    fn direction_code_works() {
-        assert_eq! (Direction::Request.code(), 0x00);
-        assert_eq! (Direction::Response.code(), 0x80);
-    }
-
-    #[test]
-    fn direction_from_works() {
-        assert_eq! (Direction::from (0x00), Direction::Request);
-        assert_eq! (Direction::from (0x7F), Direction::Request);
-        assert_eq! (Direction::from (0x80), Direction::Response);
-        assert_eq! (Direction::from (0xFF), Direction::Response);
-    }
-
-    #[test]
     fn opcode_code_works () {
         assert_eq! (Opcode::Announce.code(), 0);
         assert_eq! (Opcode::Map.code(), 1);
@@ -535,24 +407,5 @@ mod tests {
         assert_eq! (Opcode::from (0x82), Opcode::Peer);
         assert_eq! (Opcode::from (0x83), Opcode::Other(3));
         assert_eq! (Opcode::from (0xFF), Opcode::Other(127));
-    }
-
-    #[test]
-    fn unrecognized_data_knows_its_length() {
-        let subject = UnrecognizedData::new();
-
-        let result = subject.len();
-
-        assert_eq! (result, 0);
-    }
-
-    #[test]
-    fn unrecognized_data_marshals() {
-        let mut buf = [0x00u8; 0];
-        let subject = UnrecognizedData::new();
-
-        let result = subject.marshal(&mut buf);
-
-        assert_eq! (result, Ok(()));
     }
 }
