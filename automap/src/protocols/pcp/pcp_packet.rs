@@ -101,7 +101,7 @@ impl<'a> PcpPacket<'a> {
 
     pub fn marshal (&mut self) -> Result<usize, MarshalError> {
         if self.buf.len() < (24 + self.opcode_data.len(self.direction)) {
-            unimplemented!()
+            return Err (MarshalError::ShortBuffer)
         }
         self.buf[0] = self.version;
         self.buf[1] = self.direction.code() | self.opcode.code();
@@ -130,10 +130,8 @@ impl<'a> PcpPacket<'a> {
                 u32_into (self.buf, 20, 0);
             }
         }
-        match self.opcode_data.marshal (self.direction, &mut self.buf[24..]) {
-            Ok (_) => Ok (24 + self.opcode_data.len(self.direction)),
-            Err (e) => unimplemented!("{:?}", e),
-        }
+        self.opcode_data.marshal (self.direction, &mut self.buf[24..])?;
+        Ok (24 + self.opcode_data.len(self.direction))
     }
 }
 
@@ -247,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn short_buffer_causes_problems() {
+    fn short_buffer_causes_parse_problems() {
         let mut buffer = [0u8; 23];
 
         let result = PcpPacket::new (&mut buffer).err().unwrap();
@@ -384,6 +382,27 @@ mod tests {
             0x00, 0x00, 0x00, 0x00,
         ];
         assert_eq! (buffer, expected_buffer);
+    }
+
+    #[test]
+    fn short_buffer_causes_marshalling_problems() {
+        let mut buffer = [0u8; 23];
+        let mut subject = PcpPacket {
+            buf: &mut buffer,
+            version: 0,
+            direction: Direction::Request,
+            opcode: Opcode::Other(127),
+            result_code_opt: None,
+            lifetime: 0,
+            client_ip_opt: None,
+            epoch_time_opt: None,
+            opcode_data: Box::new(UnrecognizedData::new()),
+            options: vec![]
+        };
+
+        let result = subject.marshal();
+
+        assert_eq! (result, Err (MarshalError::ShortBuffer));
     }
 
     #[test]

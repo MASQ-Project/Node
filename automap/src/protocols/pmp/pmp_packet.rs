@@ -96,7 +96,7 @@ impl<'a> PmpPacket<'a> {
         };
         let required_len = header_len + self.opcode_data.len(self.direction);
         if self.buf.len() < required_len {
-            unimplemented!()
+            return Err (MarshalError::ShortBuffer)
         }
         self.buf[0] = self.version;
         self.buf[1] = self.direction.code() | self.opcode.code();
@@ -114,6 +114,7 @@ impl<'a> PmpPacket<'a> {
 mod tests {
     use super::*;
     use crate::protocols::pmp::get_packet::GetOpcodeData;
+    use std::net::Ipv4Addr;
 
     #[test]
     fn from_works_for_unknown_request() {
@@ -165,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn short_buffer_causes_problems_for_request() {
+    fn short_buffer_causes_problems_for_parsing_request() {
         let mut buffer = [0x00u8];
 
         let result = PmpPacket::new (&mut buffer).err().unwrap();
@@ -174,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn short_buffer_causes_problems_for_response() {
+    fn short_buffer_causes_problems_for_parsing_response() {
         let mut buffer = [0x00u8, 0x80, 0x00];
 
         let result = PmpPacket::new (&mut buffer).err().unwrap();
@@ -243,6 +244,26 @@ mod tests {
             0x13, 0xD5, 0xBB, 0xAA, // version, direction, opcode, result code
         ];
         assert_eq! (buffer, expected_buffer);
+    }
+
+    #[test]
+    fn short_buffer_causes_problems_for_marshalling () {
+        let mut buffer = [0x00u8; 11];
+        let mut subject = PmpPacket {
+            buf: &mut buffer,
+            version: 0,
+            direction: Direction::Response,
+            opcode: Opcode::Get,
+            result_code_opt: Some (0xABBA),
+            opcode_data: Box::new (GetOpcodeData {
+                epoch_opt: Some (1234),
+                external_ip_address_opt: Some (Ipv4Addr::new (4,3,2,1))
+            })
+        };
+
+        let result = subject.marshal ();
+
+        assert_eq! (result, Err (MarshalError::ShortBuffer));
     }
 
     #[test]

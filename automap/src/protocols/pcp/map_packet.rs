@@ -29,6 +29,7 @@ impl Protocol {
     }
 }
 
+#[derive (Clone, PartialEq, Debug)]
 pub struct MapOpcodeData {
     pub mapping_nonce: [u8; 12],
     pub protocol: Protocol,
@@ -40,7 +41,7 @@ pub struct MapOpcodeData {
 impl OpcodeData for MapOpcodeData {
     fn marshal(&self, direction: Direction, buf: &mut [u8]) -> Result<(), MarshalError> {
         if buf.len() < self.len(direction) {
-            unimplemented!()
+            return Err (MarshalError::ShortBuffer)
         }
         for n in 0..12 {
             buf[n] = self.mapping_nonce[n]
@@ -69,7 +70,7 @@ impl PcpOpcodeData for MapOpcodeData {}
 impl MapOpcodeData {
     pub fn new (buf: &[u8]) -> Result<Self, ParseError> {
         if buf.len() < 36 {
-            unimplemented!()
+            return Err (ParseError::ShortBuffer)
         }
         let mut data = Self {
             mapping_nonce: [0u8; 12],
@@ -102,6 +103,31 @@ mod tests {
         let result = subject.len(Direction::Request);
 
         assert_eq! (result, 36);
+    }
+
+    #[test]
+    fn short_buffer_causes_parse_problem() {
+        let buffer = [0x00u8; 35];
+
+        let result = MapOpcodeData::new (&buffer);
+
+        assert_eq! (result, Err (ParseError::ShortBuffer));
+    }
+
+    #[test]
+    fn short_buffer_causes_marshal_problem() {
+        let mut buffer = [0x00u8; 35];
+        let subject = MapOpcodeData {
+            mapping_nonce: [0; 12],
+            protocol: Protocol::Udp,
+            internal_port: 0,
+            external_port: 0,
+            external_ip_address: IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0))
+        };
+
+        let result = subject.marshal (Direction::Response, &mut buffer);
+
+        assert_eq! (result, Err (MarshalError::ShortBuffer));
     }
 
     #[test]

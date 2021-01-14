@@ -68,6 +68,7 @@ pub enum ParseError {
 
 #[derive (Clone, PartialEq, Debug)]
 pub enum MarshalError {
+    ShortBuffer,
 }
 
 pub fn u32_at (buf: &[u8], offset: usize) -> u32 {
