@@ -12,8 +12,8 @@ edition = "2018"
 local_ipaddress = "0.1.3"
 
 [[bin]]
-name = "automap_test"
-path = "src/qa_test/mod.rs"
+name = "automap"
+path = "src/main.rs"
 
 [lib]
 name = "automap_lib"

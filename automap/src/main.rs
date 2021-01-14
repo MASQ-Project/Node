@@ -3,14 +3,17 @@
 use std::net::{IpAddr, UdpSocket, SocketAddr};
 use std::str::FromStr;
 use automap_lib::pcp::pcp_packet::{PcpPacket, Direction, Opcode, UnrecognizedData};
+use automap_lib::pcp::map_packet::{MapOpcodeData, Protocol};
 
 pub fn main() {
-    let router_ip = match std::env::args().next () {
-        Some (ip_string) => match IpAddr::from_str (&ip_string) {
-            Ok (ip) => ip,
-            Err(e) => abort (&format!("'{}' is not a properly-formatted IP address: {:?}", ip_string, e)),
-        },
-        None => abort ("Usage: automap_test <IP address of your router>"),
+    let args = std::env::args().collect::<Vec<String>>();
+    if args.len() != 2 {
+        let _: () = abort ("Usage: automap <IP address of your router>");
+    }
+    let ip_string = args[1].as_str();
+    let router_ip = match IpAddr::from_str (ip_string) {
+        Ok (ip) => ip,
+        Err(e) => abort (&format!("'{}' is not a properly-formatted IP address: {:?}", ip_string, e)),
     };
     let router_address = SocketAddr::new (router_ip, 5351);
     let local_ip = IpAddr::from_str (&local_ipaddress::get().unwrap()).unwrap();
@@ -18,14 +21,22 @@ pub fn main() {
     let socket = UdpSocket::bind(local_address).unwrap();
 
     let mut buf = [0u8; 1100];
+    buf[1] = 0x7f;
     let packet_len = {
         let mut packet = PcpPacket::new(&mut buf).unwrap();
         packet.version = 0x2;
         packet.direction = Direction::Request;
-        packet.opcode = Opcode::Other(0xFF);
+        packet.opcode = Opcode::Map;
         packet.lifetime = 1;
         packet.client_ip_opt = Some(local_ip);
-        packet.opcode_data = Box::new (UnrecognizedData::new());
+        let opcode_data = MapOpcodeData {
+            mapping_nonce: [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC],
+            protocol: Protocol::Udp,
+            internal_port: 50000,
+            external_port: 50000,
+            external_ip_address: IpAddr::from_str ("0.0.0.0").unwrap(),
+        };
+        packet.opcode_data = Box::new (opcode_data);
         packet.options = vec![];
         packet.marshal().unwrap()
     };
