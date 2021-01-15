@@ -1,7 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::protocols::utils::{Direction, MarshalError, UnrecognizedData, ParseError, OpcodeData, u16_at, u16_into};
+use crate::protocols::utils::{Direction, MarshalError, UnrecognizedData, ParseError, OpcodeData, u16_at, u16_into, Packet};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
+use std::convert::TryFrom;
 
 #[derive (Clone, PartialEq, Debug)]
 pub enum Opcode {
@@ -46,8 +47,7 @@ pub trait PmpOpcodeData: OpcodeData {}
 
 impl PmpOpcodeData for UnrecognizedData {}
 
-pub struct PmpPacket<'a> {
-    buf: &'a mut [u8],
+pub struct PmpPacket {
     pub version: u8,
     pub direction: Direction,
     pub opcode: Opcode,
@@ -55,57 +55,71 @@ pub struct PmpPacket<'a> {
     pub opcode_data: Box<dyn PmpOpcodeData>,
 }
 
+impl Default for PmpPacket {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            direction: Direction::Request,
+            opcode: Opcode::Other(127),
+            result_code_opt: None,
+            opcode_data: Box::new(UnrecognizedData::new())
+        }
+    }
+}
 
-impl<'a> PmpPacket<'a> {
-    pub fn new(input: &'a mut [u8]) -> Result<Self, ParseError> {
+impl TryFrom<&[u8]> for PmpPacket {
+    type Error = ParseError;
+
+    fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
         let mut result = PmpPacket {
-            buf: input,
             version: 0,
             direction: Direction::Request,
             opcode: Opcode::Other (0),
             result_code_opt: None,
             opcode_data: Box::new (UnrecognizedData::new()),
         };
-        if result.buf.len() < 2 {
+        if buffer.len() < 2 {
             return Err (ParseError::ShortBuffer)
         }
-        result.version = result.buf[0];
-        result.direction = Direction::from (result.buf[1]);
-        result.opcode = Opcode::from (result.buf[1]);
+        result.version = buffer[0];
+        result.direction = Direction::from (buffer[1]);
+        result.opcode = Opcode::from (buffer[1]);
         let position = match result.direction {
             Direction::Request => {
                 result.result_code_opt = None;
                 2
             },
             Direction::Response => {
-                if result.buf.len() < 4 {
+                if buffer.len() < 4 {
                     return Err (ParseError::ShortBuffer)
                 }
-                result.result_code_opt = Some (u16_at (result.buf, 2));
+                result.result_code_opt = Some (u16_at (buffer, 2));
                 4
             }
         };
-        result.opcode_data = result.opcode.parse_data(result.direction, &result.buf[position..])?;
+        result.opcode_data = result.opcode.parse_data(result.direction, &buffer[position..])?;
         Ok(result)
     }
+}
 
-    pub fn marshal (&mut self) -> Result<usize, MarshalError> {
+impl Packet for PmpPacket {
+    fn marshal(&self, buffer: &mut [u8]) -> Result<usize, MarshalError> {
         let header_len = match self.direction {
             Direction::Request => 2,
             Direction::Response => 4,
         };
         let required_len = header_len + self.opcode_data.len(self.direction);
-        if self.buf.len() < required_len {
+        if buffer.len() < required_len {
             return Err (MarshalError::ShortBuffer)
         }
-        self.buf[0] = self.version;
-        self.buf[1] = self.direction.code() | self.opcode.code();
+        buffer[0] = self.version;
+        buffer[1] = self.direction.code() | self.opcode.code();
         let mut position = 2;
         if self.direction == Direction::Response {
-            u16_into(self.buf, 2, self.result_code_opt.unwrap_or (0x0000));
+            u16_into(buffer, 2, self.result_code_opt.unwrap_or (0x0000));
             position = 4;
         }
-        self.opcode_data.marshal (self.direction, &mut self.buf[position..])?;
+        self.opcode_data.marshal (self.direction, &mut buffer[position..])?;
         Ok (required_len)
     }
 }
@@ -118,11 +132,11 @@ mod tests {
 
     #[test]
     fn from_works_for_unknown_request() {
-        let mut buffer: [u8; 2] = [
+        let buffer: &[u8] = &[
             0x12, 0x55, // version, direction, opcode
         ];
 
-        let subject = PmpPacket::new (&mut buffer).unwrap();
+        let subject = PmpPacket::try_from (buffer).unwrap();
 
         assert_eq! (subject.version, 0x12);
         assert_eq! (subject.direction, Direction::Request);
@@ -133,11 +147,11 @@ mod tests {
 
     #[test]
     fn from_works_for_get_request() {
-        let mut buffer = [
+        let buffer: &[u8] = &[
             0x00, 0x00, // version, direction, opcode
         ];
 
-        let subject = PmpPacket::new (&mut buffer).unwrap();
+        let subject = PmpPacket::try_from (buffer).unwrap();
 
         assert_eq! (subject.version, 0x00);
         assert_eq! (subject.direction, Direction::Request);
@@ -152,11 +166,11 @@ mod tests {
 
     #[test]
     fn from_works_for_unknown_response() {
-        let mut buffer: [u8; 4] = [
+        let buffer: &[u8] = &[
             0x13, 0xD5, 0xA5, 0x5A, // version, direction, opcode, result code
         ];
 
-        let subject = PmpPacket::new (&mut buffer).unwrap();
+        let subject = PmpPacket::try_from (buffer).unwrap();
 
         assert_eq! (subject.version, 0x13);
         assert_eq! (subject.direction, Direction::Response);
@@ -167,34 +181,34 @@ mod tests {
 
     #[test]
     fn short_buffer_causes_problems_for_parsing_request() {
-        let mut buffer = [0x00u8];
+        let buffer: &[u8] = &[0x00u8];
 
-        let result = PmpPacket::new (&mut buffer).err().unwrap();
+        let result = PmpPacket::try_from (buffer).err();
 
-        assert_eq! (result, ParseError::ShortBuffer);
+        assert_eq! (result, Some (ParseError::ShortBuffer));
     }
 
     #[test]
     fn short_buffer_causes_problems_for_parsing_response() {
-        let mut buffer = [0x00u8, 0x80, 0x00];
+        let buffer: &[u8] = &[0x00u8, 0x80, 0x00];
 
-        let result = PmpPacket::new (&mut buffer).err().unwrap();
+        let result = PmpPacket::try_from (buffer).err();
 
-        assert_eq! (result, ParseError::ShortBuffer);
+        assert_eq! (result, Some (ParseError::ShortBuffer));
     }
 
     #[test]
     fn marshal_works_for_unknown_request() {
         let mut buffer = [0u8; 2];
-        buffer[1] = 0x7F; // opcode bits: Other, not Get
-        let mut subject = PmpPacket::new (&mut buffer).unwrap();
-        subject.version = 0x12;
-        subject.direction = Direction::Request;
-        subject.opcode = Opcode::Other(0x55);
-        subject.result_code_opt = None;
-        subject.opcode_data = Box::new (UnrecognizedData::new());
+        let subject = PmpPacket {
+            version: 0x12,
+            direction: Direction::Request,
+            opcode: Opcode::Other(0x55),
+            result_code_opt: None,
+            opcode_data: Box::new (UnrecognizedData::new()),
+        };
 
-        let result = subject.marshal().unwrap();
+        let result = subject.marshal(&mut buffer).unwrap();
 
         assert_eq! (result, 2);
         let expected_buffer: [u8; 2] = [
@@ -206,18 +220,18 @@ mod tests {
     #[test]
     fn marshal_works_for_get_request() {
         let mut buffer = [0u8; 2];
-        buffer[1] = 0x7F; // opcode bits: Other, not Get
-        let mut subject = PmpPacket::new (&mut buffer).unwrap();
-        subject.version = 0x12;
-        subject.direction = Direction::Request;
-        subject.opcode = Opcode::Get;
-        subject.result_code_opt = None;
-        subject.opcode_data = Box::new (GetOpcodeData {
-            epoch_opt: None,
-            external_ip_address_opt: None
-        });
+        let subject = PmpPacket {
+            version: 0x12,
+            direction: Direction::Request,
+            opcode: Opcode::Get,
+            result_code_opt: None,
+            opcode_data: Box::new (GetOpcodeData {
+                epoch_opt: None,
+                external_ip_address_opt: None
+            }),
+        };
 
-        let result = subject.marshal().unwrap();
+        let result = subject.marshal(&mut buffer).unwrap();
 
         assert_eq! (result, 2);
         let expected_buffer: [u8; 2] = [
@@ -229,15 +243,15 @@ mod tests {
     #[test]
     fn marshal_works_for_unknown_response() {
         let mut buffer = [0u8; 4];
-        buffer[1] = 0x7F; // opcode bits: Other, not Get
-        let mut subject = PmpPacket::new (&mut buffer).unwrap();
-        subject.version = 0x13;
-        subject.direction = Direction::Response;
-        subject.opcode = Opcode::Other(0x55);
-        subject.result_code_opt = Some(0xBBAA);
-        subject.opcode_data = Box::new (UnrecognizedData::new());
+        let subject = PmpPacket {
+            version: 0x13,
+            direction: Direction::Response,
+            opcode: Opcode::Other(0x55),
+            result_code_opt: Some(0xBBAA),
+            opcode_data: Box::new (UnrecognizedData::new()),
+        };
 
-        let result = subject.marshal().unwrap();
+        let result = subject.marshal(&mut buffer).unwrap();
 
         assert_eq! (result, 4);
         let expected_buffer: [u8; 4] = [
@@ -249,8 +263,7 @@ mod tests {
     #[test]
     fn short_buffer_causes_problems_for_marshalling () {
         let mut buffer = [0x00u8; 11];
-        let mut subject = PmpPacket {
-            buf: &mut buffer,
+        let subject = PmpPacket {
             version: 0,
             direction: Direction::Response,
             opcode: Opcode::Get,
@@ -261,7 +274,7 @@ mod tests {
             })
         };
 
-        let result = subject.marshal ();
+        let result = subject.marshal (&mut buffer);
 
         assert_eq! (result, Err (MarshalError::ShortBuffer));
     }

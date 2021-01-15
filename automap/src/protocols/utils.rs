@@ -61,6 +61,10 @@ impl UnrecognizedData {
     }
 }
 
+pub trait Packet {
+    fn marshal (&self, buffer: &mut [u8]) -> Result<usize, MarshalError>;
+}
+
 #[derive (Clone, PartialEq, Debug)]
 pub enum ParseError {
     ShortBuffer,
