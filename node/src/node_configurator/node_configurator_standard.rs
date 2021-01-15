@@ -107,14 +107,6 @@ const HELP_TEXT: &str = indoc!(
 
         MASQNode --help --dump-config
 
-    If you want to generate wallets to earn money into and spend money from, try:
-
-        MASQNode --help --generate-wallet
-
-    If you already have a set of wallets you want Node to use, try:
-
-        MASQNode --help --recover-wallet
-
     MASQ Node listens for connections from other Nodes using the computer's
     network interface. Configuring the internet router for port forwarding is a necessary
     step for Node users to permit network communication between Nodes.

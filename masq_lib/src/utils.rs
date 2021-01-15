@@ -40,6 +40,17 @@ pub fn localhost() -> IpAddr {
     IpAddr::V4(Ipv4Addr::LOCALHOST)
 }
 
+pub const DERIVATION_PATH_ROOT: &str = "m/44'/60'/0'";
+
+pub fn derivation_path(a: u8, b: u8) -> String {
+    format!("{}/{}/{}", DERIVATION_PATH_ROOT, a, b)
+}
+
+lazy_static! {
+    pub static ref DEFAULT_CONSUMING_DERIVATION_PATH: String = derivation_path(0, 0);
+    pub static ref DEFAULT_EARNING_DERIVATION_PATH: String = derivation_path(0, 1);
+}
+
 #[allow(clippy::needless_range_loop)]
 pub fn index_of<T>(haystack: &[T], needles: &[T]) -> Option<usize>
 where

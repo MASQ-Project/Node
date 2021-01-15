@@ -396,7 +396,7 @@ mod tests {
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
-    use masq_lib::utils::find_free_port;
+    use masq_lib::utils::{derivation_path, find_free_port};
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
 
@@ -994,7 +994,7 @@ mod tests {
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
                     "consuming_wallet_derivation_path",
-                    Some("m/60'/44'/0'/4/4"),
+                    Some(&derivation_path(4, 4)),
                     false,
                 ))),
         );
@@ -1034,7 +1034,7 @@ mod tests {
                 )))
                 .get_result(Ok(ConfigDaoRecord::new(
                     "earning_wallet_address",
-                    Some("m/60'/44'/0'/4/5"),
+                    Some(&derivation_path(4, 5)),
                     false,
                 ))),
         );

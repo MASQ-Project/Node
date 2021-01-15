@@ -17,9 +17,6 @@ use std::result::Result;
 use std::str::FromStr;
 use web3::types::{Address, H256};
 
-pub const DEFAULT_CONSUMING_DERIVATION_PATH: &str = "m/44'/60'/0'/0/0";
-pub const DEFAULT_EARNING_DERIVATION_PATH: &str = "m/44'/60'/0'/0/1";
-
 #[derive(Debug, PartialEq)]
 pub enum WalletError {
     InvalidAddress,
@@ -438,9 +435,11 @@ mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
     use crate::blockchain::test_utils::make_meaningless_seed;
+    use crate::masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use bip39::{Language, Mnemonic, Seed};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::utils::derivation_path;
     use rusqlite::Connection;
     use rustc_hex::FromHex;
     use serde_cbor;
@@ -489,10 +488,10 @@ mod tests {
 
     #[test]
     fn string_address_from_keypair_works() {
-        let derivation_path = "m/44'/60'/0'/0/5";
+        let derivation_path = derivation_path(0, 5);
         let expected_seed = make_meaningless_seed();
         let wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(expected_seed.as_bytes(), derivation_path).unwrap(),
+            Bip32ECKeyPair::from_raw(expected_seed.as_bytes(), &derivation_path).unwrap(),
         );
 
         let result = wallet.string_address_from_keypair();
@@ -528,7 +527,8 @@ mod tests {
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
         let keypair =
-            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap();
+            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
+                .unwrap();
 
         let expected = Wallet::from(keypair);
         let serialized = serde_cbor::to_vec(&expected).unwrap();
@@ -548,7 +548,8 @@ mod tests {
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
         let keypair =
-            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH)).unwrap();
+            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
+                .unwrap();
 
         let expected = Wallet::from(keypair);
         let result = serde_json::to_string(&expected).unwrap();

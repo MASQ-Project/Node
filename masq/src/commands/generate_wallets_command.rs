@@ -2,6 +2,8 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiGenerateWalletsRequest, UiGenerateWalletsResponse};
+use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
+use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
@@ -130,7 +132,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
             .long ("consuming-path")
             .value_name ("CONSUMING-PATH")
             .required (false)
-            .default_value("m/60'/44'/0'/0/0")
+            .default_value(DEFAULT_CONSUMING_DERIVATION_PATH.as_str())
             .takes_value (true)
         )
         .arg(Arg::with_name ("earning-path")
@@ -138,7 +140,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
             .long ("earning-path")
             .value_name ("EARNING-PATH")
             .required (false)
-            .default_value("m/60'/44'/0'/0/1")
+            .default_value(DEFAULT_EARNING_DERIVATION_PATH.as_str())
             .takes_value (true)
         )
 }
@@ -226,8 +228,8 @@ mod tests {
                 word_count: 24,
                 language: "English".to_string(),
                 passphrase_opt: None,
-                consuming_path: "m/60'/44'/0'/0/0".to_string(),
-                earning_path: "m/60'/44'/0'/0/1".to_string()
+                consuming_path: DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
+                earning_path: DEFAULT_EARNING_DERIVATION_PATH.to_string()
             }
         )
     }

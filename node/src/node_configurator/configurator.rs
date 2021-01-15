@@ -360,6 +360,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::utils::derivation_path;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -600,14 +601,16 @@ mod tests {
         let mnemonic_phrase = generated_wallets.mnemonic_phrase.join(" ");
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let seed = PlainData::new(Bip39::seed(&mnemonic, "booga").as_ref());
-        let consuming_wallet =
-            Wallet::from(Bip32ECKeyPair::from_raw(seed.as_slice(), "m/44'/60'/0'/0/4").unwrap());
+        let consuming_wallet = Wallet::from(
+            Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 4)).unwrap(),
+        );
         assert_eq!(
             generated_wallets.consuming_wallet_address,
             consuming_wallet.string_address_from_keypair()
         );
-        let earning_wallet =
-            Wallet::from(Bip32ECKeyPair::from_raw(seed.as_slice(), &"m/44'/60'/0'/0/5").unwrap());
+        let earning_wallet = Wallet::from(
+            Bip32ECKeyPair::from_raw(seed.as_slice(), &derivation_path(0, 5)).unwrap(),
+        );
         assert_eq!(
             generated_wallets.earning_wallet_address,
             earning_wallet.string_address_from_keypair()
@@ -620,7 +623,7 @@ mod tests {
             *set_wallet_info_params,
             vec![(
                 seed,
-                "m/44'/60'/0'/0/4".to_string(),
+                derivation_path(0, 4),
                 earning_wallet.string_address_from_keypair(),
                 "password".to_string(),
             )]
@@ -701,8 +704,8 @@ mod tests {
             mnemonic_phrase_size: 24,
             mnemonic_phrase_language: "SuperSpecial".to_string(),
             mnemonic_passphrase_opt: None,
-            consuming_derivation_path: "m/44'/60'/0'/0/4".to_string(),
-            earning_derivation_path: "m/44'/60'/0'/0/5".to_string(),
+            consuming_derivation_path: derivation_path(0, 4),
+            earning_derivation_path: derivation_path(0, 5),
         };
 
         let result = subject.handle_generate_wallets(msg, 4321);
@@ -836,8 +839,8 @@ mod tests {
             mnemonic_phrase_size: 24,
             mnemonic_phrase_language: "English".to_string(),
             mnemonic_passphrase_opt: Some("booga".to_string()),
-            consuming_derivation_path: "m/44'/60'/0'/0/4".to_string(),
-            earning_derivation_path: "m/44'/60'/0'/0/5".to_string(),
+            consuming_derivation_path: derivation_path(0, 4),
+            earning_derivation_path: derivation_path(0, 5),
         }
     }
 

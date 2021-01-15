@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
+use masq_lib::utils::derivation_path;
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
@@ -44,10 +45,9 @@ fn verify_bill_payment() {
     blockchain_server.wait_until_ready();
     let (_event_loop_handle, http) = Http::new(blockchain_server.service_url().as_ref()).unwrap();
     let web3 = Web3::new(http.clone());
-    let derivation_path = "m/44'/60'/0'/0/0";
+    let deriv_path = derivation_path(0, 0);
     let seed = make_seed();
-    let (contract_owner_wallet, contract_owner_secret_key) =
-        make_node_wallet(&seed, derivation_path);
+    let (contract_owner_wallet, contract_owner_secret_key) = make_node_wallet(&seed, &deriv_path);
 
     let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain_id);
     assert_eq!(
@@ -75,7 +75,7 @@ fn verify_bill_payment() {
         .build();
 
     let (serving_node_1_wallet, serving_node_1_secret) =
-        make_node_wallet(&seed, "m/44'/60'/0'/0/1");
+        make_node_wallet(&seed, derivation_path(0, 1).as_str());
     let serving_node_1_config = NodeStartupConfigBuilder::standard()
         .blockchain_service_url(blockchain_server.service_url())
         .chain("dev")
