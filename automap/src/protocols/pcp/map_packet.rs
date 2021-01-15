@@ -4,6 +4,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::any::Any;
 use crate::protocols::utils::{u16_at, u16_into, OpcodeData, ipv6_addr_into, ipv6_addr_at, MarshalError, Direction, ParseError};
 use crate::protocols::pcp::pcp_packet::PcpOpcodeData;
+use std::convert::TryFrom;
 
 #[derive (Clone, PartialEq, Debug)]
 pub enum Protocol {
@@ -67,9 +68,23 @@ impl OpcodeData for MapOpcodeData {
 
 impl PcpOpcodeData for MapOpcodeData {}
 
-impl MapOpcodeData {
-    pub fn new (buf: &[u8]) -> Result<Self, ParseError> {
-        if buf.len() < 36 {
+impl Default for MapOpcodeData {
+    fn default() -> Self {
+        Self {
+            mapping_nonce: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            protocol: Protocol::Other(127),
+            internal_port: 0,
+            external_port: 0,
+            external_ip_address: IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0))
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for MapOpcodeData {
+    type Error = ParseError;
+
+    fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 36 {
             return Err (ParseError::ShortBuffer)
         }
         let mut data = Self {
@@ -80,16 +95,15 @@ impl MapOpcodeData {
             external_ip_address: IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)),
         };
         for n in 0..12 {
-            data.mapping_nonce[n] = buf[n]
+            data.mapping_nonce[n] = buffer[n]
         }
-        data.protocol = Protocol::from (buf[12]);
-        data.internal_port = u16_at (buf, 16);
-        data.external_port = u16_at (buf, 18);
-        data.external_ip_address = ipv6_addr_at(buf, 20);
+        data.protocol = Protocol::from (buffer[12]);
+        data.internal_port = u16_at (buffer, 16);
+        data.external_port = u16_at (buffer, 18);
+        data.external_ip_address = ipv6_addr_at(buffer, 20);
         Ok (data)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -98,7 +112,8 @@ mod tests {
 
     #[test]
     fn map_opcode_data_knows_its_length() {
-        let subject = MapOpcodeData::new (&[0u8; 64]).unwrap();
+        let buffer: &[u8] = &[0u8; 64];
+        let subject = MapOpcodeData::try_from (buffer).unwrap();
 
         let result = subject.len(Direction::Request);
 
@@ -107,11 +122,11 @@ mod tests {
 
     #[test]
     fn short_buffer_causes_parse_problem() {
-        let buffer = [0x00u8; 35];
+        let buffer: &[u8] = &[0x00u8; 35];
 
-        let result = MapOpcodeData::new (&buffer);
+        let result = MapOpcodeData::try_from (buffer).err();
 
-        assert_eq! (result, Err (ParseError::ShortBuffer));
+        assert_eq! (result, Some (ParseError::ShortBuffer));
     }
 
     #[test]

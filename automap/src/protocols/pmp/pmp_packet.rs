@@ -2,6 +2,7 @@
 
 use crate::protocols::utils::{Direction, MarshalError, UnrecognizedData, ParseError, OpcodeData, u16_at, u16_into, Packet};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
+use crate::protocols::pmp::map_packet::MapOpcodeData;
 use std::convert::TryFrom;
 
 #[derive (Clone, PartialEq, Debug)]
@@ -35,9 +36,9 @@ impl Opcode {
 
     pub fn parse_data (&self, direction: Direction, buf: &[u8]) -> Result<Box<dyn PmpOpcodeData>, ParseError> {
         match self {
-            Opcode::Get => Ok(Box::new (GetOpcodeData::new(direction, buf)?)),
-            Opcode::MapUdp => unimplemented!(),
-            Opcode::MapTcp => unimplemented!(),
+            Opcode::Get => Ok(Box::new (GetOpcodeData::try_from((direction, buf))?)),
+            Opcode::MapUdp => Ok(Box::new (MapOpcodeData::try_from ((direction, buf))?)),
+            Opcode::MapTcp => Ok(Box::new (MapOpcodeData::try_from ((direction, buf))?)),
             Opcode::Other(_) => Ok(Box::new (UnrecognizedData::new())),
         }
     }
@@ -129,6 +130,7 @@ mod tests {
     use super::*;
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use std::net::Ipv4Addr;
+    use crate::protocols::pmp::map_packet::MapOpcodeData;
 
     #[test]
     fn from_works_for_unknown_request() {
@@ -165,6 +167,52 @@ mod tests {
     }
 
     #[test]
+    fn from_works_for_map_udp_request() {
+        let buffer: &[u8] = &[
+            0x00, 0x01, 0x00, 0x00, // version, direction, opcode, reserved
+            0x23, 0x45, 0x54, 0x32, // internal port, external port
+            0x11, 0x22, 0x33, 0x44, // lifetime
+        ];
+
+        let subject = PmpPacket::try_from (buffer).unwrap();
+
+        assert_eq! (subject.version, 0x00);
+        assert_eq! (subject.direction, Direction::Request);
+        assert_eq! (subject.opcode, Opcode::MapUdp);
+        assert_eq! (subject.result_code_opt, None);
+        let opcode_data = subject.opcode_data.as_any().downcast_ref::<MapOpcodeData>().unwrap();
+        assert_eq! (opcode_data, &MapOpcodeData {
+            epoch_opt: None,
+            internal_port: 0x2345,
+            external_port: 0x5432,
+            lifetime: 0x11223344,
+        })
+    }
+
+    #[test]
+    fn from_works_for_map_tcp_request() {
+        let buffer: &[u8] = &[
+            0x00, 0x02, 0x00, 0x00, // version, direction, opcode, reserved
+            0x23, 0x45, 0x54, 0x32, // internal port, external port
+            0x11, 0x22, 0x33, 0x44, // lifetime
+        ];
+
+        let subject = PmpPacket::try_from (buffer).unwrap();
+
+        assert_eq! (subject.version, 0x00);
+        assert_eq! (subject.direction, Direction::Request);
+        assert_eq! (subject.opcode, Opcode::MapTcp);
+        assert_eq! (subject.result_code_opt, None);
+        let opcode_data = subject.opcode_data.as_any().downcast_ref::<MapOpcodeData>().unwrap();
+        assert_eq! (opcode_data, &MapOpcodeData {
+            epoch_opt: None,
+            internal_port: 0x2345,
+            external_port: 0x5432,
+            lifetime: 0x11223344,
+        })
+    }
+
+    #[test]
     fn from_works_for_unknown_response() {
         let buffer: &[u8] = &[
             0x13, 0xD5, 0xA5, 0x5A, // version, direction, opcode, result code
@@ -177,6 +225,75 @@ mod tests {
         assert_eq! (subject.opcode, Opcode::Other(0x55));
         assert_eq! (subject.result_code_opt, Some (0xA55A));
         assert_eq! (subject.opcode_data.as_any().downcast_ref::<UnrecognizedData>().unwrap(), &UnrecognizedData::new());
+    }
+
+    #[test]
+    fn from_works_for_get_response() {
+        let buffer: &[u8] = &[
+            0x00, 0x80, 0x00, 0x00, // version, direction, opcode, reserved
+            0x12, 0x23, 0x34, 0x45, // epoch
+            0x01, 0x02, 0x03, 0x04, // external IP address
+        ];
+
+        let subject = PmpPacket::try_from (buffer).unwrap();
+
+        assert_eq! (subject.version, 0x00);
+        assert_eq! (subject.direction, Direction::Response);
+        assert_eq! (subject.opcode, Opcode::Get);
+        assert_eq! (subject.result_code_opt, None);
+        let opcode_data = subject.opcode_data.as_any().downcast_ref::<GetOpcodeData>().unwrap();
+        assert_eq! (opcode_data, &GetOpcodeData {
+            epoch_opt: Some (0x12233445),
+            external_ip_address_opt: Some (Ipv4Addr::new (1, 2, 3, 4)),
+        })
+    }
+
+    #[test]
+    fn from_works_for_map_udp_response() {
+        let buffer: &[u8] = &[
+            0x00, 0x81, 0x00, 0x00, // version, direction, opcode, reserved
+            0x12, 0x23, 0x34, 0x45, // epoch
+            0x23, 0x45, 0x54, 0x32, // internal port, external port
+            0x11, 0x22, 0x33, 0x44, // lifetime
+        ];
+
+        let subject = PmpPacket::try_from (buffer).unwrap();
+
+        assert_eq! (subject.version, 0x00);
+        assert_eq! (subject.direction, Direction::Response);
+        assert_eq! (subject.opcode, Opcode::MapUdp);
+        assert_eq! (subject.result_code_opt, None);
+        let opcode_data = subject.opcode_data.as_any().downcast_ref::<MapOpcodeData>().unwrap();
+        assert_eq! (opcode_data, &MapOpcodeData {
+            epoch_opt: Some (0x12233445),
+            internal_port: 0x2345,
+            external_port: 0x5432,
+            lifetime: 0x11223344,
+        })
+    }
+
+    #[test]
+    fn from_works_for_map_tcp_response() {
+        let buffer: &[u8] = &[
+            0x00, 0x82, 0x00, 0x00, // version, direction, opcode, reserved
+            0x12, 0x23, 0x34, 0x45, // epoch
+            0x23, 0x45, 0x54, 0x32, // internal port, external port
+            0x11, 0x22, 0x33, 0x44, // lifetime
+        ];
+
+        let subject = PmpPacket::try_from (buffer).unwrap();
+
+        assert_eq! (subject.version, 0x00);
+        assert_eq! (subject.direction, Direction::Response);
+        assert_eq! (subject.opcode, Opcode::MapTcp);
+        assert_eq! (subject.result_code_opt, None);
+        let opcode_data = subject.opcode_data.as_any().downcast_ref::<MapOpcodeData>().unwrap();
+        assert_eq! (opcode_data, &MapOpcodeData {
+            epoch_opt: Some (0x12233445),
+            internal_port: 0x2345,
+            external_port: 0x5432,
+            lifetime: 0x11223344,
+        })
     }
 
     #[test]

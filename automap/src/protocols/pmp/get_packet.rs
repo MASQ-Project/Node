@@ -4,6 +4,7 @@ use crate::protocols::utils::{OpcodeData, MarshalError, Direction, u32_at, Parse
 use std::any::Any;
 use crate::protocols::pmp::pmp_packet::PmpOpcodeData;
 use std::net::Ipv4Addr;
+use std::convert::TryFrom;
 
 #[derive (Clone, Debug, PartialEq)]
 pub struct GetOpcodeData {
@@ -40,8 +41,20 @@ impl OpcodeData for GetOpcodeData {
 
 impl PmpOpcodeData for GetOpcodeData {}
 
-impl GetOpcodeData {
-    pub fn new (direction: Direction, buf: &[u8]) -> Result<Self, ParseError> {
+impl Default for GetOpcodeData {
+    fn default() -> Self {
+        Self {
+            epoch_opt: None,
+            external_ip_address_opt: None
+        }
+    }
+}
+
+impl TryFrom<(Direction, &[u8])> for GetOpcodeData {
+    type Error = ParseError;
+
+    fn try_from(pair: (Direction, &[u8])) -> Result<Self, Self::Error> {
+        let (direction, buffer) = pair;
         match direction {
             Direction::Request => {
                 Ok (Self {
@@ -50,12 +63,12 @@ impl GetOpcodeData {
                 })
             },
             Direction::Response => {
-                if buf.len() < 8 {
+                if buffer.len() < 8 {
                     return Err (ParseError::ShortBuffer)
                 }
                 Ok(Self {
-                    epoch_opt: Some (u32_at (buf, 0)),
-                    external_ip_address_opt: Some (Ipv4Addr::new (buf[4], buf[5], buf[6], buf[7]))
+                    epoch_opt: Some (u32_at (buffer, 0)),
+                    external_ip_address_opt: Some (Ipv4Addr::new (buffer[4], buffer[5], buffer[6], buffer[7]))
                 })
             }
         }
@@ -124,10 +137,10 @@ mod tests {
 
     #[test]
     fn new_complains_about_short_buffer () {
-        let buf = [0x00u8; 7];
+        let buf: &[u8] = &[0x00u8; 7];
 
-        let result = GetOpcodeData::new (Direction::Response, &buf);
+        let result = GetOpcodeData::try_from ((Direction::Response, buf)).err();
 
-        assert_eq! (result, Err(ParseError::ShortBuffer));
+        assert_eq! (result, Some(ParseError::ShortBuffer));
     }
 }

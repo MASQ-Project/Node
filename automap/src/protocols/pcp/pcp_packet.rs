@@ -37,7 +37,7 @@ impl Opcode {
     pub fn parse_data (&self, buf: &[u8]) -> Result<Box<dyn PcpOpcodeData>, ParseError> {
         match self {
             Opcode::Announce => unimplemented!(),
-            Opcode::Map => Ok(Box::new (MapOpcodeData::new (buf)?)),
+            Opcode::Map => Ok(Box::new (MapOpcodeData::try_from (buf)?)),
             Opcode::Peer => unimplemented!(),
             Opcode::Other(_) => Ok(Box::new (UnrecognizedData::new())),
         }
