@@ -16,7 +16,7 @@ pub struct MapOpcodeData {
 impl OpcodeData for MapOpcodeData {
     fn marshal(&self, direction: Direction, buf: &mut [u8]) -> Result<(), MarshalError> {
         if buf.len() < self.len(direction) {
-            return Err(MarshalError::ShortBuffer)
+            return Err(MarshalError::ShortBuffer(self.len (direction), buf.len()))
         }
         let mut position = 0;
         match direction {
@@ -67,7 +67,7 @@ impl TryFrom<(Direction, &[u8])> for MapOpcodeData {
         let (direction, buffer) = pair;
         let mut result = MapOpcodeData::default();
         if buffer.len() < result.len(direction) {
-            return Err(ParseError::ShortBuffer)
+            return Err(ParseError::ShortBuffer(result.len(direction), buffer.len()))
         }
         let mut position = 0;
         match direction {
@@ -103,7 +103,7 @@ mod tests {
 
         let result = subject.marshal (Direction::Request, &mut buffer).err();
 
-        assert_eq! (result, Some (MarshalError::ShortBuffer));
+        assert_eq! (result, Some (MarshalError::ShortBuffer(10, 9)));
     }
 
     #[test]
@@ -118,7 +118,7 @@ mod tests {
 
         let result = subject.marshal (Direction::Response, &mut buffer).err();
 
-        assert_eq! (result, Some (MarshalError::ShortBuffer));
+        assert_eq! (result, Some (MarshalError::ShortBuffer(12, 11)));
     }
 
     #[test]
@@ -165,7 +165,7 @@ mod tests {
 
         let result = MapOpcodeData::try_from ((Direction::Request, buffer)).err();
 
-        assert_eq! (result, Some (ParseError::ShortBuffer));
+        assert_eq! (result, Some (ParseError::ShortBuffer(10, 9)));
     }
 
     #[test]
@@ -174,7 +174,7 @@ mod tests {
 
         let result = MapOpcodeData::try_from ((Direction::Response, buffer)).err();
 
-        assert_eq! (result, Some (ParseError::ShortBuffer));
+        assert_eq! (result, Some (ParseError::ShortBuffer(12, 11)));
     }
 
     #[test]

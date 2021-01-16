@@ -80,7 +80,7 @@ impl TryFrom<&[u8]> for PmpPacket {
             opcode_data: Box::new (UnrecognizedData::new()),
         };
         if buffer.len() < 2 {
-            return Err (ParseError::ShortBuffer)
+            return Err (ParseError::ShortBuffer(2, buffer.len()))
         }
         result.version = buffer[0];
         result.direction = Direction::from (buffer[1]);
@@ -92,7 +92,7 @@ impl TryFrom<&[u8]> for PmpPacket {
             },
             Direction::Response => {
                 if buffer.len() < 4 {
-                    return Err (ParseError::ShortBuffer)
+                    return Err (ParseError::ShortBuffer(4, buffer.len()))
                 }
                 result.result_code_opt = Some (u16_at (buffer, 2));
                 4
@@ -111,7 +111,7 @@ impl Packet for PmpPacket {
         };
         let required_len = header_len + self.opcode_data.len(self.direction);
         if buffer.len() < required_len {
-            return Err (MarshalError::ShortBuffer)
+            return Err (MarshalError::ShortBuffer(required_len, buffer.len()))
         }
         buffer[0] = self.version;
         buffer[1] = self.direction.code() | self.opcode.code();
@@ -302,7 +302,7 @@ mod tests {
 
         let result = PmpPacket::try_from (buffer).err();
 
-        assert_eq! (result, Some (ParseError::ShortBuffer));
+        assert_eq! (result, Some (ParseError::ShortBuffer(2, 1)));
     }
 
     #[test]
@@ -311,7 +311,7 @@ mod tests {
 
         let result = PmpPacket::try_from (buffer).err();
 
-        assert_eq! (result, Some (ParseError::ShortBuffer));
+        assert_eq! (result, Some (ParseError::ShortBuffer(4, 3)));
     }
 
     #[test]
@@ -393,7 +393,7 @@ mod tests {
 
         let result = subject.marshal (&mut buffer);
 
-        assert_eq! (result, Err (MarshalError::ShortBuffer));
+        assert_eq! (result, Err (MarshalError::ShortBuffer(12, 11)));
     }
 
     #[test]

@@ -82,8 +82,9 @@ impl Default for PcpPacket {
 
 impl Packet for PcpPacket {
     fn marshal(&self, buffer: &mut [u8]) -> Result<usize, MarshalError> {
-        if buffer.len() < (24 + self.opcode_data.len(self.direction)) {
-            return Err (MarshalError::ShortBuffer)
+        let required_len = 24 + self.opcode_data.len(self.direction);
+        if buffer.len() < required_len {
+            return Err (MarshalError::ShortBuffer(required_len, buffer.len()))
         }
         buffer[0] = self.version;
         buffer[1] = self.direction.code() | self.opcode.code();
@@ -123,7 +124,7 @@ impl TryFrom<&[u8]> for PcpPacket {
     fn try_from(buffer: &[u8]) -> Result<Self, ParseError> {
         let mut result = PcpPacket::default();
         if buffer.len() < 24 {
-            return Err(ParseError::ShortBuffer)
+            return Err(ParseError::ShortBuffer(24, buffer.len()))
         }
         result.version = buffer[0];
         result.direction = Direction::from (buffer[1]);
@@ -258,7 +259,7 @@ mod tests {
 
         let result = PcpPacket::try_from (buffer).err();
 
-        assert_eq! (result, Some (ParseError::ShortBuffer));
+        assert_eq! (result, Some (ParseError::ShortBuffer(24, 23)));
     }
 
     #[test]
@@ -409,7 +410,7 @@ mod tests {
 
         let result = subject.marshal(&mut buffer);
 
-        assert_eq! (result, Err (MarshalError::ShortBuffer));
+        assert_eq! (result, Err (MarshalError::ShortBuffer(24, 23)));
     }
 
     #[test]

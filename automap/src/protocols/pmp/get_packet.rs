@@ -18,7 +18,7 @@ impl OpcodeData for GetOpcodeData {
             Direction::Request => Ok (()),
             Direction::Response => {
                 if buf.len() < 8 {
-                    return Err (MarshalError::ShortBuffer)
+                    return Err (MarshalError::ShortBuffer(8, buf.len()))
                 }
                 u32_into (buf, 0, self.epoch_opt.unwrap_or (0));
                 ipv4_addr_into(buf, 4, &self.external_ip_address_opt.unwrap_or (Ipv4Addr::new (0, 0, 0, 0)));
@@ -64,7 +64,7 @@ impl TryFrom<(Direction, &[u8])> for GetOpcodeData {
             },
             Direction::Response => {
                 if buffer.len() < 8 {
-                    return Err (ParseError::ShortBuffer)
+                    return Err (ParseError::ShortBuffer(8, buffer.len()))
                 }
                 Ok(Self {
                     epoch_opt: Some (u32_at (buffer, 0)),
@@ -121,7 +121,7 @@ mod tests {
 
         let result = subject.marshal (Direction::Response, &mut buf);
 
-        assert_eq! (result, Err (MarshalError::ShortBuffer));
+        assert_eq! (result, Err (MarshalError::ShortBuffer(8, 7)));
     }
 
     #[test]
@@ -141,6 +141,6 @@ mod tests {
 
         let result = GetOpcodeData::try_from ((Direction::Response, buf)).err();
 
-        assert_eq! (result, Some(ParseError::ShortBuffer));
+        assert_eq! (result, Some(ParseError::ShortBuffer(8, 7)));
     }
 }

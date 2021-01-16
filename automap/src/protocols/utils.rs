@@ -67,12 +67,13 @@ pub trait Packet {
 
 #[derive (Clone, PartialEq, Debug)]
 pub enum ParseError {
-    ShortBuffer,
+    WrongProtocol(u8),
+    ShortBuffer(usize, usize),
 }
 
 #[derive (Clone, PartialEq, Debug)]
 pub enum MarshalError {
-    ShortBuffer,
+    ShortBuffer(usize, usize),
 }
 
 pub fn u32_at (buf: &[u8], offset: usize) -> u32 {

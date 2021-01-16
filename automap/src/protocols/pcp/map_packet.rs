@@ -42,7 +42,7 @@ pub struct MapOpcodeData {
 impl OpcodeData for MapOpcodeData {
     fn marshal(&self, direction: Direction, buf: &mut [u8]) -> Result<(), MarshalError> {
         if buf.len() < self.len(direction) {
-            return Err (MarshalError::ShortBuffer)
+            return Err (MarshalError::ShortBuffer(self.len(direction), buf.len()))
         }
         for n in 0..12 {
             buf[n] = self.mapping_nonce[n]
@@ -84,16 +84,10 @@ impl TryFrom<&[u8]> for MapOpcodeData {
     type Error = ParseError;
 
     fn try_from(buffer: &[u8]) -> Result<Self, Self::Error> {
-        if buffer.len() < 36 {
-            return Err (ParseError::ShortBuffer)
+        let mut data = MapOpcodeData::default();
+        if buffer.len() < data.len(Direction::Request) {
+            return Err (ParseError::ShortBuffer(data.len (Direction::Request), buffer.len()))
         }
-        let mut data = Self {
-            mapping_nonce: [0u8; 12],
-            protocol: Protocol::Udp,
-            internal_port: 0,
-            external_port: 0,
-            external_ip_address: IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)),
-        };
         for n in 0..12 {
             data.mapping_nonce[n] = buffer[n]
         }
@@ -126,7 +120,7 @@ mod tests {
 
         let result = MapOpcodeData::try_from (buffer).err();
 
-        assert_eq! (result, Some (ParseError::ShortBuffer));
+        assert_eq! (result, Some (ParseError::ShortBuffer(36, 35)));
     }
 
     #[test]
@@ -142,7 +136,7 @@ mod tests {
 
         let result = subject.marshal (Direction::Response, &mut buffer);
 
-        assert_eq! (result, Err (MarshalError::ShortBuffer));
+        assert_eq! (result, Err (MarshalError::ShortBuffer(36, 35)));
     }
 
     #[test]
