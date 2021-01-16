@@ -53,7 +53,6 @@ pub trait PcpOption {
 }
 
 pub struct PcpPacket {
-    pub version: u8,
     pub direction: Direction,
     pub opcode: Opcode,
     pub result_code_opt: Option<u8>,
@@ -67,7 +66,6 @@ pub struct PcpPacket {
 impl Default for PcpPacket {
     fn default() -> Self {
         Self {
-            version: 2,
             direction: Direction::Request,
             opcode: Opcode::Other(127),
             result_code_opt: None,
@@ -86,7 +84,7 @@ impl Packet for PcpPacket {
         if buffer.len() < required_len {
             return Err (MarshalError::ShortBuffer(required_len, buffer.len()))
         }
-        buffer[0] = self.version;
+        buffer[0] = 0x02; // version
         buffer[1] = self.direction.code() | self.opcode.code();
         buffer[2] = 0x00;
         match self.direction {
@@ -126,7 +124,9 @@ impl TryFrom<&[u8]> for PcpPacket {
         if buffer.len() < 24 {
             return Err(ParseError::ShortBuffer(24, buffer.len()))
         }
-        result.version = buffer[0];
+        if buffer[0] != 0x02 {
+            return Err(ParseError::WrongVersion(buffer[0]))
+        }
         result.direction = Direction::from (buffer[1]);
         result.opcode = Opcode::from (buffer[1]);
         result.lifetime = u32_at (buffer, 4);
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn from_works_for_unknown_request_with_ipv6() {
         let buffer: &[u8] = &[
-            0x12, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
+            0x02, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
             0x78, 0x56, 0x34, 0x12, // requested lifetime
             0xFF, 0xEE, 0xDD, 0xCC, // client IP address
             0xBB, 0xAA, 0x99, 0x88,
@@ -164,7 +164,6 @@ mod tests {
 
         let subject = PcpPacket::try_from (buffer).unwrap();
 
-        assert_eq! (subject.version, 0x12);
         assert_eq! (subject.direction, Direction::Request);
         assert_eq! (subject.opcode, Opcode::Other(0x55));
         assert_eq! (subject.result_code_opt, None);
@@ -178,7 +177,7 @@ mod tests {
     #[test]
     fn from_works_for_unknown_request_with_ipv4() {
         let buffer: &[u8] = &[
-            0x12, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
+            0x02, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
             0x78, 0x56, 0x34, 0x12, // requested lifetime
             0x00, 0x00, 0x00, 0x00, // client IP address
             0x00, 0x00, 0x00, 0x00,
@@ -194,7 +193,7 @@ mod tests {
     #[test]
     fn from_works_for_map_request() {
         let buffer: &[u8] = &[
-            0x12, 0x01, 0x00, 0x00, // version, direction, opcode, reserved
+            0x02, 0x01, 0x00, 0x00, // version, direction, opcode, reserved
             0x78, 0x56, 0x34, 0x12, // requested lifetime
             0xFF, 0xEE, 0xDD, 0xCC, // client IP address
             0xBB, 0xAA, 0x99, 0x88,
@@ -213,7 +212,6 @@ mod tests {
 
         let subject = PcpPacket::try_from (buffer).unwrap();
 
-        assert_eq! (subject.version, 0x12);
         assert_eq! (subject.direction, Direction::Request);
         assert_eq! (subject.opcode, Opcode::Map);
         assert_eq! (subject.result_code_opt, None);
@@ -232,7 +230,7 @@ mod tests {
     #[test]
     fn from_works_for_unknown_response() {
         let buffer: &[u8] = &[
-            0x13, 0xD5, 0x00, 0xAA, // version, direction, opcode, reserved, result code
+            0x02, 0xD5, 0x00, 0xAA, // version, direction, opcode, reserved, result code
             0x78, 0x56, 0x34, 0x12, // lifetime
             0x12, 0x34, 0x56, 0x78, // epoch time
             0xBB, 0xAA, 0x99, 0x88, // reserved
@@ -242,7 +240,6 @@ mod tests {
 
         let subject = PcpPacket::try_from (buffer).unwrap();
 
-        assert_eq! (subject.version, 0x13);
         assert_eq! (subject.direction, Direction::Response);
         assert_eq! (subject.opcode, Opcode::Other(0x55));
         assert_eq! (subject.result_code_opt, Some (0xAA));
@@ -263,10 +260,18 @@ mod tests {
     }
 
     #[test]
+    fn wrong_version_causes_parse_problems() {
+        let buffer: &[u8] = &[0x42u8; 24];
+
+        let result = PcpPacket::try_from (buffer).err();
+
+        assert_eq! (result, Some (ParseError::WrongVersion(0x42)));
+    }
+
+    #[test]
     fn marshal_works_for_unknown_request_ipv6() {
         let mut buffer = [0u8; 24];
         let subject = PcpPacket {
-            version: 0x12,
             direction: Direction::Request,
             opcode: Opcode::Other(0x55),
             result_code_opt: None,
@@ -281,7 +286,7 @@ mod tests {
 
         assert_eq! (result, 24);
         let expected_buffer: [u8; 24] = [
-            0x12, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
+            0x02, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
             0x78, 0x56, 0x34, 0x12, // requested lifetime
             0xFF, 0xEE, 0xDD, 0xCC, // client IP address
             0xBB, 0xAA, 0x99, 0x88,
@@ -295,7 +300,6 @@ mod tests {
     fn marshal_works_for_unknown_request_ipv4() {
         let mut buffer = [0u8; 24];
         let subject = PcpPacket {
-            version: 0x12,
             direction: Direction::Request,
             opcode: Opcode::Other(0x55),
             result_code_opt: None,
@@ -310,7 +314,7 @@ mod tests {
 
         assert_eq! (result, 24);
         let expected_buffer: [u8; 24] = [
-            0x12, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
+            0x02, 0x55, 0x00, 0x00, // version, direction, opcode, reserved
             0x78, 0x56, 0x34, 0x12, // requested lifetime
             0x00, 0x00, 0x00, 0x00, // client IP address
             0x00, 0x00, 0x00, 0x00,
@@ -324,7 +328,6 @@ mod tests {
     fn marshal_works_for_map_request() {
         let mut buffer = [0u8; 60];
         let subject = PcpPacket {
-            version: 0x12,
             direction: Direction::Request,
             opcode: Opcode::Map,
             result_code_opt: None,
@@ -345,7 +348,7 @@ mod tests {
 
         assert_eq! (result, 60);
         let expected_buffer: [u8; 60] = [
-            0x12, 0x01, 0x00, 0x00, // version, direction, opcode, reserved
+            0x02, 0x01, 0x00, 0x00, // version, direction, opcode, reserved
             0x78, 0x56, 0x34, 0x12, // requested lifetime
             0xFF, 0xEE, 0xDD, 0xCC, // client IP address
             0xBB, 0xAA, 0x99, 0x88,
@@ -368,7 +371,6 @@ mod tests {
     fn marshal_works_for_unknown_response() {
         let mut buffer = [0u8; 24];
         let subject = PcpPacket {
-            version: 0x13,
             direction: Direction::Response,
             opcode: Opcode::Other(0x55),
             result_code_opt: Some(0xAA),
@@ -383,7 +385,7 @@ mod tests {
 
         assert_eq! (result, 24);
         let expected_buffer: [u8; 24] = [
-            0x13, 0xD5, 0x00, 0xAA, // version, direction, opcode, reserved, result code
+            0x02, 0xD5, 0x00, 0xAA, // version, direction, opcode, reserved, result code
             0x78, 0x56, 0x34, 0x12, // lifetime
             0x12, 0x34, 0x56, 0x78, // epoch time
             0x00, 0x00, 0x00, 0x00, // reserved
@@ -397,7 +399,6 @@ mod tests {
     fn short_buffer_causes_marshalling_problems() {
         let mut buffer = [0u8; 23];
         let subject = PcpPacket {
-            version: 0,
             direction: Direction::Request,
             opcode: Opcode::Other(127),
             result_code_opt: None,

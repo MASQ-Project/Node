@@ -25,7 +25,6 @@ pub fn main() {
     let mut buf = [0u8; 1100];
     let packet_len = {
         let packet = PcpPacket {
-            version: 0x2,
             direction: Direction::Request,
             opcode: Opcode::Map,
             result_code_opt: None,
@@ -50,7 +49,6 @@ pub fn main() {
     let buf_slice = &buf[0..packet_len];
     let packet = PcpPacket::try_from (buf_slice).unwrap();
     let mut tracker = Tracker::new();
-    if packet.version != 2 {tracker.fail (format!("Response packet version was {}, not 2", packet.version))};
     if packet.direction != Direction::Response {tracker.fail (format!("Response packet was a request, not a response"))};
     if packet.opcode != Opcode::Other(0xFF) {tracker.fail (format!("Response packet opcode was {:?}, not Other(255)", packet.opcode))};
     if packet.result_code_opt != Some (4) {tracker.fail (format!("Response packet result code was {:?}, not UNSUPP_OPCODE (4)", packet.result_code_opt))};
