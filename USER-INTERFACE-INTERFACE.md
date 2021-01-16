@@ -576,11 +576,11 @@ then the user will have to specify it as well as the 24 standard words in order 
 that neither the 24 standard words nor this value is persisted anywhere: it's up to the user to keep track of them.
 
 `consumingDerivationPath` is the derivation path from the generated seed number to be used to generate the consuming
-wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
+wallet. By convention, it is "m/44'/60'/0'/0/0", but in this message it is required and no defaulting is performed
 by the Node.
 
 `earningDerivationPath` is the derivation path from the generated seed number to be used to generate the earning
-wallet. By convention, it is "m/60'/44'/0'/0/1", but in this message it is required and no defaulting is performed
+wallet. By convention, it is "m/44'/60'/0'/0/1", but in this message it is required and no defaulting is performed
 by the Node.
 
 If the user wants to consume from and earn into the same wallet, he should provide the same derivation path for both.
