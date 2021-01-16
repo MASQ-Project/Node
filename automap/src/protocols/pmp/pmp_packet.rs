@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn from_works_for_get_response() {
         let buffer: &[u8] = &[
-            0x00, 0x80, 0x00, 0x00, // version, direction, opcode, reserved
+            0x00, 0x80, 0x56, 0x78, // version, direction, opcode, result code
             0x12, 0x23, 0x34, 0x45, // epoch
             0x01, 0x02, 0x03, 0x04, // external IP address
         ];
@@ -240,7 +240,7 @@ mod tests {
         assert_eq! (subject.version, 0x00);
         assert_eq! (subject.direction, Direction::Response);
         assert_eq! (subject.opcode, Opcode::Get);
-        assert_eq! (subject.result_code_opt, None);
+        assert_eq! (subject.result_code_opt, Some (0x5678));
         let opcode_data = subject.opcode_data.as_any().downcast_ref::<GetOpcodeData>().unwrap();
         assert_eq! (opcode_data, &GetOpcodeData {
             epoch_opt: Some (0x12233445),
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn from_works_for_map_udp_response() {
         let buffer: &[u8] = &[
-            0x00, 0x81, 0x00, 0x00, // version, direction, opcode, reserved
+            0x00, 0x81, 0x56, 0x78, // version, direction, opcode, result code
             0x12, 0x23, 0x34, 0x45, // epoch
             0x23, 0x45, 0x54, 0x32, // internal port, external port
             0x11, 0x22, 0x33, 0x44, // lifetime
@@ -262,7 +262,7 @@ mod tests {
         assert_eq! (subject.version, 0x00);
         assert_eq! (subject.direction, Direction::Response);
         assert_eq! (subject.opcode, Opcode::MapUdp);
-        assert_eq! (subject.result_code_opt, None);
+        assert_eq! (subject.result_code_opt, Some (0x5678));
         let opcode_data = subject.opcode_data.as_any().downcast_ref::<MapOpcodeData>().unwrap();
         assert_eq! (opcode_data, &MapOpcodeData {
             epoch_opt: Some (0x12233445),
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn from_works_for_map_tcp_response() {
         let buffer: &[u8] = &[
-            0x00, 0x82, 0x00, 0x00, // version, direction, opcode, reserved
+            0x00, 0x82, 0x56, 0x78, // version, direction, opcode, result_code
             0x12, 0x23, 0x34, 0x45, // epoch
             0x23, 0x45, 0x54, 0x32, // internal port, external port
             0x11, 0x22, 0x33, 0x44, // lifetime
@@ -286,7 +286,7 @@ mod tests {
         assert_eq! (subject.version, 0x00);
         assert_eq! (subject.direction, Direction::Response);
         assert_eq! (subject.opcode, Opcode::MapTcp);
-        assert_eq! (subject.result_code_opt, None);
+        assert_eq! (subject.result_code_opt, Some (0x5678));
         let opcode_data = subject.opcode_data.as_any().downcast_ref::<MapOpcodeData>().unwrap();
         assert_eq! (opcode_data, &MapOpcodeData {
             epoch_opt: Some (0x12233445),

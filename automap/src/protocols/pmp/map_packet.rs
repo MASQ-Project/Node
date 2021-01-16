@@ -2,7 +2,7 @@
 
 use crate::protocols::utils::{OpcodeData, MarshalError, Direction, u16_into, u32_into, ParseError, u16_at, u32_at};
 use std::any::Any;
-use crate::protocols::pmp::pmp_packet::PmpOpcodeData;
+use crate::protocols::pmp::pmp_packet::{PmpOpcodeData};
 use std::convert::TryFrom;
 
 #[derive (Clone, PartialEq, Debug)]
@@ -15,18 +15,19 @@ pub struct MapOpcodeData {
 
 impl OpcodeData for MapOpcodeData {
     fn marshal(&self, direction: Direction, buf: &mut [u8]) -> Result<(), MarshalError> {
-        let required_len = match direction {
-            Direction::Request => 10,
-            Direction::Response => 14,
-        };
-        if buf.len() < required_len {
+        if buf.len() < self.len(direction) {
             return Err(MarshalError::ShortBuffer)
         }
-        u16_into (buf, 0, 0x00);
-        let mut position = 2;
-        if direction == Direction::Response {
-            u32_into (buf, position, self.epoch_opt.unwrap_or (0));
-            position += 4;
+        let mut position = 0;
+        match direction {
+            Direction::Request => {
+                u16_into (buf, 0, 0x00);
+                position += 2;
+            },
+            Direction::Response => {
+                u32_into (buf, position, self.epoch_opt.unwrap_or (0));
+                position += 4;
+            }
         }
         u16_into (buf, position, self.internal_port);
         u16_into (buf, position + 2, self.external_port);
@@ -36,7 +37,7 @@ impl OpcodeData for MapOpcodeData {
 
     fn len(&self, direction: Direction) -> usize {
         match direction {
-            Direction::Request => 8,
+            Direction::Request => 10,
             Direction::Response => 12,
         }
     }
@@ -64,18 +65,19 @@ impl TryFrom<(Direction, &[u8])> for MapOpcodeData {
 
     fn try_from(pair: (Direction, &[u8])) -> Result<Self, Self::Error> {
         let (direction, buffer) = pair;
-        let required_len = match direction {
-            Direction::Request => 10,
-            Direction::Response => 14,
-        };
-        if buffer.len() < required_len {
+        let mut result = MapOpcodeData::default();
+        if buffer.len() < result.len(direction) {
             return Err(ParseError::ShortBuffer)
         }
-        let mut result = MapOpcodeData::default();
-        let mut position = 2;
-        if direction == Direction::Response {
-            result.epoch_opt = Some (u32_at (buffer, position));
-            position += 4;
+        let mut position = 0;
+        match direction {
+            Direction::Request => {
+                position += 2;
+            },
+            Direction::Response => {
+                result.epoch_opt = Some (u32_at (buffer, position));
+                position += 4;
+            }
         }
         result.internal_port = u16_at (buffer, position);
         result.external_port = u16_at (buffer, position + 2);
@@ -106,7 +108,7 @@ mod tests {
 
     #[test]
     fn marshal_response_complains_about_short_buffer () {
-        let mut buffer = [0u8; 13];
+        let mut buffer = [0u8; 11];
         let subject = MapOpcodeData {
             epoch_opt: Some (43211234),
             internal_port: 1234,
@@ -140,7 +142,7 @@ mod tests {
 
     #[test]
     fn marshal_response_works () {
-        let mut buffer = [0u8; 14];
+        let mut buffer = [0u8; 12];
         let subject = MapOpcodeData {
             epoch_opt: Some (0x43211234),
             internal_port: 0x1234,
@@ -151,7 +153,6 @@ mod tests {
         subject.marshal (Direction::Response, &mut buffer).unwrap();
 
         assert_eq! (buffer, [
-            0x00u8, 0x00,           // reserved
             0x43, 0x21, 0x12, 0x34, // epoch
             0x12, 0x34, 0x43, 0x21, // internal port, external port
             0x12, 0x34, 0x43, 0x21, // lifetime
@@ -169,7 +170,7 @@ mod tests {
 
     #[test]
     fn try_from_response_complains_about_short_buffer () {
-        let buffer: &[u8] = &[0x00u8; 13];
+        let buffer: &[u8] = &[0x00u8; 11];
 
         let result = MapOpcodeData::try_from ((Direction::Response, buffer)).err();
 
@@ -179,7 +180,7 @@ mod tests {
     #[test]
     fn try_from_request_works () {
         let buffer: &[u8] = &[
-            0x00u8, 0x00,           // reserved
+            0x00, 0x00,             // reserved
             0x12, 0x34, 0x43, 0x21, // internal port, external port
             0x12, 0x34, 0x43, 0x21, // lifetime
         ];
@@ -197,7 +198,6 @@ mod tests {
     #[test]
     fn try_from_response_works () {
         let buffer: &[u8] = &[
-            0x00u8, 0x00,           // reserved
             0x43, 0x21, 0x12, 0x34, // epoch
             0x12, 0x34, 0x43, 0x21, // internal port, external port
             0x12, 0x34, 0x43, 0x21, // lifetime
@@ -217,7 +217,7 @@ mod tests {
     fn knows_length() {
         let subject = MapOpcodeData::default();
 
-        assert_eq! (subject.len (Direction::Request), 8);
+        assert_eq! (subject.len (Direction::Request), 10);
         assert_eq! (subject.len (Direction::Response), 12);
     }
 }
