@@ -622,6 +622,61 @@ the requested language, including non-ASCII Unicode characters encoded in UTF-8 
 No data comes with this message; it's merely used to inform a UI that the database password has changed.
 If the UI is remembering the database password, it should forget it when this message is received.
 
+#### `recoverWallets`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPassword": <string>,
+    "mnemonicPhrase": [
+        <string>,
+        <string>,
+        [...]
+    ],
+    "mnemonicPassphraseOpt": <optional string>,
+    "mnemonicPhraseLanguage": <string>,
+    "consumingDerivationPath": <string>,
+    "earningWallet": <string>
+}
+```
+##### Description:
+This message directs the Node to set its wallet pair to a preexisting pair of wallets described in the message.
+If the database already contains a wallet pair, the wallet recovery will fail.
+
+`dbPassword` is the current database password. If this is incorrect, the wallet recovery will fail.
+
+`mnemonicPhrase` is the mnemonic phrase that was used to generate the consuming wallet and possibly the earning
+wallet as well. It must have 12, 15, 18, 21, or 24 words.
+
+`mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
+(it can be any word; it's not constrained to the official mnemonic-phrase list) that was used along with the
+words of the mnemonic phrase to generate the seed number from which the consuming and possibly earning wallets
+were derived. If no mnemonic passphrase was used to generate the wallets, this value must be absent.
+
+`mnemonicPhraseLanguage` is the language in which the mnemonic phrase is supplied. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+
+`consumingDerivationPath` is the derivation path from the mnemonic phrase that was used to generate the consuming
+wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
+by the Node.
+
+`earningWallet` is either the derivation path from the mnemonic phrase that was used to generate the earning
+wallet, or--if the derivation path is unknown or the earning wallet is not related to the mnemonic phrase--the
+address of the earning wallet.
+
+The consuming and earning wallet information may evaluate to the same wallet; there's nothing wrong with that.
+
+#### `recoverWallets`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {}
+```
+##### Description:
+This message acknowledges that the Node's wallet pair was set as specified.
+
 #### `redirect`
 ##### Direction: Unsolicited Response
 ##### Correspondent: Daemon

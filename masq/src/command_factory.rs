@@ -7,6 +7,7 @@ use crate::commands::commands_common::Command;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
+use crate::commands::recover_wallets_command::RecoverWalletsCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
@@ -41,6 +42,10 @@ impl CommandFactory for CommandFactoryReal {
             },
             "descriptor" => Box::new(DescriptorCommand::new()),
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
+            "recover-wallets" => match RecoverWalletsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },

@@ -575,13 +575,17 @@ fire_and_forget_message!(UiNewPasswordBroadcast, "newPassword");
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiRecoverWalletsRequest {
     #[serde(rename = "dbPassword")]
-    db_password: String,
+    pub db_password: String,
     #[serde(rename = "mnemonicPhrase")]
-    mnemonic_phrase: Vec<String>,
+    pub mnemonic_phrase: Vec<String>,
+    #[serde(rename = "mnemonicPassphraseOpt")]
+    pub mnemonic_passphrase_opt: Option<String>,
+    #[serde(rename = "mnemonicPhraseLanguage")]
+    pub mnemonic_phrase_language: String,
     #[serde(rename = "consumingDerivationPath")]
-    consuming_derivation_path: String, // default to "m/44'/60'/0'/0/0"
+    pub consuming_derivation_path: String, // default to "m/44'/60'/0'/0/0"
     #[serde(rename = "earningWallet")]
-    earning_wallet: String, // either derivation path (default to "m/44'/60'/0'/0/1") or address
+    pub earning_wallet: String, // either derivation path (default to "m/44'/60'/0'/0/1") or address
 }
 conversation_message!(UiRecoverWalletsRequest, "recoverWallet");
 
