@@ -7,6 +7,7 @@ use automap_lib::protocols::utils::{MAIN_HEADER};
 use automap_lib::protocols::pmp::pmp_test::test_pmp;
 use automap_lib::protocols::igdp::igdp_test::test_igdp;
 
+
 pub fn main() {
     let args = std::env::args().collect::<Vec<String>>();
     if args.len() != 2 {
@@ -26,7 +27,7 @@ pub fn main() {
     let socket = UdpSocket::bind(local_address).unwrap();
     test_pmp(socket,router_address);
     let socket = UdpSocket::bind(local_address).unwrap();
-    test_pcp(socket,router_address);
+    test_pcp(socket,router_address,router_ip);
     test_igdp();
 
 }

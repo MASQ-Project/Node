@@ -149,6 +149,7 @@ pub const MAIN_HEADER:&str="\
 +---------------------------------------------------------------------------------+";
 pub const PMP_HEADER:&str="Summary of testing PMP protocol on your device:";
 pub const PCP_HEADER:&str="Summary of testing PCP protocol on your device:";
+pub const IGDP_HEADER:&str="Summary of testing IGDP/UPnP on your device:";
 
 #[cfg(test)]
 mod tests {

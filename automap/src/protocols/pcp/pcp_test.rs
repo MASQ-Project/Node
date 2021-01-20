@@ -4,10 +4,10 @@ use crate::protocols::utils::{Direction, Packet, PCP_HEADER, UnrecognizedData};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use std::time::Duration;
 use std::convert::TryFrom;
-use std::net::{UdpSocket, SocketAddr};
+use std::net::{UdpSocket, SocketAddr, IpAddr};
 use crate::protocols::pcp::pcp_packet::{PcpPacket,Opcode};
 
-pub fn test_pcp(socket:UdpSocket, router_address: SocketAddr){
+pub fn test_pcp(socket:UdpSocket, router_address: SocketAddr,router_ip:IpAddr){
 
     let mut buf = [0u8; 1100];
     let packet_len = {
@@ -15,8 +15,8 @@ pub fn test_pcp(socket:UdpSocket, router_address: SocketAddr){
             direction: Direction::Request,
             opcode: Opcode::Announce,
             result_code_opt: None,
-            lifetime: 10,
-            client_ip_opt:None,
+            lifetime: 0, //for announce not required if I understand it
+            client_ip_opt:Some(router_ip),
             epoch_time_opt: None,
             opcode_data: Box::new(UnrecognizedData::new()),
             options: vec![]
