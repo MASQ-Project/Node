@@ -143,6 +143,12 @@ pub fn ipv4_addr_into(buf: &mut [u8], offset: usize, value: &Ipv4Addr) {
         buf[offset + n] = octets[n]
     }
 }
+pub const MAIN_HEADER:&str="\
++---------------------------------------------------------------------------------+
+|                 3 protocol tests are finishing in a few seconds                 |
++---------------------------------------------------------------------------------+";
+pub const PMP_HEADER:&str="Summary of testing PMP protocol on your device:";
+pub const PCP_HEADER:&str="Summary of testing PCP protocol on your device:";
 
 #[cfg(test)]
 mod tests {

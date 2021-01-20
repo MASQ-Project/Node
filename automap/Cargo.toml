@@ -10,6 +10,7 @@ edition = "2018"
 
 [dependencies]
 local_ipaddress = "0.1.3"
+igd = "0.12.0"
 
 [[bin]]
 name = "automap"
