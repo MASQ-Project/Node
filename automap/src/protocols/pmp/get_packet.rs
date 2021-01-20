@@ -1,12 +1,14 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::protocols::utils::{OpcodeData, MarshalError, Direction, u32_at, ParseError, u32_into, ipv4_addr_into};
-use std::any::Any;
 use crate::protocols::pmp::pmp_packet::PmpOpcodeData;
-use std::net::Ipv4Addr;
+use crate::protocols::utils::{
+    ipv4_addr_into, u32_at, u32_into, Direction, MarshalError, OpcodeData, ParseError,
+};
+use std::any::Any;
 use std::convert::TryFrom;
+use std::net::Ipv4Addr;
 
-#[derive (Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GetOpcodeData {
     pub epoch_opt: Option<u32>,
     pub external_ip_address_opt: Option<Ipv4Addr>,
@@ -15,15 +17,21 @@ pub struct GetOpcodeData {
 impl OpcodeData for GetOpcodeData {
     fn marshal(&self, direction: Direction, buf: &mut [u8]) -> Result<(), MarshalError> {
         match direction {
-            Direction::Request => Ok (()),
+            Direction::Request => Ok(()),
             Direction::Response => {
                 if buf.len() < 8 {
-                    return Err (MarshalError::ShortBuffer(8, buf.len()))
+                    return Err(MarshalError::ShortBuffer(8, buf.len()));
                 }
-                u32_into (buf, 0, self.epoch_opt.unwrap_or (0));
-                ipv4_addr_into(buf, 4, &self.external_ip_address_opt.unwrap_or (Ipv4Addr::new (0, 0, 0, 0)));
+                u32_into(buf, 0, self.epoch_opt.unwrap_or(0));
+                ipv4_addr_into(
+                    buf,
+                    4,
+                    &self
+                        .external_ip_address_opt
+                        .unwrap_or(Ipv4Addr::new(0, 0, 0, 0)),
+                );
                 Ok(())
-            },
+            }
         }
     }
 
@@ -45,7 +53,7 @@ impl Default for GetOpcodeData {
     fn default() -> Self {
         Self {
             epoch_opt: None,
-            external_ip_address_opt: None
+            external_ip_address_opt: None,
         }
     }
 }
@@ -56,19 +64,19 @@ impl TryFrom<(Direction, &[u8])> for GetOpcodeData {
     fn try_from(pair: (Direction, &[u8])) -> Result<Self, Self::Error> {
         let (direction, buffer) = pair;
         match direction {
-            Direction::Request => {
-                Ok (Self {
-                    epoch_opt: None,
-                    external_ip_address_opt: None,
-                })
-            },
+            Direction::Request => Ok(Self {
+                epoch_opt: None,
+                external_ip_address_opt: None,
+            }),
             Direction::Response => {
                 if buffer.len() < 8 {
-                    return Err (ParseError::ShortBuffer(8, buffer.len()))
+                    return Err(ParseError::ShortBuffer(8, buffer.len()));
                 }
                 Ok(Self {
-                    epoch_opt: Some (u32_at (buffer, 0)),
-                    external_ip_address_opt: Some (Ipv4Addr::new (buffer[4], buffer[5], buffer[6], buffer[7]))
+                    epoch_opt: Some(u32_at(buffer, 0)),
+                    external_ip_address_opt: Some(Ipv4Addr::new(
+                        buffer[4], buffer[5], buffer[6], buffer[7],
+                    )),
                 })
             }
         }
@@ -80,35 +88,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn can_marshal_populated_response () {
+    fn can_marshal_populated_response() {
         let subject = GetOpcodeData {
-            epoch_opt: Some (0x11223344),
-            external_ip_address_opt: Some (Ipv4Addr::new (0x44, 0x33, 0x22, 0x11))
+            epoch_opt: Some(0x11223344),
+            external_ip_address_opt: Some(Ipv4Addr::new(0x44, 0x33, 0x22, 0x11)),
         };
         let mut buf = [0xFFu8; 8];
 
-        subject.marshal (Direction::Response, &mut buf).unwrap();
+        subject.marshal(Direction::Response, &mut buf).unwrap();
 
-        assert_eq! (&buf, &[
-            0x11u8, 0x22, 0x33, 0x44,
-            0x44, 0x33, 0x22, 0x11,
-        ]);
+        assert_eq!(&buf, &[0x11u8, 0x22, 0x33, 0x44, 0x44, 0x33, 0x22, 0x11,]);
     }
 
     #[test]
-    fn can_marshal_unpopulated_response () {
+    fn can_marshal_unpopulated_response() {
         let subject = GetOpcodeData {
             epoch_opt: None,
             external_ip_address_opt: None,
         };
         let mut buf = [0xFFu8; 8];
 
-        subject.marshal (Direction::Response, &mut buf).unwrap();
+        subject.marshal(Direction::Response, &mut buf).unwrap();
 
-        assert_eq! (&buf, &[
-            0x00u8, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ]);
+        assert_eq!(&buf, &[0x00u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,]);
     }
 
     #[test]
@@ -119,9 +121,9 @@ mod tests {
         };
         let mut buf = [0xFFu8; 7];
 
-        let result = subject.marshal (Direction::Response, &mut buf);
+        let result = subject.marshal(Direction::Response, &mut buf);
 
-        assert_eq! (result, Err (MarshalError::ShortBuffer(8, 7)));
+        assert_eq!(result, Err(MarshalError::ShortBuffer(8, 7)));
     }
 
     #[test]
@@ -131,16 +133,16 @@ mod tests {
             external_ip_address_opt: None,
         };
 
-        assert_eq! (subject.len (Direction::Request), 0);
-        assert_eq! (subject.len (Direction::Response), 8);
+        assert_eq!(subject.len(Direction::Request), 0);
+        assert_eq!(subject.len(Direction::Response), 8);
     }
 
     #[test]
-    fn new_complains_about_short_buffer () {
+    fn new_complains_about_short_buffer() {
         let buf: &[u8] = &[0x00u8; 7];
 
-        let result = GetOpcodeData::try_from ((Direction::Response, buf)).err();
+        let result = GetOpcodeData::try_from((Direction::Response, buf)).err();
 
-        assert_eq! (result, Some(ParseError::ShortBuffer(8, 7)));
+        assert_eq!(result, Some(ParseError::ShortBuffer(8, 7)));
     }
 }
