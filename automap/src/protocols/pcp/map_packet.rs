@@ -11,6 +11,7 @@ use std::net::{IpAddr, Ipv4Addr};
 #[derive(Clone, PartialEq, Debug)]
 pub enum Protocol {
     Udp,
+    Tcp,
     Other(u8),
 }
 
@@ -26,6 +27,7 @@ impl From<u8> for Protocol {
 impl Protocol {
     pub fn code(&self) -> u8 {
         match self {
+            Protocol::Tcp => 0,
             Protocol::Udp => 17,
             Protocol::Other(x) => *x,
         }
@@ -146,12 +148,14 @@ mod tests {
 
     #[test]
     fn protocol_from_works() {
+        assert_eq!(Protocol::from(6), Protocol::Tcp);
         assert_eq!(Protocol::from(17), Protocol::Udp);
         assert_eq!(Protocol::from(255), Protocol::Other(255));
     }
 
     #[test]
     fn protocol_code_works() {
+        assert_eq!(Protocol::Tcp.code(), 6);
         assert_eq!(Protocol::Udp.code(), 17);
         assert_eq!(Protocol::Other(255).code(), 255);
         assert_eq!(Protocol::Other(254).code(), 254);

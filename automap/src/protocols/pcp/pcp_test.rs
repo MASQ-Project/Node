@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved
 
-use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
+use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::utils::{Direction, Packet, UnrecognizedData, PCP_HEADER};
 use std::convert::TryFrom;
@@ -48,7 +48,7 @@ pub fn test_pcp(socket: UdpSocket, router_address: SocketAddr, router_ip: IpAddr
                     packet.opcode
                 ))
             };
-            if packet.result_code_opt != Some(0) {
+            if packet.result_code_opt != Some(ResultCode::Success) {
                 report.push_str(&format!(
                     "Additional issue: Response packet result code was {:?}, not 0",
                     packet.result_code_opt

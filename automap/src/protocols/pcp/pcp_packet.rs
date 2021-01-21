@@ -47,6 +47,69 @@ impl Opcode {
     }
 }
 
+#[derive (Clone, Copy, PartialEq, Debug)]
+pub enum ResultCode {
+    Success,
+    UnsuppVersion,
+    NotAuthorized,
+    MalformedRequest,
+    UnsuppOpcode,
+    UnsuppOption,
+    MalformedOption,
+    NetworkFailure,
+    NoResources,
+    UnsuppProtocol,
+    UserExQuota,
+    CannotProvideExternal,
+    AddressMismatch,
+    ExcessiveRemotePeers,
+    Other (u8)
+}
+
+impl From<u8> for ResultCode {
+    fn from(input: u8) -> Self {
+        match input {
+            0 => ResultCode::Success,
+            1 => ResultCode::UnsuppVersion,
+            2 => ResultCode::NotAuthorized,
+            3 => ResultCode::MalformedRequest,
+            4 => ResultCode::UnsuppOpcode,
+            5 => ResultCode::UnsuppOption,
+            6 => ResultCode::MalformedOption,
+            7 => ResultCode::NetworkFailure,
+            8 => ResultCode::NoResources,
+            9 => ResultCode::UnsuppProtocol,
+            10 => ResultCode::UserExQuota,
+            11 => ResultCode::CannotProvideExternal,
+            12 => ResultCode::AddressMismatch,
+            13 => ResultCode::ExcessiveRemotePeers,
+            code => ResultCode::Other(code),
+        }
+    }
+}
+
+impl ResultCode {
+    pub fn code(&self) -> u8 {
+        match self {
+            ResultCode::Success => 0,
+            ResultCode::UnsuppVersion => 1,
+            ResultCode::NotAuthorized => 2,
+            ResultCode::MalformedRequest => 3,
+            ResultCode::UnsuppOpcode => 4,
+            ResultCode::UnsuppOption => 5,
+            ResultCode::MalformedOption => 6,
+            ResultCode::NetworkFailure => 7,
+            ResultCode::NoResources => 8,
+            ResultCode::UnsuppProtocol => 9,
+            ResultCode::UserExQuota => 10,
+            ResultCode::CannotProvideExternal => 11,
+            ResultCode::AddressMismatch => 12,
+            ResultCode::ExcessiveRemotePeers => 13,
+            ResultCode::Other(code) => *code,
+        }
+    }
+}
+
 pub trait PcpOpcodeData: OpcodeData {}
 
 impl PcpOpcodeData for UnrecognizedData {}
@@ -56,7 +119,7 @@ pub trait PcpOption {}
 pub struct PcpPacket {
     pub direction: Direction,
     pub opcode: Opcode,
-    pub result_code_opt: Option<u8>,
+    pub result_code_opt: Option<ResultCode>,
     pub lifetime: u32,
     pub client_ip_opt: Option<IpAddr>,
     pub epoch_time_opt: Option<u32>,
@@ -90,7 +153,7 @@ impl Packet for PcpPacket {
         buffer[2] = 0x00;
         match self.direction {
             Direction::Request => buffer[3] = 0x00,
-            Direction::Response => buffer[3] = self.result_code_opt.unwrap_or(0x00),
+            Direction::Response => buffer[3] = self.result_code_opt.unwrap_or(ResultCode::Other(0xFF)).code(),
         }
         u32_into(buffer, 4, self.lifetime);
         match self.direction {
@@ -137,7 +200,7 @@ impl TryFrom<&[u8]> for PcpPacket {
                 result.client_ip_opt = Some(ipv6_addr_at(buffer, 8));
             }
             Direction::Response => {
-                result.result_code_opt = Some(buffer[3]);
+                result.result_code_opt = Some(ResultCode::from (buffer[3]));
                 result.epoch_time_opt = Some(u32_at(buffer, 8));
             }
         }
@@ -260,7 +323,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::Other(0x55));
-        assert_eq!(subject.result_code_opt, Some(0xAA));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other (0xAA)));
         assert_eq!(subject.lifetime, 0x78563412);
         assert_eq!(subject.client_ip_opt, None);
         assert_eq!(subject.epoch_time_opt, Some(0x12345678));
@@ -395,7 +458,7 @@ mod tests {
         let subject = PcpPacket {
             direction: Direction::Response,
             opcode: Opcode::Other(0x55),
-            result_code_opt: Some(0xAA),
+            result_code_opt: Some(ResultCode::Other (0xAA)),
             lifetime: 0x78563412,
             epoch_time_opt: Some(0x12345678),
             client_ip_opt: None,
@@ -456,5 +519,44 @@ mod tests {
         assert_eq!(Opcode::from(0x82), Opcode::Peer);
         assert_eq!(Opcode::from(0x83), Opcode::Other(3));
         assert_eq!(Opcode::from(0xFF), Opcode::Other(127));
+    }
+    
+    #[test]
+    fn result_code_code_works() {
+        assert_eq!(ResultCode::Success.code(), 0);
+        assert_eq!(ResultCode::UnsuppVersion.code(), 1);
+        assert_eq!(ResultCode::NotAuthorized.code(), 2);
+        assert_eq!(ResultCode::MalformedRequest.code(), 3);
+        assert_eq!(ResultCode::UnsuppOpcode.code(), 4);
+        assert_eq!(ResultCode::UnsuppOption.code(), 5);
+        assert_eq!(ResultCode::MalformedOption.code(), 6);
+        assert_eq!(ResultCode::NetworkFailure.code(), 7);
+        assert_eq!(ResultCode::NoResources.code(), 8);
+        assert_eq!(ResultCode::UnsuppProtocol.code(), 9);
+        assert_eq!(ResultCode::UserExQuota.code(), 10);
+        assert_eq!(ResultCode::CannotProvideExternal.code(), 11);
+        assert_eq!(ResultCode::AddressMismatch.code(), 12);
+        assert_eq!(ResultCode::ExcessiveRemotePeers.code(), 13);
+        assert_eq!(ResultCode::Other (14).code(), 14);
+        assert_eq!(ResultCode::Other (255).code(), 255);
+    }
+    
+    fn result_code_from_works () {
+        assert_eq!(ResultCode::from (0), ResultCode::Success);
+        assert_eq!(ResultCode::from (1), ResultCode::UnsuppVersion);
+        assert_eq!(ResultCode::from (2), ResultCode::NotAuthorized);
+        assert_eq!(ResultCode::from (3), ResultCode::MalformedRequest);
+        assert_eq!(ResultCode::from (4), ResultCode::UnsuppOpcode);
+        assert_eq!(ResultCode::from (5), ResultCode::UnsuppOption);
+        assert_eq!(ResultCode::from (6), ResultCode::MalformedOption);
+        assert_eq!(ResultCode::from (7), ResultCode::NetworkFailure);
+        assert_eq!(ResultCode::from (8), ResultCode::NoResources);
+        assert_eq!(ResultCode::from (9), ResultCode::UnsuppProtocol);
+        assert_eq!(ResultCode::from (10), ResultCode::UserExQuota);
+        assert_eq!(ResultCode::from (11), ResultCode::CannotProvideExternal);
+        assert_eq!(ResultCode::from (12), ResultCode::AddressMismatch);
+        assert_eq!(ResultCode::from (13), ResultCode::ExcessiveRemotePeers);
+        assert_eq!(ResultCode::from (14), ResultCode::Other (14));
+        assert_eq!(ResultCode::from (255), ResultCode::Other (255));
     }
 }
