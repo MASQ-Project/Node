@@ -55,6 +55,24 @@ impl UdpSocketFactoryReal {
     }
 }
 
+pub trait FreePortFactory {
+    fn make (&self) -> u16;
+}
+
+pub struct FreePortFactoryReal {}
+
+impl FreePortFactory for FreePortFactoryReal {
+    fn make(&self) -> u16 {
+        unimplemented!()
+    }
+}
+
+impl FreePortFactoryReal {
+    pub fn new () -> Self {
+        Self {}
+    }
+}
+
 #[cfg(test)]
 pub mod mocks {
     use super::*;
@@ -158,6 +176,29 @@ pub mod mocks {
         }
 
         pub fn make_result (self, result: io::Result<UdpSocketMock>) -> Self {
+            self.make_results.borrow_mut().push (result);
+            self
+        }
+    }
+
+    pub struct FreePortFactoryMock {
+        make_results: RefCell<Vec<u16>>,
+    }
+
+    impl FreePortFactory for FreePortFactoryMock {
+        fn make(&self) -> u16 {
+            self.make_results.borrow_mut().remove (0)
+        }
+    }
+
+    impl FreePortFactoryMock {
+        pub fn new () -> Self {
+            Self {
+                make_results: RefCell::new(vec![])
+            }
+        }
+
+        pub fn make_result (self, result: u16) -> Self {
             self.make_results.borrow_mut().push (result);
             self
         }

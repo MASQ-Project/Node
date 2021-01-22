@@ -8,28 +8,13 @@ mod pcp_pmp_common;
 pub mod pmp;
 
 #[derive (Clone, PartialEq, Debug)]
-pub enum FindRoutersError {
-
-}
-
-#[derive (Clone, PartialEq, Debug)]
-pub enum GetPublicIpError {
-
-}
-
-#[derive (Clone, PartialEq, Debug)]
-pub enum AddMappingError {
-
-}
-
-#[derive (Clone, PartialEq, Debug)]
-pub enum DeleteMappingError {
+pub enum AutomapError {
 
 }
 
 pub trait Transactor {
-    fn find_routers (&self) -> Result<Vec<IpAddr>, FindRoutersError>;
-    fn get_public_ip (&self, router_ip: IpAddr) -> Result<IpAddr, GetPublicIpError>;
-    fn add_mapping (&self, router_ip: IpAddr, hole_port: u16, lifetime: u32) -> Result<u32, AddMappingError>;
-    fn delete_mapping (&self, router_ip: IpAddr, hole_port: u16) -> Result<(), DeleteMappingError>;
+    fn find_routers (&self) -> Result<Vec<IpAddr>, AutomapError>;
+    fn get_public_ip (&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError>;
+    fn add_mapping (&self, router_ip: IpAddr, hole_port: u16, lifetime: u32) -> Result<u32, AutomapError>;
+    fn delete_mapping (&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
 }
