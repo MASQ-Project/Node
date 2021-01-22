@@ -4,6 +4,7 @@ pub use std::net::UdpSocket;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::io;
 use std::time::Duration;
+use masq_lib::utils::find_free_port;
 
 pub trait UdpSocketWrapper {
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
@@ -63,7 +64,7 @@ pub struct FreePortFactoryReal {}
 
 impl FreePortFactory for FreePortFactoryReal {
     fn make(&self) -> u16 {
-        unimplemented!()
+        find_free_port()
     }
 }
 
@@ -78,6 +79,7 @@ pub mod mocks {
     use super::*;
     use std::sync::{Mutex, Arc};
     use std::cell::RefCell;
+    use masq_lib::utils::localhost;
 
     pub struct UdpSocketMock {
         recv_from_params: Arc<Mutex<Vec<()>>>,
@@ -201,6 +203,18 @@ pub mod mocks {
         pub fn make_result (self, result: u16) -> Self {
             self.make_results.borrow_mut().push (result);
             self
+        }
+    }
+
+    #[test]
+    fn free_port_factory_works() {
+        let subject = FreePortFactoryReal::new();
+        for attempt in 0..10 {
+            let port = subject.make();
+            {
+                let result = UdpSocket::bind(SocketAddr::new(localhost(), port));
+                assert_eq! (result.is_ok(), true, "Attempt {} found port {} which wasn't open", attempt + 1, port);
+            }
         }
     }
 }

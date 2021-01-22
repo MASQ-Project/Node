@@ -11,7 +11,9 @@ edition = "2018"
 [dependencies]
 local_ipaddress = "0.1.3"
 igd = "0.12.0"
+masq_lib = { path = "../masq_lib" }
 port_scanner = "0.1.5"
+rand = {version = "0.7.0", features = ["getrandom", "small_rng"]}
 
 [[bin]]
 name = "automap"

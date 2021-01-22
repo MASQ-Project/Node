@@ -772,8 +772,8 @@ impl ValueRetriever for Neighbors {
         }
     }
 
-    fn is_required(&self, _params: &SetupCluster) -> bool {
-        match _params.get("neighborhood-mode") {
+    fn is_required(&self, params: &SetupCluster) -> bool {
+        match params.get("neighborhood-mode") {
             Some(nhm) if &nhm.value == "standard" => false,
             Some(nhm) if &nhm.value == "zero-hop" => false,
             _ => true,

@@ -10,6 +10,8 @@ use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use std::time::Duration;
 use std::convert::TryFrom;
 use std::cell::RefCell;
+use std::collections::hash_map::RandomState;
+use rand::RngCore;
 
 trait MappingNonceFactory {
     fn make (&self) -> [u8; 12];
@@ -21,7 +23,9 @@ struct MappingNonceFactoryReal {
 
 impl MappingNonceFactory for MappingNonceFactoryReal {
     fn make(&self) -> [u8; 12] {
-        unimplemented!()
+        let mut bytes = [0u8; 12];
+        rand::thread_rng().fill_bytes (&mut bytes);
+        bytes
     }
 }
 
@@ -153,6 +157,7 @@ mod tests {
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::ResultCode::Success;
     use std::cell::RefCell;
+    use std::collections::HashSet;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -174,6 +179,21 @@ mod tests {
         pub fn make_result (self, result: [u8; 12]) -> Self {
             self.make_results.borrow_mut().push(result);
             self
+        }
+    }
+
+    #[test]
+    fn mapping_nonce_factory_works() {
+        let mut value_sets: Vec<HashSet<u8>> = (0..12).into_iter().map (|_| HashSet::new()).collect();
+        let subject = MappingNonceFactoryReal::new();
+        for _ in 0..10 {
+            let nonce = subject.make();
+            for n in 0..12 {
+                value_sets[n].insert (nonce[n]);
+            }
+        }
+        for n in 0..12 {
+            assert_eq! (value_sets[n].len() > 5, true, "Slot {}: {} values: {:?}", n, value_sets[n].len(), value_sets[n]);
         }
     }
 

@@ -6,12 +6,12 @@ use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::ui_gateway::{MessageBody, MessagePath};
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
-use serde::export::fmt::Error;
-use serde::export::Formatter;
+// use serde::export::fmt::Error;
+// use serde::export::Formatter;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter, Error};
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
