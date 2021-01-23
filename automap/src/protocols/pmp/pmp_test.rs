@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved
 
 use crate::protocols::pmp::get_packet::GetOpcodeData;
-use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket};
+use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet, PMP_HEADER};
 use std::convert::TryFrom;
 use std::net::{SocketAddr, UdpSocket};
@@ -47,7 +47,7 @@ pub fn test_pmp(socket: UdpSocket, router_address: SocketAddr) {
                     packet.opcode
                 ))
             };
-            if packet.result_code_opt != Some(0) {
+            if packet.result_code_opt != Some(ResultCode::Success) {
                 report.push_str(&format!(
                     "Additional issue: Response packet result code was {:?}, not 0",
                     packet.result_code_opt
