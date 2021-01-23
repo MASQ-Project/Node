@@ -50,7 +50,7 @@ impl Opcode {
     }
 }
 
-#[derive (Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum ResultCode {
     Success,
     UnsupportedVersion,
@@ -70,13 +70,13 @@ impl From<u16> for ResultCode {
             3 => ResultCode::NetworkFailure,
             4 => ResultCode::OutOfResources,
             5 => ResultCode::UnsupportedOpcode,
-            code => ResultCode::Other (code),
+            code => ResultCode::Other(code),
         }
     }
 }
 
 impl ResultCode {
-    fn code (&self) -> u16 {
+    fn code(&self) -> u16 {
         match self {
             ResultCode::Success => 0,
             ResultCode::UnsupportedVersion => 1,
@@ -138,7 +138,7 @@ impl TryFrom<&[u8]> for PmpPacket {
                 if buffer.len() < 4 {
                     return Err(ParseError::ShortBuffer(4, buffer.len()));
                 }
-                result.result_code_opt = Some(ResultCode::from (u16_at(buffer, 2)));
+                result.result_code_opt = Some(ResultCode::from(u16_at(buffer, 2)));
                 4
             }
         };
@@ -162,7 +162,10 @@ impl Packet for PmpPacket {
         buffer[0] = 0x00; // version
         buffer[1] = self.direction.code() | self.opcode.code();
         let mut position = 2;
-        let result_code = self.result_code_opt.as_ref().unwrap_or (&ResultCode::Success);
+        let result_code = self
+            .result_code_opt
+            .as_ref()
+            .unwrap_or(&ResultCode::Success);
         if self.direction == Direction::Response {
             u16_into(buffer, 2, result_code.code());
             position = 4;
@@ -294,7 +297,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::Other(0x55));
-        assert_eq!(subject.result_code_opt, Some(ResultCode::Other (0xA55A)));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0xA55A)));
         assert_eq!(
             subject
                 .opcode_data
@@ -317,7 +320,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::Get);
-        assert_eq!(subject.result_code_opt, Some(ResultCode::Other (0x5678)));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0x5678)));
         let opcode_data = subject
             .opcode_data
             .as_any()
@@ -345,7 +348,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::MapUdp);
-        assert_eq!(subject.result_code_opt, Some(ResultCode::Other (0x5678)));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0x5678)));
         let opcode_data = subject
             .opcode_data
             .as_any()
@@ -375,7 +378,7 @@ mod tests {
 
         assert_eq!(subject.direction, Direction::Response);
         assert_eq!(subject.opcode, Opcode::MapTcp);
-        assert_eq!(subject.result_code_opt, Some(ResultCode::Other (0x5678)));
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Other(0x5678)));
         let opcode_data = subject
             .opcode_data
             .as_any()
@@ -466,7 +469,7 @@ mod tests {
         let subject = PmpPacket {
             direction: Direction::Response,
             opcode: Opcode::Other(0x55),
-            result_code_opt: Some(ResultCode::Other (0xBBAA)),
+            result_code_opt: Some(ResultCode::Other(0xBBAA)),
             opcode_data: Box::new(UnrecognizedData::new()),
         };
 
@@ -519,16 +522,16 @@ mod tests {
         assert_eq!(Opcode::from(0x83), Opcode::Other(3));
         assert_eq!(Opcode::from(0xFF), Opcode::Other(127));
     }
-/*
-    Success,
-    UnsupportedVersion,
-    NotAuthorized,
-    NetworkFailure,
-    OutOfResources,
-    UnsupportedOpcode,
-    Other(u16),
+    /*
+       Success,
+       UnsupportedVersion,
+       NotAuthorized,
+       NetworkFailure,
+       OutOfResources,
+       UnsupportedOpcode,
+       Other(u16),
 
- */
+    */
     #[test]
     fn result_code_code_works() {
         assert_eq!(ResultCode::Success.code(), 0);
@@ -537,8 +540,8 @@ mod tests {
         assert_eq!(ResultCode::NetworkFailure.code(), 3);
         assert_eq!(ResultCode::OutOfResources.code(), 4);
         assert_eq!(ResultCode::UnsupportedOpcode.code(), 5);
-        assert_eq!(ResultCode::Other (6).code(), 6);
-        assert_eq!(ResultCode::Other (65535).code(), 65535);
+        assert_eq!(ResultCode::Other(6).code(), 6);
+        assert_eq!(ResultCode::Other(65535).code(), 65535);
     }
 
     #[test]
@@ -549,7 +552,7 @@ mod tests {
         assert_eq!(ResultCode::from(3), ResultCode::NetworkFailure);
         assert_eq!(ResultCode::from(4), ResultCode::OutOfResources);
         assert_eq!(ResultCode::from(5), ResultCode::UnsupportedOpcode);
-        assert_eq!(ResultCode::from(6), ResultCode::Other (6));
-        assert_eq!(ResultCode::from(65535), ResultCode::Other (65535));
+        assert_eq!(ResultCode::from(6), ResultCode::Other(6));
+        assert_eq!(ResultCode::from(65535), ResultCode::Other(65535));
     }
 }
