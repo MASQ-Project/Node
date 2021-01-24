@@ -107,7 +107,7 @@ impl Transactor for IgdpTransactor {
             Ok(gateway) => gateway,
             Err(e) => unimplemented!("{:?}", e),
         };
-        Ok(vec![IpAddr::V4(gateway.addr.ip().clone())])
+        Ok(vec![IpAddr::V4(*gateway.addr.ip())])
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -150,6 +150,12 @@ impl Transactor for IgdpTransactor {
             Ok(_) => Ok(()),
             Err(e) => unimplemented!("{:?}", e),
         }
+    }
+}
+
+impl Default for IgdpTransactor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
