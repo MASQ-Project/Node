@@ -1,13 +1,12 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::{AutomapError, Transactor};
+use crate::comm_layer::{AutomapError, Transactor, local_ip};
 use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
 };
 use std::cell::RefCell;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
-use std::str::FromStr;
 
 trait IgdWrapper {
     fn search_gateway(&self, options: SearchOptions) -> Result<Gateway, SearchError>;
@@ -126,14 +125,18 @@ impl Transactor for IgdpTransactor {
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
         self.ensure_router_ip(router_ip)?;
+        let local_ip = match local_ip()? {
+            IpAddr::V4(ip) => ip,
+            IpAddr::V6(ip) => unimplemented!("{:?}", ip),
+        };
         match self.igd_wrapper.add_port(
             PortMappingProtocol::TCP,
             hole_port,
-            SocketAddrV4::new(Self::local_ip()?, hole_port),
+            SocketAddrV4::new(local_ip, hole_port),
             lifetime,
             "",
         ) {
-            Ok(ip) => Ok(lifetime / 2),
+            Ok(_) => Ok(lifetime / 2),
             Err(e) => unimplemented!("{:?}", e),
         }
     }
@@ -144,7 +147,7 @@ impl Transactor for IgdpTransactor {
             .igd_wrapper
             .remove_port(PortMappingProtocol::TCP, hole_port)
         {
-            Ok(ip) => Ok(()),
+            Ok(_) => Ok(()),
             Err(e) => unimplemented!("{:?}", e),
         }
     }
@@ -170,22 +173,11 @@ impl IgdpTransactor {
         self.igd_wrapper.set_gateway(gateway);
         Ok(())
     }
-
-    fn local_ip() -> Result<Ipv4Addr, AutomapError> {
-        match local_ipaddress::get() {
-            Some(ip_str) => match Ipv4Addr::from_str(&ip_str) {
-                Ok(ip) => Ok(ip),
-                Err(e) => unimplemented!("{:?}", e),
-            },
-            None => unimplemented!(),
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::mocks::UdpSocketFactoryMock;
     use std::collections::HashMap;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -432,7 +424,6 @@ mod tests {
     fn delete_mapping_works() {
         let router_ipv4 = Ipv4Addr::from_str("192.168.0.1").unwrap();
         let router_ip = IpAddr::V4(router_ipv4);
-        let local_ipv4 = Ipv4Addr::from_str(&local_ipaddress::get().unwrap()).unwrap();
         let set_gateway_params_arc = Arc::new(Mutex::new(vec![]));
         let remove_port_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_gateway = Gateway {

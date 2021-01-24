@@ -18,6 +18,7 @@ pub enum Protocol {
 impl From<u8> for Protocol {
     fn from(input: u8) -> Self {
         match input {
+            6 => Protocol::Tcp,
             17 => Protocol::Udp,
             x => Protocol::Other(x),
         }
@@ -27,7 +28,7 @@ impl From<u8> for Protocol {
 impl Protocol {
     pub fn code(&self) -> u8 {
         match self {
-            Protocol::Tcp => 0,
+            Protocol::Tcp => 6,
             Protocol::Udp => 17,
             Protocol::Other(x) => *x,
         }

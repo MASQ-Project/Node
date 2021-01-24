@@ -546,6 +546,7 @@ mod tests {
         assert_eq!(ResultCode::Other(255).code(), 255);
     }
 
+    #[test]
     fn result_code_from_works() {
         assert_eq!(ResultCode::from(0), ResultCode::Success);
         assert_eq!(ResultCode::from(1), ResultCode::UnsuppVersion);
