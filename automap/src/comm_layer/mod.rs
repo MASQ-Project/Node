@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::net::{IpAddr};
-use std::str::FromStr;
 use crate::protocols::utils::ParseError;
+use std::net::IpAddr;
+use std::str::FromStr;
 
 pub mod igdp;
 pub mod pcp;
@@ -35,11 +35,10 @@ pub trait Transactor {
 
 pub fn local_ip() -> Result<IpAddr, AutomapError> {
     match local_ipaddress::get() {
-        Some(ip_str) => Ok (IpAddr::from_str (&ip_str).expect ("")),
+        Some(ip_str) => Ok(IpAddr::from_str(&ip_str).expect("")),
         None => Err(AutomapError::NoLocalIpAddress),
     }
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

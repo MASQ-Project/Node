@@ -1,10 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::io;
-pub use std::net::UdpSocket;
-use std::net::{SocketAddr};
-use std::time::Duration;
 use masq_lib::utils::find_free_port;
+use std::io;
+use std::net::SocketAddr;
+pub use std::net::UdpSocket;
+use std::time::Duration;
 
 pub trait UdpSocketWrapper {
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
@@ -75,9 +75,9 @@ impl FreePortFactoryReal {
 #[cfg(test)]
 pub mod mocks {
     use super::*;
+    use masq_lib::utils::localhost;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
-    use masq_lib::utils::localhost;
 
     pub struct UdpSocketMock {
         recv_from_params: Arc<Mutex<Vec<()>>>,

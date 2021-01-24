@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{UdpSocketFactory, UdpSocketFactoryReal, FreePortFactory, FreePortFactoryReal};
-use crate::comm_layer::{AutomapError, Transactor, local_ip};
+use crate::comm_layer::pcp_pmp_common::{
+    FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
+};
+use crate::comm_layer::{local_ip, AutomapError, Transactor};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
@@ -46,7 +48,7 @@ impl Transactor for PcpTransactor {
             self.mapping_transaction(router_ip, 0xFFFF, 0)?;
         match result_code {
             ResultCode::Success => Ok(opcode_data.external_ip_address),
-            code => Err(AutomapError::TransactionFailure(format! ("{:?}", code))),
+            code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
         }
     }
 
@@ -60,7 +62,7 @@ impl Transactor for PcpTransactor {
             self.mapping_transaction(router_ip, hole_port, lifetime)?;
         match result_code {
             ResultCode::Success => Ok(lifetime / 2),
-            code => Err(AutomapError::TransactionFailure(format! ("{:?}", code))),
+            code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
         }
     }
 
@@ -69,7 +71,7 @@ impl Transactor for PcpTransactor {
             self.mapping_transaction(router_ip, hole_port, 0)?;
         match result_code {
             ResultCode::Success => Ok(()),
-            code => Err(AutomapError::TransactionFailure(format! ("{:?}", code))),
+            code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
         }
     }
 }
@@ -79,7 +81,7 @@ impl Default for PcpTransactor {
         Self {
             socket_factory: Box::new(UdpSocketFactoryReal::new()),
             mapping_nonce_factory: Box::new(MappingNonceFactoryReal::new()),
-            free_port_factory: Box::new (FreePortFactoryReal::new()),
+            free_port_factory: Box::new(FreePortFactoryReal::new()),
         }
     }
 }
@@ -108,39 +110,54 @@ impl PcpTransactor {
             options: vec![],
         };
         let mut buffer = [0u8; 1100];
-        let request_len = packet.marshal(&mut buffer).expect ("Bad packet construction");
-        let socket_addr = SocketAddr::new (IpAddr::V4 (Ipv4Addr::new (0, 0, 0, 0)), self.free_port_factory.make());
+        let request_len = packet
+            .marshal(&mut buffer)
+            .expect("Bad packet construction");
+        let socket_addr = SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            self.free_port_factory.make(),
+        );
         let socket = match self.socket_factory.make(socket_addr) {
             Ok(s) => s,
-            Err(e) => return Err(AutomapError::SocketBindingError(format! ("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketBindingError(format!("{:?}", e))),
         };
         match socket.set_read_timeout(Some(Duration::from_secs(3))) {
             Ok(_) => (),
-            Err(e) => return Err(AutomapError::SocketPrepError (format! ("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketPrepError(format!("{:?}", e))),
         };
         match socket.send_to(&buffer[0..request_len], SocketAddr::new(router_ip, 5351)) {
             Ok(_) => (),
-            Err(e) => return Err(AutomapError::SocketSendError (format! ("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketSendError(format!("{:?}", e))),
         };
         let response = match socket.recv_from(&mut buffer) {
             Ok((len, _peer_addr)) => match PcpPacket::try_from(&buffer[0..len]) {
                 Ok(pkt) => pkt,
                 Err(e) => return Err(AutomapError::PacketParseError(e)),
             },
-            Err(e) => return Err(AutomapError::SocketReceiveError (format! ("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketReceiveError(format!("{:?}", e))),
         };
         if response.direction != Direction::Response {
-            return Err (AutomapError::ProtocolError("Map response labeled as request".to_string()))
+            return Err(AutomapError::ProtocolError(
+                "Map response labeled as request".to_string(),
+            ));
         }
         if response.opcode != Opcode::Map {
-            return Err (AutomapError::ProtocolError(format! ("Map response has opcode {:?} instead of Map", response.opcode)))
+            return Err(AutomapError::ProtocolError(format!(
+                "Map response has opcode {:?} instead of Map",
+                response.opcode
+            )));
         }
-        let result_code = response.result_code_opt.expect ("Response parsing inoperative - result code");
-        let epoch_time = response.epoch_time_opt.expect ("Response parsing inoperative - epoch time");
+        let result_code = response
+            .result_code_opt
+            .expect("Response parsing inoperative - result code");
+        let epoch_time = response
+            .epoch_time_opt
+            .expect("Response parsing inoperative - epoch time");
         let opcode_data = response
             .opcode_data
             .as_any()
-            .downcast_ref::<MapOpcodeData>().expect ("Response parsing inoperative - opcode data");
+            .downcast_ref::<MapOpcodeData>()
+            .expect("Response parsing inoperative - opcode data");
         Ok((result_code, epoch_time, opcode_data.clone()))
     }
 }
@@ -148,18 +165,20 @@ impl PcpTransactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::mocks::{UdpSocketFactoryMock, UdpSocketMock, FreePortFactoryMock};
+    use crate::comm_layer::pcp_pmp_common::mocks::{
+        FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
+    };
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
     use std::cell::RefCell;
     use std::collections::HashSet;
+    use std::io;
+    use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use std::io;
-    use std::io::ErrorKind;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -210,128 +229,141 @@ mod tests {
     #[test]
     fn mapping_transaction_handles_socket_factory_error() {
         let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
-        let io_error = io::Error::from (ErrorKind::ConnectionRefused);
-        let io_error_str = format! ("{:?}", io_error);
-        let socket_factory = UdpSocketFactoryMock::new()
-            .make_result (Err(io_error));
+        let io_error = io::Error::from(ErrorKind::ConnectionRefused);
+        let io_error_str = format!("{:?}", io_error);
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
         let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new (socket_factory);
+        subject.socket_factory = Box::new(socket_factory);
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq! (result, Err(AutomapError::SocketBindingError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketBindingError(io_error_str)));
     }
 
     #[test]
     fn mapping_transaction_handles_set_read_timeout_error() {
         let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
-        let io_error = io::Error::from (ErrorKind::ConnectionRefused);
-        let io_error_str = format! ("{:?}", io_error);
-        let socket = UdpSocketMock::new ()
-            .set_read_timeout_result (Err(io_error));
-        let socket_factory = UdpSocketFactoryMock::new()
-            .make_result (Ok(socket));
+        let io_error = io::Error::from(ErrorKind::ConnectionRefused);
+        let io_error_str = format!("{:?}", io_error);
+        let socket = UdpSocketMock::new().set_read_timeout_result(Err(io_error));
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new (socket_factory);
+        subject.socket_factory = Box::new(socket_factory);
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq! (result, Err(AutomapError::SocketPrepError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketPrepError(io_error_str)));
     }
 
     #[test]
     fn mapping_transaction_handles_send_to_error() {
         let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
-        let io_error = io::Error::from (ErrorKind::ConnectionRefused);
-        let io_error_str = format! ("{:?}", io_error);
-        let socket = UdpSocketMock::new ()
-            .set_read_timeout_result (Ok(()))
-            .send_to_result (Err(io_error));
-        let socket_factory = UdpSocketFactoryMock::new()
-            .make_result (Ok(socket));
+        let io_error = io::Error::from(ErrorKind::ConnectionRefused);
+        let io_error_str = format!("{:?}", io_error);
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Err(io_error));
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new (socket_factory);
+        subject.socket_factory = Box::new(socket_factory);
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq! (result, Err(AutomapError::SocketSendError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketSendError(io_error_str)));
     }
 
     #[test]
     fn mapping_transaction_handles_recv_from_error() {
         let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
-        let io_error = io::Error::from (ErrorKind::ConnectionRefused);
-        let io_error_str = format! ("{:?}", io_error);
-        let socket = UdpSocketMock::new ()
-            .set_read_timeout_result (Ok(()))
-            .send_to_result (Ok(1000))
-            .recv_from_result (Err(io_error), vec![]);
-        let socket_factory = UdpSocketFactoryMock::new()
-            .make_result (Ok(socket));
+        let io_error = io::Error::from(ErrorKind::ConnectionRefused);
+        let io_error_str = format!("{:?}", io_error);
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(Err(io_error), vec![]);
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new (socket_factory);
+        subject.socket_factory = Box::new(socket_factory);
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq! (result, Err(AutomapError::SocketReceiveError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketReceiveError(io_error_str)));
     }
 
     #[test]
     fn mapping_transaction_handles_packet_parse_error() {
         let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
-        let socket = UdpSocketMock::new ()
-            .set_read_timeout_result (Ok(()))
-            .send_to_result (Ok(1000))
-            .recv_from_result (Ok((0, SocketAddr::new(router_ip, 5351))), vec![]);
-        let socket_factory = UdpSocketFactoryMock::new()
-            .make_result (Ok(socket));
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(Ok((0, SocketAddr::new(router_ip, 5351))), vec![]);
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new (socket_factory);
+        subject.socket_factory = Box::new(socket_factory);
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq! (result, Err(AutomapError::PacketParseError(ParseError::ShortBuffer(24, 0))));
+        assert_eq!(
+            result,
+            Err(AutomapError::PacketParseError(ParseError::ShortBuffer(
+                24, 0
+            )))
+        );
     }
 
     #[test]
     fn mapping_transaction_handles_wrong_direction() {
         let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
         let mut buffer = [0u8; 1100];
-        let packet = vanilla_request ();
-        let len = packet.marshal (&mut buffer).unwrap();
-        let socket = UdpSocketMock::new ()
-            .set_read_timeout_result (Ok(()))
-            .send_to_result (Ok(1000))
-            .recv_from_result (Ok((len, SocketAddr::new(router_ip, 5351))), buffer[0..len].to_vec());
-        let socket_factory = UdpSocketFactoryMock::new()
-            .make_result (Ok(socket));
+        let packet = vanilla_request();
+        let len = packet.marshal(&mut buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(
+                Ok((len, SocketAddr::new(router_ip, 5351))),
+                buffer[0..len].to_vec(),
+            );
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new (socket_factory);
+        subject.socket_factory = Box::new(socket_factory);
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq! (result, Err(AutomapError::ProtocolError("Map response labeled as request".to_string())));
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError(
+                "Map response labeled as request".to_string()
+            ))
+        );
     }
 
     #[test]
     fn mapping_transaction_handles_unexpected_opcode() {
         let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
         let mut buffer = [0u8; 1100];
-        let mut packet = vanilla_response ();
+        let mut packet = vanilla_response();
         packet.opcode = Opcode::Other(127);
-        let len = packet.marshal (&mut buffer).unwrap();
-        let socket = UdpSocketMock::new ()
-            .set_read_timeout_result (Ok(()))
-            .send_to_result (Ok(1000))
-            .recv_from_result (Ok((len, SocketAddr::new(router_ip, 5351))), buffer[0..len].to_vec());
-        let socket_factory = UdpSocketFactoryMock::new()
-            .make_result (Ok(socket));
+        let len = packet.marshal(&mut buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(
+                Ok((len, SocketAddr::new(router_ip, 5351))),
+                buffer[0..len].to_vec(),
+            );
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new (socket_factory);
+        subject.socket_factory = Box::new(socket_factory);
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq! (result, Err(AutomapError::ProtocolError("Map response has opcode Other(127) instead of Map".to_string())));
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError(
+                "Map response has opcode Other(127) instead of Map".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -372,14 +404,20 @@ mod tests {
         assert_eq!(result, Ok(IpAddr::from_str("72.73.74.75").unwrap()));
         let send_to_params = send_to_params_arc.lock().unwrap();
         let (buffer, _socket_addr) = &send_to_params[0];
-        let actual_request = PcpPacket::try_from (buffer.as_slice()).unwrap();
-        assert_eq! (actual_request.direction, request_packet.direction);
-        assert_eq! (actual_request.opcode, request_packet.opcode);
-        assert_eq! (actual_request.lifetime, request_packet.lifetime);
-        assert_eq! (actual_request.client_ip_opt, request_packet.client_ip_opt);
-        assert_eq! (
-            actual_request.opcode_data.as_any().downcast_ref::<MapOpcodeData>(),
-            request_packet.opcode_data.as_any().downcast_ref::<MapOpcodeData>(),
+        let actual_request = PcpPacket::try_from(buffer.as_slice()).unwrap();
+        assert_eq!(actual_request.direction, request_packet.direction);
+        assert_eq!(actual_request.opcode, request_packet.opcode);
+        assert_eq!(actual_request.lifetime, request_packet.lifetime);
+        assert_eq!(actual_request.client_ip_opt, request_packet.client_ip_opt);
+        assert_eq!(
+            actual_request
+                .opcode_data
+                .as_any()
+                .downcast_ref::<MapOpcodeData>(),
+            request_packet
+                .opcode_data
+                .as_any()
+                .downcast_ref::<MapOpcodeData>(),
         );
     }
 
@@ -387,7 +425,7 @@ mod tests {
     fn get_public_ip_handles_failure() {
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
-        packet.result_code_opt = Some (ResultCode::AddressMismatch);
+        packet.result_code_opt = Some(ResultCode::AddressMismatch);
         packet.lifetime = 0;
         packet.opcode_data = vanilla_map_response();
         let mut response = [0u8; 1100];
@@ -408,12 +446,17 @@ mod tests {
 
         let result = subject.get_public_ip(IpAddr::from_str("1.2.3.4").unwrap());
 
-        assert_eq!(result, Err(AutomapError::TransactionFailure("AddressMismatch".to_string())));
+        assert_eq!(
+            result,
+            Err(AutomapError::TransactionFailure(
+                "AddressMismatch".to_string()
+            ))
+        );
     }
 
     #[test]
     fn add_mapping_works() {
-        let make_params_arc = Arc::new (Mutex::new (vec![]));
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
         let read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
@@ -437,23 +480,25 @@ mod tests {
                 Ok((1000, SocketAddr::from_str("1.2.3.4:5351").unwrap())),
                 response[0..response_len].to_vec(),
             );
-        let socket_factory =
-            UdpSocketFactoryMock::new()
-                .make_params(&make_params_arc)
-                .make_result(Ok(socket));
+        let socket_factory = UdpSocketFactoryMock::new()
+            .make_params(&make_params_arc)
+            .make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let free_port_factory = FreePortFactoryMock::new().make_result(34567);
         let mut subject = PcpTransactor::default();
         subject.socket_factory = Box::new(socket_factory);
         subject.mapping_nonce_factory = Box::new(nonce_factory);
-        subject.free_port_factory = Box::new (free_port_factory);
+        subject.free_port_factory = Box::new(free_port_factory);
 
         let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 1234);
 
         assert_eq!(result, Ok(617));
         let make_params = make_params_arc.lock().unwrap();
-        assert_eq! (*make_params, vec![SocketAddr::from_str("0.0.0.0:34567").unwrap()]);
+        assert_eq!(
+            *make_params,
+            vec![SocketAddr::from_str("0.0.0.0:34567").unwrap()]
+        );
         let read_timeout_params = read_timeout_params_arc.lock().unwrap();
         assert_eq!(*read_timeout_params, vec![Some(Duration::from_secs(3))]);
         let send_to_params = send_to_params_arc.lock().unwrap();
@@ -472,7 +517,7 @@ mod tests {
     fn add_mapping_handles_failure() {
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
-        packet.result_code_opt = Some (ResultCode::AddressMismatch);
+        packet.result_code_opt = Some(ResultCode::AddressMismatch);
         let opcode_data = vanilla_map_response();
         packet.opcode_data = opcode_data;
         let mut response = [0u8; 1100];
@@ -493,7 +538,12 @@ mod tests {
 
         let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 1234);
 
-        assert_eq!(result, Err(AutomapError::TransactionFailure("AddressMismatch".to_string())));
+        assert_eq!(
+            result,
+            Err(AutomapError::TransactionFailure(
+                "AddressMismatch".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -551,7 +601,7 @@ mod tests {
     fn delete_mapping_handles_failure() {
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
-        packet.result_code_opt = Some (ResultCode::AddressMismatch);
+        packet.result_code_opt = Some(ResultCode::AddressMismatch);
         packet.lifetime = 0;
         packet.opcode_data = vanilla_map_response();
         let mut response = [0u8; 1100];
@@ -572,7 +622,12 @@ mod tests {
 
         let result = subject.delete_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666);
 
-        assert_eq!(result, Err(AutomapError::TransactionFailure("AddressMismatch".to_string())));
+        assert_eq!(
+            result,
+            Err(AutomapError::TransactionFailure(
+                "AddressMismatch".to_string()
+            ))
+        );
     }
 
     fn vanilla_request() -> PcpPacket {
@@ -592,17 +647,17 @@ mod tests {
         PcpPacket {
             direction: Direction::Response,
             opcode: Opcode::Other(127),
-            result_code_opt: Some (ResultCode::Success),
+            result_code_opt: Some(ResultCode::Success),
             lifetime: 1234,
             client_ip_opt: None,
-            epoch_time_opt: Some (4321),
+            epoch_time_opt: Some(4321),
             opcode_data: Box::new(UnrecognizedData::new()),
             options: vec![],
         }
     }
 
     fn vanilla_map_request() -> Box<MapOpcodeData> {
-        Box::new (MapOpcodeData {
+        Box::new(MapOpcodeData {
             mapping_nonce: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
             protocol: Protocol::Tcp,
             internal_port: 6666,
@@ -612,7 +667,7 @@ mod tests {
     }
 
     fn vanilla_map_response() -> Box<MapOpcodeData> {
-        Box::new (MapOpcodeData {
+        Box::new(MapOpcodeData {
             mapping_nonce: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
             protocol: Protocol::Tcp,
             internal_port: 6666,
