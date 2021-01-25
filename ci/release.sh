@@ -18,7 +18,6 @@ if [[ "$OSTYPE" == "msys" ]]; then
   GPG_EXECUTABLE="/c/Program Files (x86)/gnupg/bin/gpg"
 fi
 
-source "$CI_DIR"/environment.sh "$TOOLCHAIN_HOME"
 
 cd "$CI_DIR/../node"
 cargo clean

@@ -84,7 +84,7 @@ impl Command for RecoverWalletsCommand {
 
 pub fn recover_wallets_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("recover-wallets")
-        .about("Recover a pair of wallets (consuming and earning) for the Node if they haven't been recovered already")
+        .about("Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already")
         .arg(Arg::with_name ("db-password")
             .help ("The current database password (a password must be set to use this command)")
             .long ("db-password")

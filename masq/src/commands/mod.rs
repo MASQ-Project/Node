@@ -10,3 +10,4 @@ pub mod recover_wallets_command;
 pub mod setup_command;
 pub mod shutdown_command;
 pub mod start_command;
+pub mod wallet_addresses;

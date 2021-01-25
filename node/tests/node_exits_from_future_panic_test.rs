@@ -3,7 +3,6 @@
 pub mod utils;
 
 use crate::utils::CommandConfig;
-use std::path::Path;
 #[cfg(not(target_os = "windows"))]
 use std::process;
 #[cfg(not(target_os = "windows"))]
@@ -13,20 +12,24 @@ use std::time::Duration;
 
 #[test]
 fn node_exits_from_future_panic_integration() {
-    let _ = remove_logfile();
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
-    let mut node = utils::MASQNode::start_standard(Some(panic_config));
+    let mut node = utils::MASQNode::start_standard(
+        "node_exits_from_future_panic_integration",
+        Some(panic_config),
+        false,
+    );
     let success = node.wait_for_exit().unwrap().status.success();
     assert!(!success, "Did not fail as expected");
 }
 
 #[test]
 fn node_logs_panic_integration() {
-    let _ = remove_logfile();
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
-    let mut node = utils::MASQNode::start_standard(Some(panic_config));
+    let mut node =
+        utils::MASQNode::start_standard("node_logs_panic_integration", Some(panic_config), false);
 
     node.wait_for_log("std::panicking::", Some(5000));
+    node.kill().unwrap();
 }
 
 #[cfg(target_os = "linux")]
@@ -38,9 +41,12 @@ const STAT_FORMAT_PARAM_NAME: &str = "-f";
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn node_logfile_does_not_belong_to_root_integration() {
-    let logfile_path = remove_logfile();
-
-    let mut node = utils::MASQNode::start_standard(None);
+    let mut node = utils::MASQNode::start_standard(
+        "node_logfile_does_not_belong_to_root_integration",
+        None,
+        true,
+    );
+    let logfile_path = utils::MASQNode::path_to_logfile(&node.data_dir);
 
     thread::sleep(Duration::from_secs(2));
     node.kill().unwrap();
@@ -69,14 +75,4 @@ fn node_logfile_does_not_belong_to_root_integration() {
         &logfile_path,
         &output
     );
-}
-
-fn remove_logfile() -> Box<Path> {
-    let logfile_path = utils::MASQNode::path_to_logfile();
-    match std::fs::remove_file(&logfile_path) {
-        Ok(_) => (),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
-        Err(ref e) => panic!("{:?}", e),
-    }
-    logfile_path
 }

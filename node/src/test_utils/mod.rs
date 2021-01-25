@@ -360,10 +360,14 @@ where
         } else {
             Err("false".to_string())
         }
-    });
+    })
+    .unwrap();
 }
 
-pub fn await_value<F, T, E>(interval_and_limit_ms: Option<(u64, u64)>, mut f: F) -> T
+pub fn await_value<F, T, E>(
+    interval_and_limit_ms: Option<(u64, u64)>,
+    mut f: F,
+) -> Result<T, String>
 where
     E: Debug,
     F: FnMut() -> Result<T, E>,
@@ -374,15 +378,14 @@ where
     let mut delay = 0;
     let mut log = "".to_string();
     loop {
-        assert_eq!(
-            Instant::now() < deadline,
-            true,
-            "Timeout: waited for more than {}ms:\n{}",
-            limit_ms,
-            log
-        );
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "\n{}\nTimeout: waited for more than {}ms",
+                log, limit_ms
+            ));
+        }
         match f() {
-            Ok(t) => return t,
+            Ok(t) => return Ok(t),
             Err(e) => {
                 log.extend(format!("  +{}: {:?}\n", delay, e).chars());
                 delay += interval_ms;

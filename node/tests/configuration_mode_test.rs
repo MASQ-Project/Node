@@ -10,7 +10,7 @@ use utils::MASQNode;
 #[test]
 fn dump_configuration_integration() {
     let _eg = EnvironmentGuard::new();
-    let console_log = MASQNode::run_dump_config();
+    let console_log = MASQNode::run_dump_config("dump_configuration_integration");
 
     assert_string_contains(
         &console_log,

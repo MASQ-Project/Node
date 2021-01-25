@@ -444,6 +444,23 @@ pub struct UiCheckPasswordResponse {
 conversation_message!(UiCheckPasswordResponse, "checkPassword");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiWalletAddressesRequest {
+    #[serde(rename = "dbPassword")]
+    pub db_password: String,
+}
+
+conversation_message!(UiWalletAddressesRequest, "walletAddresses");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiWalletAddressesResponse {
+    #[serde(rename = "consumingWalletAddress")]
+    pub consuming_wallet_address: String,
+    #[serde(rename = "earningWalletAddress")]
+    pub earning_wallet_address: String,
+}
+conversation_message!(UiWalletAddressesResponse, "walletAddresses");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationChangedBroadcast {}
 fire_and_forget_message!(UiConfigurationChangedBroadcast, "configurationChanged");
 

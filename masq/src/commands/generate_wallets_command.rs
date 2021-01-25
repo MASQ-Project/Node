@@ -92,7 +92,7 @@ impl Command for GenerateWalletsCommand {
 
 pub fn generate_wallets_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("generate-wallets")
-        .about("Generate a pair of wallets (consuming and earning) for the Node if they haven't been generated already")
+        .about("Generates a pair of wallets (consuming and earning) for the Node if they haven't been generated already")
         .arg(Arg::with_name("db-password")
             .help("The current database password (a password must be set to use this command)")
             .long("db-password")

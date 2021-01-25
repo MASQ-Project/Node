@@ -866,3 +866,37 @@ If the Daemon or the Node can't unmarshal a message from a UI, it will send this
 The `message` field describes what's wrong with the unmarshallable message.
 
 The `badData` field contains the unmarshallable message itself.
+
+#### `walletAddresses`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPassword": <string>
+}
+```
+##### Description:
+This message directs the Node to go look for two pieces of information, two existing wallet addresses. For consuming
+wallet, this will be computed from the mnemonic seed and the recorded derivation path chosen by the user earlier.
+For earning wallet, this datum can be found in the database directly. Both addresses go back to the UI then. If these
+two wallets do not exist so far, an error message is propagated.
+
+`dbPassword` is the current database password. If this is incorrect, the process cannot end successfully. 
+
+#### `walletAddresses`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "consumingWalletAddress": <string>,
+    "earningWalletAddress": <string>
+}
+```
+##### Description:
+This message carries the pair of wallet addresses that were generated or recovered in the past.
+
+`consumingWalletAddress` is the address of the generated consuming wallet.
+
+`earningWalletAddress` is the address of the generated earning wallet.

@@ -11,6 +11,7 @@ use crate::commands::recover_wallets_command::RecoverWalletsCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
+use crate::commands::wallet_addresses::WalletAddressesCommand;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandFactoryError {
@@ -59,6 +60,10 @@ impl CommandFactory for CommandFactoryReal {
             },
             "shutdown" => Box::new(ShutdownCommand::new()),
             "start" => Box::new(StartCommand::new()),
+            "wallet-addresses" => match WalletAddressesCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
             unrecognized => return Err(UnrecognizedSubcommand(unrecognized.to_string())),
         };
         Ok(boxed_command)
@@ -178,33 +183,6 @@ mod tests {
     }
 
     #[test]
-    fn complains_about_generate_wallets_command_with_bad_syntax() {
-        let subject = CommandFactoryReal::new();
-
-        let result = subject
-            .make(vec![
-                "generate-wallets".to_string(),
-                "--invalid".to_string(),
-                "password".to_string(),
-            ])
-            .err()
-            .unwrap();
-
-        let msg = match result {
-            CommandSyntax(msg) => msg,
-            x => panic!("Expected syntax error, got {:?}", x),
-        };
-        assert_eq!(msg.contains("Found argument"), true, "{}", msg);
-        assert_eq!(msg.contains("--invalid"), true, "{}", msg);
-        assert_eq!(
-            msg.contains("which wasn't expected, or isn't valid in this context"),
-            true,
-            "{}",
-            msg
-        );
-    }
-
-    #[test]
     fn factory_produces_set_password() {
         let subject = CommandFactoryReal::new();
 
@@ -245,5 +223,70 @@ mod tests {
             "{}",
             msg
         );
+    }
+
+    #[test]
+    fn complains_about_generate_wallets_command_with_bad_syntax() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec![
+                "generate-wallets".to_string(),
+                "--invalid".to_string(),
+                "password".to_string(),
+            ])
+            .err()
+            .unwrap();
+
+        let msg = match result {
+            CommandSyntax(msg) => msg,
+            x => panic!("Expected syntax error, got {:?}", x),
+        };
+        assert_eq!(msg.contains("Found argument"), true, "{}", msg);
+        assert_eq!(msg.contains("--invalid"), true, "{}", msg);
+        assert_eq!(
+            msg.contains("which wasn't expected, or isn't valid in this context"),
+            true,
+            "{}",
+            msg
+        );
+    }
+
+    #[test]
+    fn testing_command_factory_with_good_command() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec!["wallet-addresses".to_string(), "bonkers".to_string()])
+            .unwrap();
+
+        let wallet_address_command: &WalletAddressesCommand =
+            result.as_any().downcast_ref().unwrap();
+        assert_eq!(
+            wallet_address_command,
+            &WalletAddressesCommand {
+                db_password: "bonkers".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn testing_command_factory_with_bad_command() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject.make(vec!["wallet-addresses".to_string()]);
+
+        match result {
+            Err(CommandFactoryError::CommandSyntax(msg)) => {
+                // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
+                assert_eq!(
+                    msg.contains("The following required arguments were not provided:"),
+                    true,
+                    "{}",
+                    msg
+                )
+            }
+            x => panic!("Expected CommandSyntax error, got {:?}", x),
+        }
     }
 }
