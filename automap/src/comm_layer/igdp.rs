@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::{local_ip, AutomapError, Transactor};
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
 use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
@@ -99,13 +99,14 @@ impl IgdWrapperReal {
 
 pub struct IgdpTransactor {
     igd_wrapper: Box<dyn IgdWrapper>,
+    local_ip_finder: Box<dyn LocalIpFinder>,
 }
 
 impl Transactor for IgdpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
         let gateway = match self.igd_wrapper.search_gateway(SearchOptions::default()) {
             Ok(gateway) => gateway,
-            Err(e) => unimplemented!("{:?}", e),
+            Err(e) => return Err(AutomapError::FindRouterError(format!("{:?}", e))),
         };
         Ok(vec![IpAddr::V4(*gateway.addr.ip())])
     }
@@ -114,7 +115,7 @@ impl Transactor for IgdpTransactor {
         self.ensure_router_ip(router_ip)?;
         match self.igd_wrapper.get_external_ip() {
             Ok(ip) => Ok(IpAddr::V4(ip)),
-            Err(e) => unimplemented!("{:?}", e),
+            Err(e) => Err(AutomapError::GetPublicIpError(format!("{:?}", e))),
         }
     }
 
@@ -125,9 +126,9 @@ impl Transactor for IgdpTransactor {
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
         self.ensure_router_ip(router_ip)?;
-        let local_ip = match local_ip()? {
+        let local_ip = match self.local_ip_finder.find()? {
             IpAddr::V4(ip) => ip,
-            IpAddr::V6(ip) => unimplemented!("{:?}", ip),
+            IpAddr::V6(ip) => return Err(AutomapError::IPv6Unsupported(ip)),
         };
         match self.igd_wrapper.add_port(
             PortMappingProtocol::TCP,
@@ -137,7 +138,7 @@ impl Transactor for IgdpTransactor {
             "",
         ) {
             Ok(_) => Ok(lifetime / 2),
-            Err(e) => unimplemented!("{:?}", e),
+            Err(e) => Err(AutomapError::AddMappingError(format!("{:?}", e))),
         }
     }
 
@@ -148,7 +149,7 @@ impl Transactor for IgdpTransactor {
             .remove_port(PortMappingProtocol::TCP, hole_port)
         {
             Ok(_) => Ok(()),
-            Err(e) => unimplemented!("{:?}", e),
+            Err(e) => Err(AutomapError::DeleteMappingError(format!("{:?}", e))),
         }
     }
 }
@@ -163,6 +164,7 @@ impl IgdpTransactor {
     pub fn new() -> Self {
         Self {
             igd_wrapper: Box::new(IgdWrapperReal::new()),
+            local_ip_finder: Box::new(LocalIpFinderReal::new()),
         }
     }
 
@@ -184,7 +186,9 @@ impl IgdpTransactor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comm_layer::tests::LocalIpFinderMock;
     use std::collections::HashMap;
+    use std::net::Ipv6Addr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
@@ -319,13 +323,7 @@ mod tests {
     #[test]
     fn find_routers_works() {
         let search_gateway_params_arc = Arc::new(Mutex::new(vec![]));
-        let gateway = Gateway {
-            addr: SocketAddrV4::new(Ipv4Addr::new(192, 168, 0, 1), 1900),
-            root_url: "root_url".to_string(),
-            control_url: "control_url".to_string(),
-            control_schema_url: "control_schema_url".to_string(),
-            control_schema: HashMap::default(),
-        };
+        let gateway = make_gateway();
         let igd_wrapper = IgdWrapperMock::new()
             .search_gateway_params(&search_gateway_params_arc)
             .search_gateway_result(Ok(gateway));
@@ -353,19 +351,28 @@ mod tests {
     }
 
     #[test]
+    fn find_routers_handles_error() {
+        let igd_wrapper =
+            IgdWrapperMock::new().search_gateway_result(Err(SearchError::InvalidResponse));
+        let mut subject = IgdpTransactor::new();
+        subject.igd_wrapper = Box::new(igd_wrapper);
+
+        let result = subject.find_routers();
+
+        assert_eq!(
+            result,
+            Err(AutomapError::FindRouterError("InvalidResponse".to_string()))
+        );
+    }
+
+    #[test]
     fn get_public_ip_works() {
         let router_ipv4 = Ipv4Addr::from_str("192.168.0.1").unwrap();
         let router_ip = IpAddr::V4(router_ipv4);
         let public_ipv4 = Ipv4Addr::from_str("72.73.74.75").unwrap();
         let public_ip = IpAddr::V4(public_ipv4);
         let set_gateway_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_gateway = Gateway {
-            addr: SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5),
-            root_url: "root_url".to_string(),
-            control_url: "control_url".to_string(),
-            control_schema_url: "control_schema_url".to_string(),
-            control_schema: HashMap::default(),
-        };
+        let initial_gateway = make_gateway();
         let mut final_gateway = initial_gateway.clone();
         final_gateway.addr = SocketAddrV4::new(router_ipv4, 1900);
         let igd_wrapper = IgdWrapperMock::new()
@@ -384,19 +391,36 @@ mod tests {
     }
 
     #[test]
+    fn get_public_ip_handles_error() {
+        let router_ipv4 = Ipv4Addr::from_str("192.168.0.1").unwrap();
+        let router_ip = IpAddr::V4(router_ipv4);
+        let initial_gateway = make_gateway();
+        let mut final_gateway = initial_gateway.clone();
+        final_gateway.addr = SocketAddrV4::new(router_ipv4, 1900);
+        let igd_wrapper = IgdWrapperMock::new()
+            .get_gateway_result(Some(initial_gateway))
+            .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
+        let mut subject = IgdpTransactor::new();
+        subject.igd_wrapper = Box::new(igd_wrapper);
+
+        let result = subject.get_public_ip(router_ip);
+
+        assert_eq!(
+            result,
+            Err(AutomapError::GetPublicIpError(
+                "ActionNotAuthorized".to_string()
+            ))
+        );
+    }
+
+    #[test]
     fn add_mapping_works() {
         let router_ipv4 = Ipv4Addr::from_str("192.168.0.1").unwrap();
         let router_ip = IpAddr::V4(router_ipv4);
         let local_ipv4 = Ipv4Addr::from_str(&local_ipaddress::get().unwrap()).unwrap();
         let set_gateway_params_arc = Arc::new(Mutex::new(vec![]));
         let add_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_gateway = Gateway {
-            addr: SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5),
-            root_url: "root_url".to_string(),
-            control_url: "control_url".to_string(),
-            control_schema_url: "control_schema_url".to_string(),
-            control_schema: HashMap::default(),
-        };
+        let initial_gateway = make_gateway();
         let mut final_gateway = initial_gateway.clone();
         final_gateway.addr = SocketAddrV4::new(router_ipv4, 1900);
         let igd_wrapper = IgdWrapperMock::new()
@@ -427,18 +451,57 @@ mod tests {
     }
 
     #[test]
+    fn add_mapping_handles_ipv6_local_address() {
+        let router_ipv4 = Ipv4Addr::from_str("192.168.0.1").unwrap();
+        let router_ip = IpAddr::V4(router_ipv4);
+        let local_ipv6 = Ipv6Addr::from_str("0000:1111:2222:3333:4444:5555:6666:7777").unwrap();
+        let initial_gateway = make_gateway();
+        let mut final_gateway = initial_gateway.clone();
+        final_gateway.addr = SocketAddrV4::new(router_ipv4, 1900);
+        let igd_wrapper = IgdWrapperMock::new()
+            .get_gateway_result(Some(initial_gateway))
+            .add_port_result(Ok(()));
+        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(IpAddr::V6(local_ipv6)));
+        let mut subject = IgdpTransactor::new();
+        subject.igd_wrapper = Box::new(igd_wrapper);
+        subject.local_ip_finder = Box::new(local_ip_finder);
+
+        let result = subject.add_mapping(router_ip, 7777, 1234);
+
+        assert_eq!(result, Err(AutomapError::IPv6Unsupported(local_ipv6)));
+    }
+
+    #[test]
+    fn add_mapping_handles_error() {
+        let router_ipv4 = Ipv4Addr::from_str("192.168.0.1").unwrap();
+        let router_ip = IpAddr::V4(router_ipv4);
+        let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
+        let initial_gateway = make_gateway();
+        let mut final_gateway = initial_gateway.clone();
+        final_gateway.addr = SocketAddrV4::new(router_ipv4, 1900);
+        let igd_wrapper = IgdWrapperMock::new()
+            .get_gateway_result(Some(initial_gateway))
+            .add_port_result(Err(AddPortError::PortInUse));
+        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
+        let mut subject = IgdpTransactor::new();
+        subject.igd_wrapper = Box::new(igd_wrapper);
+        subject.local_ip_finder = Box::new(local_ip_finder);
+
+        let result = subject.add_mapping(router_ip, 7777, 1234);
+
+        assert_eq!(
+            result,
+            Err(AutomapError::AddMappingError("PortInUse".to_string()))
+        );
+    }
+
+    #[test]
     fn delete_mapping_works() {
         let router_ipv4 = Ipv4Addr::from_str("192.168.0.1").unwrap();
         let router_ip = IpAddr::V4(router_ipv4);
         let set_gateway_params_arc = Arc::new(Mutex::new(vec![]));
         let remove_port_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_gateway = Gateway {
-            addr: SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5),
-            root_url: "root_url".to_string(),
-            control_url: "control_url".to_string(),
-            control_schema_url: "control_schema_url".to_string(),
-            control_schema: HashMap::default(),
-        };
+        let initial_gateway = make_gateway();
         let mut final_gateway = initial_gateway.clone();
         final_gateway.addr = SocketAddrV4::new(router_ipv4, 1900);
         let igd_wrapper = IgdWrapperMock::new()
@@ -456,5 +519,38 @@ mod tests {
         assert_eq!(actual_gateway.addr, SocketAddrV4::new(router_ipv4, 1900));
         let remove_port_params = remove_port_params_arc.lock().unwrap();
         assert_eq!(*remove_port_params, vec![(PortMappingProtocol::TCP, 7777,)]);
+    }
+
+    #[test]
+    fn delete_mapping_handles_error() {
+        let router_ipv4 = Ipv4Addr::from_str("192.168.0.1").unwrap();
+        let router_ip = IpAddr::V4(router_ipv4);
+        let initial_gateway = make_gateway();
+        let mut final_gateway = initial_gateway.clone();
+        final_gateway.addr = SocketAddrV4::new(router_ipv4, 1900);
+        let igd_wrapper = IgdWrapperMock::new()
+            .get_gateway_result(Some(initial_gateway))
+            .remove_port_result(Err(RemovePortError::NoSuchPortMapping));
+        let mut subject = IgdpTransactor::new();
+        subject.igd_wrapper = Box::new(igd_wrapper);
+
+        let result = subject.delete_mapping(router_ip, 7777);
+
+        assert_eq!(
+            result,
+            Err(AutomapError::DeleteMappingError(
+                "NoSuchPortMapping".to_string()
+            ))
+        );
+    }
+
+    fn make_gateway() -> Gateway {
+        Gateway {
+            addr: SocketAddrV4::new(Ipv4Addr::new(192, 168, 0, 1), 1900),
+            root_url: "root_url".to_string(),
+            control_url: "control_url".to_string(),
+            control_schema_url: "control_schema_url".to_string(),
+            control_schema: HashMap::default(),
+        }
     }
 }

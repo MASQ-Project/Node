@@ -3,7 +3,7 @@
 use crate::comm_layer::pcp_pmp_common::{
     FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
 };
-use crate::comm_layer::{local_ip, AutomapError, Transactor};
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
@@ -36,6 +36,7 @@ pub struct PcpTransactor {
     socket_factory: Box<dyn UdpSocketFactory>,
     mapping_nonce_factory: Box<dyn MappingNonceFactory>,
     free_port_factory: Box<dyn FreePortFactory>,
+    local_ip_finder: Box<dyn LocalIpFinder>,
 }
 
 impl Transactor for PcpTransactor {
@@ -82,6 +83,7 @@ impl Default for PcpTransactor {
             socket_factory: Box::new(UdpSocketFactoryReal::new()),
             mapping_nonce_factory: Box::new(MappingNonceFactoryReal::new()),
             free_port_factory: Box::new(FreePortFactoryReal::new()),
+            local_ip_finder: Box::new(LocalIpFinderReal::new()),
         }
     }
 }
@@ -98,7 +100,7 @@ impl PcpTransactor {
             opcode: Opcode::Map,
             result_code_opt: None,
             lifetime,
-            client_ip_opt: Some(local_ip()?),
+            client_ip_opt: Some(self.local_ip_finder.find()?),
             epoch_time_opt: None,
             opcode_data: Box::new(MapOpcodeData {
                 mapping_nonce: self.mapping_nonce_factory.make(),
@@ -168,6 +170,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::mocks::{
         FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
     };
+    use crate::comm_layer::LocalIpFinder;
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
@@ -636,7 +639,7 @@ mod tests {
             opcode: Opcode::Other(127),
             result_code_opt: None,
             lifetime: 1234,
-            client_ip_opt: Some(local_ip().unwrap()),
+            client_ip_opt: Some(LocalIpFinderReal::new().find().unwrap()),
             epoch_time_opt: None,
             opcode_data: Box::new(UnrecognizedData::new()),
             options: vec![],
