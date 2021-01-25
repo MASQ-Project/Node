@@ -12,7 +12,6 @@ use crate::node_configurator::node_configurator_standard::standard::{
 use crate::node_configurator::{
     app_head, data_directory_from_context, determine_config_file_path, DirsWrapper, RealDirsWrapper,
 };
-use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
@@ -661,24 +660,6 @@ impl ValueRetriever for EarningWallet {
     fn value_name(&self) -> &'static str {
         "earning-wallet"
     }
-
-    fn computed_default(
-        &self,
-        bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-        _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let configured_wallet = &bootstrapper_config.earning_wallet;
-        if configured_wallet.address() == DEFAULT_EARNING_WALLET.address() {
-            Some((DEFAULT_EARNING_WALLET.to_string(), Default))
-        } else {
-            Some((configured_wallet.to_string(), Configured))
-        }
-    }
-
-    fn is_required(&self, params: &SetupCluster) -> bool {
-        is_required_for_blockchain(params)
-    }
 }
 
 struct GasPrice {}
@@ -982,11 +963,7 @@ mod tests {
             ("data-directory", home_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "1.1.1.1", Default),
-            (
-                "earning-wallet",
-                "0x0000000000000000000000000000000000000000",
-                Configured,
-            ),
+            ("earning-wallet", "", Blank),
             ("gas-price", "1234567890", Default),
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", Default),
@@ -2086,31 +2063,28 @@ mod tests {
     }
 
     #[test]
-    fn earning_wallet_computed_default_configured() {
+    fn earning_wallet_computed_default_with_everything_configured_is_still_none() {
         let mut config = BootstrapperConfig::new();
-        config.earning_wallet = Wallet::new("0x1234567890123456789012345678901234567890");
+        config.earning_wallet = Wallet::new("command-line address");
+        let persistent_config_opt: Option<Box<dyn PersistentConfiguration>> = Some(Box::new(
+            PersistentConfigurationMock::new()
+                .earning_wallet_address_result(Ok(Some("persistent address".to_string()))),
+        ));
         let subject = EarningWallet {};
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(&config, &persistent_config_opt, &None);
 
-        assert_eq!(
-            result,
-            Some((
-                "0x1234567890123456789012345678901234567890".to_string(),
-                Configured
-            ))
-        )
+        assert_eq!(result, None)
     }
 
     #[test]
-    fn earning_wallet_computed_default_default() {
-        let mut config = BootstrapperConfig::new();
-        config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
+    fn earning_wallet_computed_default_with_nothing_configured_is_still_none() {
+        let config = BootstrapperConfig::new();
         let subject = EarningWallet {};
 
         let result = subject.computed_default(&config, &None, &None);
 
-        assert_eq!(result, Some((DEFAULT_EARNING_WALLET.to_string(), Default)))
+        assert_eq!(result, None)
     }
 
     #[test]
@@ -2318,7 +2292,6 @@ mod tests {
     fn blockchain_requirements() {
         verify_needed_for_blockchain(&BlockchainServiceUrl {});
         verify_needed_for_blockchain(&DbPassword {});
-        verify_needed_for_blockchain(&EarningWallet {});
         verify_needed_for_blockchain(&GasPrice {});
     }
 
@@ -2333,7 +2306,7 @@ mod tests {
         assert_eq!(DataDirectory::default().is_required(&params), true);
         assert_eq!(DbPassword {}.is_required(&params), true);
         assert_eq!(DnsServers {}.is_required(&params), true);
-        assert_eq!(EarningWallet {}.is_required(&params), true);
+        assert_eq!(EarningWallet {}.is_required(&params), false);
         assert_eq!(GasPrice {}.is_required(&params), true);
         assert_eq!(Ip {}.is_required(&params), true);
         assert_eq!(LogLevel {}.is_required(&params), true);

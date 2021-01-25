@@ -1,55 +1,49 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::{
-    UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
-};
+use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse};
+use std::any::Any;
 use std::io::Write;
 
 #[derive(Debug, PartialEq)]
 pub struct ChangePasswordCommand {
-    old_password: Option<String>,
-    new_password: String,
+    pub old_password: Option<String>,
+    pub new_password: String,
 }
 
 impl ChangePasswordCommand {
-    pub(crate) fn new(pieces: Vec<String>) -> Result<Self, String> {
-        match pieces.len() {
-            3 => match change_password_subcommand().get_matches_from_safe(pieces) {
-                Ok(matches) => Ok(Self {
-                    old_password: Some(
-                        matches
-                            .value_of("old-db-password")
-                            .expect("change password: Clipy: internal error")
-                            .to_string(),
-                    ),
-                    new_password: matches
-                        .value_of("new-db-password")
-                        .expect("change password: Clipy: internal error")
-                        .to_string(),
-                }),
-                Err(e) => Err(format!("{}", e)),
-            },
-            2 => match set_password_subcommand().get_matches_from_safe(pieces) {
-                Ok(matches) => Ok(Self {
-                    old_password: None,
-                    new_password: matches
-                        .value_of("new-db-password")
-                        .expect("change-password: Clipy: internal error")
-                        .to_string(),
-                }),
-                Err(e) => Err(format!("{}", e)),
-            },
-
-            _ => Err("change-password: Invalid number of arguments".to_string()),
+    pub fn new_set(pieces: Vec<String>) -> Result<Self, String> {
+        match set_password_subcommand().get_matches_from_safe(pieces) {
+            Ok(matches) => Ok(Self {
+                old_password: None,
+                new_password: matches
+                    .value_of("new-db-password")
+                    .expect("new-db-password is not properly required")
+                    .to_string(),
+            }),
+            Err(e) => Err(format!("{}", e)),
         }
     }
 
-    pub fn handle_broadcast(
-        _msg: UiNewPasswordBroadcast,
-        stdout: &mut dyn Write,
-        _stderr: &mut dyn Write,
-    ) {
+    pub fn new_change(pieces: Vec<String>) -> Result<Self, String> {
+        match change_password_subcommand().get_matches_from_safe(pieces) {
+            Ok(matches) => Ok(Self {
+                old_password: Some(
+                    matches
+                        .value_of("old-db-password")
+                        .expect("old-db-password is not properly required")
+                        .to_string(),
+                ),
+                new_password: matches
+                    .value_of("new-db-password")
+                    .expect("new-db-password is not properly required")
+                    .to_string(),
+            }),
+            Err(e) => Err(format!("{}", e)),
+        }
+    }
+
+    pub fn handle_broadcast(stdout: &mut dyn Write) {
         write!(
             stdout,
             "\nThe Node's database password has changed.\n\nmasq> "
@@ -68,6 +62,10 @@ impl Command for ChangePasswordCommand {
         writeln!(context.stdout(), "Database password has been changed").expect("writeln! failed");
         Ok(())
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 pub fn change_password_subcommand() -> App<'static, 'static> {
@@ -76,6 +74,7 @@ pub fn change_password_subcommand() -> App<'static, 'static> {
         .arg(
             Arg::with_name("old-db-password")
                 .help("The existing password")
+                .value_name("OLD-DB-PASSWORD")
                 .index(1)
                 .required(true)
                 .case_insensitive(false),
@@ -83,6 +82,7 @@ pub fn change_password_subcommand() -> App<'static, 'static> {
         .arg(
             Arg::with_name("new-db-password")
                 .help("The new password to set")
+                .value_name("NEW-DB-PASSWORD")
                 .index(2)
                 .required(true)
                 .case_insensitive(false),
@@ -104,28 +104,10 @@ pub fn set_password_subcommand() -> App<'static, 'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn testing_command_factory_here() {
-        let factory = CommandFactoryReal::new();
-        let mut context =
-            CommandContextMock::new().transact_result(Ok(UiChangePasswordResponse {}.tmb(1230)));
-        let subject = factory
-            .make(vec![
-                "change-password".to_string(),
-                "abracadabra".to_string(),
-                "boringPassword".to_string(),
-            ])
-            .unwrap();
-
-        let result = subject.execute(&mut context);
-
-        assert_eq!(result, Ok(()));
-    }
 
     #[test]
     fn set_password_command_works_when_changing_from_no_password() {
@@ -202,12 +184,55 @@ mod tests {
     }
 
     #[test]
-    fn change_password_new_handles_error_of_missing_both_arguments() {
-        let result = ChangePasswordCommand::new(vec!["change-password".to_string()]);
+    fn change_password_command_fails_if_only_one_argument_supplied() {
+        let factory = CommandFactoryReal::new();
 
+        let result = factory.make(vec![
+            "change-password".to_string(),
+            "abracadabra".to_string(),
+        ]);
+
+        let msg = match result {
+            Err(CommandFactoryError::CommandSyntax(s)) => s,
+            x => panic!("Expected CommandSyntax error, found {:?}", x),
+        };
         assert_eq!(
-            result,
-            Err("change-password: Invalid number of arguments".to_string())
-        )
+            msg.contains("The following required arguments were not provided"),
+            true,
+            "{}",
+            msg
+        );
+    }
+
+    #[test]
+    fn change_password_new_set_handles_error_of_missing_both_arguments() {
+        let result = ChangePasswordCommand::new_set(vec!["set-password".to_string()]);
+
+        let msg = match result {
+            Err(s) => s,
+            x => panic!("Expected string, found {:?}", x),
+        };
+        assert_eq!(
+            msg.contains("The following required arguments were not provided"),
+            true,
+            "{}",
+            msg
+        );
+    }
+
+    #[test]
+    fn change_password_new_change_handles_error_of_missing_both_arguments() {
+        let result = ChangePasswordCommand::new_change(vec!["change-password".to_string()]);
+
+        let msg = match result {
+            Err(s) => s,
+            x => panic!("Expected string, found {:?}", x),
+        };
+        assert_eq!(
+            msg.contains("The following required arguments were not provided"),
+            true,
+            "{}",
+            msg
+        );
     }
 }

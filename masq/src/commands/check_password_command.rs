@@ -8,7 +8,7 @@ use std::any::Any;
 
 #[derive(Debug, PartialEq)]
 pub struct CheckPasswordCommand {
-    db_password_opt: Option<String>,
+    pub db_password_opt: Option<String>,
 }
 
 pub fn check_password_subcommand() -> App<'static, 'static> {

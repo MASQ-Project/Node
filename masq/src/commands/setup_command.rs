@@ -72,11 +72,7 @@ impl SetupCommand {
         Ok(Self { values })
     }
 
-    pub fn handle_broadcast(
-        response: UiSetupBroadcast,
-        stdout: &mut dyn Write,
-        _stderr: &mut dyn Write,
-    ) {
+    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write) {
         writeln!(stdout, "\nDaemon setup has changed:\n").expect("writeln! failed");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");
@@ -287,9 +283,9 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
             errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
         };
         let (stream_factory, handle) = TestStreamFactory::new();
-        let (mut stdout, mut stderr) = stream_factory.make();
+        let (mut stdout, _) = stream_factory.make();
 
-        SetupCommand::handle_broadcast(message, &mut stdout, &mut stderr);
+        SetupCommand::handle_broadcast(message, &mut stdout);
 
         assert_eq! (handle.stdout_so_far(),
 "\n\

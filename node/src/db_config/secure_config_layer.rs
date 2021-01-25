@@ -216,10 +216,8 @@ impl SecureConfigLayer {
         new_password: &str,
         dao: &Box<T>,
     ) -> Result<(), SecureConfigLayerError> {
-        let example_data: Vec<u8> = [0..32]
-            .iter()
-            .map(|_| rand::thread_rng().gen::<u8>())
-            .collect();
+        let mut example_data = [0u8; 32];
+        rand::thread_rng().fill(&mut example_data);
         let example_encrypted =
             Bip39::encrypt_bytes(&example_data, new_password).expect("Encryption failed");
         dao.set(EXAMPLE_ENCRYPTED, Some(example_encrypted))

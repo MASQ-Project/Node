@@ -91,8 +91,9 @@ impl ByteArrayReader {
         }
     }
 
-    pub fn reject_next_read(&mut self, error: Error) {
+    pub fn reject_next_read(mut self, error: Error) -> ByteArrayReader {
         self.next_error = Some(error);
+        self
     }
 }
 
@@ -115,7 +116,10 @@ impl Read for ByteArrayReader {
 
 impl BufRead for ByteArrayReader {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        Ok(&self.byte_array[self.position..])
+        match self.next_error.take() {
+            Some(error) => Err(error),
+            None => Ok(&self.byte_array[self.position..]),
+        }
     }
 
     fn consume(&mut self, amt: usize) {

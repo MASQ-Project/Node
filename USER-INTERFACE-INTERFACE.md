@@ -572,11 +572,11 @@ then the user will have to specify it as well as the 24 standard words in order 
 that neither the 24 standard words nor this value is persisted anywhere: it's up to the user to keep track of them.
 
 `consumingDerivationPath` is the derivation path from the generated seed number to be used to generate the consuming
-wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
+wallet. By convention, it is "m/44'/60'/0'/0/0", but in this message it is required and no defaulting is performed
 by the Node.
 
 `earningDerivationPath` is the derivation path from the generated seed number to be used to generate the earning
-wallet. By convention, it is "m/60'/44'/0'/0/1", but in this message it is required and no defaulting is performed
+wallet. By convention, it is "m/44'/60'/0'/0/1", but in this message it is required and no defaulting is performed
 by the Node.
 
 If the user wants to consume from and earn into the same wallet, he should provide the same derivation path for both.
@@ -617,6 +617,61 @@ the requested language, including non-ASCII Unicode characters encoded in UTF-8 
 ##### Description:
 No data comes with this message; it's merely used to inform a UI that the database password has changed.
 If the UI is remembering the database password, it should forget it when this message is received.
+
+#### `recoverWallets`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPassword": <string>,
+    "mnemonicPhrase": [
+        <string>,
+        <string>,
+        [...]
+    ],
+    "mnemonicPassphraseOpt": <optional string>,
+    "mnemonicPhraseLanguage": <string>,
+    "consumingDerivationPath": <string>,
+    "earningWallet": <string>
+}
+```
+##### Description:
+This message directs the Node to set its wallet pair to a preexisting pair of wallets described in the message.
+If the database already contains a wallet pair, the wallet recovery will fail.
+
+`dbPassword` is the current database password. If this is incorrect, the wallet recovery will fail.
+
+`mnemonicPhrase` is the mnemonic phrase that was used to generate the consuming wallet and possibly the earning
+wallet as well. It must have 12, 15, 18, 21, or 24 words.
+
+`mnemonicPassphraseOpt`, if specified, is the "25th word" in the mnemonic passphrase: that is, an additional word
+(it can be any word; it's not constrained to the official mnemonic-phrase list) that was used along with the
+words of the mnemonic phrase to generate the seed number from which the consuming and possibly earning wallets
+were derived. If no mnemonic passphrase was used to generate the wallets, this value must be absent.
+
+`mnemonicPhraseLanguage` is the language in which the mnemonic phrase is supplied. Acceptable values are
+"English", "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", and "Spanish".
+
+`consumingDerivationPath` is the derivation path from the mnemonic phrase that was used to generate the consuming
+wallet. By convention, it is "m/60'/44'/0'/0/0", but in this message it is required and no defaulting is performed
+by the Node.
+
+`earningWallet` is either the derivation path from the mnemonic phrase that was used to generate the earning
+wallet, or--if the derivation path is unknown or the earning wallet is not related to the mnemonic phrase--the
+address of the earning wallet.
+
+The consuming and earning wallet information may evaluate to the same wallet; there's nothing wrong with that.
+
+#### `recoverWallets`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {}
+```
+##### Description:
+This message acknowledges that the Node's wallet pair was set as specified.
 
 #### `redirect`
 ##### Direction: Unsolicited Response
@@ -807,3 +862,37 @@ If the Daemon or the Node can't unmarshal a message from a UI, it will send this
 The `message` field describes what's wrong with the unmarshallable message.
 
 The `badData` field contains the unmarshallable message itself.
+
+#### `walletAddresses`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPassword": <string>
+}
+```
+##### Description:
+This message directs the Node to go look for two pieces of information, two existing wallet addresses. For consuming
+wallet, this will be computed from the mnemonic seed and the recorded derivation path chosen by the user earlier.
+For earning wallet, this datum can be found in the database directly. Both addresses go back to the UI then. If these
+two wallets do not exist so far, an error message is propagated.
+
+`dbPassword` is the current database password. If this is incorrect, the process cannot end successfully. 
+
+#### `walletAddresses`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "consumingWalletAddress": <string>,
+    "earningWalletAddress": <string>
+}
+```
+##### Description:
+This message carries the pair of wallet addresses that were generated or recovered in the past.
+
+`consumingWalletAddress` is the address of the generated consuming wallet.
+
+`earningWalletAddress` is the address of the generated earning wallet.

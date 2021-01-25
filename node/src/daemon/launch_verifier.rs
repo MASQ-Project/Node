@@ -379,11 +379,12 @@ mod tests {
     fn kill_process_and_process_is_running_work() {
         let subject = VerifierToolsReal::new();
         let child = make_long_running_child();
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(Duration::from_millis(250));
 
         let before = subject.process_is_running(child.id());
 
         subject.kill_process(child.id());
+        thread::sleep(Duration::from_millis(250));
 
         let after = subject.process_is_running(child.id());
 

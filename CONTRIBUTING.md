@@ -234,8 +234,9 @@ begin building your feature branch on Linux, macOS, and Windows platforms. It wi
 tests on Linux. Track the builds as they proceed, and watch for failures. If there are any, go back to __Complete the Work__
 and fix the problems. Sometimes, especially for failures in multinode integration tests, the reasons for the failures may
 not appear in Pipelines' console logs. In that case, they will probably be made available on the 
-[MASQ Node build results site](https://masq-results.github.io/MASQ-results/) soon after the build
+[MASQ Node build results site](https://github.com/masq-results/MASQ-results) soon after the build
 completes. Download from there the appropriate `generated-`\<platform\>`.tar.gz` file, pop it open, and look at the files inside.
+**Note - For the very latest build results, it is best to go to the [GitHub Actions build site](https://github.com/MASQ-Project/Node/actions) page, and click on the latest completed workflow related to the Pull Request you are looking at. At the bottom of the workflow run summary there are 3 artifacts produced which relate to successful build jobs. You can download these artifacts from here for the appropriate platform. 
 
 #### Wait for Approval
 Once your Actions build succeeds, your pull request will be handled by a human reviewer.  Again, issues that come
