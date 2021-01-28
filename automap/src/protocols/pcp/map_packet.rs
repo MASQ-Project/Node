@@ -46,9 +46,9 @@ impl OpcodeData for MapOpcodeData {
         if buf.len() < self.len(direction) {
             return Err(MarshalError::ShortBuffer(self.len(direction), buf.len()));
         }
-        for n in 0..12 {
-            buf[n] = self.mapping_nonce[n]
-        }
+
+        buf[..12].clone_from_slice(&self.mapping_nonce[..12]);
+
         buf[12] = self.protocol.code();
         buf[13] = 0x00;
         buf[14] = 0x00;
@@ -93,9 +93,8 @@ impl TryFrom<&[u8]> for MapOpcodeData {
                 buffer.len(),
             ));
         }
-        for n in 0..12 {
-            data.mapping_nonce[n] = buffer[n]
-        }
+        data.mapping_nonce[..12].clone_from_slice(&buffer[..12]);
+
         data.protocol = Protocol::from(buffer[12]);
         data.internal_port = u16_at(buffer, 16);
         data.external_port = u16_at(buffer, 18);

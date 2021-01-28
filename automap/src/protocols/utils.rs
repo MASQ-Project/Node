@@ -51,6 +51,7 @@ impl OpcodeData for UnrecognizedData {
     }
 }
 
+#[allow(clippy::new_without_default)]
 impl UnrecognizedData {
     pub fn new() -> UnrecognizedData {
         UnrecognizedData {}
@@ -124,19 +125,15 @@ pub fn ipv6_addr_at(buf: &[u8], offset: usize) -> IpAddr {
 pub fn ipv6_addr_into(buf: &mut [u8], offset: usize, value: &IpAddr) {
     let ipv6_addr = match value {
         IpAddr::V4(addr) => addr.to_ipv6_mapped(),
-        IpAddr::V6(addr) => addr.clone(),
+        IpAddr::V6(addr) => *addr,
     };
     let octets = ipv6_addr.octets();
-    for n in 0..16 {
-        buf[offset + n] = octets[n]
-    }
+    buf[offset..(16 + offset)].clone_from_slice(&octets[..16]);
 }
 
 pub fn ipv4_addr_into(buf: &mut [u8], offset: usize, value: &Ipv4Addr) {
     let octets = value.octets();
-    for n in 0..4 {
-        buf[offset + n] = octets[n]
-    }
+    buf[offset..(4 + offset)].clone_from_slice(&octets[..4]);
 }
 pub const MAIN_HEADER: &str = "\
 +---------------------------------------------------------------------------------+
