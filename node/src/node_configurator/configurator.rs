@@ -487,13 +487,17 @@ impl Configurator {
                     "mnemonicSeedOpt",
                 )?
                 .map(|bytes| bytes.as_slice().to_hex::<String>());
-                let past_neighbors = Self::value_required(
+                let past_neighbors_opt = Self::value_not_required(
                     persistent_config.past_neighbors(password),
                     "pastNeighbors",
-                )?
-                .into_iter()
-                .map(|nd| nd.to_string(main_cryptde()))
-                .collect::<Vec<String>>();
+                )?;
+                let past_neighbors = match past_neighbors_opt {
+                    None => vec![],
+                    Some(pns) => pns
+                        .into_iter()
+                        .map(|nd| nd.to_string(main_cryptde()))
+                        .collect::<Vec<String>>(),
+                };
                 (mnemonic_seed_opt, past_neighbors)
             }
             None => (None, vec![]),

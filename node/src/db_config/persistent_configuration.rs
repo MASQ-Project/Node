@@ -22,6 +22,7 @@ pub enum PersistentConfigError {
     PasswordError,
     TransactionError,
     DatabaseError(String),
+    BadPortNumber(String),
     BadNumberFormat(String),
     BadHexFormat(String),
     BadMnemonicSeed(PlainData),
@@ -163,21 +164,21 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             );
         }
         let port = unchecked_port as u16;
-        match TcpListener::bind (SocketAddrV4::new (Ipv4Addr::from (0), port)) {
-            Ok (_) => Ok(Some(port)),
-            Err (e) => panic!("Can't continue; clandestine port {} is in use. ({:?}) Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
-                port,
-                e,
-                LOWEST_USABLE_INSECURE_PORT,
-                HIGHEST_USABLE_PORT,
-            )
-        }
+        Ok(Some(port))
     }
 
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
         if port < LOWEST_USABLE_INSECURE_PORT {
-            panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
-                    LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, port);
+            return Err(PersistentConfigError::BadPortNumber(format!(
+                "Must be greater than 1024; not {}",
+                port
+            )));
+        }
+        if TcpListener::bind(SocketAddrV4::new(Ipv4Addr::from(0), port)).is_err() {
+            return Err(PersistentConfigError::BadPortNumber(format!(
+                "Must be open port: {} is in use",
+                port
+            )));
         }
         let mut writer = self.dao.start_transaction()?;
         writer.set("clandestine_port", encode_u64(Some(u64::from(port)))?)?;
@@ -565,24 +566,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
-    )]
-    fn clandestine_port_panics_if_configured_port_is_in_use() {
-        let port = find_free_port();
-        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
-            "clandestine_port",
-            Some(&format!("{}", port)),
-            false,
-        )));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-        let _listener =
-            TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port))).unwrap();
-
-        subject.clandestine_port().unwrap();
-    }
-
-    #[test]
     fn clandestine_port_success() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
@@ -602,14 +585,38 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine-port <p> where <p> is an unused port."
-    )]
-    fn set_clandestine_port_panics_if_configured_port_is_too_low() {
+    fn set_clandestine_port_complains_if_configured_port_is_too_low() {
         let config_dao = ConfigDaoMock::new();
         let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        subject.set_clandestine_port(1024).unwrap();
+        let result = subject.set_clandestine_port(1024);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::BadPortNumber(
+                "Must be greater than 1024; not 1024".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn set_clandestine_port_complains_if_configured_port_is_in_use() {
+        let config_dao = ConfigDaoMock::new();
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let port = find_free_port();
+        let _listener =
+            TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port))).unwrap();
+
+        let result = subject.set_clandestine_port(port);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::BadPortNumber(format!(
+                "Must be open port: {} is in use",
+                port
+            )))
+        );
     }
 
     #[test]
