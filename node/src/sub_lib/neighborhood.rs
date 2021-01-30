@@ -212,8 +212,11 @@ impl NodeDescriptor {
     }
 
     pub fn to_string(&self, cryptde: &dyn CryptDE) -> String {
-        let contact_public_key_string =
-            cryptde.public_key_to_descriptor_fragment(&self.encryption_public_key);
+        let contact_public_key_string = cryptde
+            .public_key_to_descriptor_fragment(&self.encryption_public_key)
+            .chars()
+            .take(43)
+            .collect::<String>();
         let node_addr_string = match &self.node_addr_opt {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
@@ -590,7 +593,7 @@ mod tests {
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, true, cryptde));
 
-        let result = subject.to_string(main_cryptde());
+        let result = subject.to_string(cryptde);
 
         assert_eq!(result, "AQIDBAUGBwg@123.45.67.89:2345;3456".to_string());
     }
@@ -602,9 +605,26 @@ mod tests {
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, false, cryptde));
 
-        let result = subject.to_string(main_cryptde());
+        let result = subject.to_string(cryptde);
 
         assert_eq!(result, "AQIDBAUGBwg:123.45.67.89:2345;3456".to_string());
+    }
+
+    #[test]
+    fn first_part_of_node_descriptor_must_not_be_longer_than_required() {
+        let cryptde: &dyn CryptDE = main_cryptde();
+        let public_key = PublicKey::new(&[
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8,
+            9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        ]);
+        let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
+        let required_number_of_characters = 43;
+        let descriptor = NodeDescriptor::from((&public_key, &node_addr, true, cryptde));
+        let string_descriptor = descriptor.to_string(cryptde);
+
+        let result = string_descriptor.chars().position(|l| l == '@').unwrap();
+
+        assert_eq!(result, required_number_of_characters);
     }
 
     #[test]

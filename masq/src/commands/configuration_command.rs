@@ -116,7 +116,7 @@ impl ConfigurationCommand {
 
     fn dump_value_list(stream: &mut dyn Write, name: &str, values: &[String]) {
         if values.is_empty() {
-            Self::dump_configuration_line(stream, name, "");
+            Self::dump_configuration_line(stream, name, "[?]");
             return;
         }
         let mut name_row = true;
@@ -309,7 +309,7 @@ Gas price:                        2345\n\
 Mnemonic seed:                    [?]\n\
 Consuming wallet derivation path: [?]\n\
 Earning wallet address:           [?]\n\
-Past neighbors:                   \n\
+Past neighbors:                   [?]\n\
 Start block:                      3456\n\
 "
             .to_string()

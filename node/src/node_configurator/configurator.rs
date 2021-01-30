@@ -627,7 +627,9 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::node_configurator::configurator::MNEMONIC_PHRASE_ERROR;
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::neighborhood_test_utils::make_node_record;
     use bip39::{Language, Mnemonic};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
