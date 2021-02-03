@@ -46,7 +46,7 @@ impl Transactor for PcpTransactor {
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         let (result_code, _epoch_time, opcode_data) =
-            self.mapping_transaction(router_ip, 0xFFFF, 0)?;
+            self.mapping_transaction(router_ip, 0x0009, 0)?;
         match result_code {
             ResultCode::Success => Ok(opcode_data.external_ip_address),
             code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
@@ -121,7 +121,7 @@ impl PcpTransactor {
         );
         let socket = match self.socket_factory.make(socket_addr) {
             Ok(s) => s,
-            Err(e) => return Err(AutomapError::SocketBindingError(format!("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketBindingError(format!("{:?}", e), socket_addr)),
         };
         match socket.set_read_timeout(Some(Duration::from_secs(3))) {
             Ok(_) => (),
@@ -235,12 +235,21 @@ mod tests {
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
+        let free_port_factory = FreePortFactoryMock::new().make_result(5566);
         let mut subject = PcpTransactor::default();
         subject.socket_factory = Box::new(socket_factory);
+        subject.free_port_factory = Box::new (free_port_factory);
 
-        let result = subject.mapping_transaction(router_ip, 6666, 4321);
+        let result = subject.mapping_transaction(router_ip, 6666, 4321).err().unwrap();
 
-        assert_eq!(result, Err(AutomapError::SocketBindingError(io_error_str)));
+        match result {
+            AutomapError::SocketBindingError(msg, addr) => {
+                assert_eq! (msg, io_error_str);
+                assert_eq! (addr.ip(), IpAddr::from_str ("0.0.0.0").unwrap());
+                assert_eq! (addr.port(), 5566);
+            },
+            e => panic! ("Expected SocketBindingError, got {:?}", e),
+        }
     }
 
     #[test]
@@ -376,8 +385,8 @@ mod tests {
         request_packet.opcode = Opcode::Map;
         request_packet.lifetime = 0;
         let mut opcode_data = vanilla_map_request();
-        opcode_data.internal_port = 0xFFFF;
-        opcode_data.external_port = 0xFFFF;
+        opcode_data.internal_port = 0x0009;
+        opcode_data.external_port = 0x0009;
         request_packet.opcode_data = opcode_data;
         let mut request = [0u8; 1100];
         let _request_len = request_packet.marshal(&mut request).unwrap();

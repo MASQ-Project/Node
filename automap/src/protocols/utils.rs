@@ -71,6 +71,7 @@ pub trait Packet {
 pub enum ParseError {
     WrongVersion(u8),
     ShortBuffer(usize, usize),
+    UnexpectedOpcode(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]

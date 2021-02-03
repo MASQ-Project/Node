@@ -39,9 +39,9 @@ impl Opcode {
 
     pub fn parse_data(&self, buf: &[u8]) -> Result<Box<dyn PcpOpcodeData>, ParseError> {
         match self {
-            Opcode::Announce => unimplemented!(),
+            Opcode::Announce => Err(ParseError::UnexpectedOpcode("Announce".to_string())),
             Opcode::Map => Ok(Box::new(MapOpcodeData::try_from(buf)?)),
-            Opcode::Peer => unimplemented!(),
+            Opcode::Peer => Err(ParseError::UnexpectedOpcode("Peer".to_string())),
             Opcode::Other(_) => Ok(Box::new(UnrecognizedData::new())),
         }
     }
@@ -501,6 +501,20 @@ mod tests {
         let result = subject.marshal(&mut buffer);
 
         assert_eq!(result, Err(MarshalError::ShortBuffer(24, 23)));
+    }
+
+    #[test]
+    fn announce_opcode_is_future_enhancement() {
+        let result = Opcode::Announce.parse_data (&[]).err().unwrap();
+
+        assert_eq! (result, ParseError::UnexpectedOpcode("Announce".to_string()));
+    }
+
+    #[test]
+    fn peer_opcode_is_future_enhancement() {
+        let result = Opcode::Peer.parse_data (&[]).err().unwrap();
+
+        assert_eq! (result, ParseError::UnexpectedOpcode("Peer".to_string()));
     }
 
     #[test]

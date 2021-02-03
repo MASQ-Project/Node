@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::protocols::utils::ParseError;
-use std::net::{IpAddr, Ipv6Addr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
 pub mod igdp;
@@ -12,10 +12,11 @@ pub mod pmp;
 #[derive(Clone, PartialEq, Debug)]
 pub enum AutomapError {
     NoLocalIpAddress,
+    CantFindDefaultGateway,
     IPv6Unsupported(Ipv6Addr),
     FindRouterError(String),
     GetPublicIpError(String),
-    SocketBindingError(String),
+    SocketBindingError(String, SocketAddr),
     SocketPrepError(String),
     SocketSendError(String),
     SocketReceiveError(String),
