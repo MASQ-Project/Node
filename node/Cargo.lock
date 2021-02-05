@@ -1507,6 +1507,7 @@ dependencies = [
  "clap",
  "crossbeam-channel 0.5.0",
  "lazy_static",
+ "masq_lib",
  "rustyline",
  "websocket",
 ]

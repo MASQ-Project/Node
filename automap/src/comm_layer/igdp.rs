@@ -1,7 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
-use igd::{search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol, RemovePortError, SearchError, SearchOptions};
+use igd::{
+    search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
+    RemovePortError, SearchError, SearchOptions,
+};
 use std::cell::RefCell;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 
@@ -13,12 +16,12 @@ struct GatewayFactoryReal {}
 
 impl GatewayFactory for GatewayFactoryReal {
     fn make(&self, options: SearchOptions) -> Result<Box<dyn GatewayWrapper>, SearchError> {
-        Ok (Box::new (GatewayWrapperReal::new (search_gateway(options)?)))
+        Ok(Box::new(GatewayWrapperReal::new(search_gateway(options)?)))
     }
 }
 
 impl GatewayFactoryReal {
-    pub fn new () -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 }
@@ -34,7 +37,11 @@ trait GatewayWrapper {
         lease_duration: u32,
         description: &str,
     ) -> Result<(), AddPortError>;
-    fn remove_port(&self, protocol: PortMappingProtocol, external_port: u16) -> Result<(), RemovePortError>;
+    fn remove_port(
+        &self,
+        protocol: PortMappingProtocol,
+        external_port: u16,
+    ) -> Result<(), RemovePortError>;
 }
 
 struct GatewayWrapperReal {
@@ -50,18 +57,35 @@ impl GatewayWrapper for GatewayWrapperReal {
         self.delegate.get_external_ip()
     }
 
-    fn add_port(&self, protocol: PortMappingProtocol, external_port: u16, local_addr: SocketAddrV4, lease_duration: u32, description: &str) -> Result<(), AddPortError> {
-        self.delegate.add_port (protocol, external_port, local_addr, lease_duration, description)
+    fn add_port(
+        &self,
+        protocol: PortMappingProtocol,
+        external_port: u16,
+        local_addr: SocketAddrV4,
+        lease_duration: u32,
+        description: &str,
+    ) -> Result<(), AddPortError> {
+        self.delegate.add_port(
+            protocol,
+            external_port,
+            local_addr,
+            lease_duration,
+            description,
+        )
     }
 
-    fn remove_port(&self, protocol: PortMappingProtocol, external_port: u16) -> Result<(), RemovePortError> {
+    fn remove_port(
+        &self,
+        protocol: PortMappingProtocol,
+        external_port: u16,
+    ) -> Result<(), RemovePortError> {
         self.delegate.remove_port(protocol, external_port)
     }
 }
 
 impl GatewayWrapperReal {
     fn new(delegate: Gateway) -> Self {
-        Self {delegate}
+        Self { delegate }
     }
 }
 
@@ -74,13 +98,27 @@ pub struct IgdpTransactor {
 impl Transactor for IgdpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
         self.ensure_gateway()?;
-        Ok(vec![IpAddr::V4(*self.gateway.borrow().as_ref().expect("ensure_gateway didn't work").get_gateway_addr().ip())])
+        Ok(vec![IpAddr::V4(
+            *self
+                .gateway
+                .borrow()
+                .as_ref()
+                .expect("ensure_gateway didn't work")
+                .get_gateway_addr()
+                .ip(),
+        )])
     }
 
     fn get_public_ip(&self, _router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         self.ensure_gateway()?;
-        match self.gateway.borrow().as_ref().expect ("Must get Gateway before using it").as_ref()
-            .get_external_ip() {
+        match self
+            .gateway
+            .borrow()
+            .as_ref()
+            .expect("Must get Gateway before using it")
+            .as_ref()
+            .get_external_ip()
+        {
             Ok(ip) => Ok(IpAddr::V4(ip)),
             Err(e) => Err(AutomapError::GetPublicIpError(format!("{:?}", e))),
         }
@@ -97,14 +135,19 @@ impl Transactor for IgdpTransactor {
             IpAddr::V4(ip) => ip,
             IpAddr::V6(ip) => return Err(AutomapError::IPv6Unsupported(ip)),
         };
-        match self.gateway.borrow().as_ref().expect ("Must get Gateway before using it").as_ref()
-            .add_port (
-            PortMappingProtocol::TCP,
-            hole_port,
-            SocketAddrV4::new(local_ip, hole_port),
-            lifetime,
-            "",
-        ) {
+        match self
+            .gateway
+            .borrow()
+            .as_ref()
+            .expect("Must get Gateway before using it")
+            .as_ref()
+            .add_port(
+                PortMappingProtocol::TCP,
+                hole_port,
+                SocketAddrV4::new(local_ip, hole_port),
+                lifetime,
+                "",
+            ) {
             Ok(_) => Ok(lifetime / 2),
             Err(e) => Err(AutomapError::AddMappingError(format!("{:?}", e))),
         }
@@ -112,7 +155,12 @@ impl Transactor for IgdpTransactor {
 
     fn delete_mapping(&self, _router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         self.ensure_gateway()?;
-        match self.gateway.borrow().as_ref().expect ("Must get Gateway before using it").as_ref()
+        match self
+            .gateway
+            .borrow()
+            .as_ref()
+            .expect("Must get Gateway before using it")
+            .as_ref()
             .remove_port(PortMappingProtocol::TCP, hole_port)
         {
             Ok(_) => Ok(()),
@@ -130,19 +178,21 @@ impl Default for IgdpTransactor {
 impl IgdpTransactor {
     pub fn new() -> Self {
         Self {
-            gateway_factory: Box::new (GatewayFactoryReal::new()),
-            gateway: RefCell::new (None),
+            gateway_factory: Box::new(GatewayFactoryReal::new()),
+            gateway: RefCell::new(None),
             local_ip_finder: Box::new(LocalIpFinderReal::new()),
         }
     }
 
     fn ensure_gateway(&self) -> Result<(), AutomapError> {
-        if self.gateway.borrow().is_some() {return Ok(())}
-        let gateway = match self.gateway_factory.make (SearchOptions::default()) {
+        if self.gateway.borrow().is_some() {
+            return Ok(());
+        }
+        let gateway = match self.gateway_factory.make(SearchOptions::default()) {
             Ok(g) => g,
-            Err(_) => return Err (AutomapError::CantFindDefaultGateway),
+            Err(_) => return Err(AutomapError::CantFindDefaultGateway),
         };
-        self.gateway.borrow_mut ().replace (gateway);
+        self.gateway.borrow_mut().replace(gateway);
         Ok(())
     }
 }
@@ -162,29 +212,29 @@ mod tests {
 
     impl GatewayFactory for GatewayFactoryMock {
         fn make(&self, options: SearchOptions) -> Result<Box<dyn GatewayWrapper>, SearchError> {
-            self.make_params.lock().unwrap().push (options);
+            self.make_params.lock().unwrap().push(options);
             match self.make_results.borrow_mut().remove(0) {
-                Err (e) => Err (e),
-                Ok (mock) => Ok (Box::new (mock)),
+                Err(e) => Err(e),
+                Ok(mock) => Ok(Box::new(mock)),
             }
         }
     }
 
     impl GatewayFactoryMock {
-        fn new () -> Self {
+        fn new() -> Self {
             Self {
                 make_params: Arc::new(Mutex::new(vec![])),
-                make_results: RefCell::new(vec![])
+                make_results: RefCell::new(vec![]),
             }
         }
 
-        fn make_params (mut self, params: &Arc<Mutex<Vec<SearchOptions>>>) -> Self {
+        fn make_params(mut self, params: &Arc<Mutex<Vec<SearchOptions>>>) -> Self {
             self.make_params = params.clone();
             self
         }
 
-        fn make_result (self, result: Result<GatewayWrapperMock, SearchError>) -> Self {
-            self.make_results.borrow_mut().push (result);
+        fn make_result(self, result: Result<GatewayWrapperMock, SearchError>) -> Self {
+            self.make_results.borrow_mut().push(result);
             self
         }
     }
@@ -200,62 +250,88 @@ mod tests {
 
     impl GatewayWrapper for GatewayWrapperMock {
         fn get_gateway_addr(&self) -> SocketAddrV4 {
-            self.get_gateway_addr_results.borrow_mut().remove (0)
+            self.get_gateway_addr_results.borrow_mut().remove(0)
         }
 
         fn get_external_ip(&self) -> Result<Ipv4Addr, GetExternalIpError> {
             self.get_external_ip_results.borrow_mut().remove(0)
         }
 
-        fn add_port(&self, protocol: PortMappingProtocol, external_port: u16, local_addr: SocketAddrV4, lease_duration: u32, description: &str) -> Result<(), AddPortError> {
-            self.add_port_params.lock().unwrap().push ((protocol, external_port, local_addr, lease_duration, description.to_string()));
-            self.add_port_results.borrow_mut().remove (0)
+        fn add_port(
+            &self,
+            protocol: PortMappingProtocol,
+            external_port: u16,
+            local_addr: SocketAddrV4,
+            lease_duration: u32,
+            description: &str,
+        ) -> Result<(), AddPortError> {
+            self.add_port_params.lock().unwrap().push((
+                protocol,
+                external_port,
+                local_addr,
+                lease_duration,
+                description.to_string(),
+            ));
+            self.add_port_results.borrow_mut().remove(0)
         }
 
-        fn remove_port(&self, protocol: PortMappingProtocol, external_port: u16) -> Result<(), RemovePortError> {
-            self.remove_port_params.lock().unwrap().push ((protocol, external_port));
-            self.remove_port_results.borrow_mut().remove (0)
+        fn remove_port(
+            &self,
+            protocol: PortMappingProtocol,
+            external_port: u16,
+        ) -> Result<(), RemovePortError> {
+            self.remove_port_params
+                .lock()
+                .unwrap()
+                .push((protocol, external_port));
+            self.remove_port_results.borrow_mut().remove(0)
         }
     }
 
     impl GatewayWrapperMock {
-        fn new () -> Self {
+        fn new() -> Self {
             Self {
                 get_gateway_addr_results: RefCell::new(vec![]),
                 get_external_ip_results: RefCell::new(vec![]),
                 add_port_params: Arc::new(Mutex::new(vec![])),
                 add_port_results: RefCell::new(vec![]),
                 remove_port_params: Arc::new(Mutex::new(vec![])),
-                remove_port_results: RefCell::new(vec![])
+                remove_port_results: RefCell::new(vec![]),
             }
         }
 
-        fn get_gateway_addr_result (self, result: SocketAddrV4) -> Self {
+        fn get_gateway_addr_result(self, result: SocketAddrV4) -> Self {
             self.get_gateway_addr_results.borrow_mut().push(result);
             self
         }
 
-        fn get_external_ip_result (self, result: Result<Ipv4Addr, GetExternalIpError>) -> Self {
+        fn get_external_ip_result(self, result: Result<Ipv4Addr, GetExternalIpError>) -> Self {
             self.get_external_ip_results.borrow_mut().push(result);
             self
         }
 
-        fn add_port_params (mut self, params: &Arc<Mutex<Vec<(PortMappingProtocol, u16, SocketAddrV4, u32, String)>>>) -> Self {
+        fn add_port_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(PortMappingProtocol, u16, SocketAddrV4, u32, String)>>>,
+        ) -> Self {
             self.add_port_params = params.clone();
             self
         }
 
-        fn add_port_result (self, result: Result<(), AddPortError>) -> Self {
+        fn add_port_result(self, result: Result<(), AddPortError>) -> Self {
             self.add_port_results.borrow_mut().push(result);
             self
         }
 
-        fn remove_port_params (mut self, params: &Arc<Mutex<Vec<(PortMappingProtocol, u16)>>>) -> Self {
+        fn remove_port_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(PortMappingProtocol, u16)>>>,
+        ) -> Self {
             self.remove_port_params = params.clone();
             self
         }
 
-        fn remove_port_result (self, result: Result<(), RemovePortError>) -> Self {
+        fn remove_port_result(self, result: Result<(), RemovePortError>) -> Self {
             self.remove_port_results.borrow_mut().push(result);
             self
         }
@@ -265,11 +341,10 @@ mod tests {
     fn find_routers_works() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let gateway_addr = SocketAddrV4::from_str("192.168.0.1:1900").unwrap();
-        let gateway = GatewayWrapperMock::new()
-            .get_gateway_addr_result(gateway_addr);
+        let gateway = GatewayWrapperMock::new().get_gateway_addr_result(gateway_addr);
         let gateway_factory = GatewayFactoryMock::new()
-            .make_params (&make_params_arc)
-            .make_result (Ok(gateway));
+            .make_params(&make_params_arc)
+            .make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
 
@@ -295,31 +370,28 @@ mod tests {
 
     #[test]
     fn find_routers_handles_error() {
-        let gateway_factory = GatewayFactoryMock::new()
-            .make_result (Err (SearchError::InvalidResponse));
+        let gateway_factory =
+            GatewayFactoryMock::new().make_result(Err(SearchError::InvalidResponse));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
 
         let result = subject.find_routers();
 
-        assert_eq!(
-            result,
-            Err(AutomapError::CantFindDefaultGateway)
-        );
+        assert_eq!(result, Err(AutomapError::CantFindDefaultGateway));
     }
 
     #[test]
     fn get_public_ip_works() {
         let public_ipv4 = Ipv4Addr::from_str("72.73.74.75").unwrap();
         let public_ip = IpAddr::V4(public_ipv4);
-        let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result (Ok (public_ipv4));
-        let gateway_factory = GatewayFactoryMock::new ()
-            .make_result (Ok (gateway));
+        let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(public_ipv4));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new (gateway_factory);
+        subject.gateway_factory = Box::new(gateway_factory);
 
-        let result = subject.get_public_ip(IpAddr::from_str("192.168.0.1").unwrap()).unwrap();
+        let result = subject
+            .get_public_ip(IpAddr::from_str("192.168.0.1").unwrap())
+            .unwrap();
 
         assert_eq!(result, public_ip);
     }
@@ -327,11 +399,10 @@ mod tests {
     #[test]
     fn get_public_ip_handles_error() {
         let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result (Err (GetExternalIpError::ActionNotAuthorized));
-        let gateway_factory = GatewayFactoryMock::new ()
-            .make_result (Ok (gateway));
+            .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new (gateway_factory);
+        subject.gateway_factory = Box::new(gateway_factory);
 
         let result = subject.get_public_ip(IpAddr::from_str("192.168.0.1").unwrap());
 
@@ -351,14 +422,15 @@ mod tests {
         let gateway = GatewayWrapperMock::new()
             .add_port_params(&add_port_params_arc)
             .add_port_result(Ok(()));
-        let gateway_factory = GatewayFactoryMock::new ()
-            .make_result (Ok (gateway));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
         let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new (gateway_factory);
+        subject.gateway_factory = Box::new(gateway_factory);
         subject.local_ip_finder = Box::new(local_ip_finder);
 
-        let result = subject.add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234).unwrap();
+        let result = subject
+            .add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234)
+            .unwrap();
 
         assert_eq!(result, 617);
         let add_port_params = add_port_params_arc.lock().unwrap();
@@ -377,14 +449,11 @@ mod tests {
     #[test]
     fn add_mapping_handles_ipv6_local_address() {
         let local_ipv6 = Ipv6Addr::from_str("0000:1111:2222:3333:4444:5555:6666:7777").unwrap();
-        let gateway = GatewayWrapperMock::new()
-            .add_port_result(Ok(()));
-        let gateway_factory = GatewayFactoryMock::new ()
-            .make_result (Ok (gateway));
-        let local_ip_finder = LocalIpFinderMock::new()
-            .find_result (Ok (IpAddr::V6(local_ipv6)));
+        let gateway = GatewayWrapperMock::new().add_port_result(Ok(()));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
+        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(IpAddr::V6(local_ipv6)));
         let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new (gateway_factory);
+        subject.gateway_factory = Box::new(gateway_factory);
         subject.local_ip_finder = Box::new(local_ip_finder);
 
         let result = subject.add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234);
@@ -395,13 +464,11 @@ mod tests {
     #[test]
     fn add_mapping_handles_error() {
         let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
-        let gateway = GatewayWrapperMock::new()
-            .add_port_result(Err(AddPortError::PortInUse));
-        let gateway_factory = GatewayFactoryMock::new ()
-            .make_result (Ok (gateway));
+        let gateway = GatewayWrapperMock::new().add_port_result(Err(AddPortError::PortInUse));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
         let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new (gateway_factory);
+        subject.gateway_factory = Box::new(gateway_factory);
         subject.local_ip_finder = Box::new(local_ip_finder);
 
         let result = subject.add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234);
@@ -418,12 +485,13 @@ mod tests {
         let gateway = GatewayWrapperMock::new()
             .remove_port_params(&remove_port_params_arc)
             .remove_port_result(Ok(()));
-        let gateway_factory = GatewayFactoryMock::new()
-            .make_result (Ok (gateway));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new (gateway_factory);
+        subject.gateway_factory = Box::new(gateway_factory);
 
-        let _ = subject.delete_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777).unwrap();
+        let _ = subject
+            .delete_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777)
+            .unwrap();
 
         let remove_port_params = remove_port_params_arc.lock().unwrap();
         assert_eq!(*remove_port_params, vec![(PortMappingProtocol::TCP, 7777,)]);
@@ -431,12 +499,11 @@ mod tests {
 
     #[test]
     fn delete_mapping_handles_error() {
-        let gateway = GatewayWrapperMock::new()
-            .remove_port_result(Err(RemovePortError::NoSuchPortMapping));
-        let gateway_factory = GatewayFactoryMock::new()
-            .make_result (Ok (gateway));
+        let gateway =
+            GatewayWrapperMock::new().remove_port_result(Err(RemovePortError::NoSuchPortMapping));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new (gateway_factory);
+        subject.gateway_factory = Box::new(gateway_factory);
 
         let result = subject.delete_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777);
 
@@ -450,13 +517,13 @@ mod tests {
 
     #[test]
     fn ensure_gateway_handles_missing_gateway() {
-        let gateway_factory = GatewayFactoryMock::new()
-            .make_result (Err(SearchError::InvalidResponse));
+        let gateway_factory =
+            GatewayFactoryMock::new().make_result(Err(SearchError::InvalidResponse));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
 
-        let result = subject.ensure_gateway ();
+        let result = subject.ensure_gateway();
 
-        assert_eq! (result, Err(AutomapError::CantFindDefaultGateway));
+        assert_eq!(result, Err(AutomapError::CantFindDefaultGateway));
     }
 }

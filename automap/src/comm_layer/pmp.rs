@@ -1,13 +1,15 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{UdpSocketFactory, UdpSocketFactoryReal, FreePortFactory, FreePortFactoryReal};
+use crate::comm_layer::pcp_pmp_common::{
+    FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
+};
 use crate::comm_layer::{AutomapError, Transactor};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
 use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
 use std::convert::TryFrom;
-use std::net::{IpAddr, SocketAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 pub struct PmpTransactor {
@@ -86,7 +88,7 @@ impl Default for PmpTransactor {
     fn default() -> Self {
         Self {
             socket_factory: Box::new(UdpSocketFactoryReal::new()),
-            free_port_factory: Box::new (FreePortFactoryReal::new()),
+            free_port_factory: Box::new(FreePortFactoryReal::new()),
         }
     }
 }
@@ -101,10 +103,18 @@ impl PmpTransactor {
         let len = request
             .marshal(&mut buffer)
             .expect("Bad packet construction");
-        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)), self.free_port_factory.make());
+        let address = SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            self.free_port_factory.make(),
+        );
         let socket = match self.socket_factory.make(address) {
             Ok(s) => s,
-            Err(e) => return Err(AutomapError::SocketBindingError(format!("{:?}", e), address)),
+            Err(e) => {
+                return Err(AutomapError::SocketBindingError(
+                    format!("{:?}", e),
+                    address,
+                ))
+            }
         };
         if let Err(e) = socket.set_read_timeout(Some(Duration::from_millis(250))) {
             return Err(AutomapError::SocketPrepError(format!("{:?}", e)));
@@ -127,7 +137,9 @@ impl PmpTransactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::mocks::{UdpSocketFactoryMock, UdpSocketMock, FreePortFactoryMock};
+    use crate::comm_layer::pcp_pmp_common::mocks::{
+        FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
+    };
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
@@ -145,17 +157,17 @@ mod tests {
         let io_error = io::Error::from(ErrorKind::ConnectionReset);
         let io_error_str = format!("{:?}", io_error);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.get_public_ip(router_ip).err().unwrap();
 
         match result {
             AutomapError::SocketBindingError(msg, addr) => {
-                assert_eq! (msg, io_error_str);
-                assert_eq! (addr.ip(), IpAddr::from_str ("0.0.0.0").unwrap());
-                assert_eq! (addr.port(), 5566);
-            },
-            e => panic! ("Expected SocketBindingError, got {:?}", e),
+                assert_eq!(msg, io_error_str);
+                assert_eq!(addr.ip(), IpAddr::from_str("0.0.0.0").unwrap());
+                assert_eq!(addr.port(), 5566);
+            }
+            e => panic!("Expected SocketBindingError, got {:?}", e),
         }
     }
 
@@ -166,7 +178,7 @@ mod tests {
         let io_error_str = format!("{:?}", io_error);
         let socket = UdpSocketMock::new().set_read_timeout_result(Err(io_error));
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
@@ -182,7 +194,7 @@ mod tests {
             .set_read_timeout_result(Ok(()))
             .send_to_result(Err(io_error));
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
@@ -199,7 +211,7 @@ mod tests {
             .send_to_result(Ok(24))
             .recv_from_result(Err(io_error), vec![]);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
@@ -255,7 +267,7 @@ mod tests {
                 response_buffer[0..response_len].to_vec(),
             );
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.get_public_ip(router_ip);
 
@@ -297,7 +309,7 @@ mod tests {
                 response_buffer[0..response_len].to_vec(),
             );
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.get_public_ip(router_ip);
 
@@ -336,7 +348,7 @@ mod tests {
                 response_buffer[0..response_len].to_vec(),
             );
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
@@ -377,7 +389,7 @@ mod tests {
                 response_buffer[0..response_len].to_vec(),
             );
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
@@ -432,7 +444,7 @@ mod tests {
                 response_buffer[0..response_len].to_vec(),
             );
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject (socket_factory);
+        let subject = make_subject(socket_factory);
 
         let result = subject.delete_mapping(router_ip, 7777);
 
@@ -456,8 +468,8 @@ mod tests {
 
     fn make_subject(socket_factory: UdpSocketFactoryMock) -> PmpTransactor {
         let mut subject = PmpTransactor::default();
-        subject.socket_factory = Box::new (socket_factory);
-        subject.free_port_factory = Box::new (FreePortFactoryMock::new ().make_result(5566));
+        subject.socket_factory = Box::new(socket_factory);
+        subject.free_port_factory = Box::new(FreePortFactoryMock::new().make_result(5566));
         subject
     }
 

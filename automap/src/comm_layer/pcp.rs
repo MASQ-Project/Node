@@ -121,7 +121,12 @@ impl PcpTransactor {
         );
         let socket = match self.socket_factory.make(socket_addr) {
             Ok(s) => s,
-            Err(e) => return Err(AutomapError::SocketBindingError(format!("{:?}", e), socket_addr)),
+            Err(e) => {
+                return Err(AutomapError::SocketBindingError(
+                    format!("{:?}", e),
+                    socket_addr,
+                ))
+            }
         };
         match socket.set_read_timeout(Some(Duration::from_secs(3))) {
             Ok(_) => (),
@@ -238,17 +243,20 @@ mod tests {
         let free_port_factory = FreePortFactoryMock::new().make_result(5566);
         let mut subject = PcpTransactor::default();
         subject.socket_factory = Box::new(socket_factory);
-        subject.free_port_factory = Box::new (free_port_factory);
+        subject.free_port_factory = Box::new(free_port_factory);
 
-        let result = subject.mapping_transaction(router_ip, 6666, 4321).err().unwrap();
+        let result = subject
+            .mapping_transaction(router_ip, 6666, 4321)
+            .err()
+            .unwrap();
 
         match result {
             AutomapError::SocketBindingError(msg, addr) => {
-                assert_eq! (msg, io_error_str);
-                assert_eq! (addr.ip(), IpAddr::from_str ("0.0.0.0").unwrap());
-                assert_eq! (addr.port(), 5566);
-            },
-            e => panic! ("Expected SocketBindingError, got {:?}", e),
+                assert_eq!(msg, io_error_str);
+                assert_eq!(addr.ip(), IpAddr::from_str("0.0.0.0").unwrap());
+                assert_eq!(addr.port(), 5566);
+            }
+            e => panic!("Expected SocketBindingError, got {:?}", e),
         }
     }
 

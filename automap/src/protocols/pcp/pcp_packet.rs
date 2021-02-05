@@ -505,16 +505,16 @@ mod tests {
 
     #[test]
     fn announce_opcode_is_future_enhancement() {
-        let result = Opcode::Announce.parse_data (&[]).err().unwrap();
+        let result = Opcode::Announce.parse_data(&[]).err().unwrap();
 
-        assert_eq! (result, ParseError::UnexpectedOpcode("Announce".to_string()));
+        assert_eq!(result, ParseError::UnexpectedOpcode("Announce".to_string()));
     }
 
     #[test]
     fn peer_opcode_is_future_enhancement() {
-        let result = Opcode::Peer.parse_data (&[]).err().unwrap();
+        let result = Opcode::Peer.parse_data(&[]).err().unwrap();
 
-        assert_eq! (result, ParseError::UnexpectedOpcode("Peer".to_string()));
+        assert_eq!(result, ParseError::UnexpectedOpcode("Peer".to_string()));
     }
 
     #[test]
