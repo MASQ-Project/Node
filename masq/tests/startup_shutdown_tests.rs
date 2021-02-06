@@ -5,6 +5,7 @@ use crate::utils::MasqProcess;
 use masq_lib::utils::find_free_port;
 use std::thread;
 use std::time::Duration;
+use std::ops::Index;
 
 mod utils;
 

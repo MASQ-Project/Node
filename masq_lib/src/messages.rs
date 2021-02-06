@@ -6,8 +6,6 @@ use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::ui_gateway::{MessageBody, MessagePath};
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
-// use serde::export::fmt::Error;
-// use serde::export::Formatter;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
