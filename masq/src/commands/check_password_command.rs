@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use std::any::Any;
@@ -27,7 +29,8 @@ impl Command for CheckPasswordCommand {
         let input = UiCheckPasswordRequest {
             db_password_opt: self.db_password_opt.clone(),
         };
-        let msg: UiCheckPasswordResponse = transaction(input, context, 1000)?;
+        let msg: UiCheckPasswordResponse =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
         writeln!(
             context.stdout(),
             "{}",

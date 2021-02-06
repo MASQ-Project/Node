@@ -144,7 +144,6 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
-    use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -320,11 +319,9 @@ Start block:                      3456\n\
     #[test]
     fn configuration_command_sad_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let port = find_free_port();
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Err(ConnectionDropped("Booga".to_string())))
-            .active_port_result(Some(port));
+            .transact_result(Err(ConnectionDropped("Booga".to_string())));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let subject = ConfigurationCommand::new(vec!["configuration".to_string()]).unwrap();

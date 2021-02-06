@@ -1,5 +1,7 @@
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
 use std::any::Any;
@@ -39,7 +41,8 @@ impl Command for WalletAddressesCommand {
         let input = UiWalletAddressesRequest {
             db_password: self.db_password.clone(),
         };
-        let msg: UiWalletAddressesResponse = transaction(input, context, 1000)?;
+        let msg: UiWalletAddressesResponse =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
         writeln!(
             context.stdout(),
             "Your consuming wallet address: {}",

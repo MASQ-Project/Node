@@ -1,5 +1,7 @@
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use clap::{App, Arg, ArgGroup, SubCommand};
 use masq_lib::messages::{UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use std::any::Any;
@@ -71,7 +73,8 @@ impl Command for RecoverWalletsCommand {
             consuming_derivation_path: self.consuming_path.clone(),
             earning_wallet: self.earning_wallet.clone(),
         };
-        let _: UiRecoverWalletsResponse = transaction(input, context, 1000)?;
+        let _: UiRecoverWalletsResponse =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
         writeln!(context.stdout(), "Wallets were successfully recovered").expect("writeln! failed");
         Ok(())
     }
