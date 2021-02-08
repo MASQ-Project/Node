@@ -67,7 +67,7 @@ impl Command for ShutdownCommand {
             Err(Payload(code, message)) if code == TIMEOUT_ERROR => {
                 writeln!(
                     context.stderr(),
-                    "MASQNode seems not running. Command likely used more times"
+                    "MASQNode seems not running; command likely used more times"
                 )
                 .expect("write! failed");
                 return Err(Payload(code, message));
@@ -265,7 +265,7 @@ mod tests {
         );
         assert_eq!(
             stderr_arc.lock().unwrap().get_string(),
-            "MASQNode seems not running. Command likely used more times\n"
+            "MASQNode seems not running; command likely used more times\n"
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
     }
