@@ -8,7 +8,9 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, SubCommand};
-use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR};
+use masq_lib::messages::{
+    UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR, TIMEOUT_ERROR,
+};
 use masq_lib::utils::localhost;
 use std::fmt::Debug;
 use std::net::{SocketAddr, TcpStream};
@@ -57,12 +59,23 @@ impl Command for ShutdownCommand {
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
                 writeln!(
                     context.stderr(),
-                    "MASQNode is not running; therefore it cannot be shut down."
+                    "MASQNode is not running; therefore it cannot be shut down"
                 )
                 .expect("write! failed");
                 return Err(Payload(code, message));
             }
-            Err(impossible) => panic!("Should never happen: {:?}", impossible),
+            Err(Payload(code, message)) if code == TIMEOUT_ERROR => {
+                writeln!(
+                    context.stderr(),
+                    "MASQNode seems not running. Command likely used more times"
+                )
+                .expect("write! failed");
+                return Err(Payload(code, message));
+            }
+
+            Err(unknown_error) => {
+                panic!("Undocumented error: please report to us: {}", unknown_error)
+            }
         }
         match context.active_port() {
             None => {
@@ -227,7 +240,32 @@ mod tests {
         );
         assert_eq!(
             stderr_arc.lock().unwrap().get_string(),
-            "MASQNode is not running; therefore it cannot be shut down.\n"
+            "MASQNode is not running; therefore it cannot be shut down\n"
+        );
+        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
+    }
+
+    #[test]
+    fn shutdown_command_doesnt_work_if_time_out_expired() {
+        let mut context = CommandContextMock::new().transact_result(Err(
+            ContextError::PayloadError(TIMEOUT_ERROR, "irrelevant".to_string()),
+        ));
+        let stdout_arc = context.stdout_arc();
+        let stderr_arc = context.stderr_arc();
+        let subject = ShutdownCommand::new();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(
+            result,
+            Err(CommandError::Payload(
+                TIMEOUT_ERROR,
+                "irrelevant".to_string()
+            ))
+        );
+        assert_eq!(
+            stderr_arc.lock().unwrap().get_string(),
+            "MASQNode seems not running. Command likely used more times\n"
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
     }
