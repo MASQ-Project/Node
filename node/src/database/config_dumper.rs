@@ -185,7 +185,7 @@ mod tests {
             "config_dumper",
             "dump_config_creates_database_if_nonexistent",
         )
-        .join("Substratum")
+        .join("MASQ")
         .join(TEST_DEFAULT_CHAIN_NAME);
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()

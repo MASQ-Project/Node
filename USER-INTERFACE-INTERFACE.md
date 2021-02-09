@@ -284,7 +284,7 @@ may not have any database password at all.
 
 There's no way to make the Node tell you what the database password is, but if you have an idea
 what it might be, you can check your idea by sending this message with your idea in the
-`dbPasswordOpt` field. If you're checking to see whether there's no password, omit this
+`dbPasswordOpt` field. If you're checking to see whether there's no password, pass `null` in this
 field.
 
 #### `checkPassword`
@@ -314,8 +314,6 @@ code, where the high-order eight bits are 0x01.
 }
 ```
 ##### Description:
-NOTE: This message is planned, but not yet implemented.
-
 This message requests a dump of the Node's current configuration information. If you know the database password,
 provide it, and the response will contain the secrets in the database. If you don't supply a password, or you
 do but it's wrong, you'll still get a response, but it will have only public information: the secrets will be
@@ -343,8 +341,6 @@ Another reason the secrets might be missing is that there are not yet any secret
 }
 ```
 ##### Description:
-NOTE: This message is planned, but not yet implemented.
-
 This conveys the Node's current configuration information. Some of it is optional: if it's missing, it might be
 because it hasn't been configured yet, or it might be because it's secret and you didn't provide the correct
 database password. If you want to know whether the password you have is the correct one, try the
@@ -357,7 +353,7 @@ version. If this attempt fails for some reason, this value can be used to diagno
 
 * `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
 
-* `gasPrice`: The Node will not pay more than this number of Gwei for gas to complete a transaction.
+* `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
 
 * `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
 phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also

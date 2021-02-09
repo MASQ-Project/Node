@@ -1,5 +1,7 @@
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse};
 use std::any::Any;
@@ -58,7 +60,8 @@ impl Command for ChangePasswordCommand {
             old_password_opt: self.old_password.clone(),
             new_password: self.new_password.clone(),
         };
-        let _: UiChangePasswordResponse = transaction(input, context, 1000)?;
+        let _: UiChangePasswordResponse =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
         writeln!(context.stdout(), "Database password has been changed").expect("writeln! failed");
         Ok(())
     }

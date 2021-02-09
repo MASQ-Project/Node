@@ -4,9 +4,10 @@ use actix::{Actor, Context, Handler, Recipient};
 
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
-    UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateWalletsRequest,
-    UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiRecoverWalletsRequest,
-    UiRecoverWalletsResponse, UiWalletAddressesRequest, UiWalletAddressesResponse,
+    UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
+    UiConfigurationResponse, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
+    UiNewPasswordBroadcast, UiRecoverWalletsRequest, UiRecoverWalletsResponse,
+    UiWalletAddressesRequest, UiWalletAddressesResponse,
 };
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
@@ -18,14 +19,16 @@ use crate::blockchain::bip39::Bip39;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal,
+    PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::{Wallet, WalletError};
+use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
+use rustc_hex::ToHex;
 use std::str::FromStr;
 
 pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
@@ -38,7 +41,8 @@ pub const BAD_PASSWORD_ERROR: u64 = CONFIGURATOR_PREFIX | 6;
 pub const ALREADY_INITIALIZED_ERROR: u64 = CONFIGURATOR_PREFIX | 7;
 pub const DERIVATION_PATH_ERROR: u64 = CONFIGURATOR_PREFIX | 8;
 pub const MNEMONIC_PHRASE_ERROR: u64 = CONFIGURATOR_PREFIX | 9;
-pub const EARLY_QUESTIONING_ABOUT_DATA: u64 = CONFIGURATOR_PREFIX | 10;
+pub const VALUE_MISSING_ERROR: u64 = CONFIGURATOR_PREFIX | 10;
+pub const EARLY_QUESTIONING_ABOUT_DATA: u64 = CONFIGURATOR_PREFIX | 11;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -65,60 +69,20 @@ impl Handler<NodeFromUiMessage> for Configurator {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
-            debug!(
-                &self.logger,
-                "Handling {} message from client {}", msg.body.opcode, msg.client_id
-            );
-            let response = self.handle_check_password(body, context_id);
-            debug!(
-                &self.logger,
-                "Sending response to checkPassword command:\n{:?}", response
-            );
-            self.send_to_ui_gateway(ClientId(msg.client_id), response);
+            self.call_handler(msg, |c| c.handle_check_password(body, context_id));
         } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
-            debug!(
-                &self.logger,
-                "Handling {} message from client {}", msg.body.opcode, msg.client_id
-            );
-            let response = self.handle_change_password(body, msg.client_id, context_id);
-            debug!(
-                &self.logger,
-                "Sending response to changePassword command:\n{:?}", response
-            );
-            self.send_to_ui_gateway(ClientId(msg.client_id), response);
+            let client_id = msg.client_id;
+            self.call_handler(msg, |c| {
+                c.handle_change_password(body, client_id, context_id)
+            });
         } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.clone().body) {
-            debug!(
-                &self.logger,
-                "Handling {} message from client {}", msg.body.opcode, msg.client_id
-            );
-            let response = self.handle_generate_wallets(body, context_id);
-            debug!(
-                &self.logger,
-                "Sending response to generateWallets command:\n{:?}", response
-            );
-            self.send_to_ui_gateway(ClientId(msg.client_id), response);
+            self.call_handler(msg, |c| c.handle_generate_wallets(body, context_id));
         } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.clone().body) {
-            debug!(
-                &self.logger,
-                "Handling {} message from client {}", msg.body.opcode, msg.client_id
-            );
-            let response = self.handle_recover_wallets(body, context_id);
-            debug!(
-                &self.logger,
-                "Sending response to recoverWallets command:\n{:?}", response
-            );
-            self.send_to_ui_gateway(ClientId(msg.client_id), response);
+            self.call_handler(msg, |c| c.handle_recover_wallets(body, context_id));
+        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.clone().body) {
+            self.call_handler(msg, |c| c.handle_configuration(body, context_id));
         } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.clone().body) {
-            debug!(
-                &self.logger,
-                "Handling {} message from client {}", msg.body.opcode, msg.client_id
-            );
-            let response = self.handle_wallet_addresses(body, context_id);
-            debug!(
-                &self.logger,
-                "Sending response to walletAddresses command:\n{:?}", response
-            );
-            self.send_to_ui_gateway(ClientId(msg.client_id), response);
+            self.call_handler(msg, |c| c.handle_wallet_addresses(body, context_id));
         }
     }
 }
@@ -473,6 +437,105 @@ impl Configurator {
         }
     }
 
+    fn handle_configuration(
+        &mut self,
+        msg: UiConfigurationRequest,
+        context_id: u64,
+    ) -> MessageBody {
+        match Self::unfriendly_handle_configuration(msg, context_id, &mut self.persistent_config) {
+            Ok(message_body) => message_body,
+            Err((code, msg)) => MessageBody {
+                opcode: "configuration".to_string(),
+                path: MessagePath::Conversation(context_id),
+                payload: Err((code, msg)),
+            },
+        }
+    }
+
+    fn unfriendly_handle_configuration(
+        msg: UiConfigurationRequest,
+        context_id: u64,
+        persistent_config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<MessageBody, MessageError> {
+        let good_password = match &msg.db_password_opt {
+            None => None,
+            Some(db_password) => {
+                match persistent_config.check_password(Some(db_password.clone())) {
+                    Ok(true) => Some(db_password),
+                    Ok(false) => None,
+                    Err(_) => return Err((CONFIGURATOR_READ_ERROR, "dbPassword".to_string())),
+                }
+            }
+        };
+        let current_schema_version = persistent_config.current_schema_version();
+        let clandestine_port =
+            Self::value_required(persistent_config.clandestine_port(), "clandestinePort")?;
+        let gas_price = Self::value_required(persistent_config.gas_price(), "gasPrice")?;
+        let consuming_wallet_derivation_path_opt = Self::value_not_required(
+            persistent_config.consuming_wallet_derivation_path(),
+            "consumingWalletDerivationPathOpt",
+        )?;
+        let earning_wallet_address_opt = Self::value_not_required(
+            persistent_config.earning_wallet_address(),
+            "earningWalletAddressOpt",
+        )?;
+        let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
+        let (mnemonic_seed_opt, past_neighbors) = match good_password {
+            Some(password) => {
+                let mnemonic_seed_opt = Self::value_not_required(
+                    persistent_config.mnemonic_seed(password),
+                    "mnemonicSeedOpt",
+                )?
+                .map(|bytes| bytes.as_slice().to_hex::<String>());
+                let past_neighbors_opt = Self::value_not_required(
+                    persistent_config.past_neighbors(password),
+                    "pastNeighbors",
+                )?;
+                let past_neighbors = match past_neighbors_opt {
+                    None => vec![],
+                    Some(pns) => pns
+                        .into_iter()
+                        .map(|nd| nd.to_string(main_cryptde()))
+                        .collect::<Vec<String>>(),
+                };
+                (mnemonic_seed_opt, past_neighbors)
+            }
+            None => (None, vec![]),
+        };
+        let response = UiConfigurationResponse {
+            current_schema_version,
+            clandestine_port,
+            gas_price,
+            mnemonic_seed_opt,
+            consuming_wallet_derivation_path_opt,
+            earning_wallet_address_opt,
+            past_neighbors,
+            start_block,
+        };
+        Ok(response.tmb(context_id))
+    }
+
+    fn value_required<T>(
+        result: Result<Option<T>, PersistentConfigError>,
+        field_name: &str,
+    ) -> Result<T, MessageError> {
+        match result {
+            Ok(Some(v)) => Ok(v),
+            Ok(None) => Err((VALUE_MISSING_ERROR, field_name.to_string())),
+            Err(_) => Err((CONFIGURATOR_READ_ERROR, field_name.to_string())),
+        }
+    }
+
+    fn value_not_required<T>(
+        result: Result<Option<T>, PersistentConfigError>,
+        field_name: &str,
+    ) -> Result<Option<T>, MessageError> {
+        match result {
+            Ok(option) => Ok(option),
+            Err(_) => Err((CONFIGURATOR_READ_ERROR, field_name.to_string())),
+        }
+    }
+
     fn set_wallet_info(
         persistent_config: &mut Box<dyn PersistentConfiguration>,
         seed: &dyn AsRef<[u8]>,
@@ -513,6 +576,28 @@ impl Configurator {
                 sub.try_send(msg.clone())
                     .expect("New password recipient is dead")
             });
+    }
+
+    fn call_handler<F: FnOnce(&mut Configurator) -> MessageBody>(
+        &mut self,
+        msg: NodeFromUiMessage,
+        handler: F,
+    ) {
+        self.log_begin_handle(&msg);
+        let response = handler(self);
+        self.log_end_handle(&response);
+        self.send_to_ui_gateway(ClientId(msg.client_id), response);
+    }
+
+    fn log_begin_handle(&self, msg: &NodeFromUiMessage) {
+        debug!(
+            &self.logger,
+            "Handling {} message from client {}", msg.body.opcode, msg.client_id
+        );
+    }
+
+    fn log_end_handle(&self, body: &MessageBody) {
+        debug!(&self.logger, "Sending response to {} command:", body.opcode);
     }
 }
 
@@ -855,7 +940,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(
-            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710666, Wallets must exist prior to demanding info on them (recover or generate wallets first)"#,
+            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710667, Wallets must exist prior to demanding info on them (recover or generate wallets first)"#,
         );
     }
 
@@ -1506,6 +1591,91 @@ mod tests {
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).unwrap();
         let expected_seed = Bip39::seed(&mnemonic, "");
         assert_eq!(actual_seed.as_ref(), expected_seed.as_ref());
+    }
+
+    #[test]
+    fn configuration_works_with_missing_secrets() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(true))
+            .current_schema_version_result("1.2.3")
+            .clandestine_port_result(Ok(Some(1234)))
+            .gas_price_result(Ok(Some(2345)))
+            .mnemonic_seed_result(Ok(None))
+            .consuming_wallet_derivation_path_result(Ok(None))
+            .past_neighbors_result(Ok(Some(vec![])))
+            .earning_wallet_address_result(Ok(None))
+            .start_block_result(Ok(Some(3456)));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let (configuration, context_id) =
+            UiConfigurationResponse::fmb(subject.handle_configuration(
+                UiConfigurationRequest {
+                    db_password_opt: None,
+                },
+                4321,
+            ))
+            .unwrap();
+
+        assert_eq!(context_id, 4321);
+        assert_eq!(
+            configuration,
+            UiConfigurationResponse {
+                current_schema_version: "1.2.3".to_string(),
+                clandestine_port: 1234,
+                gas_price: 2345,
+                mnemonic_seed_opt: None,
+                consuming_wallet_derivation_path_opt: None,
+                earning_wallet_address_opt: None,
+                past_neighbors: vec![],
+                start_block: 3456
+            }
+        );
+    }
+
+    #[test]
+    fn configuration_handles_check_password_error() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Err(PersistentConfigError::NotPresent));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_configuration(
+            UiConfigurationRequest {
+                db_password_opt: Some("password".to_string()),
+            },
+            4321,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "configuration".to_string(),
+                path: MessagePath::Conversation(4321),
+                payload: Err((CONFIGURATOR_READ_ERROR, "dbPassword".to_string()))
+            }
+        );
+    }
+
+    #[test]
+    fn value_required_handles_absent_value() {
+        let result: Result<String, MessageError> = Configurator::value_required(Ok(None), "Field");
+
+        assert_eq!(result, Err((VALUE_MISSING_ERROR, "Field".to_string())))
+    }
+
+    #[test]
+    fn value_required_handles_read_error() {
+        let result: Result<String, MessageError> =
+            Configurator::value_required(Err(PersistentConfigError::NotPresent), "Field");
+
+        assert_eq!(result, Err((CONFIGURATOR_READ_ERROR, "Field".to_string())))
+    }
+
+    #[test]
+    fn value_not_required_handles_read_error() {
+        let result: Result<Option<String>, MessageError> =
+            Configurator::value_not_required(Err(PersistentConfigError::NotPresent), "Field");
+
+        assert_eq!(result, Err((CONFIGURATOR_READ_ERROR, "Field".to_string())))
     }
 
     fn make_example_generate_wallets_request() -> UiGenerateWalletsRequest {
