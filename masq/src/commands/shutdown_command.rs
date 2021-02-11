@@ -9,7 +9,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, SubCommand};
 use masq_lib::messages::{
-    UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR, TIMEOUT_ERROR,
+    UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR
 };
 use masq_lib::utils::localhost;
 use std::fmt::Debug;
@@ -64,17 +64,9 @@ impl Command for ShutdownCommand {
                 .expect("write! failed");
                 return Err(Payload(code, message));
             }
-            Err(Payload(code, message)) if code == TIMEOUT_ERROR => {
-                writeln!(
-                    context.stderr(),
-                    "MASQNode is not running; command was likely used more than once"
-                )
-                .expect("write! failed");
-                return Err(Payload(code, message));
-            }
 
             Err(unknown_error) => {
-                panic!("Undocumented error: please report to us: {}", unknown_error)
+                panic!("Unexpected error: please report to us: {}", unknown_error)
             }
         }
         match context.active_port() {
@@ -241,31 +233,6 @@ mod tests {
         assert_eq!(
             stderr_arc.lock().unwrap().get_string(),
             "MASQNode is not running; therefore it cannot be shut down\n"
-        );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
-    }
-
-    #[test]
-    fn shutdown_command_doesnt_work_if_time_out_expired() {
-        let mut context = CommandContextMock::new().transact_result(Err(
-            ContextError::PayloadError(TIMEOUT_ERROR, "irrelevant".to_string()),
-        ));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
-        let subject = ShutdownCommand::new();
-
-        let result = subject.execute(&mut context);
-
-        assert_eq!(
-            result,
-            Err(CommandError::Payload(
-                TIMEOUT_ERROR,
-                "irrelevant".to_string()
-            ))
-        );
-        assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
-            "MASQNode is not running; command was likely used more than once\n"
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
     }

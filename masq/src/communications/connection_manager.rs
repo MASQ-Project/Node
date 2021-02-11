@@ -486,6 +486,7 @@ impl ConnectionManagerThread {
     }
 }
 
+#[allow(dead_code)] //because of the new unimplemented!() in send()
 struct BroadcastHandleRedirect {
     next_handle: Box<dyn BroadcastHandle>,
     redirect_order_tx: Sender<RedirectOrder>,
