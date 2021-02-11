@@ -505,7 +505,8 @@ impl BroadcastHandle for BroadcastHandleRedirect {
                     .expect("ConnectionManagerThread is dead");
             }
             Err(_) => {
-                self.next_handle.send(message_body);
+                unimplemented!()
+                //self.next_handle.send(message_body);
             }
         };
     }

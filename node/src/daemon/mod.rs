@@ -28,7 +28,7 @@ use masq_lib::messages::{
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
-use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage, MessagePath};
 use std::collections::{HashMap, HashSet};
 
 pub struct Recipients {
@@ -257,14 +257,14 @@ impl Daemon {
                         },
                         payload: match body.payload {
                             Ok(json) => json,
-                            Err((_code, _message)) => unimplemented!(),
+                            Err((_code, _message)) => unimplemented!(),  //should be changed to panic
                         },
                     }
                     .tmb(0),
                     ClientId(client_id),
                 );
             }
-            None => self.send_node_is_not_running_error(client_id, body.opcode),
+            None => self.send_node_is_not_running_error(client_id, body.path,body.opcode),
         }
     }
 
@@ -300,7 +300,7 @@ impl Daemon {
         }
     }
 
-    fn send_node_is_not_running_error(&self, client_id: u64, err_opcode: String) {
+    fn send_node_is_not_running_error(&self, client_id: u64, path: MessagePath, err_opcode: String) {
         error!(
             &self.logger,
             "Daemon is sending redirect error for {} message to UI {}: Node is not running",
@@ -308,8 +308,8 @@ impl Daemon {
             client_id
         );
         let body = MessageBody {
-            opcode: "redirect".to_string(),
-            path: FireAndForget,
+            opcode: err_opcode.to_string(),
+            path,
             payload: Err((
                 NODE_NOT_RUNNING_ERROR,
                 format!("Cannot handle {} request: Node is not running", err_opcode),
@@ -430,12 +430,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Required, Set};
-    use masq_lib::messages::{
-        CrashReason, UiFinancialsRequest, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
-        UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue,
-        UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder, UiStartResponse,
-        NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
-    };
+    use masq_lib::messages::{CrashReason, UiFinancialsRequest, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR, UiShutdownResponse, UiConfigurationRequest};
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
@@ -1404,41 +1399,56 @@ mod tests {
         assert_eq!(*process_is_running_params, vec![8888])
     }
 
-    #[test]
-    fn accepts_shutdown_order_discovers_non_running_node_and_returns_redirect_error() {
-        let (ui_gateway, _, _) = make_recorder();
-        let system = System::new("test");
-        let process_is_running_params_arc = Arc::new(Mutex::new(vec![]));
-        let verifier_tools = VerifierToolsMock::new()
-            .process_is_running_params(&process_is_running_params_arc)
-            .process_is_running_result(false); // only consulted once; second time, we already know
-        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
-        subject.node_ui_port = Some(7777);
-        subject.node_process_id = Some(8888);
-        subject.verifier_tools = Box::new(verifier_tools);
-        let subject_addr = subject.start();
-        subject_addr
-            .try_send(make_bind_message(ui_gateway))
-            .unwrap();
-        let body: MessageBody = UiShutdownRequest {}.tmb(4321); // Context ID is irrelevant
+        #[test]
+        fn accepts_unexpected_message_discovers_non_running_node_and_returns_conversational_answer_about_an_error(){
+            let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+            let system = System::new("test");
+            let process_is_running_params_arc = Arc::new(Mutex::new(vec![]));
+            let verifier_tools = VerifierToolsMock::new()
+                .process_is_running_params(&process_is_running_params_arc)
+                .process_is_running_result(false); // only consulted once; second time, we already know
+            let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+            subject.node_ui_port = Some(7777);
+            subject.node_process_id = Some(8888);
+            subject.verifier_tools = Box::new(verifier_tools);
+            let subject_addr = subject.start();
+            subject_addr
+                .try_send(make_bind_message(ui_gateway))
+                .unwrap();
+            let shutdown_body: MessageBody = UiShutdownRequest {}.tmb(4321);
+            let configuration_body: MessageBody = UiConfigurationRequest { db_password_opt: None }.tmb(3333);
 
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: body.clone(),
-            })
-            .unwrap(); // rejected because Node, thought to be up, discovered to be down
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: body.clone(),
-            })
-            .unwrap(); // rejected because Node known to be down
+            subject_addr
+                .try_send(NodeFromUiMessage {
+                    client_id: 1234,
+                    body: shutdown_body.clone(),
+                })
+                .unwrap();
+            subject_addr
+                .try_send(NodeFromUiMessage {
+                    client_id: 1234,
+                    body: configuration_body.clone(),
+                })
+                .unwrap();
 
-        System::current().stop();
-        system.run();
-        // no failure to retrieve second result from verifier_tools: test passes
-    }
+            System::current().stop();
+            system.run();
+            let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+            let first_record = ui_gateway_recording
+                .get_record::<NodeToUiMessage>(0)
+                .clone();
+            assert_eq!(first_record.target, ClientId(1234));
+            assert_eq!(first_record.body.path, Conversation(4321));
+            assert_eq!(first_record.body.payload,
+                       Err((NODE_NOT_RUNNING_ERROR, "Cannot handle shutdown request: Node is not running".to_string())));
+            let second_record = ui_gateway_recording
+                .get_record::<NodeToUiMessage>(1)
+                .clone();
+            assert_eq!(second_record.target, ClientId(1234));
+            assert_eq!(second_record.body.path, Conversation(3333));
+            assert_eq!(second_record.body.payload,
+                       Err((NODE_NOT_RUNNING_ERROR,"Cannot handle configuration request: Node is not running".to_string())));
+        }
 
     #[test]
     fn accepts_financials_request_before_start_and_returns_error() {
