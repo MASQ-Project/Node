@@ -864,6 +864,7 @@ impl MASQRealNode {
         Self::node_home_dir(&self.root_dir(), &String::from(self.name()))
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn open_firewall_port(name: &str, port: u16) -> Result<(), ()> {
         let port_str = format!("{}", port);
         match Self::exec_command_on_container_and_wait(
@@ -953,6 +954,7 @@ impl MASQRealNode {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn do_prepare_for_docker_run(container_name_ref: &str) -> Result<(), String> {
         let container_name = container_name_ref.to_string();
         let test_runner_node_home_dir =

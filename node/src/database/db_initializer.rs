@@ -124,6 +124,7 @@ impl DbInitializerReal {
         self.create_banned_table(conn)
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn create_config_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
             "create table if not exists config (
@@ -142,6 +143,7 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn initialize_config(
         &self,
         conn: &Connection,
@@ -202,6 +204,7 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn create_payable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
             "create table if not exists payable (
@@ -221,6 +224,7 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn create_receivable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
             "create table if not exists receivable (
@@ -239,6 +243,7 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn create_banned_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
             "create table banned ( wallet_address text primary key )",

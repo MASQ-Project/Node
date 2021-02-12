@@ -79,6 +79,7 @@ impl StreamEstablisher {
         Ok(tx_to_write)
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn spawn_stream_reader(
         &self,
         payload: &ClientRequestPayload_0v1,
