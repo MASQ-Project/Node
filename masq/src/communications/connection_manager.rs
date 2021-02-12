@@ -494,7 +494,7 @@ struct BroadcastHandleRedirect {
 
 impl BroadcastHandle for BroadcastHandleRedirect {
     fn send(&self, message_body: MessageBody) {
-        match UiRedirect::fmb(message_body.clone()) {
+        match UiRedirect::fmb(message_body) {
             Ok((redirect, _)) => {
                 let context_id = redirect.context_id.unwrap_or(0);
                 self.redirect_order_tx

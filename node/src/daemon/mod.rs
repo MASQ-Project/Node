@@ -21,16 +21,14 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
-    UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder, UiStartResponse,
-    UiUndeliveredFFM, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+    FromMessageBody, ToMessageBody, UiFfmUndeliveredBroadcast, UiNodeCrashedBroadcast, UiRedirect,
+    UiSetupBroadcast, UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder,
+    UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
-use masq_lib::ui_gateway::{
-    MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
-};
+use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::collections::{HashMap, HashSet};
 
 pub struct Recipients {
@@ -324,7 +322,7 @@ impl Daemon {
                 )),
             },
 
-            FireAndForget => UiUndeliveredFFM {
+            FireAndForget => UiFfmUndeliveredBroadcast {
                 opcode: received.opcode,
                 original_payload: received
                     .payload
@@ -1521,7 +1519,7 @@ mod tests {
         assert_eq!(record.body.opcode, "undeliveredFFM");
         assert_eq!(record.body.path, FireAndForget);
         assert_eq!(
-            UiUndeliveredFFM::fmb(record.body).unwrap(),
+            UiFfmUndeliveredBroadcast::fmb(record.body).unwrap(),
             (
                 UiUndeliveredFFM {
                     opcode: "uninventedMessage".to_string(),
