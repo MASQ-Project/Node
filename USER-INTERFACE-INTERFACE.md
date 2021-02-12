@@ -458,6 +458,28 @@ Requests the Node descriptor from a Node.
 ##### Description:
 Contains a Node's Node descriptor.
 
+#### `ffmUndelivered`
+##### Direction: Broadcast
+##### Correspondent: Daemon
+##### Layout:
+```
+"payload": {
+    "opcode": <string>,
+    "original_payload": <string>
+    }
+}
+```
+##### Description:
+When the Daemon receives a fire-and-forget message the normal way to proceed is to look whether that type of message
+is known to it, if not, then try to send a redirect message. However, if it turns out that the Node is not running at
+the moment it has no way to go through. On the other hand, we want the UI, or the user to know that this happened
+otherwise they might think that a certain action was executed thought wasn't. This message comes back to the sender (UI)
+saying that that one-way message could not deliver itself.
+ 
+`opcode` means the opcode taken from the original message received by the Daemon.
+
+`original_payload` carries the payload of the original message.
+
 #### `financials`
 ##### Direction: Request
 ##### Correspondent: Node

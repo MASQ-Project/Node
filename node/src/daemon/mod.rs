@@ -449,8 +449,7 @@ mod tests {
         CrashReason, UiConfigurationRequest, UiFinancialsRequest, UiNodeCrashedBroadcast,
         UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
         UiSetupResponseValue, UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder,
-        UiStartResponse, UiUndeliveredFFM, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR,
-        NODE_NOT_RUNNING_ERROR,
+        UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -1516,12 +1515,12 @@ mod tests {
             .get_record::<NodeToUiMessage>(0)
             .clone();
         assert_eq!(record.target, ClientId(1234));
-        assert_eq!(record.body.opcode, "undeliveredFFM");
+        assert_eq!(record.body.opcode, "ffmUndelivered");
         assert_eq!(record.body.path, FireAndForget);
         assert_eq!(
             UiFfmUndeliveredBroadcast::fmb(record.body).unwrap(),
             (
-                UiUndeliveredFFM {
+                UiFfmUndeliveredBroadcast {
                     opcode: "uninventedMessage".to_string(),
                     original_payload: "Something very important".to_string()
                 },
