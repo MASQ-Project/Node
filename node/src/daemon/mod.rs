@@ -23,7 +23,7 @@ use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
     UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder, UiStartResponse,
-    NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+    UiUndeliveredFFM, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
@@ -260,7 +260,7 @@ impl Daemon {
                         payload: match body.payload {
                             Ok(json) => json,
                             Err((_code, _message)) => {
-                                panic!("Incoming message from UI has an error-signed payload")
+                                panic!("Incoming message from UI with a payload signaling an error")
                             }
                         },
                     }
@@ -268,7 +268,7 @@ impl Daemon {
                     ClientId(client_id),
                 );
             }
-            None => self.send_node_is_not_running_error(client_id, body.path, body.opcode),
+            None => self.send_node_is_not_running_error(client_id, body),
         }
     }
 
@@ -304,25 +304,33 @@ impl Daemon {
         }
     }
 
-    fn send_node_is_not_running_error(
-        &self,
-        client_id: u64,
-        path: MessagePath,
-        err_opcode: String,
-    ) {
+    fn send_node_is_not_running_error(&self, client_id: u64, received: MessageBody) {
         error!(
             &self.logger,
             "Daemon is sending redirect error for {} message to UI {}: Node is not running",
-            &err_opcode,
+            &received.opcode,
             client_id
         );
-        let body = MessageBody {
-            opcode: err_opcode.to_string(),
-            path,
-            payload: Err((
-                NODE_NOT_RUNNING_ERROR,
-                format!("Cannot handle {} request: Node is not running", err_opcode),
-            )),
+        let body = match received.path {
+            Conversation(_) => MessageBody {
+                opcode: received.opcode.clone(),
+                path: received.path,
+                payload: Err((
+                    NODE_NOT_RUNNING_ERROR,
+                    format!(
+                        "Cannot handle {} request: Node is not running",
+                        received.opcode
+                    ),
+                )),
+            },
+
+            FireAndForget => UiUndeliveredFFM {
+                opcode: received.opcode,
+                original_payload: received
+                    .payload
+                    .expect("fire-and-forget message has a payload of error"),
+            }
+            .tmb(0),
         };
         let target = ClientId(client_id);
         self.send_ui_message(body, target);
@@ -443,7 +451,8 @@ mod tests {
         CrashReason, UiConfigurationRequest, UiFinancialsRequest, UiNodeCrashedBroadcast,
         UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
         UiSetupResponseValue, UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder,
-        UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+        UiStartResponse, UiUndeliveredFFM, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR,
+        NODE_NOT_RUNNING_ERROR,
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -1418,10 +1427,7 @@ mod tests {
     ) {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
-        let process_is_running_params_arc = Arc::new(Mutex::new(vec![]));
-        let verifier_tools = VerifierToolsMock::new()
-            .process_is_running_params(&process_is_running_params_arc)
-            .process_is_running_result(false); // only consulted once; second time, we already know
+        let verifier_tools = VerifierToolsMock::new().process_is_running_result(false); // only consulted once; second time, we already know
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.node_ui_port = Some(7777);
         subject.node_process_id = Some(8888);
@@ -1475,6 +1481,54 @@ mod tests {
                 NODE_NOT_RUNNING_ERROR,
                 "Cannot handle configuration request: Node is not running".to_string()
             ))
+        );
+    }
+
+    #[test]
+    fn unexpected_ff_message_undeliverable_to_inactive_node_is_announced_with_another_ff_message() {
+        //fire and forget message that could be sent from UI to Node does not exist so far,
+        //this is for the future
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let system = System::new("test");
+        let verifier_tools = VerifierToolsMock::new().process_is_running_result(false);
+        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        subject.node_ui_port = Some(7777);
+        subject.node_process_id = Some(8888);
+        subject.verifier_tools = Box::new(verifier_tools);
+        let subject_addr = subject.start();
+        subject_addr
+            .try_send(make_bind_message(ui_gateway))
+            .unwrap();
+        let body = MessageBody {
+            opcode: "uninventedMessage".to_string(),
+            path: MessagePath::FireAndForget,
+            payload: Ok("Something very important".to_string()),
+        };
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body,
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let record = ui_gateway_recording
+            .get_record::<NodeToUiMessage>(0)
+            .clone();
+        assert_eq!(record.target, ClientId(1234));
+        assert_eq!(record.body.opcode, "undeliveredFFM");
+        assert_eq!(record.body.path, FireAndForget);
+        assert_eq!(
+            UiUndeliveredFFM::fmb(record.body).unwrap(),
+            (
+                UiUndeliveredFFM {
+                    opcode: "uninventedMessage".to_string(),
+                    original_payload: "Something very important".to_string()
+                },
+                0
+            )
         );
     }
 
@@ -1607,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Incoming message from UI has an error-signed payload")]
+    #[should_panic(expected = "Incoming message from UI with a payload signaling an error")]
     fn handle_unexpected_message_panics_if_receiving_payload_from_ui_being_an_error() {
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(true);
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));

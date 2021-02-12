@@ -92,7 +92,10 @@ impl NeighborhoodMode {
     }
 
     pub fn routes_data(&self) -> bool {
-        matches!(self, NeighborhoodMode::Standard(_, _, _) | NeighborhoodMode::OriginateOnly(_, _))
+        matches!(
+            self,
+            NeighborhoodMode::Standard(_, _, _) | NeighborhoodMode::OriginateOnly(_, _)
+        )
     }
 
     pub fn is_standard(&self) -> bool {
