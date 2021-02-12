@@ -175,13 +175,13 @@ macro_rules! conversation_message {
 // These messages are sent only to and/or by the Daemon, not the Node
 ///////////////////////////////////////////////////////////////////////
 
-// in case a fire and forget message to the Node was detected but the Node is down so it cannot be delivered
+// in case a fire and forget message for the Node was detected but the Node is down
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiUndeliveredFFM {
+pub struct UiFfmUndeliveredBroadcast {
     pub opcode: String,
     pub original_payload: String,
 }
-fire_and_forget_message!(UiUndeliveredFFM, "undeliveredFFM");
+fire_and_forget_message!(UiFfmUndeliveredBroadcast, "ffmUndelivered");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiCrashRequest {
