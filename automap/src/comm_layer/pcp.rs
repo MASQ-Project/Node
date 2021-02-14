@@ -1,8 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
-};
+use crate::comm_layer::pcp_pmp_common::{FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, find_routers};
 use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
@@ -41,7 +39,7 @@ pub struct PcpTransactor {
 
 impl Transactor for PcpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
-        unimplemented!()
+        find_routers()
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -384,6 +382,15 @@ mod tests {
                 "Map response has opcode Other(127) instead of Map".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn find_routers_returns_something_believable() {
+        let subject = PcpTransactor::default();
+
+        let result = subject.find_routers().unwrap();
+
+        assert_eq! (result.len(), 1)
     }
 
     #[test]

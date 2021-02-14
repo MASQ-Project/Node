@@ -1,8 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
-};
+use crate::comm_layer::pcp_pmp_common::{FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, find_routers};
 use crate::comm_layer::{AutomapError, Transactor};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
@@ -19,7 +17,7 @@ pub struct PmpTransactor {
 
 impl Transactor for PmpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
-        unimplemented!()
+        find_routers()
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -237,6 +235,15 @@ mod tests {
                 2, 0
             )))
         );
+    }
+
+    #[test]
+    fn find_routers_returns_something_believable() {
+        let subject = PmpTransactor::default();
+
+        let result = subject.find_routers().unwrap();
+
+        assert_eq! (result.len(), 1)
     }
 
     #[test]

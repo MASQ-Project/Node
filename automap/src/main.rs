@@ -10,32 +10,16 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 pub fn main() {
-    let args = std::env::args().collect::<Vec<String>>();
-    if args.len() != 2 {
-        println!("Usage: automap <IP address of your router>");
-        return;
-    }
-    let ip_string = args[1].as_str();
-    let router_ip = match IpAddr::from_str(ip_string) {
-        Ok(ip) => ip,
-        Err(e) => {
-            println!(
-                "'{}' is not a properly-formatted IP address: {:?}",
-                ip_string, e
-            );
-            return;
-        }
-    };
-
-    test_pcp(router_ip);
-    test_pmp(router_ip);
-    test_igdp(router_ip);
+    test_pcp();
+    test_pmp();
+    test_igdp();
 }
 
-fn test_pcp(router_ip: IpAddr) {
+fn test_pcp() {
     println!("\n====== PCP TESTS ======");
     let transactor = PcpTransactor::default();
-    let status = test_common(TestStatus::new(), router_ip, &transactor);
+    let (router_ip, status) = find_router(TestStatus::new(), &transactor);
+    let status = test_common(status, router_ip, &transactor);
     if status.cumulative_success {
         println!(
             "====== PCP is implemented on your router and we can successfully employ it ======\n"
@@ -45,10 +29,11 @@ fn test_pcp(router_ip: IpAddr) {
     }
 }
 
-fn test_pmp(router_ip: IpAddr) {
+fn test_pmp() {
     println!("\n====== PMP TESTS ======");
     let transactor = PmpTransactor::default();
-    let status = test_common(TestStatus::new(), router_ip, &transactor);
+    let (router_ip, status) = find_router(TestStatus::new(), &transactor);
+    let status = test_common(status, router_ip, &transactor);
     if status.cumulative_success {
         println!(
             "====== PMP is implemented on your router and we can successfully employ it ======\n"
@@ -58,10 +43,10 @@ fn test_pmp(router_ip: IpAddr) {
     }
 }
 
-fn test_igdp(router_ip: IpAddr) {
+fn test_igdp() {
     println!("\n====== IGDP TESTS ======");
     let transactor = IgdpTransactor::default();
-    let status = find_router(TestStatus::new(), router_ip, &transactor);
+    let (router_ip, status) = find_router(TestStatus::new(), &transactor);
     let status = seek_public_ip(status, router_ip, &transactor);
     let (port, mut status) = poke_firewall_hole(status, router_ip, &transactor);
     let status = if status.step_success {
@@ -103,31 +88,22 @@ fn test_common(status: TestStatus, router_ip: IpAddr, transactor: &dyn Transacto
     status
 }
 
-fn find_router(status: TestStatus, router_ip: IpAddr, transactor: &dyn Transactor) -> TestStatus {
+fn find_router(status: TestStatus, transactor: &dyn Transactor) -> (IpAddr, TestStatus) {
     println!("{}. Looking for routers on the subnet...", status.step);
     let timer = Timer::new();
     match transactor.find_routers() {
         Ok(list) => {
             let found_router_ip = list[0];
-            if found_router_ip == router_ip {
-                println!(
-                    "...found a router after {} at {}, just like you said.",
-                    timer.ms(),
-                    found_router_ip
-                );
-            } else {
-                println!(
-                    "...found a router after {} at {}, but you said I'd find it at {}.",
-                    timer.ms(),
-                    found_router_ip,
-                    router_ip
-                );
-            }
-            status.succeed()
+            println!(
+                "...found a router after {} at {}.",
+                timer.ms(),
+                found_router_ip
+            );
+            (found_router_ip, status.succeed())
         }
         Err(e) => {
             println!("...failed after {}: {:?}", timer.ms(), e);
-            status.fail(e)
+            (IpAddr::from_str ("0.0.0.0").unwrap(), status.fail(e))
         }
     }
 }
