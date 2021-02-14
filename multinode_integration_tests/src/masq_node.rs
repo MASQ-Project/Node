@@ -125,10 +125,7 @@ impl NodeReference {
         } else {
             String::from(slice)
                 .split(',')
-                .map(|x| match x.parse::<i64>() {
-                    Ok(n) => n,
-                    Err(_) => -1,
-                })
+                .map(|x| x.parse::<i64>().unwrap_or(-1))
                 .collect()
         };
         if port_list_numbers.contains(&-1) {

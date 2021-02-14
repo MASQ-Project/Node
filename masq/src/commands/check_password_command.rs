@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use std::any::Any;
@@ -27,7 +29,8 @@ impl Command for CheckPasswordCommand {
         let input = UiCheckPasswordRequest {
             db_password_opt: self.db_password_opt.clone(),
         };
-        let msg: UiCheckPasswordResponse = transaction(input, context, 1000)?;
+        let msg: UiCheckPasswordResponse =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
         writeln!(
             context.stdout(),
             "{}",
@@ -62,11 +65,52 @@ impl CheckPasswordCommand {
 mod tests {
     use super::*;
     use crate::command_context::ContextError;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn testing_command_factory_with_good_command() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec!["check-password".to_string(), "bonkers".to_string()])
+            .unwrap();
+
+        let check_password_command: &CheckPasswordCommand = result.as_any().downcast_ref().unwrap();
+        assert_eq!(
+            check_password_command,
+            &CheckPasswordCommand {
+                db_password_opt: Some("bonkers".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn testing_command_factory_with_bad_command() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject.make(vec![
+            "check-password".to_string(),
+            "bonkers".to_string(),
+            "invalid".to_string(),
+        ]);
+
+        match result {
+            Err(CommandFactoryError::CommandSyntax(msg)) => {
+                // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
+                assert_eq!(
+                    msg.contains("which wasn't expected, or isn't valid in this context"),
+                    true,
+                    "{}",
+                    msg
+                )
+            }
+            x => panic!("Expected CommandSyntax error, got {:?}", x),
+        }
+    }
 
     #[test]
     fn check_password_command_with_a_password_right() {

@@ -441,7 +441,7 @@ where
 mod tests {
     use super::*;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::{make_paying_wallet, make_wallet};
+    use crate::test_utils::{await_value, make_paying_wallet, make_wallet};
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core as rpc;
@@ -859,8 +859,17 @@ mod tests {
         let subject =
             BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
 
-        let results = subject
-            .get_balances(&Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap());
+        let results: (Balance, Balance) = await_value(None, || {
+            match subject.get_balances(
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            ) {
+                (Ok(a), Ok(b)) => Ok((Ok(a), Ok(b))),
+                (Err(a), _) => Err(a),
+                (_, Err(b)) => Err(b),
+            }
+        })
+        .unwrap();
+
         let eth_balance = results.0.unwrap();
         let token_balance = results.1.unwrap();
 

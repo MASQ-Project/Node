@@ -682,7 +682,7 @@ mod tests {
             actix::spawn(subject);
             system.run();
         });
-        let mut client = await_value(None, || UiConnection::make(port, NODE_UI_PROTOCOL));
+        let mut client = await_value(None, || UiConnection::make(port, NODE_UI_PROTOCOL)).unwrap();
 
         client.send_message(&OwnedMessage::Binary(vec![1u8, 2u8, 3u8, 4u8]));
         client.send_message(&OwnedMessage::Ping(vec![1u8, 2u8, 3u8, 4u8]));
@@ -1034,7 +1034,7 @@ mod tests {
             system.run();
         });
 
-        let mut client = await_value(None, || UiConnection::make(port, NODE_UI_PROTOCOL));
+        let mut client = await_value(None, || UiConnection::make(port, NODE_UI_PROTOCOL)).unwrap();
 
         client.send(UiShutdownRequest {});
         client.send_message(&OwnedMessage::Close(None));
@@ -1069,7 +1069,7 @@ mod tests {
             actix::spawn(subject);
             system.run();
         });
-        let mut client = await_value(None, || UiConnection::make(port, "MASQNode-UIv2"));
+        let mut client = await_value(None, || UiConnection::make(port, "MASQNode-UIv2")).unwrap();
         client.send(UiShutdownRequest {});
         {
             let writer = client.writer();

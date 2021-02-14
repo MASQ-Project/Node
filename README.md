@@ -193,91 +193,12 @@ will make payments for the services your node provides). If you plan to use your
 or other network application, it will also need to be configured with a funded consuming wallet (an Ethereum wallet
 from which it will make payments for the services other nodes provide).
 
-Configuring wallets is not a trivial task, so MASQ Node provides two special execution modes to help you do this, in
-addition to the normal long-running Service mode.
+##### Service Mode
 
-1. __Generate mode -__ When you start MASQ Node in Generate mode, it will generate a new BIP39 mnemonic phrase compatible 
-with wallet software (*e.g.* Metamask, MEW) or hardware devices (*e.g.* Ledger, Trezor) and new earning and consuming wallets
-for you based on BIP44 derivation paths. It will display this information on the console, and immediately terminate.
-You **MUST** record the mnemonic phrase exactly as displayed along with the mnemonic passphrase you provide and 
-keep it in a secure location. When it is displayed, that is your only opportunity to record the words. For security 
-purposes they cannot be displayed again. Record the words on paper, etch them in metal or stone and secure them in a safe
-deposit box or other secure offsite location. Do not run with administrative privileges (`sudo` on Linux and macOS, a command
-window started as Administrator in Windows).
-
-1. __Recover mode -__ If you already have existing earning and consuming wallets that you'd like MASQ Node to use, you
-can start it in Recover mode and tell it about those wallets. It will store the information you give it and immediately
-terminate. Do not run with administrative privileges (`sudo` on Linux and macOS, a command window started as Administrator in
-Windows).
-
-1. __Service mode -__ When started in Service mode, MASQ Node will come up, join the MASQ Network, and start
+When started in Service mode, MASQ Node will come up, join the MASQ Network, and start
 serving and consuming clandestine data until you stop it. Since Service mode requires listening on low-numbered
 restricted ports, starting MASQ Node in Service mode requires administrative privilege (`sudo` on Linux and macOS, a
 command window started as Administrator in Windows).
-
-##### Generate and Recover Modes
-
-* `--generate-wallet` (Generate mode only) This flag tells MASQ Node that it will be operating in Generate mode. No
-value can be supplied for this flag, and it cannot be given in the environment.
-
-* `--recover-wallet` (Recover mode only) This flag tells MASQ Node that it will be operating in Recover mode. No
-value can be supplied for this flag, and it cannot be given in the environment.
-
-* `--help` Displays help for the mode you're running in. Used by itself, it will show help for Service mode; used
-with `--generate-wallet` or `--recover-wallet` it will show help for the appropriate initialization mode. Cannot be 
-specified in the environment.
-
-* `--data-directory <DIRECTORY>` Operates the same for initialization modes as for Service mode. See below.
-
-* `--consuming-wallet <BIP44 DERIVATION PATH>` The HD derivation path for the consuming wallet that either 
-you're directing to be generated (Generate mode) or you already have (Recover mode). It defaults to m/44'/60'/0'/0/0. 
-Note that a derivation path will almost always have single quotes in it, so double-quote it on the command
-line to avoid unpleasantness.
-
-* `--earning-wallet <WALLET-ADDRESS> | <BIP44 DERIVATION PATH>` 
-If you specify this with an Ethereum address ("0x" followed by 40 hexadecimal digits), MASQ Node will use the address to
-identify your earning wallet. If you specify a derivation path, MASQ Node will use the mnemonic phrase (either the one
-you specify in Recover mode or the one node generates in Generate mode) and this derivation path to compute the
-address of your earning wallet. If you don't specify `--earning-wallet` at all, node will use a default of
-m/44'/60'/0'/0/1. Note that a derivation path will almost always have single quotes in it, so double-quote it 
-on the command line to avoid unpleasantness.
-
-* `--language <English | 中文(简体) | 中文(繁體) | Français | Italiano | 日本語 | 한국어 | Español>` HD wallets spring from a 
-single master keypair, which takes friendly form as a "mnemonic
-phrase" consisting of some number of standardized words in a particular order. Each word represents a
-particular bit pattern in the keypair. MASQ Node supports mnemonic phrases in a variety of languages.
-Specify the language in which you wish the mnemonic phrase to be generated (Generate mode) or in which
-you wish to supply the mnemonic phrase (Recover mode) with the `--language` parameter. Defaults to
-English.
-
-* `--word-count <12 | 15 | 18 | 21 | 24>` (Generate mode only) The mnemonic phrase that represents your master keypair can have
-different numbers of words in it. Shorter phrases are easier to remember; longer phrases are more secure.
-This is the number of words you want to be in the mnemonic phrase MASQ Node generates for you. Default is 12 for the 
-Ropsten testnet, and 24 for the Ethereum mainnet. 
-
-* `--mnemonic <BIP39 WORDS>` (Recover mode only) Specify the mnemonic phrase from which the consuming and earning wallets
-are derived. Remember to double-quote the phrase. Do not include the mnemonic passphrase here. Keep in mind
-that this is highly sensitive information; if it is compromised, the entire derivation tree is compromised.
-You can provide it on the command line if you wish, but keep in mind that command lines can frequently be
-seen by anyone who has enough privilege to get a list of running processes on the system. If you start MASQ Node
-in Recover mode and don't supply a `--mnemonic`, you'll be prompted to type it in at the console. This is
-much safer.
-
-* `--mnemonic-passphrase <MNEMONIC-PASSPHRASE>` This is a word or phrase that you make up that is used along with the mnemonic
-passphrase to generate the keypair that will serve as the root of your derivation tree. If you're in
-Recover mode and the mnemonic phrase you're entering doesn't have a mnemonic passphrase, you can leave it
-blank, but if you're in Generate mode we recommend that you select a passphrase to further obfuscate your
-seed. You'll only have to enter this whenever you generate or specify your mnemonic phrase. It's sensitive
-information, and if you don't specify it on the command line, you'll be prompted for it at the console. This
-is much safer.
-
-* `--wallet-password <PASSWORD>` MASQ Node has to store your root keypair in a database on disk. However, since it's
-sensitive information, it's important that it not be available to anyone who might hack into or steal your
-computer. Therefore, MASQ Node needs to use a password to encrypt the key. MASQ Node won't store the password,
-so you'll need to choose it when you initialize in Generate or Recover mode, and then supply it again whenever
-it's needed in Service mode.
-
-##### Service Mode
 
 * `--help` Displays command help and stops. Does not require administrative privilege. Cannot be specified in the
 environment or config file.
@@ -364,7 +285,8 @@ abort its startup with an error.
 
 * `--consuming-private-key <64-CHARACTER HEX KEY>`
 This allows you to specify the private key of your consuming wallet without having it related to your earning wallet by
-derivation path. While this method is fully functional, it's mostly useful for testing. If you do use it, keep in mind
+derivation path. While this method is fully functional, it should be used only for automated testing. It cannot be
+used if the database already contains a wallet pair. If you do use it, keep in mind
 that your consuming wallet private key is sensitive information: anyone who gets hold of it can drain all your funds.
 It's best to specify it in the environment (as MASQ_CONSUMING_PRIVATE_KEY) rather than on the command line or in the
 config file. You won't be allowed to use this parameter if you've already specified a consuming wallet derivation path
@@ -374,13 +296,13 @@ Service mode without having to go through Generate or Recover mode first, and wi
 
 * `--earning-wallet <WALLET-ADDRESS>` 
 This is an Ethereum address ("0x" followed by 40 hexadecimal digits) which MASQ Node will use to identify your earning 
-wallet. You must not have generated or recovered with an earning wallet derivation path, and you must
-always specify the same Ethereum address for your earning wallet.
+wallet. While this method is fully functional, it should be used only for automated testing. It cannot be
+used if the database already contains a wallet pair.
 
 * `--gas-price <GAS-PRICE>`
 The gas price is the amount of Gwei you will pay per unit of gas used in a transaction.
 
-  If you don't have an earning wallet set up at all, and you don't specify this either, a default earning wallet will be
+If you don't have an earning wallet set up at all, and you don't specify this either, a default earning wallet will be
 used, in which case the funds you earn will go to MASQ instead of to you: so unless you're in a philanthropic mood,
 you should be sure to set up or specify your earning wallet.
 

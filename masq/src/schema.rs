@@ -9,6 +9,7 @@ use crate::commands::generate_wallets_command::generate_wallets_subcommand;
 use crate::commands::setup_command::setup_subcommand;
 use crate::commands::shutdown_command::shutdown_subcommand;
 use crate::commands::start_command::start_subcommand;
+use crate::commands::wallet_addresses::wallet_addresses_subcommand;
 use clap::{App, AppSettings, Arg};
 use lazy_static::lazy_static;
 use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
@@ -56,6 +57,7 @@ pub fn app() -> App<'static, 'static> {
         .subcommand(setup_subcommand())
         .subcommand(start_subcommand())
         .subcommand(shutdown_subcommand())
+        .subcommand(wallet_addresses_subcommand())
 }
 
 fn validate_ui_port(port: String) -> Result<(), String> {

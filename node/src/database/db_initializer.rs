@@ -124,6 +124,7 @@ impl DbInitializerReal {
         self.create_banned_table(conn)
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn create_config_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
             "create table if not exists config (
@@ -142,6 +143,7 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn initialize_config(
         &self,
         conn: &Connection,
@@ -202,6 +204,7 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn create_payable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
             "create table if not exists payable (
@@ -221,6 +224,7 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn create_receivable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
             "create table if not exists receivable (
@@ -239,6 +243,7 @@ impl DbInitializerReal {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn create_banned_table(&self, conn: &Connection) -> Result<(), InitializationError> {
         conn.execute(
             "create table banned ( wallet_address text primary key )",
@@ -441,9 +446,6 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use masq_lib::constants::{
-        DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    };
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,

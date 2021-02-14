@@ -172,10 +172,10 @@ impl PersistentConfigurationMock {
         Self::default()
     }
 
-    pub fn current_schema_version_result(self, result: String) -> PersistentConfigurationMock {
+    pub fn current_schema_version_result(self, result: &str) -> PersistentConfigurationMock {
         self.current_schema_version_results
             .borrow_mut()
-            .push(result);
+            .push(result.to_string());
         self
     }
 

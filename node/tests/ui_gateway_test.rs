@@ -14,9 +14,11 @@ use utils::CommandConfig;
 fn dispatcher_message_integration() {
     fdlimit::raise_fd_limit();
     let port = find_free_port();
-    let mut node = utils::MASQNode::start_standard(Some(
-        CommandConfig::new().pair("--ui-port", &port.to_string()),
-    ));
+    let mut node = utils::MASQNode::start_standard(
+        "dispatcher_message_integration",
+        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        true,
+    );
     node.wait_for_log("UIGateway bound", Some(5000));
     let descriptor_req = UiDescriptorRequest {};
     let mut descriptor_client = UiConnection::new(port, NODE_UI_PROTOCOL);
@@ -34,9 +36,11 @@ fn dispatcher_message_integration() {
 fn request_financial_information_integration() {
     fdlimit::raise_fd_limit();
     let port = find_free_port();
-    let mut node = utils::MASQNode::start_standard(Some(
-        CommandConfig::new().pair("--ui-port", &port.to_string()),
-    ));
+    let mut node = utils::MASQNode::start_standard(
+        "request_financial_information_integration",
+        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        true,
+    );
     node.wait_for_log("UIGateway bound", Some(5000));
     let financials_request = UiFinancialsRequest {
         payable_minimum_amount: 0,
