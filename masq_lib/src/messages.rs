@@ -177,11 +177,11 @@ macro_rules! conversation_message {
 
 // in case a fire and forget message for the Node was detected but the Node is down
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiFfmUndeliveredBroadcast {
+pub struct UiUndeliveredBroadcast {
     pub opcode: String,
     pub original_payload: String,
 }
-fire_and_forget_message!(UiFfmUndeliveredBroadcast, "ffmUndelivered");
+fire_and_forget_message!(UiUndeliveredBroadcast, "ffmUndelivered");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiCrashRequest {

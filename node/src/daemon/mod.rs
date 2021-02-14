@@ -20,11 +20,7 @@ use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiFfmUndeliveredBroadcast, UiNodeCrashedBroadcast, UiRedirect,
-    UiSetupBroadcast, UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder,
-    UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
-};
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR, UiUndeliveredBroadcast};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
@@ -322,7 +318,7 @@ impl Daemon {
                 )),
             },
 
-            FireAndForget => UiFfmUndeliveredBroadcast {
+            FireAndForget => UiUndeliveredBroadcast {
                 opcode: received.opcode,
                 original_payload: received
                     .payload
@@ -1518,9 +1514,9 @@ mod tests {
         assert_eq!(record.body.opcode, "ffmUndelivered");
         assert_eq!(record.body.path, FireAndForget);
         assert_eq!(
-            UiFfmUndeliveredBroadcast::fmb(record.body).unwrap(),
+            UiUndeliveredBroadcast::fmb(record.body).unwrap(),
             (
-                UiFfmUndeliveredBroadcast {
+                UiUndeliveredBroadcast {
                     opcode: "uninventedMessage".to_string(),
                     original_payload: "Something very important".to_string()
                 },

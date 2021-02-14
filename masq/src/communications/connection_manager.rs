@@ -486,7 +486,6 @@ impl ConnectionManagerThread {
     }
 }
 
-#[allow(dead_code)] //because of the new unimplemented!() in send()
 struct BroadcastHandleRedirect {
     next_handle: Box<dyn BroadcastHandle>,
     redirect_order_tx: Sender<RedirectOrder>,
@@ -494,7 +493,7 @@ struct BroadcastHandleRedirect {
 
 impl BroadcastHandle for BroadcastHandleRedirect {
     fn send(&self, message_body: MessageBody) {
-        match UiRedirect::fmb(message_body) {
+        match UiRedirect::fmb(message_body.clone()) {
             Ok((redirect, _)) => {
                 let context_id = redirect.context_id.unwrap_or(0);
                 self.redirect_order_tx
@@ -506,8 +505,7 @@ impl BroadcastHandle for BroadcastHandleRedirect {
                     .expect("ConnectionManagerThread is dead");
             }
             Err(_) => {
-                unimplemented!()
-                //self.next_handle.send(message_body);
+                self.next_handle.send(message_body);
             }
         };
     }
@@ -542,13 +540,12 @@ impl RedirectBroadcastHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communications::broadcast_handler::{BroadcastHandler, StreamFactoryReal};
-    use crate::communications::node_conversation::ClientError;
+    //use crate::communications::node_conversation::ClientError;
     use crate::test_utils::client_utils::make_client;
     use crossbeam_channel::TryRecvError;
-    use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast};
+    use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiSetupBroadcast};
     use masq_lib::messages::{
-        UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupBroadcast, UiSetupRequest,
+        UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupRequest,
         UiSetupResponse, UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse,
         UiUnmarshalError,
     };
@@ -562,6 +559,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::communications::node_conversation::ClientError;
 
     struct BroadcastHandleMock {
         send_params: Arc<Mutex<Vec<MessageBody>>>,

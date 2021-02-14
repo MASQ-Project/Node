@@ -954,7 +954,6 @@ impl MASQRealNode {
         Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
     fn do_prepare_for_docker_run(container_name_ref: &str) -> Result<(), String> {
         let container_name = container_name_ref.to_string();
         let test_runner_node_home_dir =

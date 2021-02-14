@@ -4,10 +4,7 @@ use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::notifications::crashed_notification::CrashNotifier;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
-use masq_lib::messages::{
-    FromMessageBody, UiFfmUndeliveredBroadcast, UiNewPasswordBroadcast, UiNodeCrashedBroadcast,
-    UiSetupBroadcast,
-};
+use masq_lib::messages::{FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast, UiUndeliveredBroadcast};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
@@ -73,7 +70,7 @@ impl BroadcastHandlerReal {
                     CrashNotifier::handle_broadcast(body, stdout);
                 } else if let Ok((_, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
                     ChangePasswordCommand::handle_broadcast(stdout);
-                } else if let Ok((body, _)) = UiFfmUndeliveredBroadcast::fmb(message_body.clone()) {
+                } else if let Ok((body, _)) = UiUndeliveredBroadcast::fmb(message_body.clone()) {
                     handle_broadcast_for_undelivered_ffm(body, stdout);
                 } else {
                     write!(
@@ -123,18 +120,16 @@ impl StreamFactoryReal {
     }
 }
 
-fn handle_broadcast_for_undelivered_ffm(body: UiFfmUndeliveredBroadcast, stdout: &mut dyn Write) {
-    writeln!(
-        stdout,
-        "\n\
-The Daemon received a unidirectional message for the Node which is not running\n\
-Opcode: '{}',\n\
-To be delivered:\n\
-'{}'",
+fn handle_broadcast_for_undelivered_ffm(body: UiUndeliveredBroadcast, stdout: &mut dyn Write) {
+    write!(
+        stdout,"\
+The Node is not running but the Daemon received a one-way message addressed to it\n\
+Opcode: '{}'\n\
+{}\n\
+masq> ",
         body.opcode, body.original_payload
     )
     .expect("writeln! failed");
-    write!(stdout, "masq> ").expect("write! failed");
     stdout.flush().expect("flush failed");
 }
 
@@ -234,7 +229,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new().start(Box::new(factory));
-        let message = UiFfmUndeliveredBroadcast {
+        let message = UiUndeliveredBroadcast {
             opcode: "uninventedMessage".to_string(),
             original_payload: "This must be said to the Node immediately!".to_string(),
         }
@@ -245,11 +240,9 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\
-            \nThe Daemon received a unidirectional message for the Node which is not running\
-            \nOpcode: 'uninventedMessage',\
-            \nTo be delivered:\
-            \n'This must be said to the Node immediately!'\
+            "The Node is not running but the Daemon received a one-way message addressed to it\
+            \nOpcode: 'uninventedMessage'\n\
+            This must be said to the Node immediately!\
             \nmasq> "
                 .to_string()
         );

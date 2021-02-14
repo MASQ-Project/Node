@@ -3,9 +3,10 @@
 use crate::utils::MASQ_PROMPT;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use std::io;
+use std::{io, thread};
 use std::io::ErrorKind;
 use std::io::{BufRead, Read};
+use std::time::Duration;
 
 pub struct LineReader {
     delegate: Box<dyn EditorTrait>,
@@ -27,6 +28,13 @@ impl BufRead for LineReader {
     }
 
     fn read_line(&mut self, buf: &mut String) -> Result<usize, io::Error> {
+        //TODO: fix this
+        //definitely needs some rework, but until UI to D broadcasts come real, this is a hack to prevent
+        //the printed prompt from interfering with unexpected broadcast coming in.
+        //The prompt must be printed late enough so that some broadcast from outside can
+        //arrive and be processed before that.
+        thread::sleep(Duration::from_millis(3));
+
         let line = match self.delegate.readline(MASQ_PROMPT) {
             Ok(line) => line,
             Err(e) => match e {
