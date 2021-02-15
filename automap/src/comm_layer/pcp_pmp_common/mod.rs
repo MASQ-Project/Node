@@ -13,9 +13,9 @@ use crate::comm_layer::AutomapError;
 #[cfg(target_os = "linux")]
 use crate::comm_layer::pcp_pmp_common::linux_specific::{linux_find_routers, LinuxFindRoutersCommand};
 #[cfg(target_os = "windows")]
-use crate::comm_layer::pcp_pmp_common::linux_specific::{windows_find_routers, WindowsFindRoutersCommand};
+use crate::comm_layer::pcp_pmp_common::windows_specific::{windows_find_routers, WindowsFindRoutersCommand};
 #[cfg(target_os = "macos")]
-use crate::comm_layer::pcp_pmp_common::linux_specific::{macos_find_routers, MacOsFindRoutersCommand};
+use crate::comm_layer::pcp_pmp_common::macos_specific::{macos_find_routers, MacOsFindRoutersCommand};
 use std::process::Command;
 
 pub trait UdpSocketWrapper {
@@ -84,7 +84,7 @@ impl FreePortFactoryReal {
     }
 }
 
-trait FindRoutersCommand {
+pub trait FindRoutersCommand {
     fn execute(&self) -> Result<String, String>;
 
     fn execute_command(&self, command: &str) -> Result<String, String> {
@@ -102,7 +102,7 @@ trait FindRoutersCommand {
                 (_, stderr) if stderr.len() > 0 => Err(stderr),
                 (stdout, _) => Ok(stdout),
             },
-            Err (e) => unimplemented! ("{:?}", e)
+            Err (e) => Err (format!("{:?}", e))
         }
     }
 }
@@ -342,6 +342,12 @@ pub mod mocks {
     fn find_routers_command_works_when_stderr_is_populated(){
         let subject = TameFindRoutersCommand{};
 
-        unimplemented! ()
+        let result = subject.execute_command ("dir booga");
+
+        match result {
+            Err (stderr) if stderr.contains ("The system cannot find the file specified") => (),
+            Err (stderr) => panic! ("Unexpected content in stderr: '{}'", stderr),
+            x => panic! ("Expected error message in stderr; got {:?}", x),
+        }
     }
 }

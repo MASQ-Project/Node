@@ -25,6 +25,7 @@ pub enum AutomapError {
     AddMappingError(String),
     DeleteMappingError(String),
     TransactionFailure(String),
+    OSCommandError(String),
 }
 
 pub trait Transactor {

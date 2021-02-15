@@ -1,11 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+#![cfg(target_os = "linux")]
 
 use crate::comm_layer::AutomapError;
 use std::net::IpAddr;
 use crate::comm_layer::pcp_pmp_common::FindRoutersCommand;
 use std::str::FromStr;
-
-#[cfg(target_os = "linux")]
 
 pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     let output = match command.execute() {
