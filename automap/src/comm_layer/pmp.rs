@@ -1,6 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, find_routers};
+use crate::comm_layer::pcp_pmp_common::{
+    find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
+};
 use crate::comm_layer::{AutomapError, Transactor};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
@@ -243,7 +245,7 @@ mod tests {
 
         let result = subject.find_routers().unwrap();
 
-        assert_eq! (result.len(), 1)
+        assert_eq!(result.len(), 1)
     }
 
     #[test]

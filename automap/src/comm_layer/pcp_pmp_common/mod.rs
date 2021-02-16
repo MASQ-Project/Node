@@ -1,22 +1,28 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod linux_specific;
-mod windows_specific;
 mod macos_specific;
+mod windows_specific;
 
+#[cfg(target_os = "linux")]
+use crate::comm_layer::pcp_pmp_common::linux_specific::{
+    linux_find_routers, LinuxFindRoutersCommand,
+};
+#[cfg(target_os = "macos")]
+use crate::comm_layer::pcp_pmp_common::macos_specific::{
+    macos_find_routers, MacOsFindRoutersCommand,
+};
+#[cfg(target_os = "windows")]
+use crate::comm_layer::pcp_pmp_common::windows_specific::{
+    windows_find_routers, WindowsFindRoutersCommand,
+};
+use crate::comm_layer::AutomapError;
 use masq_lib::utils::find_free_port;
 use std::io;
-use std::net::{SocketAddr, IpAddr};
 pub use std::net::UdpSocket;
-use std::time::Duration;
-use crate::comm_layer::AutomapError;
-#[cfg(target_os = "linux")]
-use crate::comm_layer::pcp_pmp_common::linux_specific::{linux_find_routers, LinuxFindRoutersCommand};
-#[cfg(target_os = "windows")]
-use crate::comm_layer::pcp_pmp_common::windows_specific::{windows_find_routers, WindowsFindRoutersCommand};
-#[cfg(target_os = "macos")]
-use crate::comm_layer::pcp_pmp_common::macos_specific::{macos_find_routers, MacOsFindRoutersCommand};
+use std::net::{IpAddr, SocketAddr};
 use std::process::Command;
+use std::time::Duration;
 
 pub trait UdpSocketWrapper {
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
@@ -91,18 +97,21 @@ pub trait FindRoutersCommand {
         let command_string = command.to_string();
         let words: Vec<&str> = command_string.split(' ').filter(|s| s.len() > 0).collect();
         if words.is_empty() {
-            return Err("Command is blank".to_string())
+            return Err("Command is blank".to_string());
         }
         let mut command = &mut Command::new(words[0]);
         for word in &words[1..] {
             command = command.arg(*word)
         }
         match command.output() {
-            Ok (output) => match (String::from_utf8_lossy(&output.stdout).to_string(), String::from_utf8_lossy(&output.stderr).to_string()) {
+            Ok(output) => match (
+                String::from_utf8_lossy(&output.stdout).to_string(),
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ) {
                 (_, stderr) if stderr.len() > 0 => Err(stderr),
                 (stdout, _) => Ok(stdout),
             },
-            Err (e) => Err (format!("{:?}", e))
+            Err(e) => Err(format!("{:?}", e)),
         }
     }
 }
@@ -110,18 +119,17 @@ pub trait FindRoutersCommand {
 pub fn find_routers() -> Result<Vec<IpAddr>, AutomapError> {
     #[cfg(target_os = "linux")]
     {
-        return linux_find_routers(&LinuxFindRoutersCommand::new())
+        return linux_find_routers(&LinuxFindRoutersCommand::new());
     }
     #[cfg(target_os = "windows")]
     {
-        return windows_find_routers(&WindowsFindRoutersCommand::new())
+        return windows_find_routers(&WindowsFindRoutersCommand::new());
     }
     #[cfg(target_os = "macos")]
     {
-        return macos_find_routers(&MacOsFindRoutersCommand::new())
+        return macos_find_routers(&MacOsFindRoutersCommand::new());
     }
 }
-
 
 #[cfg(test)]
 pub mod mocks {
@@ -268,7 +276,7 @@ pub mod mocks {
     }
 
     pub struct FindRoutersCommandMock {
-        result: Result<String, String>
+        result: Result<String, String>,
     }
 
     impl FindRoutersCommand for FindRoutersCommandMock {
@@ -281,9 +289,9 @@ pub mod mocks {
         pub fn new(result: Result<&str, &str>) -> Self {
             Self {
                 result: match result {
-                    Ok (s) => Ok (s.to_string()),
-                    Err (s) => Err (s.to_string()),
-                }
+                    Ok(s) => Ok(s.to_string()),
+                    Err(s) => Err(s.to_string()),
+                },
             }
         }
     }
@@ -316,38 +324,38 @@ pub mod mocks {
 
     #[test]
     fn find_routers_command_works_when_command_is_blank() {
-        let subject = TameFindRoutersCommand{};
+        let subject = TameFindRoutersCommand {};
 
         let result = subject.execute_command("");
 
-        assert_eq! (result, Err("Command is blank".to_string()))
+        assert_eq!(result, Err("Command is blank".to_string()))
     }
 
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn find_routers_command_works_when_stderr_is_populated(){
-        let subject = TameFindRoutersCommand{};
+    fn find_routers_command_works_when_stderr_is_populated() {
+        let subject = TameFindRoutersCommand {};
 
-        let result = subject.execute_command ("ls booga");
+        let result = subject.execute_command("ls booga");
 
         match result {
-            Err (stderr) if stderr.contains ("No such file or directory") => (),
-            Err (stderr) => panic! ("Unexpected content in stderr: '{}'", stderr),
-            x => panic! ("Expected error message in stderr; got {:?}", x),
+            Err(stderr) if stderr.contains("No such file or directory") => (),
+            Err(stderr) => panic!("Unexpected content in stderr: '{}'", stderr),
+            x => panic!("Expected error message in stderr; got {:?}", x),
         }
     }
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn find_routers_command_works_when_stderr_is_populated(){
-        let subject = TameFindRoutersCommand{};
+    fn find_routers_command_works_when_stderr_is_populated() {
+        let subject = TameFindRoutersCommand {};
 
-        let result = subject.execute_command ("dir booga");
+        let result = subject.execute_command("dir booga");
 
         match result {
-            Err (stderr) if stderr.contains ("The system cannot find the file specified") => (),
-            Err (stderr) => panic! ("Unexpected content in stderr: '{}'", stderr),
-            x => panic! ("Expected error message in stderr; got {:?}", x),
+            Err(stderr) if stderr.contains("The system cannot find the file specified") => (),
+            Err(stderr) => panic!("Unexpected content in stderr: '{}'", stderr),
+            x => panic!("Expected error message in stderr; got {:?}", x),
         }
     }
 }

@@ -103,7 +103,7 @@ fn find_router(status: TestStatus, transactor: &dyn Transactor) -> (IpAddr, Test
         }
         Err(e) => {
             println!("...failed after {}: {:?}", timer.ms(), e);
-            (IpAddr::from_str ("0.0.0.0").unwrap(), status.fail(e))
+            (IpAddr::from_str("0.0.0.0").unwrap(), status.fail(e))
         }
     }
 }

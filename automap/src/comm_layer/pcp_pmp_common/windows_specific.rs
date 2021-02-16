@@ -1,36 +1,38 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "windows")]
 
+use crate::comm_layer::pcp_pmp_common::FindRoutersCommand;
 use crate::comm_layer::AutomapError;
 use std::net::IpAddr;
-use crate::comm_layer::pcp_pmp_common::FindRoutersCommand;
 use std::str::FromStr;
 
 pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     match command.execute() {
         Ok(stdout) => {
-            match stdout.split(&['\n', '\r'][..])
+            match stdout
+                .split(&['\n', '\r'][..])
                 .find(|line| line.to_string().contains("Default Gateway"))
-                .map(|line| line.split(' ')
-                    .filter(|s| s.len() >= 2)
-                    .collect::<Vec<&str>>()) {
-                Some (elements) => {
-                    Ok(vec![IpAddr::from_str(&elements[2]).expect (&format!("Invalid IP syntax from ipconfig: '{}'", &elements[2]))])
-                },
+                .map(|line| {
+                    line.split(' ')
+                        .filter(|s| s.len() >= 2)
+                        .collect::<Vec<&str>>()
+                }) {
+                Some(elements) => Ok(vec![IpAddr::from_str(&elements[2]).expect(&format!(
+                    "Invalid IP syntax from ipconfig: '{}'",
+                    &elements[2]
+                ))]),
                 None => Ok(vec![]),
             }
-        },
+        }
         Err(stderr) => Err(AutomapError::OSCommandError(stderr)),
     }
 }
 
-pub struct WindowsFindRoutersCommand {
-
-}
+pub struct WindowsFindRoutersCommand {}
 
 impl FindRoutersCommand for WindowsFindRoutersCommand {
     fn execute(&self) -> Result<String, String> {
-        self.execute_command ("ipconfig /all")
+        self.execute_command("ipconfig /all")
     }
 }
 
@@ -80,7 +82,7 @@ Ethernet adapter Ethernet:
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
-        assert_eq! (result, vec![IpAddr::from_str("10.0.2.2").unwrap()])
+        assert_eq!(result, vec![IpAddr::from_str("10.0.2.2").unwrap()])
     }
 
     #[test]
@@ -117,7 +119,7 @@ Ethernet adapter Ethernet:
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
-        assert_eq! (result.is_empty(), true)
+        assert_eq!(result.is_empty(), true)
     }
 
     #[test]
@@ -126,7 +128,10 @@ Ethernet adapter Ethernet:
 
         let result = windows_find_routers(&find_routers_command);
 
-        assert_eq! (result, Err(AutomapError::OSCommandError("Booga!".to_string())))
+        assert_eq!(
+            result,
+            Err(AutomapError::OSCommandError("Booga!".to_string()))
+        )
     }
 
     #[test]
@@ -135,8 +140,8 @@ Ethernet adapter Ethernet:
 
         let result = subject.execute().unwrap();
 
-        assert_eq! (result.contains("Windows IP Configuration"), true);
-        assert_eq! (result.contains("Ethernet adapter"), true);
-        assert_eq! (result.contains("Default Gateway"), true);
+        assert_eq!(result.contains("Windows IP Configuration"), true);
+        assert_eq!(result.contains("Ethernet adapter"), true);
+        assert_eq!(result.contains("Default Gateway"), true);
     }
 }
