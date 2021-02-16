@@ -651,6 +651,7 @@ impl ProxyServer {
         }
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     #[allow(clippy::too_many_arguments)]
     fn try_transmit_to_hopper(
         cryptde: Box<dyn CryptDE>,
