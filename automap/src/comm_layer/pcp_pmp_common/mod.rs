@@ -318,7 +318,7 @@ pub mod mocks {
 
     impl FindRoutersCommand for TameFindRoutersCommand {
         fn execute(&self) -> Result<String, String> {
-            unimplemented!()
+            panic!("Don't call me!")
         }
     }
 
