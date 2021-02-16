@@ -88,7 +88,10 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
         let result = linux_find_routers(&find_routers_command);
 
-        assert_eq!(result, Err(AutomapError::OSCommandError("Booga!".to_string())))
+        assert_eq!(
+            result,
+            Err(AutomapError::OSCommandError("Booga!".to_string()))
+        )
     }
 
     #[test]
