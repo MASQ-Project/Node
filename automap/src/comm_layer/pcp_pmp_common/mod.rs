@@ -95,7 +95,10 @@ pub trait FindRoutersCommand {
 
     fn execute_command(&self, command: &str) -> Result<String, String> {
         let command_string = command.to_string();
-        let words: Vec<&str> = command_string.split(' ').filter(|s| s.len() > 0).collect();
+        let words: Vec<&str> = command_string
+            .split(' ')
+            .filter(|s| !s.is_empty())
+            .collect();
         if words.is_empty() {
             return Err("Command is blank".to_string());
         }
@@ -108,7 +111,7 @@ pub trait FindRoutersCommand {
                 String::from_utf8_lossy(&output.stdout).to_string(),
                 String::from_utf8_lossy(&output.stderr).to_string(),
             ) {
-                (_, stderr) if stderr.len() > 0 => Err(stderr),
+                (_, stderr) if !stderr.is_empty() => Err(stderr),
                 (stdout, _) => Ok(stdout),
             },
             Err(e) => Err(format!("{:?}", e)),
@@ -116,6 +119,7 @@ pub trait FindRoutersCommand {
     }
 }
 
+#[allow(clippy::needless_return)] // IntelliJ doesn't like it if you take the returns out
 pub fn find_routers() -> Result<Vec<IpAddr>, AutomapError> {
     #[cfg(target_os = "linux")]
     {

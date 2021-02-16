@@ -51,24 +51,22 @@ fn test_igdp() {
     let (port, mut status) = poke_firewall_hole(status, router_ip, &transactor);
     let status = if status.step_success {
         remove_firewall_hole(port, status, router_ip, &transactor)
-    } else {
-        if status
-            .step_error
-            .as_ref()
-            .expect("Step failure, but no error recorded!")
-            == &AutomapError::AddMappingError("OnlyPermanentLeasesSupported".to_string())
-        {
-            println! ("This router doesn't like keeping track of holes and closing them on a schedule. We'll try a permanent one.");
-            status.cumulative_success = true; // adjustment for retry
-            let (port, status) = poke_permanent_firewall_hole(status, router_ip, &transactor);
-            if status.step_success {
-                remove_permanent_firewall_hole(port, status, router_ip, &transactor)
-            } else {
-                status
-            }
+    } else if status
+        .step_error
+        .as_ref()
+        .expect("Step failure, but no error recorded!")
+        == &AutomapError::AddMappingError("OnlyPermanentLeasesSupported".to_string())
+    {
+        println! ("This router doesn't like keeping track of holes and closing them on a schedule. We'll try a permanent one.");
+        status.cumulative_success = true; // adjustment for retry
+        let (port, status) = poke_permanent_firewall_hole(status, router_ip, &transactor);
+        if status.step_success {
+            remove_permanent_firewall_hole(port, status, router_ip, &transactor)
         } else {
             status
         }
+    } else {
+        status
     };
     if status.cumulative_success {
         println!(

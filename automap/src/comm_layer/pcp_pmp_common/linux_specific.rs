@@ -12,10 +12,10 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
         Err(stderr) => return Err(AutomapError::OSCommandError(stderr)),
     };
     let address_opt = output
-        .split("\n")
+        .split('\n')
         .map(|line| {
             line.split(' ')
-                .filter(|piece| piece.len() > 0)
+                .filter(|piece| !piece.is_empty())
                 .collect::<Vec<&str>>()
         })
         .find(|line_vec| (line_vec.len() >= 4) && (line_vec[3] == "UG"))
