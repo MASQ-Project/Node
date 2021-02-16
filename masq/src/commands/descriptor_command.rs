@@ -7,6 +7,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, SubCommand};
 use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse, NODE_NOT_RUNNING_ERROR};
+use masq_lib::short_writeln;
 use std::fmt::Debug;
 
 #[derive(Debug)]
@@ -24,20 +25,18 @@ impl Command for DescriptorCommand {
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
         match output {
             Ok(response) => {
-                writeln!(context.stdout(), "{}", response.node_descriptor).expect("write! failed");
+                short_writeln!(context.stdout(), "{}", response.node_descriptor);
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                writeln!(
+                short_writeln!(
                     context.stderr(),
                     "MASQNode is not running; therefore its descriptor cannot be displayed."
-                )
-                .expect("write! failed");
+                );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                writeln!(context.stderr(), "Descriptor retrieval failed: {:?}", e)
-                    .expect("write! failed");
+                short_writeln!(context.stderr(), "Descriptor retrieval failed: {:?}", e);
                 Err(e)
             }
         }

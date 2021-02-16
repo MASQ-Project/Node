@@ -7,6 +7,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse, NODE_NOT_RUNNING_ERROR};
+use masq_lib::short_writeln;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
@@ -40,16 +41,14 @@ impl Command for ConfigurationCommand {
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                writeln!(
+                short_writeln!(
                     context.stderr(),
                     "MASQNode is not running; therefore its configuration cannot be displayed."
-                )
-                .expect("write! failed");
+                );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                writeln!(context.stderr(), "Configuration retrieval failed: {:?}", e)
-                    .expect("write! failed");
+                short_writeln!(context.stderr(), "Configuration retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -131,7 +130,7 @@ impl ConfigurationCommand {
     }
 
     fn dump_configuration_line(stream: &mut dyn Write, name: &str, value: &str) {
-        writeln!(stream, "{:33} {}", name, value).expect("writeln! failed");
+        short_writeln!(stream, "{:33} {}", name, value);
     }
 }
 

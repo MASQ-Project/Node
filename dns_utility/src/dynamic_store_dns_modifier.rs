@@ -11,6 +11,7 @@ use core_foundation::dictionary::CFDictionary;
 use core_foundation::propertylist::CFPropertyList;
 use core_foundation::propertylist::CFPropertyListSubClass;
 use core_foundation::string::CFString;
+use masq_lib::short_writeln;
 use std::io::Write;
 use system_configuration::dynamic_store::SCDynamicStore;
 use system_configuration::dynamic_store::SCDynamicStoreBuilder;
@@ -55,7 +56,7 @@ impl DnsModifier for DynamicStoreDnsModifier {
             Some(sa) => sa,
         };
         let output = active_addresses.join("\n");
-        writeln!(stdout, "{}", output).expect("write is broken");
+        short_writeln!(stdout, "{}", output);
         Ok(())
     }
 }

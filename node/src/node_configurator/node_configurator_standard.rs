@@ -1637,12 +1637,11 @@ mod tests {
         let config_file_path = home_dir.join("config.toml");
         {
             let mut config_file = File::create(&config_file_path).unwrap();
-            writeln!(
+            short_writeln!(
                 config_file,
                 "consuming-private-key = \"{}\"",
                 consuming_private_key
-            )
-            .unwrap();
+            );
         }
         let args = ArgsBuilder::new()
             .param("--data-directory", home_dir.to_str().unwrap())
