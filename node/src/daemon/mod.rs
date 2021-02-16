@@ -20,7 +20,11 @@ use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder, UiStartResponse, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR, UiUndeliveredBroadcast};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
+    UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder, UiStartResponse,
+    UiUndeliveredBroadcast, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
@@ -1480,7 +1484,7 @@ mod tests {
     #[test]
     fn unexpected_ff_message_undeliverable_to_inactive_node_is_announced_with_another_ff_message() {
         //fire and forget message that could be sent from UI to Node does not exist so far,
-        //this is for the future
+        //this is a touch of the future
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new("test");
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(false);
@@ -1511,7 +1515,7 @@ mod tests {
             .get_record::<NodeToUiMessage>(0)
             .clone();
         assert_eq!(record.target, ClientId(1234));
-        assert_eq!(record.body.opcode, "ffmUndelivered");
+        assert_eq!(record.body.opcode, "Undelivered");
         assert_eq!(record.body.path, FireAndForget);
         assert_eq!(
             UiUndeliveredBroadcast::fmb(record.body).unwrap(),
