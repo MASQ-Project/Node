@@ -1,0 +1,22 @@
+[package]
+name = "automap"
+version = "1.0.0"
+authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
+license = "GPL-3.0-only"
+copyright = "Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
+description = "Library full of code to make routers map ports through firewalls"
+edition = "2018"
+#workspace = "../node"
+
+[dependencies]
+local_ipaddress = "0.1.3"
+igd = "0.12.0"
+port_scanner = "0.1.5"
+
+[[bin]]
+name = "automap"
+path = "src/main.rs"
+
+[lib]
+name = "automap_lib"
+path = "src/lib.rs"

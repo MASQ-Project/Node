@@ -30,6 +30,7 @@ function copy_windows_binaries() {
   cp ../node/target/release/MASQNode.exe generated/bin || echo "No console MASQNode binary"
   cp ../node/target/release/MASQNodeW.exe generated/bin || echo "No non-console MASQNode binary"
   cp ../node/target/release/masq.exe generated/bin || echo "No masq binary"
+  cp ../automap/target/release/automap.exe generated/bin || echo "No automap binary"
 }
 
 function copy_non_windows_binaries() {
@@ -37,6 +38,7 @@ function copy_non_windows_binaries() {
   cp ../dns_utility/target/release/dns_utility generated/bin || echo "No dns_utility binary"
   cp ../node/target/release/MASQNode generated/bin || echo "No MASQNode binary"
   cp ../node/target/release/masq generated/bin || echo "No masq binary"
+  cp ../automap/target/release/automap generated/bin || echo "No automap binary"
 }
 
 mkdir -p "$CI_DIR/../results"
