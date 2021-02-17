@@ -142,14 +142,6 @@ pub fn ipv4_addr_into(buf: &mut [u8], offset: usize, value: &Ipv4Addr) {
     buf[offset..(4 + offset)].clone_from_slice(&octets[..4]);
 }
 
-pub const MAIN_HEADER: &str = "\
-+---------------------------------------------------------------------------------+
-|                 3 protocol tests are finishing in a few seconds                 |
-+---------------------------------------------------------------------------------+";
-pub const PMP_HEADER: &str = "Summary of testing PMP protocol on your device:";
-pub const PCP_HEADER: &str = "Summary of testing PCP protocol on your device:";
-pub const IGDP_HEADER: &str = "Summary of testing IGDP/UPnP on your device:";
-
 #[cfg(test)]
 mod tests {
     use super::*;
