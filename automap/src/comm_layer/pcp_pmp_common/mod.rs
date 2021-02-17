@@ -357,7 +357,12 @@ pub mod mocks {
         let result = subject.execute_command("dir booga");
 
         match result {
-            Err(stderr) if stderr.contains("The system cannot find the file specified") => (),
+            Err(stderr)
+                if stderr.contains("The system cannot find the file specified")
+                    || stderr.contains("No such file or directory") =>
+            {
+                ()
+            }
             Err(stderr) => panic!("Unexpected content in stderr: '{}'", stderr),
             x => panic!("Expected error message in stderr; got {:?}", x),
         }

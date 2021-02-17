@@ -17,10 +17,9 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                         .filter(|s| s.len() >= 2)
                         .collect::<Vec<&str>>()
                 }) {
-                Some(elements) => Ok(vec![IpAddr::from_str(&elements[2]).expect(&format!(
-                    "Invalid IP syntax from ipconfig: '{}'",
-                    &elements[2]
-                ))]),
+                Some(elements) => Ok(vec![IpAddr::from_str(&elements[2]).unwrap_or_else(|_| {
+                    panic!("Invalid IP syntax from ipconfig: '{}'", &elements[2])
+                })]),
                 None => Ok(vec![]),
             }
         }
