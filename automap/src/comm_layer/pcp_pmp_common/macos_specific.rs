@@ -12,7 +12,7 @@ pub fn macos_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
         Err(stderr) => return Err(AutomapError::OSCommandError(stderr)),
     };
     let gateway_line_opt = output
-        .split("\n")
+        .split('\n')
         .map(|line_ref| line_ref.to_string())
         .find(|line| line.contains("gateway:"))
         .map(|line| {
