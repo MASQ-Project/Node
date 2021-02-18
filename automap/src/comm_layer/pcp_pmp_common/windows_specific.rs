@@ -85,6 +85,57 @@ Ethernet adapter Ethernet:
     }
 
     #[test]
+    fn find_routers_works_on_galactic_overlords_machine() {
+        let route_n_output = "
+Ethernet adapter Ethernet:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Ethernet adapter Ethernet 2:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Unknown adapter OpenVPN Wintun:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Unknown adapter Local Area Connection:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Wireless LAN adapter Local Area Connection* 1:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Wireless LAN adapter Local Area Connection* 2:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Wireless LAN adapter WiFi:
+
+   Connection-specific DNS Suffix  . :
+   IPv6 Address. . . . . . . . . . . : 2002:aaaa:bbbb:0:ccc:dddd:42c2:bae4
+   Temporary IPv6 Address. . . . . . : 2002:aaaa:bbbb:0:cccc:eeee:cfe7:730e
+   Link-local IPv6 Address . . . . . : fe80::111:2222:3333:4444%21
+   IPv4 Address. . . . . . . . . . . : 192.168.1.28
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . . . : fe80::5555:6666:7777:8888%21
+                                       192.168.1.1
+";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+
+        let result = windows_find_routers(&find_routers_command).unwrap();
+
+        assert_eq!(result, vec![IpAddr::from_str("192.168.1.1").unwrap()])
+    }
+
+    #[test]
     fn find_routers_works_when_there_is_no_router_to_find() {
         let route_n_output = "
 Windows IP Configuration
