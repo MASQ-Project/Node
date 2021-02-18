@@ -523,7 +523,7 @@ impl Bootstrapper {
             ),
         };
         let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);
-        writeln!(streams.stdout, "{}", descriptor_msg).expect("Internal error");
+        short_writeln!(streams.stdout, "{}", descriptor_msg);
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
         descriptor
     }

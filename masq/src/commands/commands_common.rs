@@ -5,6 +5,7 @@ use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Reception, Transmission, UnexpectedResponse,
 };
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
+use masq_lib::short_writeln;
 use masq_lib::ui_gateway::MessageBody;
 use std::any::Any;
 use std::fmt::Debug;
@@ -70,12 +71,11 @@ where
     let response: O = match O::fmb(message) {
         Ok((r, _)) => r,
         Err(e) => {
-            writeln!(
+            short_writeln!(
                 context.stderr(),
                 "Node or Daemon is acting erratically: {}",
                 e
-            )
-            .expect("write! failed");
+            );
             return Err(UnexpectedResponse(e));
         }
     };

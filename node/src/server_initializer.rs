@@ -84,12 +84,12 @@ impl Command for ServerInitializer {
         };
         if let Some(err) = result.err() {
             err.param_errors.into_iter().for_each(|param_error| {
-                writeln!(
+                short_writeln!(
                     streams.stderr,
                     "Problem with parameter {}: {}",
-                    param_error.parameter, param_error.reason
+                    param_error.parameter,
+                    param_error.reason
                 )
-                .expect("writeln! failed")
             });
             1
         } else {

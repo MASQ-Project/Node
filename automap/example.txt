@@ -1,26 +1,3 @@
 PCP document: https://tools.ietf.org/html/rfc6887
 PMP document: https://tools.ietf.org/html/rfc6886
 IGDP document: https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf
-
-GH-371 Test Objectives:
-
-PCP:
-    Send packet with invalid opcode, get error
-    (Can't find gateway yet)
-    Find public IP
-    Create short-lived mapping to port we control, get success
-    If that works, delete short-lived mapping before it expires, get success
-
-PMP:
-    Send packet with invalid opcode, get error
-    (Can't find gateway yet)
-    Find public IP
-    Create short-lived mapping to port we control, get success
-    If that works, delete short-lived mapping before it expires, get success
-
-IGDP:
-    (See if there's some way you can get an error from IGDP)
-    Find gateway, compare with user-supplied router IP
-    Find public IP
-    Create short-lived mapping to port we control, get success
-    If that works, delete short-lived mapping before it expires, get success

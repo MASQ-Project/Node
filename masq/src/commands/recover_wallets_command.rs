@@ -4,6 +4,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, ArgGroup, SubCommand};
 use masq_lib::messages::{UiRecoverWalletsRequest, UiRecoverWalletsResponse};
+use masq_lib::short_writeln;
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
@@ -75,7 +76,7 @@ impl Command for RecoverWalletsCommand {
         };
         let _: UiRecoverWalletsResponse =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        writeln!(context.stdout(), "Wallets were successfully recovered").expect("writeln! failed");
+        short_writeln!(context.stdout(), "Wallets were successfully recovered");
         Ok(())
     }
 

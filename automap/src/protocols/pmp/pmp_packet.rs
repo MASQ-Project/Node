@@ -522,16 +522,7 @@ mod tests {
         assert_eq!(Opcode::from(0x83), Opcode::Other(3));
         assert_eq!(Opcode::from(0xFF), Opcode::Other(127));
     }
-    /*
-       Success,
-       UnsupportedVersion,
-       NotAuthorized,
-       NetworkFailure,
-       OutOfResources,
-       UnsupportedOpcode,
-       Other(u16),
 
-    */
     #[test]
     fn result_code_code_works() {
         assert_eq!(ResultCode::Success.code(), 0);

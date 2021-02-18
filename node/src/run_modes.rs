@@ -60,14 +60,14 @@ impl RunModes {
         } {
             Ok(exit_code) => exit_code,
             Err(e) => {
-                writeln!(streams.stderr, "Configuration error").expect("writeln! error");
+                short_writeln!(streams.stderr, "Configuration error");
                 e.param_errors.into_iter().for_each(|required| {
-                    writeln!(
+                    short_writeln!(
                         streams.stderr,
                         "{} - {}",
-                        required.parameter, required.reason
+                        required.parameter,
+                        required.reason
                     )
-                    .expect("writeln! error")
                 });
                 1
             }
