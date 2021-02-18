@@ -15,13 +15,6 @@ use std::fmt::Debug;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
-pub const NODE_LAUNCH_ERROR: u64 = 0x8000_0000_0000_0001;
-pub const NODE_NOT_RUNNING_ERROR: u64 = 0x8000_0000_0000_0002;
-pub const NODE_ALREADY_RUNNING_ERROR: u64 = 0x8000_0000_0000_0003;
-pub const UNMARSHAL_ERROR: u64 = 0x8000_0000_0000_0004;
-pub const SETUP_ERROR: u64 = 0x8000_0000_0000_0005;
-pub const TIMEOUT_ERROR: u64 = 0x8000_0000_0000_0006;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
     UnexpectedMessage(String, MessagePath),

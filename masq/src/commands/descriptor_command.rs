@@ -6,7 +6,8 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, SubCommand};
-use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse, NODE_NOT_RUNNING_ERROR};
+use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use masq_lib::short_writeln;
 use std::fmt::Debug;
 

@@ -2,10 +2,9 @@
 
 pub mod utils;
 
+use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{ToMessageBody, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL};
-use masq_lib::messages::{
-    UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse, NODE_NOT_RUNNING_ERROR,
-};
+use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};

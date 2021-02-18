@@ -28,21 +28,14 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::{Wallet, WalletError};
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
+use masq_lib::constants::{
+    ALREADY_INITIALIZED_ERROR, BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
+    CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR, EARLY_QUESTIONING_ABOUT_DATA,
+    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
+    UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, VALUE_MISSING_ERROR,
+};
 use rustc_hex::ToHex;
 use std::str::FromStr;
-
-pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
-pub const CONFIGURATOR_READ_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
-pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 2;
-pub const UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR: u64 = CONFIGURATOR_PREFIX | 3;
-pub const ILLEGAL_MNEMONIC_WORD_COUNT_ERROR: u64 = CONFIGURATOR_PREFIX | 4;
-pub const KEY_PAIR_CONSTRUCTION_ERROR: u64 = CONFIGURATOR_PREFIX | 5;
-pub const BAD_PASSWORD_ERROR: u64 = CONFIGURATOR_PREFIX | 6;
-pub const ALREADY_INITIALIZED_ERROR: u64 = CONFIGURATOR_PREFIX | 7;
-pub const DERIVATION_PATH_ERROR: u64 = CONFIGURATOR_PREFIX | 8;
-pub const MNEMONIC_PHRASE_ERROR: u64 = CONFIGURATOR_PREFIX | 9;
-pub const VALUE_MISSING_ERROR: u64 = CONFIGURATOR_PREFIX | 10;
-pub const EARLY_QUESTIONING_ABOUT_DATA: u64 = CONFIGURATOR_PREFIX | 11;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -650,10 +643,15 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::Bip39;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::node_configurator::configurator::MNEMONIC_PHRASE_ERROR;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
+    use masq_lib::constants::{
+        ALREADY_INITIALIZED_ERROR, BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
+        EARLY_QUESTIONING_ABOUT_DATA, ILLEGAL_MNEMONIC_WORD_COUNT_ERROR,
+        KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR,
+        VALUE_MISSING_ERROR,
+    };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
 

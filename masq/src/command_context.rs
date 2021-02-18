@@ -6,7 +6,7 @@ use crate::communications::broadcast_handler::{
 };
 use crate::communications::connection_manager::{ConnectionManager, REDIRECT_TIMEOUT_MILLIS};
 use crate::communications::node_conversation::ClientError;
-use masq_lib::messages::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
+use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
 use std::io;
@@ -147,9 +147,7 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use masq_lib::messages::{
-        FromMessageBody, UiCrashRequest, UiSetupRequest, TIMEOUT_ERROR, UNMARSHAL_ERROR,
-    };
+    use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
