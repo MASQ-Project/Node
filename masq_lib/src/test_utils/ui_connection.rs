@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::ui_gateway::MessageTarget::ClientId;

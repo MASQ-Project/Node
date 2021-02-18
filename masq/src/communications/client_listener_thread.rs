@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use masq_lib::ui_gateway::MessageBody;
