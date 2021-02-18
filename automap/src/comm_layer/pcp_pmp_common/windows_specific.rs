@@ -9,18 +9,37 @@ use std::str::FromStr;
 pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     match command.execute() {
         Ok(stdout) => {
-            match stdout
-                .split(&['\n', '\r'][..])
-                .find(|line| line.to_string().contains("Default Gateway"))
-                .map(|line| {
-                    line.split(' ')
+            let firsts = stdout.split(&['\n', '\r'][..]).collect::<Vec<&str>>();
+            let mut seconds = vec![""];
+            seconds.extend(firsts.clone());
+            match firsts
+                .into_iter()
+                .zip(seconds)
+                .find(|(_, first)| first.to_string().contains("Default Gateway"))
+                .map(|(second, first)| {
+                    let first_line_strs = first
+                        .split(' ')
                         .filter(|s| s.len() >= 2)
-                        .collect::<Vec<&str>>()
+                        .collect::<Vec<&str>>();
+                    let second_addr_opt = match IpAddr::from_str(second.trim()) {
+                        Ok(addr) => Some(addr),
+                        Err(_) => None,
+                    };
+                    (first_line_strs, second_addr_opt)
                 }) {
-                Some(elements) => Ok(vec![IpAddr::from_str(&elements[2]).unwrap_or_else(|_| {
-                    panic!("Invalid IP syntax from ipconfig: '{}'", &elements[2])
-                })]),
                 None => Ok(vec![]),
+                Some((_, Some(IpAddr::V4(ipv4_addr)))) => Ok(vec![IpAddr::V4(ipv4_addr)]),
+                Some((first_elements, _)) => {
+                    let ip_addr_maybe_with_scope_id = first_elements[2];
+                    let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
+                    match IpAddr::from_str(ip_addr_str) {
+                        Err(_) => Err(AutomapError::OSCommandError(format!(
+                            "ipconfig output shows invalid Default Gateway:\n{}",
+                            stdout
+                        ))),
+                        Ok(addr) => Ok(vec![addr]),
+                    }
+                }
             }
         }
         Err(stderr) => Err(AutomapError::OSCommandError(stderr)),
@@ -136,6 +155,59 @@ Wireless LAN adapter WiFi:
     }
 
     #[test]
+    fn find_routers_works_on_galactic_overlords_machine_without_ipv4() {
+        let route_n_output = "
+Ethernet adapter Ethernet:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Ethernet adapter Ethernet 2:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Unknown adapter OpenVPN Wintun:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Unknown adapter Local Area Connection:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Wireless LAN adapter Local Area Connection* 1:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Wireless LAN adapter Local Area Connection* 2:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Wireless LAN adapter WiFi:
+
+   Connection-specific DNS Suffix  . :
+   IPv6 Address. . . . . . . . . . . : 2002:aaaa:bbbb:0:ccc:dddd:42c2:bae4
+   Temporary IPv6 Address. . . . . . : 2002:aaaa:bbbb:0:cccc:eeee:cfe7:730e
+   Link-local IPv6 Address . . . . . : fe80::111:2222:3333:4444%21
+   IPv4 Address. . . . . . . . . . . : 192.168.1.28
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . . . : fe80::5555:6666:7777:8888%21
+";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+
+        let result = windows_find_routers(&find_routers_command).unwrap();
+
+        assert_eq!(
+            result,
+            vec![IpAddr::from_str("fe80::5555:6666:7777:8888").unwrap()]
+        )
+    }
+
+    #[test]
     fn find_routers_works_when_there_is_no_router_to_find() {
         let route_n_output = "
 Windows IP Configuration
@@ -170,6 +242,31 @@ Ethernet adapter Ethernet:
         let result = windows_find_routers(&find_routers_command).unwrap();
 
         assert_eq!(result.is_empty(), true)
+    }
+
+    #[test]
+    fn find_routers_works_when_ipconfig_output_cant_be_parsed() {
+        let route_n_output = "
+   Booga
+   Default Gateway. . . . . . . . . . : wibblety-poo
+   Booga
+";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+
+        let result = windows_find_routers(&find_routers_command);
+
+        match result {
+            Err(AutomapError::OSCommandError(msg)) => {
+                assert_eq!(
+                    msg.starts_with("ipconfig output shows invalid Default Gateway:"),
+                    true,
+                    "{}",
+                    msg
+                );
+                assert_eq!(msg.contains(route_n_output), true, "{}", msg);
+            }
+            x => panic!("Expected OSCommandError with message; got '{:?}'", x),
+        }
     }
 
     #[test]
