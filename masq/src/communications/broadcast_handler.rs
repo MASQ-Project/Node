@@ -13,6 +13,7 @@ use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
+use std::sync::{Mutex, Arc};
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
@@ -34,7 +35,9 @@ pub trait BroadcastHandler {
     fn start(self, stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle>;
 }
 
-pub struct BroadcastHandlerReal {}
+pub struct BroadcastHandlerReal {
+    output_synchronizer: Arc<Mutex<()>>
+}
 
 impl BroadcastHandler for BroadcastHandlerReal {
     fn start(self, stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle> {
@@ -49,15 +52,9 @@ impl BroadcastHandler for BroadcastHandlerReal {
     }
 }
 
-impl Default for BroadcastHandlerReal {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl BroadcastHandlerReal {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(output_synchronizer: Arc<Mutex<()>>) -> Self {
+        Self {output_synchronizer}
     }
 
     fn handle_message_body(
@@ -136,7 +133,8 @@ mod tests {
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new().start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(())))
+            .start(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
             values: vec![],
@@ -171,7 +169,8 @@ mod tests {
     fn broadcast_of_crashed_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new().start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(())))
+            .start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -197,7 +196,8 @@ mod tests {
     fn broadcast_of_new_password_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new().start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(())))
+            .start(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
@@ -219,7 +219,8 @@ mod tests {
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new().start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(())))
+            .start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
             original_payload: "This must be said to the Node immediately!".to_string(),
@@ -246,7 +247,8 @@ mod tests {
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new().start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(())))
+            .start(Box::new(factory));
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,

@@ -69,6 +69,8 @@ mod tests {
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
+    use crate::test_utils::mocks::TestStreamFactory;
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
 
     #[derive(Debug)]
     struct TestCommand {}
@@ -123,5 +125,39 @@ mod tests {
         result.process(Box::new(command)).unwrap();
         let received = stop_handle.stop();
         assert_eq!(received, vec![Ok(UiShutdownRequest {}.tmb(1))]);
+    }
+
+    #[derive (Debug)]
+    struct TameCommand {}
+
+    impl Command for TameCommand {
+        fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+            writeln! (context.stdout, "Tame output");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn process_locks_output_synchronizer() {
+        let port = find_free_port();
+        let broadcast_stream_factory = TestStreamFactory::new();
+        let mut command_context = CommandContextReal::new(
+            port,
+            Box::new (broadcast_stream_factory)
+        );
+        let stdout = ByteArrayWriter::new();
+        command_context.stdout = Box::new (stdout);
+        let server = MockWebSocketsServer::new(port);
+        let stop_handle = server.start();
+        let subject = CommandProcessorFactoryReal::new();
+
+        // Lock a clone of the output_synchronizer
+        // Start background thread
+        // On the background thread, execute TameCommand
+        // After starting the thread, wait for a few milliseconds
+        // Verify that nothing has been written to stdout
+        // Unlock the output_synchronizer clone
+        // Verify that the proper string has been written to stdout
+        // Done!
     }
 }

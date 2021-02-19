@@ -2,18 +2,19 @@
 
 use crate::line_reader::LineReader;
 use std::io::BufRead;
+use std::sync::{Mutex, Arc};
 
 pub const MASQ_PROMPT: &str = "masq> ";
 
 pub trait BufReadFactory {
-    fn make(&self) -> Box<dyn BufRead>;
+    fn make(&self, output_synchronizer: Arc<Mutex<()>>) -> Box<dyn BufRead>;
 }
 
 pub struct BufReadFactoryReal {}
 
 impl BufReadFactory for BufReadFactoryReal {
-    fn make(&self) -> Box<dyn BufRead> {
-        Box::new(LineReader::new())
+    fn make(&self, output_synchronizer: Arc<Mutex<()>>) -> Box<dyn BufRead> {
+        Box::new(LineReader::new(output_synchronizer))
     }
 }
 

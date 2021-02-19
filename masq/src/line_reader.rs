@@ -6,8 +6,10 @@ use rustyline::Editor;
 use std::io;
 use std::io::ErrorKind;
 use std::io::{BufRead, Read};
+use std::sync::{Arc, Mutex};
 
 pub struct LineReader {
+    output_synchronizer: Arc<Mutex<()>>,
     delegate: Box<dyn EditorTrait>,
 }
 
@@ -47,15 +49,10 @@ impl BufRead for LineReader {
     }
 }
 
-impl Default for LineReader {
-    fn default() -> Self {
-        LineReader::new()
-    }
-}
-
 impl LineReader {
-    pub fn new() -> LineReader {
+    pub fn new(output_synchronizer: Arc<Mutex<()>>) -> LineReader {
         LineReader {
+            output_synchronizer,
             delegate: Box::new(EditorReal::default()),
         }
     }
@@ -153,7 +150,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Should never be called")]
     fn read_doesnt_work() {
-        let mut subject = LineReader::new();
+        let mut subject = LineReader::new(Arc::new(Mutex::new(())));
 
         let _ = subject.read(&mut [0; 0]);
     }
@@ -161,7 +158,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Should never be called")]
     fn fill_buf_doesnt_work() {
-        let mut subject = LineReader::new();
+        let mut subject = LineReader::new(Arc::new(Mutex::new(())));
 
         let _ = subject.fill_buf();
     }
@@ -169,7 +166,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Should never be called")]
     fn consume_doesnt_work() {
-        let mut subject = LineReader::new();
+        let mut subject = LineReader::new(Arc::new(Mutex::new(())));
 
         let _ = subject.consume(0);
     }
@@ -184,7 +181,7 @@ mod tests {
             .readline_result(Ok(line.to_string()))
             .add_history_entry_params(&add_history_entry_params_arc)
             .add_history_entry_result(true);
-        let mut subject = LineReader::new();
+        let mut subject = LineReader::new(Arc::new(Mutex::new(())));
         subject.delegate = Box::new(editor);
         let mut buf = "this should be overwritten".to_string();
 
@@ -201,7 +198,7 @@ mod tests {
     #[test]
     fn read_line_works_when_rustyline_says_eof() {
         let editor = EditorMock::new().readline_result(Err(ReadlineError::Eof));
-        let mut subject = LineReader::new();
+        let mut subject = LineReader::new(Arc::new(Mutex::new(())));
         subject.delegate = Box::new(editor);
         let mut buf = String::new();
 
@@ -214,7 +211,7 @@ mod tests {
     #[test]
     fn read_line_works_when_rustyline_says_interrupted() {
         let editor = EditorMock::new().readline_result(Err(ReadlineError::Interrupted));
-        let mut subject = LineReader::new();
+        let mut subject = LineReader::new(Arc::new(Mutex::new(())));
         subject.delegate = Box::new(editor);
         let mut buf = String::new();
 
@@ -230,7 +227,7 @@ mod tests {
             ErrorKind::Other,
             "Booga!",
         ))));
-        let mut subject = LineReader::new();
+        let mut subject = LineReader::new(Arc::new(Mutex::new(())));
         subject.delegate = Box::new(editor);
         let mut buf = String::new();
 

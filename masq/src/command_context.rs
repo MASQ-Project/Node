@@ -11,6 +11,7 @@ use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
+use std::sync::{Mutex, Arc};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContextError {
@@ -65,6 +66,7 @@ pub struct CommandContextReal {
     pub stdin: Box<dyn Read>,
     pub stdout: Box<dyn Write>,
     pub stderr: Box<dyn Write>,
+    pub output_synchronizer: Arc<Mutex<()>>
 }
 
 impl Debug for CommandContextReal {
@@ -125,8 +127,10 @@ impl CommandContextReal {
         daemon_ui_port: u16,
         broadcast_stream_factory: Box<dyn StreamFactory>,
     ) -> Result<Self, ContextError> {
+        let foreground_output_synchronizer = Arc::new(Mutex::new(()));
+        let background_output_synchronizer = foreground_output_synchronizer.clone();
         let mut connection = ConnectionManager::new();
-        let broadcast_handler = BroadcastHandlerReal::new();
+        let broadcast_handler = BroadcastHandlerReal::new(background_output_synchronizer);
         let broadcast_handle = broadcast_handler.start(broadcast_stream_factory);
         match connection.connect(daemon_ui_port, broadcast_handle, REDIRECT_TIMEOUT_MILLIS) {
             Ok(_) => Ok(Self {
@@ -134,6 +138,7 @@ impl CommandContextReal {
                 stdin: Box::new(io::stdin()),
                 stdout: Box::new(io::stdout()),
                 stderr: Box::new(io::stderr()),
+                output_synchronizer: foreground_output_synchronizer,
             }),
             Err(e) => Err(ConnectionRefused(format!("{:?}", e))),
         }
