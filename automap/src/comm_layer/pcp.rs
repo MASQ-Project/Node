@@ -9,7 +9,7 @@ use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
 use rand::RngCore;
 use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, Ipv6Addr};
 use std::time::Duration;
 
 trait MappingNonceFactory {
@@ -116,7 +116,7 @@ impl PcpTransactor {
             .marshal(&mut buffer)
             .expect("Bad packet construction");
         let socket_addr = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V6(Ipv6Addr::from([0u8; 16])),
             self.free_port_factory.make(),
         );
         let socket = match self.socket_factory.make(socket_addr) {
@@ -183,7 +183,7 @@ mod tests {
     use std::collections::HashSet;
     use std::io;
     use std::io::ErrorKind;
-    use std::net::SocketAddr;
+    use std::net::{SocketAddr, SocketAddrV6};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -253,7 +253,7 @@ mod tests {
         match result {
             AutomapError::SocketBindingError(msg, addr) => {
                 assert_eq!(msg, io_error_str);
-                assert_eq!(addr.ip(), IpAddr::from_str("0.0.0.0").unwrap());
+                assert_eq!(addr.ip(), IpAddr::from_str("::").unwrap());
                 assert_eq!(addr.port(), 5566);
             }
             e => panic!("Expected SocketBindingError, got {:?}", e),
@@ -526,7 +526,7 @@ mod tests {
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
-            vec![SocketAddr::from_str("0.0.0.0:34567").unwrap()]
+            vec![SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from_str("::").unwrap(), 34567, 0, 0))]
         );
         let read_timeout_params = read_timeout_params_arc.lock().unwrap();
         assert_eq!(*read_timeout_params, vec![Some(Duration::from_secs(3))]);
