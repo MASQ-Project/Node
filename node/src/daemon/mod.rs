@@ -23,7 +23,7 @@ use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
     UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder, UiStartResponse,
-    UiUndeliveredBroadcast, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+    UiUndeliveredFireAndForget, NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
@@ -322,7 +322,7 @@ impl Daemon {
                 )),
             },
 
-            FireAndForget => UiUndeliveredBroadcast {
+            FireAndForget => UiUndeliveredFireAndForget {
                 opcode: received.opcode,
                 original_payload: received
                     .payload
@@ -1518,9 +1518,9 @@ mod tests {
         assert_eq!(record.body.opcode, "Undelivered");
         assert_eq!(record.body.path, FireAndForget);
         assert_eq!(
-            UiUndeliveredBroadcast::fmb(record.body).unwrap(),
+            UiUndeliveredFireAndForget::fmb(record.body).unwrap(),
             (
-                UiUndeliveredBroadcast {
+                UiUndeliveredFireAndForget {
                     opcode: "uninventedMessage".to_string(),
                     original_payload: "Something very important".to_string()
                 },

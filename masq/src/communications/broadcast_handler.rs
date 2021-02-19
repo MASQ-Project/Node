@@ -7,7 +7,7 @@ use crate::notifications::crashed_notification::CrashNotifier;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
-    UiUndeliveredBroadcast,
+    UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
@@ -74,7 +74,7 @@ impl BroadcastHandlerReal {
                     CrashNotifier::handle_broadcast(body, stdout);
                 } else if let Ok((_, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
                     ChangePasswordCommand::handle_broadcast(stdout);
-                } else if let Ok((body, _)) = UiUndeliveredBroadcast::fmb(message_body.clone()) {
+                } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone()) {
                     handle_broadcast_for_undelivered_ffm(body, stdout);
                 } else {
                     write!(
@@ -222,7 +222,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new().start(Box::new(factory));
-        let message = UiUndeliveredBroadcast {
+        let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
             original_payload: "This must be said to the Node immediately!".to_string(),
         }
