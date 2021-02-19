@@ -112,7 +112,10 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
                                     panic!("Lost payable amount precision: {}", payable.balance)
                                 }),
                                 nonce,
-                                self.persistent_config.gas_price().unwrap().unwrap(),
+                                self.persistent_config
+                                    .gas_price()
+                                    .expect("drive me out!") //TODO finish this so that is an error is handled
+                                    .expect("default value unaccepted"),
                             ) {
                                 Ok(hash) => Ok(Payment::new(
                                     payable.wallet.clone(),

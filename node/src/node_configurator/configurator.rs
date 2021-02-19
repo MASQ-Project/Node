@@ -7,7 +7,8 @@ use masq_lib::messages::{
     UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
     UiConfigurationResponse, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     UiNewPasswordBroadcast, UiRecoverWalletsRequest, UiRecoverWalletsResponse,
-    UiWalletAddressesRequest, UiWalletAddressesResponse,
+    UiSetConfigurationRequest, UiSetConfigurationResponse, UiWalletAddressesRequest,
+    UiWalletAddressesResponse,
 };
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
@@ -32,7 +33,8 @@ use masq_lib::constants::{
     ALREADY_INITIALIZED_ERROR, BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
     CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR, EARLY_QUESTIONING_ABOUT_DATA,
     ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
-    UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, VALUE_MISSING_ERROR,
+    NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
+    VALUE_MISSING_ERROR,
 };
 use rustc_hex::ToHex;
 use std::str::FromStr;
@@ -61,19 +63,21 @@ impl Handler<NodeFromUiMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
-            self.call_handler(msg, |c| c.handle_check_password(body, context_id));
-        } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
+        if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
             let client_id = msg.client_id;
             self.call_handler(msg, |c| {
                 c.handle_change_password(body, client_id, context_id)
             });
+        } else if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
+            self.call_handler(msg, |c| c.handle_check_password(body, context_id));
+        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.clone().body) {
+            self.call_handler(msg, |c| c.handle_configuration(body, context_id));
         } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.clone().body) {
             self.call_handler(msg, |c| c.handle_generate_wallets(body, context_id));
         } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.clone().body) {
             self.call_handler(msg, |c| c.handle_recover_wallets(body, context_id));
-        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.clone().body) {
-            self.call_handler(msg, |c| c.handle_configuration(body, context_id));
+        } else if let Ok((body, context_id)) = UiSetConfigurationRequest::fmb(msg.clone().body) {
+            self.call_handler(msg, |c| c.handle_set_configuration(body, context_id));
         } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.clone().body) {
             self.call_handler(msg, |c| c.handle_wallet_addresses(body, context_id));
         }
@@ -575,6 +579,81 @@ impl Configurator {
         Ok(())
     }
 
+    fn handle_set_configuration(
+        &mut self,
+        msg: UiSetConfigurationRequest,
+        context_id: u64,
+    ) -> MessageBody {
+        match Self::unfriendly_handle_set_configuration(
+            msg,
+            context_id,
+            &mut self.persistent_config,
+        ) {
+            Ok(message_body) => message_body,
+            Err((code, msg)) => MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(context_id),
+                payload: Err((code, msg)),
+            },
+        }
+    }
+
+    fn unfriendly_handle_set_configuration(
+        msg: UiSetConfigurationRequest,
+        context_id: u64,
+        persist_config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<MessageBody, MessageError> {
+        let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
+
+        let _ = match password {
+            None => {
+                if "gas-price" == &msg.name {
+                    Self::set_gas_price(msg.value, persist_config)?;
+                } else if "start-block" == &msg.name {
+                    Self::set_start_block(msg.value, persist_config)?;
+                } else {
+                    return Err((
+                        UNRECOGNIZED_PARAMETER,
+                        format!("This parameter name is not known: {}", &msg.name),
+                    ));
+                }
+            }
+            Some(_password) => {
+                unimplemented!();
+            }
+        };
+
+        Ok(UiSetConfigurationResponse {}.tmb(context_id))
+    }
+
+    fn set_gas_price(
+        string_price: String,
+        config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<(), (u64, String)> {
+        let price_number = match string_price.parse::<u64>() {
+            Ok(num) => num,
+            Err(e) => return Err((NON_PARSABLE_VALUE, format!("gas price: {:?}", e))),
+        };
+        match config.set_gas_price(price_number) {
+            Ok(_) => Ok(()),
+            Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("gas price: {:?}", e))),
+        }
+    }
+
+    fn set_start_block(
+        string_number: String,
+        config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<(), (u64, String)> {
+        let block_number = match string_number.parse::<u64>() {
+            Ok(num) => num,
+            Err(e) => return Err((NON_PARSABLE_VALUE, format!("start block: {:?}", e))),
+        };
+        match config.set_start_block(block_number) {
+            Ok(_) => Ok(()),
+            Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("start block: {:?}", e))),
+        }
+    }
+
     fn send_to_ui_gateway(&self, target: MessageTarget, body: MessageBody) {
         let msg = NodeToUiMessage { target, body };
         self.node_to_ui_sub
@@ -621,16 +700,14 @@ impl Configurator {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-
     use actix::System;
-
     use masq_lib::messages::{
         ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
         UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder, UiWalletAddressesRequest,
         UiWalletAddressesResponse,
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
+    use std::sync::{Arc, Mutex};
 
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
@@ -646,12 +723,6 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
-    use masq_lib::constants::{
-        ALREADY_INITIALIZED_ERROR, BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
-        EARLY_QUESTIONING_ABOUT_DATA, ILLEGAL_MNEMONIC_WORD_COUNT_ERROR,
-        KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR,
-        VALUE_MISSING_ERROR,
-    };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
 
@@ -1584,6 +1655,201 @@ mod tests {
                 ))
             }
         )
+    }
+    #[test]
+    fn handle_set_configuration_works() {
+        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_start_block_params(&set_start_block_params_arc)
+            .set_start_block_result(Ok(()));
+        let subject = make_subject(Some(persistent_config));
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiSetConfigurationRequest {
+                    name: "start-block".to_string(),
+                    value: "166666".to_string(),
+                }
+                .tmb(4444),
+            })
+            .unwrap();
+
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        let (_, context_id) = UiSetConfigurationResponse::fmb(response.body.clone()).unwrap();
+        assert_eq!(context_id, 4444);
+
+        let check_start_block_params = set_start_block_params_arc.lock().unwrap();
+        assert_eq!(*check_start_block_params, vec![166666]);
+    }
+
+    #[test]
+    fn handle_set_configuration_works_for_gas_price() {
+        let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_gas_price_params(&set_gas_price_params_arc)
+            .set_gas_price_result(Ok(()));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "gas-price".to_string(),
+                value: "68".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Ok(r#"{}"#.to_string())
+            }
+        );
+        let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
+        assert_eq!(*set_gas_price_params, vec![68])
+    }
+
+    #[test]
+    fn handle_set_configuration_handles_failure_on_gas_price_database_issue() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_gas_price_result(Err(PersistentConfigError::TransactionError));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "gas-price".to_string(),
+                value: "55".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    CONFIGURATOR_WRITE_ERROR,
+                    "gas price: TransactionError".to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_handle_gas_price_non_parsable_value_issue() {
+        let persistent_config = PersistentConfigurationMock::new();
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "gas-price".to_string(),
+                value: "fiftyfive".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    NON_PARSABLE_VALUE,
+                    "gas price: ParseIntError { kind: InvalidDigit }".to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_terminates_after_failure_on_start_block() {
+        let persistent_config = PersistentConfigurationMock::new().set_start_block_result(Err(
+            PersistentConfigError::DatabaseError("dunno".to_string()),
+        ));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "start-block".to_string(),
+                value: "166666".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    CONFIGURATOR_WRITE_ERROR,
+                    r#"start block: DatabaseError("dunno")"#.to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_argue_decently_about_non_parsable_value_at_start_block() {
+        let persistent_config = PersistentConfigurationMock::new();
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "start-block".to_string(),
+                value: "hundred_and_half".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    NON_PARSABLE_VALUE,
+                    r#"start block: ParseIntError { kind: InvalidDigit }"#.to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_complains_about_unexpected_parameter() {
+        let persistent_config = PersistentConfigurationMock::new();
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "blabla".to_string(),
+                value: "166666".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    UNRECOGNIZED_PARAMETER,
+                    "This parameter name is not known: blabla".to_string()
+                ))
+            }
+        );
     }
 
     #[test]
