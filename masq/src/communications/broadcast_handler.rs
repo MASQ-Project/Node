@@ -2,7 +2,7 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::handle_broadcast_for_undelivered_ffm;
+use crate::communications::handle_node_not_running_for_fire_and_forget;
 use crate::notifications::crashed_notification::CrashNotifier;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
 use masq_lib::messages::{
@@ -75,7 +75,7 @@ impl BroadcastHandlerReal {
                 } else if let Ok((_, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
                     ChangePasswordCommand::handle_broadcast(stdout);
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone()) {
-                    handle_broadcast_for_undelivered_ffm(body, stdout);
+                    handle_node_not_running_for_fire_and_forget(body, stdout);
                 } else {
                     write!(
                         stderr,
@@ -216,8 +216,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    //can wait for GH-415
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
@@ -233,10 +231,7 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "The Node is not running but the Daemon received a one-way message addressed to it\
-            \nOpcode: 'uninventedMessage'\n\
-            This must be said to the Node immediately!\
-            \nmasq> "
+            "\nCannot handle uninventedMessage request: Node is not running\nmasq> "
                 .to_string()
         );
         assert_eq!(
