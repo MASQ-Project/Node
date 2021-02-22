@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 pub mod crash_notification;
 pub mod daemon_initializer;
@@ -19,11 +19,11 @@ use actix::{Actor, Context, Handler, Message};
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use masq_lib::constants::{NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR};
 use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Set};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
     UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiStartOrder, UiStartResponse,
-    NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
 };
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
@@ -429,12 +429,14 @@ mod tests {
     use crate::daemon::LaunchSuccess;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
+    use masq_lib::constants::{
+        NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+    };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Required, Set};
     use masq_lib::messages::{
         CrashReason, UiFinancialsRequest, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
         UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue,
         UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder, UiStartResponse,
-        NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};

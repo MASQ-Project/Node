@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
 use crate::shared_schema::ConfiguratorError;
@@ -12,13 +12,6 @@ use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
-
-pub const NODE_LAUNCH_ERROR: u64 = 0x8000_0000_0000_0001;
-pub const NODE_NOT_RUNNING_ERROR: u64 = 0x8000_0000_0000_0002;
-pub const NODE_ALREADY_RUNNING_ERROR: u64 = 0x8000_0000_0000_0003;
-pub const UNMARSHAL_ERROR: u64 = 0x8000_0000_0000_0004;
-pub const SETUP_ERROR: u64 = 0x8000_0000_0000_0005;
-pub const TIMEOUT_ERROR: u64 = 0x8000_0000_0000_0006;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
@@ -576,6 +569,18 @@ conversation_message!(UiRecoverWalletsRequest, "recoverWallet");
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallet");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiSetConfigurationRequest {
+    pub name: String,
+    pub value: String,
+}
+conversation_message!(UiSetConfigurationRequest, "setConfiguration");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiSetConfigurationResponse {}
+
+conversation_message!(UiSetConfigurationResponse, "setConfiguration");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiShutdownRequest {}

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::migrations::utils::value_to_type;

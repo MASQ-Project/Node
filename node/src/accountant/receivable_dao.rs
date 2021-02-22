@@ -649,7 +649,7 @@ mod tests {
                 .unwrap(),
         );
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        let start_block = persistent_config.start_block().unwrap().unwrap();
+        let start_block = persistent_config.start_block().unwrap();
         assert_eq!(57u64, start_block);
     }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
@@ -541,9 +541,7 @@ impl ValueRetriever for ClandestinePort {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         if let Some(persistent_config) = persistent_config_opt {
             match persistent_config.clandestine_port() {
-                Ok(clandestine_port_opt) => {
-                    clandestine_port_opt.map(|cp| (cp.to_string(), Default))
-                }
+                Ok(clandestine_port) => Some((clandestine_port.to_string(), Default)),
                 Err(_) => None,
             }
         } else {
@@ -1985,7 +1983,7 @@ mod tests {
     #[test]
     fn clandestine_port_computed_default_present() {
         let persistent_config =
-            PersistentConfigurationMock::new().clandestine_port_result(Ok(Some(1234)));
+            PersistentConfigurationMock::new().clandestine_port_result(Ok(1234));
         let subject = ClandestinePort {};
 
         let result = subject.computed_default(
@@ -2002,21 +2000,6 @@ mod tests {
         let subject = ClandestinePort {};
 
         let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
-
-        assert_eq!(result, None)
-    }
-
-    #[test]
-    fn clandestine_port_database_field_absent() {
-        let subject = ClandestinePort {};
-        let persistent_config =
-            PersistentConfigurationMock::new().clandestine_port_result(Ok(None));
-
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
 
         assert_eq!(result, None)
     }

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 #![cfg(test)]
 use crate::server_initializer::LoggerInitializerWrapperReal;
 use lazy_static::lazy_static;

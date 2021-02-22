@@ -1,13 +1,13 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{value_t, App, SubCommand};
+use masq_lib::constants::SETUP_ERROR;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
-    SETUP_ERROR,
 };
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;

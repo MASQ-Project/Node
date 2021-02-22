@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::change_password_command::ChangePasswordCommand;
@@ -9,10 +9,11 @@ use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
+use crate::commands::set_configuration_command::SetConfigurationCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
-use crate::commands::wallet_addresses::WalletAddressesCommand;
+use crate::commands::wallet_addresses_command::WalletAddressesCommand;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandFactoryError {
@@ -52,6 +53,10 @@ impl CommandFactory for CommandFactoryReal {
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "recover-wallets" => match RecoverWalletsCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
+            "set-configuration" => match SetConfigurationCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
@@ -205,6 +210,46 @@ mod tests {
                 new_password: "abracadabra".to_string()
             }
         );
+    }
+
+    #[test]
+    fn factory_produces_set_configuration() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject
+            .make(vec![
+                "set-configuration".to_string(),
+                "--gas-price".to_string(),
+                "20".to_string(),
+            ])
+            .unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<SetConfigurationCommand>()
+                .unwrap(),
+            &SetConfigurationCommand {
+                name: "gas-price".to_string(),
+                value: "20".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn complains_about_set_configuration_command_with_no_parameters() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec!["set-configuration".to_string()])
+            .err()
+            .unwrap();
+
+        let msg = match result {
+            CommandSyntax(msg) => msg,
+            x => panic!("Expected syntax error, got {:?}", x),
+        };
+        assert!(msg.contains("error: The following required arguments were not provided:"));
     }
 
     #[test]

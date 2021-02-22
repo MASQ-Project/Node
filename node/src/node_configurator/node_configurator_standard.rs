@@ -162,9 +162,7 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
-    use masq_lib::constants::{
-        DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT,
-    };
+    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
@@ -295,10 +293,7 @@ pub mod standard {
         } else {
             match persistent_config_opt {
                 Some(ref persistent_config) => match persistent_config.gas_price() {
-                    Ok(Some(price)) => price,
-                    Ok(None) => DEFAULT_GAS_PRICE
-                        .parse()
-                        .expect("DEFAULT_GAS_PRICE bad syntax"),
+                    Ok(price) => price,
                     Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 },
                 None => 1,
@@ -1936,33 +1931,6 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_handles_missing_gas_price() {
-        let multi_config =
-            test_utils::make_multi_config(ArgsBuilder::new().param("--ip", "1.2.3.4"));
-        let mut unprivileged_config = BootstrapperConfig::new();
-        let mut holder = FakeStreamHolder::new();
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .gas_price_result(Ok(None))
-            .earning_wallet_from_address_result(Ok(Some(Wallet::new(
-                "0x0123456789012345678901234567890123456789",
-            ))))
-            .mnemonic_seed_exists_result(Ok(false));
-
-        standard::unprivileged_parse_args(
-            &multi_config,
-            &mut unprivileged_config,
-            &mut holder.streams(),
-            Some(&mut persistent_config),
-        )
-        .unwrap();
-
-        assert_eq!(
-            unprivileged_config.blockchain_bridge_config.gas_price,
-            DEFAULT_GAS_PRICE.parse::<u64>().unwrap()
-        );
-    }
-
-    #[test]
     fn privileged_parse_args_creates_configuration_with_defaults() {
         running_test();
         let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
@@ -2069,7 +2037,7 @@ mod tests {
             .mnemonic_seed_exists_result(mnemonic_seed_exists_result)
             .consuming_wallet_derivation_path_result(Ok(consuming_wallet_derivation_path_opt))
             .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))
-            .gas_price_result(Ok(Some(gas_price)))
+            .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
     }
 

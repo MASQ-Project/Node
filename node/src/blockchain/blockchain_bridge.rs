@@ -95,41 +95,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
         msg: ReportAccountsPayable,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<ReportAccountsPayable>>::Result {
-        MessageResult(match self.consuming_wallet.as_ref() {
-            Some(consuming_wallet) => Ok(msg
-                .accounts
-                .iter()
-                .map(|payable| {
-                    match self
-                        .blockchain_interface
-                        .get_transaction_count(&consuming_wallet)
-                    {
-                        Ok(nonce) => {
-                            match self.blockchain_interface.send_transaction(
-                                &consuming_wallet,
-                                &payable.wallet,
-                                u64::try_from(payable.balance).unwrap_or_else(|_| {
-                                    panic!("Lost payable amount precision: {}", payable.balance)
-                                }),
-                                nonce,
-                                self.persistent_config.gas_price().unwrap().unwrap(),
-                            ) {
-                                Ok(hash) => Ok(Payment::new(
-                                    payable.wallet.clone(),
-                                    u64::try_from(payable.balance).unwrap_or_else(|_| {
-                                        panic!("Lost payable amount precision: {}", payable.balance)
-                                    }),
-                                    hash,
-                                )),
-                                Err(e) => Err(e),
-                            }
-                        }
-                        Err(e) => Err(e),
-                    }
-                })
-                .collect::<Vec<BlockchainResult<Payment>>>()),
-            None => Err(String::from("No consuming wallet specified")),
-        })
+        self.handle_report_account_payable(msg)
     }
 }
 
@@ -167,6 +133,62 @@ impl BlockchainBridge {
             ui_sub: recipient!(addr, NodeFromUiMessage),
         }
     }
+
+    fn handle_report_account_payable(
+        &self,
+        creditors_msg: ReportAccountsPayable,
+    ) -> MessageResult<ReportAccountsPayable> {
+        MessageResult(match self.consuming_wallet.as_ref() {
+            Some(consuming_wallet) => {
+                let gas_price = match self.persistent_config.gas_price() {
+                    Ok(num) => num,
+                    Err(err) => {
+                        return MessageResult(Err(format!(
+                            "ReportAccountPayable: gas-price: {:?}",
+                            err
+                        )))
+                    }
+                };
+                Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
+            }
+            None => Err(String::from("No consuming wallet specified")),
+        })
+    }
+
+    fn process_payments(
+        &self,
+        creditors_msg: ReportAccountsPayable,
+        gas_price: u64,
+        consuming_wallet: &Wallet,
+    ) -> Vec<BlockchainResult<Payment>> {
+        creditors_msg
+            .accounts
+            .iter()
+            .map(|payable| {
+                match self
+                    .blockchain_interface
+                    .get_transaction_count(&consuming_wallet)
+                {
+                    Ok(nonce) => {
+                        let amount = u64::try_from(payable.balance).unwrap_or_else(|_| {
+                            panic!("Lost payable amount precision: {}", payable.balance)
+                        });
+                        match self.blockchain_interface.send_transaction(
+                            &consuming_wallet,
+                            &payable.wallet,
+                            amount,
+                            nonce,
+                            gas_price,
+                        ) {
+                            Ok(hash) => Ok(Payment::new(payable.wallet.clone(), amount, hash)),
+                            Err(e) => Err(e),
+                        }
+                    }
+                    Err(e) => Err(e),
+                }
+            })
+            .collect::<Vec<BlockchainResult<Payment>>>()
+    }
 }
 
 #[cfg(test)]
@@ -178,6 +200,7 @@ mod tests {
         contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
         Transactions,
     };
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -399,7 +422,7 @@ mod tests {
             .clone();
         let expected_gas_price = 5u64;
         let persistent_configuration_mock =
-            PersistentConfigurationMock::default().gas_price_result(Ok(Some(expected_gas_price)));
+            PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
 
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
@@ -512,48 +535,38 @@ mod tests {
 
     #[test]
     fn report_accounts_payable_returns_error_for_blockchain_error() {
-        let system = System::new("report_accounts_payable_returns_error_for_blockchain_error");
-
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .send_transaction_result(Err(BlockchainError::TransactionFailed(String::from(
                 "mock payment failure",
             ))));
-
         let transaction_count_parameters = blockchain_interface_mock
             .get_transaction_count_parameters
             .clone();
-
         let consuming_wallet = make_wallet("somewallet");
-
         let persistent_configuration_mock =
-            PersistentConfigurationMock::new().gas_price_result(Ok(Some(3u64)));
+            PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
         let subject = BlockchainBridge::new(
             &bc_from_wallet(Some(consuming_wallet.clone())),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
         );
-        let addr: Addr<BlockchainBridge> = subject.start();
-
-        let request = addr.send(ReportAccountsPayable {
+        let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payment_transaction: None,
             }],
-        });
+        };
 
-        System::current().stop();
-        system.run();
-
-        let result = &request.wait().unwrap().unwrap();
+        let result = subject.handle_report_account_payable(request);
 
         assert_eq!(
-            result,
-            &[Err(BlockchainError::TransactionFailed(String::from(
+            result.0,
+            Ok(vec![Err(BlockchainError::TransactionFailed(String::from(
                 "mock payment failure"
-            )))]
+            )))])
         );
         let actual_wallet = transaction_count_parameters.lock().unwrap().remove(0);
 
@@ -562,33 +575,56 @@ mod tests {
 
     #[test]
     fn report_accounts_payable_returns_error_when_there_is_no_consuming_wallet_configured() {
-        let system = System::new("report_accounts_payable_returns_error_for_blockchain_error");
-
         let blockchain_interface_mock = BlockchainInterfaceMock::default();
         let persistent_configuration_mock = PersistentConfigurationMock::default();
-
         let subject = BlockchainBridge::new(
             &BootstrapperConfig::new(),
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
         );
-        let addr: Addr<BlockchainBridge> = subject.start();
-
-        let request = addr.send(ReportAccountsPayable {
+        let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payment_transaction: None,
             }],
-        });
+        };
 
-        System::current().stop();
-        system.run();
+        let result = subject.handle_report_account_payable(request);
 
-        let result = &request.wait().unwrap();
+        assert_eq!(result.0, Err("No consuming wallet specified".to_string()));
+    }
 
-        assert_eq!(result, &Err("No consuming wallet specified".to_string()));
+    #[test]
+    fn handle_report_account_payable_manages_gas_price_error() {
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .get_transaction_count_result(Ok(web3::types::U256::from(1)));
+        let persistent_configuration_mock = PersistentConfigurationMock::new()
+            .gas_price_result(Err(PersistentConfigError::TransactionError));
+        let consuming_wallet = make_wallet("somewallet");
+        let subject = BlockchainBridge::new(
+            &bc_from_wallet(Some(consuming_wallet.clone())),
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_configuration_mock),
+        );
+        let request = ReportAccountsPayable {
+            accounts: vec![PayableAccount {
+                wallet: make_wallet("blah"),
+                balance: 42,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payment_transaction: None,
+            }],
+        };
+
+        let result = subject.handle_report_account_payable(request);
+
+        assert_eq!(
+            result.0,
+            Err(String::from(
+                "ReportAccountPayable: gas-price: TransactionError"
+            ))
+        )
     }
 
     #[test]

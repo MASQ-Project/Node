@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use masq_cli_lib::command_factory::{CommandFactory, CommandFactoryReal};

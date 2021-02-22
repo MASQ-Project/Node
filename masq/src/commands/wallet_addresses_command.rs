@@ -1,3 +1,5 @@
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
@@ -27,7 +29,7 @@ impl WalletAddressesCommand {
     }
 }
 pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("wallet_addresses")
+    SubCommand::with_name("wallet-addresses")
         .about("Provides addresses of consuming and earning wallets. Only valid if the wallets were successfully generated (generate-wallets) or recovered (recover-wallets)")
         .arg(Arg::with_name ("db-password")
             .help ("The current database password (a password must be set to use this command)")

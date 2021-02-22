@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::{
@@ -8,7 +8,8 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, SubCommand};
-use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR};
+use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
 use masq_lib::short_writeln;
 use masq_lib::utils::localhost;
 use std::fmt::Debug;
@@ -139,7 +140,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
-    use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR};
+    use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::utils::find_free_port;
     use std::cell::RefCell;
     use std::net::TcpListener;
