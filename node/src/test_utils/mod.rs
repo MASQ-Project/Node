@@ -214,7 +214,7 @@ pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
         .mnemonic_seed_result(Ok(None))
         .mnemonic_seed_exists_result(Ok(false))
         .past_neighbors_result(Ok(None))
-        .gas_price_result(Ok(Some(1)))
+        .gas_price_result(Ok(1))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {

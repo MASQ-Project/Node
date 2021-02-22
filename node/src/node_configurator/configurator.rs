@@ -34,7 +34,6 @@ use masq_lib::constants::{
     CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR, EARLY_QUESTIONING_ABOUT_DATA,
     ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
     NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
-    VALUE_MISSING_ERROR,
 };
 use rustc_hex::ToHex;
 use std::str::FromStr;
@@ -538,12 +537,11 @@ impl Configurator {
     }
 
     fn value_required<T>(
-        result: Result<Option<T>, PersistentConfigError>,
+        result: Result<T, PersistentConfigError>,
         field_name: &str,
     ) -> Result<T, MessageError> {
         match result {
-            Ok(Some(v)) => Ok(v),
-            Ok(None) => Err((VALUE_MISSING_ERROR, field_name.to_string())),
+            Ok(v) => Ok(v),
             Err(_) => Err((CONFIGURATOR_READ_ERROR, field_name.to_string())),
         }
     }
@@ -1064,7 +1062,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(
-            "WARN: Configurator: Failed to obtain wallet addresses: 281474976710667, Wallets \
+            "WARN: Configurator: Failed to obtain wallet addresses: 281474976710666, Wallets \
              must exist prior to demanding info on them (recover or generate wallets first)",
         );
     }
@@ -1919,13 +1917,13 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .current_schema_version_result("1.2.3")
-            .clandestine_port_result(Ok(Some(1234)))
-            .gas_price_result(Ok(Some(2345)))
+            .clandestine_port_result(Ok(1234))
+            .gas_price_result(Ok(2345))
             .mnemonic_seed_result(Ok(None))
             .consuming_wallet_derivation_path_result(Ok(None))
             .past_neighbors_result(Ok(Some(vec![])))
             .earning_wallet_address_result(Ok(None))
-            .start_block_result(Ok(Some(3456)));
+            .start_block_result(Ok(3456));
         let mut subject = make_subject(Some(persistent_config));
 
         let (configuration, context_id) =
@@ -1977,10 +1975,18 @@ mod tests {
     }
 
     #[test]
-    fn value_required_handles_absent_value() {
-        let result: Result<String, MessageError> = Configurator::value_required(Ok(None), "Field");
+    fn value_required_plain_works() {
+        let result: Result<u64, MessageError> = Configurator::value_required(Ok(6), "Field");
 
-        assert_eq!(result, Err((VALUE_MISSING_ERROR, "Field".to_string())))
+        assert_eq!(result, Ok(6))
+    }
+
+    #[test]
+    fn value_required_plain_handles_error() {
+        let result: Result<u64, MessageError> =
+            Configurator::value_required(Err(PersistentConfigError::NotPresent), "Field");
+
+        assert_eq!(result, Err((CONFIGURATOR_READ_ERROR, "Field".to_string())))
     }
 
     #[test]

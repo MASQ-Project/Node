@@ -28,12 +28,12 @@ pub struct Payment {
 }
 
 impl Payment {
-    pub fn new(to: Wallet, amount: u64, transaction: H256) -> Self {
+    pub fn new(to: Wallet, amount: u64, txn: H256) -> Self {
         Self {
             to,
             amount,
             timestamp: SystemTime::now(),
-            transaction,
+            transaction: txn,
         }
     }
 }
