@@ -11,6 +11,7 @@ use rand::RngCore;
 use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, Ipv6Addr};
 use std::time::Duration;
+use std::any::Any;
 
 trait MappingNonceFactory {
     fn make(&self) -> [u8; 12];
@@ -75,6 +76,7 @@ impl Transactor for PcpTransactor {
             code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
         }
     }
+    fn as_any (&self)-> &dyn Any{self}
 }
 
 impl Default for PcpTransactor {

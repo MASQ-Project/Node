@@ -10,41 +10,63 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 pub fn main() {
-    test_pcp();
-    test_pmp();
-    test_igdp();
+    prepare_router_or_report_failure(
+        Box::new(test_pcp),
+        Box::new(test_pmp),
+        Box::new(test_igdp)
+    );
 }
 
-fn test_pcp() {
-    println!("\n====== PCP TESTS ======");
+fn prepare_router_or_report_failure(
+    test_pcp:Box<dyn FnOnce()->Result<(IpAddr,Box<dyn Transactor>),String>>,
+    test_pmp:Box<dyn FnOnce()->Result<(IpAddr,Box<dyn Transactor>),String>>,
+    test_igdp:Box<dyn FnOnce()->Result<(IpAddr,Box<dyn Transactor>),String>>)
+    ->Result<(IpAddr,Box<dyn Transactor>),Vec<String>> {
+    let mut collector:Vec<String> = vec![];
+    match test_pcp(){
+        Ok(ip) => return Ok(ip),
+        Err(e) => collector.push(e)
+    };
+    match test_pmp(){
+        Ok(ip) => return Ok(ip),
+        Err(e) => collector.push(e)
+    };
+    match test_igdp(){
+        Ok(ip) => return Ok(ip),
+        Err(e) => collector.push(e)
+    };
+    if collector.len()==3 {Err(collector)}
+    else {panic!("shouldn't happen")}
+}
+
+
+fn test_pcp() -> Result<(IpAddr,Box<dyn Transactor>),String>{
+    //println!("\n====== PCP TESTS ======");
     let transactor = PcpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor);
     let status = test_common(status, router_ip, &transactor);
-    if status.cumulative_success {
-        println!(
-            "====== PCP is implemented on your router and we can successfully employ it ======\n"
-        )
-    } else {
-        println! ("====== Either PCP is not implemented on your router or we're not doing it right ======\n")
+    if !status.cumulative_success {
+        Err(String::from("Either PCP is not implemented on your router or we're not doing it right\n"))
+    }
+    else {
+        Ok((router_ip,Box::new(transactor)))
     }
 }
 
-fn test_pmp() {
-    println!("\n====== PMP TESTS ======");
+fn test_pmp()  -> Result<(IpAddr,Box<dyn Transactor>),String> {
+    //println!("\n====== PMP TESTS ======");
     let transactor = PmpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor);
     let status = test_common(status, router_ip, &transactor);
     if status.cumulative_success {
-        println!(
-            "====== PMP is implemented on your router and we can successfully employ it ======\n"
-        )
+        Err(String::from("Either PMP is not implemented on your router or we're not doing it right\n"))
     } else {
-        println! ("====== Either PMP is not implemented on your router or we're not doing it right ======\n")
+        Ok((router_ip,Box::new(transactor)))
     }
 }
 
-fn test_igdp() {
-    println!("\n====== IGDP TESTS ======");
+fn test_igdp()  -> Result<(IpAddr,Box<dyn Transactor>),String> {
+    //println!("\n====== IGDP TESTS ======");
     let transactor = IgdpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor);
     let status = seek_public_ip(status, router_ip, &transactor);
@@ -69,11 +91,9 @@ fn test_igdp() {
         status
     };
     if status.cumulative_success {
-        println!(
-            "====== IGDP is implemented on your router and we can successfully employ it ======\n"
-        )
+        Err(String::from("Either IGDP is not implemented on your router or we're not doing it right\n"))
     } else {
-        println! ("====== Either IGDP is not implemented on your router or we're not doing it right ======\n")
+        Ok((router_ip,Box::new(transactor)))
     }
 }
 
@@ -346,3 +366,48 @@ impl TestStatus {
         }
     }
 }
+
+#[cfg(test)]
+mod tests{
+    use std::net::{IpAddr, Ipv4Addr};
+    use crate::{prepare_router_or_report_failure, mock_router_test_unsuccessful, mock_router_test_finding_ip_and_doing_mapping};
+    use automap_lib::comm_layer::pmp::PmpTransactor;
+
+    #[test]
+    fn prepare_router_or_report_failure_retrieves_ip(){
+
+        let result = prepare_router_or_report_failure(
+                            Box::new(mock_router_test_unsuccessful),
+                             Box::new(mock_router_test_finding_ip_and_doing_mapping),
+                             Box::new(mock_router_test_unsuccessful));
+
+        //sadly all those types implementing Transactor cannot implement PartialEq each
+        assert!(result.is_ok());
+        let unwrapped_result = result.unwrap();
+        assert_eq!(unwrapped_result.0 ,IpAddr::V4(Ipv4Addr::new(1,2,3,4)));
+        //proof that I received an implementer of Transactor
+        let _downcast_value:&PmpTransactor = unwrapped_result.1.as_any().downcast_ref().unwrap();
+    }
+
+    #[test]
+    fn prepare_router_or_report_failure_reports_of_accumulated_errors(){
+
+        let result = prepare_router_or_report_failure(
+            Box::new(mock_router_test_unsuccessful),
+            Box::new(mock_router_test_unsuccessful),
+            Box::new(mock_router_test_unsuccessful));
+
+        let expected_message = String::from("Test ended unsuccessfully");
+
+        assert_eq!(result.err().unwrap() ,vec![expected_message.clone(),expected_message.clone(),expected_message])
+    }
+}
+
+fn mock_router_test_finding_ip_and_doing_mapping() ->Result<(IpAddr,Box<dyn Transactor>),String>{
+    Ok((IpAddr::V4(Ipv4Addr::new(1,2,3,4)),Box::new(PmpTransactor::new())))
+}
+
+fn mock_router_test_unsuccessful()->Result<(IpAddr,Box<dyn Transactor>),String>{
+    Err(String::from("Test ended unsuccessfully"))
+}
+
