@@ -11,7 +11,6 @@ use crate::protocols::utils::{Direction, Packet};
 use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use std::any::Any;
 
 pub struct PmpTransactor {
     socket_factory: Box<dyn UdpSocketFactory>,
@@ -82,10 +81,6 @@ impl Transactor for PmpTransactor {
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         self.add_mapping(router_ip, hole_port, 0)?;
         Ok(())
-    }
-
-    fn as_any (&self)-> &dyn Any{
-        self
     }
 }
 
