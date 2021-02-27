@@ -8,10 +8,10 @@ use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
 use rand::RngCore;
-use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, Ipv6Addr};
-use std::time::Duration;
 use std::any::Any;
+use std::convert::TryFrom;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::time::Duration;
 
 trait MappingNonceFactory {
     fn make(&self) -> [u8; 12];
@@ -76,7 +76,9 @@ impl Transactor for PcpTransactor {
             code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
         }
     }
-    fn as_any (&self)-> &dyn Any{self}
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl Default for PcpTransactor {
@@ -528,7 +530,12 @@ mod tests {
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
-            vec![SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from_str("::").unwrap(), 34567, 0, 0))]
+            vec![SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::from_str("::").unwrap(),
+                34567,
+                0,
+                0
+            ))]
         );
         let read_timeout_params = read_timeout_params_arc.lock().unwrap();
         assert_eq!(*read_timeout_params, vec![Some(Duration::from_secs(3))]);

@@ -8,10 +8,10 @@ use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
 use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
+use std::any::Any;
 use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use std::any::Any;
 
 pub struct PmpTransactor {
     socket_factory: Box<dyn UdpSocketFactory>,
@@ -84,7 +84,7 @@ impl Transactor for PmpTransactor {
         Ok(())
     }
 
-    fn as_any (&self)-> &dyn Any{
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }

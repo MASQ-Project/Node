@@ -1,9 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::protocols::utils::ParseError;
+use std::any::Any;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
-use std::any::Any;
 
 pub mod igdp;
 pub mod pcp;
@@ -39,7 +39,7 @@ pub trait Transactor {
         lifetime: u32,
     ) -> Result<u32, AutomapError>;
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
-    fn as_any (&self)-> &dyn Any;
+    fn as_any(&self) -> &dyn Any;
 }
 
 pub trait LocalIpFinder {

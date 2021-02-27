@@ -5,9 +5,9 @@ use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
 };
+use std::any::Any;
 use std::cell::RefCell;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
-use std::any::Any;
 
 trait GatewayFactory {
     fn make(&self, options: SearchOptions) -> Result<Box<dyn GatewayWrapper>, SearchError>;
@@ -168,7 +168,9 @@ impl Transactor for IgdpTransactor {
             Err(e) => Err(AutomapError::DeleteMappingError(format!("{:?}", e))),
         }
     }
-    fn as_any (&self)-> &dyn Any{self}
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl Default for IgdpTransactor {
