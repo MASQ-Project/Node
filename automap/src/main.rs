@@ -4,7 +4,7 @@ use automap_lib::comm_layer::pmp::PmpTransactor;
 use automap_lib::comm_layer::Transactor;
 use automap_lib::first_level_test_bodies::{test_igdp, test_pcp, test_pmp};
 use masq_lib::utils::find_free_port;
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Write, Error};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -75,6 +75,82 @@ fn prepare_router_or_report_failure(
     }
 }
 
+//change that so you can use the error string messaging
+fn deploy_background_listener(
+    socket_addr: SocketAddr,
+    listener_message_sync: &Arc<Mutex<Vec<(u16, String)>>>,
+) -> Result<(), ()> {
+    let listener_message = listener_message_sync;
+    let listener_message_clone = Arc::clone(&listener_message);
+    let mut error_writer = String::new();
+    thread::spawn(move || {
+        let listener_opt = match TcpStream::connect_timeout(&socket_addr, Duration::from_secs(2)) {
+                Ok(stream) => Some(stream),
+                Err(e) => {
+                    error_writer.push_str(&format!("Test is unsuccessful; starting to cancel it: {}", e));
+                    None
+                }
+        };
+
+        let mut buffer = [0u8; 2];
+        if let Some(mut stream) = listener_opt {
+            eprintln!("maaaaaaaaaaaaaaaaark");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)));
+            stream.set_nonblocking(true);
+            let mut loop_counter:u16 = 0;
+            loop {
+                if stream.peer_addr().is_ok() {
+                    match stream.read(&mut buffer) {
+                        Ok(_) => {
+                            let converted_to_txt = u16::from_be_bytes(buffer);
+                            eprintln!("maaaaaaaaaaaaaaaaark11111111");
+                            listener_message_clone
+                                .lock()
+                                .unwrap()
+                                .push((converted_to_txt, String::new()));
+                            break
+                        },
+                        Err(e) if loop_counter < 10000 => {
+                            &error_writer.push_str(&format!("{}", e));
+                            eprintln!("maaaaaaaaaaaaaaaaark222222222");
+                            thread::sleep(Duration::from_millis(1));
+                            loop_counter += 1;
+                            continue
+                        },
+                        Err(e) if loop_counter >= 10000 => {
+                            &error_writer.push_str(&format!("{}", e));
+                            eprintln!("maaaaaaaaaaaaaaaaark222222222");
+                            listener_message_clone
+                                .lock()
+                                .unwrap()
+                                .push((0, error_writer));
+                            break
+                        }
+                        _ =>  {error_writer.push_str("Connection broke forcibly by the remote part");
+                        listener_message_clone
+                        .lock()
+                        .unwrap()
+                        .push((0, error_writer)); break}
+                    }
+                } else {
+                    error_writer.push_str("Connection broke forcibly by the remote part");
+                    listener_message_clone
+                        .lock()
+                        .unwrap()
+                        .push((0, error_writer)); break}
+            }
+        } else {
+            listener_message_clone
+                .lock()
+                .unwrap()
+                .push((0, error_writer))
+        }
+    });
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -87,6 +163,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use std::thread;
 
     #[test]
     fn prepare_router_or_report_failure_retrieves_ip() {
@@ -138,7 +215,7 @@ mod tests {
     // }
 
     #[test]
-    fn survey_with_probe_works() {
+    fn deploy_background_listener_with_good_probe_works() {
         let port = 7000;
         let socket = SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::from_str("127.0.0.1").unwrap(),
@@ -146,12 +223,50 @@ mod tests {
         ));
         let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
         let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
-        test_stream_acceptor_and_probe_8875_imitator();
+        test_stream_acceptor_and_probe_8875_imitator(true,None,port);
         assert!(process_result.is_ok());
+        //we need to wait for the execution in the background thread
+        thread::sleep(Duration::from_millis(200));
         let listener_result = listener_result_arc_mut.lock().unwrap();
         assert_eq!(listener_result[0].0, 8875);
         assert!(listener_result[0].1.is_empty())
     }
+
+    #[test]
+    fn deploy_background_listener_without_getting_echo_reports_that_correctly_after_connection_interrupted() {
+        let port = 7001;
+        let socket = SocketAddr::V4(SocketAddrV4::new(
+            Ipv4Addr::from_str("127.0.0.1").unwrap(),
+            port,
+        ));
+        let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![(0,String::new())]));
+        let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
+        test_stream_acceptor_and_probe_8875_imitator(false,Some(5),port);
+        assert!(process_result.is_ok());
+        thread::sleep(Duration::from_millis(200));
+        let listener_result = listener_result_arc_mut.lock().unwrap();
+        assert_eq!(listener_result[0].0, 0);
+        assert_eq!(listener_result[0].1,"A connection attempt failed because the connected party did not \
+         properly respond after a period of time, or established connection failed because connected host has failed to respond. (os error 10060)".to_string())
+    }
+
+    #[test]
+    fn deploy_background_listener_without_getting_echo_terminates_alone_after_connection_lasts_too_long() {
+        let port = 7003;
+        let socket = SocketAddr::V4(SocketAddrV4::new(
+            Ipv4Addr::from_str("127.0.0.1").unwrap(),
+            port,
+        ));
+        let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
+        let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
+        test_stream_acceptor_and_probe_8875_imitator(false,Some(15),port);
+        assert!(process_result.is_ok());
+        let listener_result = listener_result_arc_mut.lock().unwrap();
+        assert_eq!(listener_result[0].0, 0);
+        assert_eq!(listener_result[0].1,"Test is unsuccessful; starting to cancel it".to_string())
+    }
+
+
 }
 
 fn mock_router_test_finding_ip_and_doing_mapping(
@@ -167,10 +282,10 @@ fn mock_router_test_unsuccessful() -> Result<(IpAddr, u16, Box<dyn Transactor>),
     Err(String::from("Test ended unsuccessfully"))
 }
 
-fn test_stream_acceptor_and_probe_8875_imitator() {
+fn test_stream_acceptor_and_probe_8875_imitator(send_probe:bool,secs:Option<u64>,port:u16) {
     let listener = TcpListener::bind(SocketAddrV4::new(
         Ipv4Addr::from_str("127.0.0.1").unwrap(),
-        7000,
+        port,
     ))
     .unwrap();
     let mut stream = loop {
@@ -179,61 +294,35 @@ fn test_stream_acceptor_and_probe_8875_imitator() {
             Err(e) => continue,
         }
     };
-    let message = u16_to_byte_array(8875);
-    stream.write_all(&message).unwrap();
+    if send_probe {
+        let message = u16_to_byte_array(8875);
+        stream.write_all(&message).unwrap();
+    } else { thread::sleep(Duration::from_secs(secs.unwrap())) }
+
 }
 
-//change that so you can use the error string messaging
-fn deploy_background_listener(
-    socket_addr: SocketAddr,
-    listener_message_sync: &Arc<Mutex<Vec<(u16, String)>>>,
-) -> Result<(), ()> {
-    let listener_message = listener_message_sync;
-    let listener_message_clone = Arc::clone(&listener_message);
-    let mut error_writer = String::new();
-    let handle = thread::spawn(move || {
-        let listener_opt = match TcpStream::connect_timeout(&socket_addr, Duration::from_secs(9)) {
-            Ok(stream) => Some(stream),
-            Err(e) => unimplemented!(), // {error_writer.push_str(&format!(""))}
-        };
 
-        let mut buffer = [0u8; 2];
-        if let Some(mut stream) = listener_opt {
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .expect("failed to set up read time out for probe listener");
-            match stream.read(&mut buffer) {
-                Ok(_) => {
-                    let converted_to_txt = u16::from_be_bytes(buffer);
-                    listener_message_clone
-                        .lock()
-                        .unwrap()
-                        .push((converted_to_txt, String::new()))
-                }
-                Err(e) => {
-                    error_writer.push_str(&format!("{}", e));
-                    listener_message_clone
-                        .lock()
-                        .unwrap()
-                        .push((0, error_writer))
-                }
-            }
-        } else {
-            listener_message_clone
-                .lock()
-                .unwrap()
-                .push((0, error_writer))
-        }
-    });
-
-    Ok(())
-}
 
 fn u16_to_byte_array(x: u16) -> [u8; 2] {
     let b1: u8 = ((x >> 8) & 0xff) as u8;
     let b2: u8 = (x & 0xff) as u8;
     return [b1, b2];
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //change that so you can use the error string messaging
 // fn deploy_background_listener(socket_addr: SocketAddrV4,listener_message_sync:Arc<Mutex<Vec<(u16,String)>>>)->Result<u16,String>{
