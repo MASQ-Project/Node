@@ -4,11 +4,13 @@ use automap_lib::comm_layer::pmp::PmpTransactor;
 use automap_lib::comm_layer::Transactor;
 use automap_lib::first_level_test_bodies::{test_igdp, test_pcp, test_pmp};
 use masq_lib::utils::find_free_port;
+use rand::{thread_rng, Rng};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub fn main() {
@@ -22,7 +24,7 @@ enum Method {
     Igdp,
 }
 
-struct LevelTwoTransferor {
+struct LevelTwoShifter {
     method: Method,
     ip: IpAddr,
     port: u16,
@@ -33,11 +35,11 @@ fn prepare_router_or_report_failure(
     test_pcp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_pmp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_igdp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
-) -> Result<LevelTwoTransferor, Vec<String>> {
+) -> Result<LevelTwoShifter, Vec<String>> {
     let mut collector: Vec<String> = vec![];
     match test_pcp() {
         Ok((ip, port, transactor)) => {
-            return Ok(LevelTwoTransferor {
+            return Ok(LevelTwoShifter {
                 method: Method::Pcp,
                 ip,
                 port,
@@ -48,7 +50,7 @@ fn prepare_router_or_report_failure(
     };
     match test_pmp() {
         Ok((ip, port, transactor)) => {
-            return Ok(LevelTwoTransferor {
+            return Ok(LevelTwoShifter {
                 method: Method::Pmp,
                 ip,
                 port,
@@ -59,7 +61,7 @@ fn prepare_router_or_report_failure(
     };
     match test_igdp() {
         Ok((ip, port, transactor)) => {
-            return Ok(LevelTwoTransferor {
+            return Ok(LevelTwoShifter {
                 method: Method::Igdp,
                 ip,
                 port,
@@ -79,11 +81,11 @@ fn prepare_router_or_report_failure(
 fn deploy_background_listener(
     socket_addr: SocketAddr,
     listener_message_sync: &Arc<Mutex<Vec<(u16, String)>>>,
-) -> Result<(), ()> {
+) -> Result<JoinHandle<()>, ()> {
     let listener_message = listener_message_sync;
     let listener_message_clone = Arc::clone(&listener_message);
     let mut error_writer = String::new();
-    thread::spawn(move || {
+    let handle = thread::spawn(move || {
         let listener_opt = match TcpListener::bind(socket_addr) {
             Ok(listener) => Some(listener),
             Err(e) => {
@@ -94,7 +96,6 @@ fn deploy_background_listener(
                 None
             }
         };
-        let mut buffer = [0u8; 2];
         if let Some(mut listener) = listener_opt {
             listener.set_nonblocking(true);
             let mut loop_counter: u16 = 0;
@@ -104,7 +105,7 @@ fn deploy_background_listener(
                     Ok((stream, _)) => break Some(stream),
                     //check incoming connection request but at some point the attempts will get exhausted (gross 6000 millis)
                     Err(_) if loop_counter <= 300 => {
-                        eprintln!("before sleep{}",loop_counter);
+                        eprintln!("before sleep{}", loop_counter);
                         if loop_counter < 28 {
                             thread::sleep(Duration::from_millis(20));
                         } else if loop_counter >= 28 && loop_counter <= 150 {
@@ -120,47 +121,40 @@ fn deploy_background_listener(
                             .push_str("No incoming request of connecting; waiting too long. ");
                         break None;
                     }
-                    _ => {error_writer.push_str("should never happen; unexpected"); break None}
+                    _ => {
+                        error_writer.push_str("should never happen; unexpected");
+                        break None;
+                    }
                 }
             };
             if let Some(mut connection) = connection_opt {
-                connection.set_read_timeout(Some(Duration::from_secs(6))); //is it functioning?
-                let mut loop_counter: u16 = 0;
-                let start_time = Instant::now();
-                loop {
-                    match connection.read(&mut buffer) {
-                        //shutdown signal elimination
-                        Ok(num) if num > 1 => {
-                            let converted_to_txt = u16::from_be_bytes(buffer);
-                            listener_message_clone
-                                .lock()
-                                .unwrap()
-                                .push((converted_to_txt, String::new()));
-                            break;
-                        }
-                        //equivalents of "shutdown"
-                        Ok(num) => {
-                            error_writer
-                                .push_str("Communication can't continue. Stream was muted. ");
-                            mutex_shared_err_message(listener_message_clone, error_writer);
-                            break;
-                        }
-                        Err(_) if loop_counter < 1000 => {
-                            loop_counter += 1;
-
-                            continue;
-                        }
-                        Err(_) if loop_counter == 1000 => {
-                            error_writer
-                                .push_str("No incoming request of connecting; waiting too long. ");
-                            mutex_shared_err_message(listener_message_clone, error_writer);
-                            break;
-                        }
-                        _ => {
-                            error_writer.push_str("should never happen; unexpected");
-                            mutex_shared_err_message(listener_message_clone, error_writer);
-                            break;
-                        }
+                let mut buffer = [0u8; 2];
+                connection
+                    .set_nonblocking(false)
+                    .expect("not successful to set blocking read");
+                connection.set_read_timeout(Some(Duration::from_secs(6)));
+                match connection.read(&mut buffer) {
+                    //shutdown signal elimination
+                    Ok(num) if num > 1 => {
+                        let converted_to_txt = u16::from_be_bytes(buffer);
+                        listener_message_clone
+                            .lock()
+                            .unwrap()
+                            .push((converted_to_txt, String::new()));
+                    }
+                    Ok(num) if num <= 1 => {
+                        error_writer.push_str("Communication can't continue. Stream was muted. ");
+                        mutex_shared_err_message(listener_message_clone, error_writer);
+                    }
+                    Err(_) => {
+                        error_writer
+                            .push_str("No incoming request of connecting; waiting too long. ");
+                        mutex_shared_err_message(listener_message_clone, error_writer);
+                    }
+                    //untested but enforced by the compiler (match pattering must be exhaustive)
+                    _ => {
+                        error_writer.push_str("Unexpected value; terminating unsuccessful ");
+                        mutex_shared_err_message(listener_message_clone, error_writer)
                     }
                 }
             } else {
@@ -170,19 +164,100 @@ fn deploy_background_listener(
             mutex_shared_err_message(listener_message_clone, error_writer);
         }
     });
-    Ok(())
+    Ok(handle)
 }
 
 fn mutex_shared_err_message(reference: Arc<Mutex<Vec<(u16, String)>>>, message: String) {
     reference.lock().unwrap().push((0, message));
 }
 
+fn probe_researcher(
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+    server_address: &str,
+    params: LevelTwoShifter,
+) -> Result<(), String> {
+    let server_address =
+        SocketAddr::from_str(server_address).expect("server socket address parsing error");
+    let nonce = generate_nonce();
+    let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
+    let probe_listener_address = SocketAddr::from_str(&format!("0.0.0.0:{}", params.port))
+        .expect("probe listener address parsing error");
+    let thread_handle_opt =
+        match deploy_background_listener(probe_listener_address, &listener_result_arc_mut) {
+            Ok(handle) => Some(handle),
+            Err(()) => unimplemented!(),
+        };
+    let time_stamp = Instant::now();
+    println!("{}", params.ip);
+    let http_request = format!(
+        "GET /probe_request?ip={}&port={}&nonce={} HTTP/1.1\r\n\r\n",
+        params.ip, params.port, nonce
+    );
+
+    let tcp_stream_opt: Option<TcpStream> = match TcpStream::connect(server_address) {
+        Ok(con) => Some(con),
+        Err(e) => unimplemented!(), // {stderr.write_all(b"We couldn't connect to the http server. Test is terminating.").expect("writing failed");None}
+    };
+    if let Some(mut connection) = tcp_stream_opt {
+        match connection.write_all(http_request.as_bytes()) {
+            Ok(_) => (),
+            Err(e) => unimplemented!(),
+        }
+        let mut buffer = [0u8; 1024];
+        connection
+            .set_nonblocking(false)
+            .expect("not successful to set blocking read");
+        connection
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("unsuccessful during setting nonblocking");
+        match connection.read(&mut buffer) {
+            Ok(length) => stdout
+                .write_all(&buffer[..length])
+                .expect("writing server response failed"),
+            Err(e) => unimplemented!(),
+        };
+
+        if let Some(handle) = thread_handle_opt {
+            handle
+                .join()
+                .expect("failed to wait for the background thread")
+        }
+
+        let probe_listener_findings =
+            listener_result_arc_mut.lock().expect("poisoned mutex")[0].clone();
+        if probe_listener_findings.0 != 0 {
+            if nonce == probe_listener_findings.0 {
+                stdout
+                    .write_all(b"\n\nThe received nonce was evaluated to be a match; test passed");
+            } else {
+                let failure_message = format!(
+                    "\n\nThe received nonce is different from that one which is expected; \
+                 correct: {}, received:{}",
+                    nonce, probe_listener_findings.0
+                );
+                stdout.write_all(failure_message.as_bytes());
+            }
+        }
+    }
+
+    stderr.flush().expect("failed to flush stdout");
+    stdout.flush().expect("failed to flush stderr");
+
+    Ok(())
+}
+
+fn generate_nonce() -> u16 {
+    let mut rnd = thread_rng();
+    rnd.gen_range(1000, 9999)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
-        deploy_background_listener, mock_router_test_finding_ip_and_doing_mapping,
-        mock_router_test_unsuccessful, prepare_router_or_report_failure,
-        test_stream_acceptor_and_probe_8875_imitator, Method,
+        deploy_background_listener, generate_nonce, mock_router_test_finding_ip_and_doing_mapping,
+        mock_router_test_unsuccessful, prepare_router_or_report_failure, probe_researcher,
+        test_stream_acceptor_and_probe_8875_imitator, LevelTwoShifter, Method,
     };
     use automap_lib::comm_layer::pmp::PmpTransactor;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -229,16 +304,6 @@ mod tests {
             ]
         )
     }
-
-    // #[test]
-    // fn deploy_background_listener_terminates_itself_safely_after_time_limit_passes() {
-    //     let start_point = std::time::Instant::now();
-    //     deploy_background_listener();
-    //     let time_difference = start_point.elapsed();
-    //
-    //     assert!(time_difference > Duration::from_secs(10));
-    //     assert!(time_difference < Duration::from_millis(10100));
-    // }
 
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
@@ -292,7 +357,7 @@ mod tests {
         //CAUTION: probably a leaking thread; this thread keeps the connection alive so that we can run out of patient with waiting
         // for the nonce message; thus deploy_background_listener terminates deliberately
         thread::spawn(move || test_stream_acceptor_and_probe_8875_imitator(false, 2, port));
-        thread::sleep(Duration::from_millis(2000));
+        thread::sleep(Duration::from_millis(7000));
         assert!(process_result.is_ok());
         let listener_result = listener_result_arc_mut.lock().unwrap();
         assert_eq!(listener_result[0].0, 0);
@@ -320,6 +385,41 @@ mod tests {
             listener_result[0].1,
             "No incoming request of connecting; waiting too long. ".to_string()
         )
+    }
+
+    #[test]
+    fn generate_nonce_works() {
+        (1..100).for_each(|_| {
+            let nonce = generate_nonce();
+            assert!(10000 > nonce && nonce > 999)
+        });
+    }
+
+    #[test]
+    fn probe_researcher_works() {
+        let mut stdout = vec![];
+        let mut stderr = vec![];
+        let parameters_transferor = LevelTwoShifter {
+            method: Method::Pmp,
+            ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
+            port: 3545,
+            transactor: Box::new(PmpTransactor::default()),
+        };
+        let server_address = "127.0.0.1:7005";
+
+        let result = probe_researcher(
+            &mut stdout,
+            &mut stderr,
+            server_address,
+            parameters_transferor,
+        );
+
+        thread::sleep(Duration::from_secs(3));
+        assert_eq!(result, Ok(()));
+        let str_result = std::str::from_utf8(stdout.as_slice()).unwrap();
+        assert_eq!(str_result, "HTTP/1.1 200 OK\r\nContent-Length: 67\r\n\r\nconnection: success; writing: success; connection shutdown: \
+         success\n\nThe received nonce was evaluated to be a match; test passed");
+        assert!(stderr.is_empty())
     }
 }
 
