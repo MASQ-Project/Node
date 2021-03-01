@@ -99,19 +99,28 @@ fn deploy_background_listener(
             listener.set_nonblocking(true);
             let mut loop_counter: u16 = 0;
             let connection_opt = loop {
+                //os limit or intern limit for attempts up to around 508
                 match listener.accept() {
                     Ok((stream, _)) => break Some(stream),
-                    Err(_) if loop_counter <= 100 => {
-                        thread::sleep(Duration::from_millis(1));
+                    //check incoming connection request but at some point the attempts will get exhausted (gross 6000 millis)
+                    Err(_) if loop_counter <= 300 => {
+                        eprintln!("before sleep{}",loop_counter);
+                        if loop_counter < 28 {
+                            thread::sleep(Duration::from_millis(20));
+                        } else if loop_counter >= 28 && loop_counter <= 150 {
+                            thread::sleep(Duration::from_millis(5));
+                        } else {
+                            thread::sleep(Duration::from_millis(15));
+                        }
                         loop_counter += 1;
                         continue;
                     }
-                    Err(_) if loop_counter > 100 => {
+                    Err(_) if loop_counter > 300 => {
                         error_writer
                             .push_str("No incoming request of connecting; waiting too long. ");
                         break None;
                     }
-                    _ => error_writer.push_str("should never happen; unexpected"),
+                    _ => {error_writer.push_str("should never happen; unexpected"); break None}
                 }
             };
             if let Some(mut connection) = connection_opt {
@@ -155,7 +164,6 @@ fn deploy_background_listener(
                     }
                 }
             } else {
-                error_writer.push_str("Connection broke forcibly by the remote part");
                 mutex_shared_err_message(listener_message_clone, error_writer);
             }
         } else {
@@ -286,6 +294,26 @@ mod tests {
         thread::spawn(move || test_stream_acceptor_and_probe_8875_imitator(false, 2, port));
         thread::sleep(Duration::from_millis(2000));
         assert!(process_result.is_ok());
+        let listener_result = listener_result_arc_mut.lock().unwrap();
+        assert_eq!(listener_result[0].0, 0);
+        assert_eq!(
+            listener_result[0].1,
+            "No incoming request of connecting; waiting too long. ".to_string()
+        )
+    }
+
+    #[test]
+    fn deploy_background_listener_ends_its_job_after_waiting_period_for_any_connection_but_none_was_sensed(
+    ) {
+        let port = 7004;
+        let socket = SocketAddr::V4(SocketAddrV4::new(
+            Ipv4Addr::from_str("127.0.0.1").unwrap(),
+            port,
+        ));
+        let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
+        let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
+        assert!(process_result.is_ok());
+        thread::sleep(Duration::from_millis(6500));
         let listener_result = listener_result_arc_mut.lock().unwrap();
         assert_eq!(listener_result[0].0, 0);
         assert_eq!(
