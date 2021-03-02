@@ -4,6 +4,7 @@ use automap_lib::comm_layer::pmp::PmpTransactor;
 use automap_lib::comm_layer::Transactor;
 use automap_lib::first_level_test_bodies::{test_igdp, test_pcp, test_pmp};
 use rand::{thread_rng, Rng};
+use std::cell::Cell;
 use std::fmt::{Display, Formatter};
 use std::io::{IoSlice, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
@@ -55,10 +56,10 @@ fn close_exposed_port(
     params: LevelTwoShifter,
 ) -> Result<(), ()> {
     write!(stdout, "Preparation for closing the forwarded port").expect("write failed");
-    match params.transactor.expect("trrr").delete_mapping(params.ip, params.port) {
+    match params.transactor.delete_mapping(params.ip, params.port) {
         Ok(()) => {
             write!(stdout, "Port closed successfully").expect("write failed");
-            stdout.flush();
+            stdout.flush().expect("flush failed");
             Ok(())
         }
         Err(e) => {
@@ -66,8 +67,9 @@ fn close_exposed_port(
                 stderr,
                 "technical error: {:?}; You may inspect port {} yourself and close it, sorry.",
                 e, params.port
-            );
-            stderr.flush();
+            )
+            .expect("write failed");
+            stderr.flush().expect("flush failed");
             Err(())
         }
     }
@@ -94,7 +96,7 @@ struct LevelTwoShifter {
     method: Method,
     ip: IpAddr,
     port: u16,
-    transactor: Option<Box<dyn Transactor>>,
+    transactor: Box<dyn Transactor>,
 }
 
 fn prepare_router_or_report_failure(
@@ -109,7 +111,7 @@ fn prepare_router_or_report_failure(
                 method: Method::Pcp,
                 ip,
                 port,
-                transactor: Some(transactor),
+                transactor,
             })
         }
         Err(e) => collector.push(e),
@@ -120,7 +122,7 @@ fn prepare_router_or_report_failure(
                 method: Method::Pmp,
                 ip,
                 port,
-                transactor: Some(transactor),
+                transactor,
             })
         }
         Err(e) => collector.push(e),
@@ -131,7 +133,7 @@ fn prepare_router_or_report_failure(
                 method: Method::Igdp,
                 ip,
                 port,
-                transactor: Some(transactor),
+                transactor,
             })
         }
         Err(e) => collector.push(e),
@@ -173,7 +175,6 @@ fn deploy_background_listener(
                     Ok((stream, _)) => break Some(stream),
                     //check incoming connection request but at some point the attempts will get exhausted (gross 6000 millis)
                     Err(_) if loop_counter <= 300 => {
-                        eprintln!("before sleep{}", loop_counter);
                         if loop_counter < 28 {
                             thread::sleep(Duration::from_millis(20));
                         } else if loop_counter >= 28 && loop_counter <= 150 {
@@ -245,7 +246,7 @@ fn probe_researcher(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
     server_address: &str,
-    mut params: &mut LevelTwoShifter,
+    params: &mut LevelTwoShifter,
 ) -> bool {
     write!(
         stdout,
@@ -254,13 +255,13 @@ fn probe_researcher(
     )
     .expect("write failed");
 
-    let mut success_sign = false;
-    evaluate_research(stdout, stderr, server_address, params, &mut success_sign);
+    let success_sign = Cell::new(false);
+    evaluate_research(stdout, stderr, server_address, params, &success_sign);
 
     stderr.flush().expect("failed to flush stdout");
     stdout.flush().expect("failed to flush stderr");
 
-    success_sign
+    success_sign.take()
 }
 
 fn evaluate_research(
@@ -268,7 +269,7 @@ fn evaluate_research(
     stderr: &mut dyn Write,
     server_address: &str,
     params: &mut LevelTwoShifter,
-    success_sign: &mut bool,
+    success_sign: &Cell<bool>,
 ) -> () {
     let server_address =
         SocketAddr::from_str(server_address).expect("server socket address parsing error");
@@ -321,10 +322,14 @@ fn evaluate_research(
     connection
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("unsuccessful during setting nonblocking");
+    let mut server_response = false;
     match connection.read(&mut buffer) {
-        Ok(length) => stdout
-            .write_all(&buffer[..length])
-            .expect("writing server response failed"),
+        Ok(length) => {
+            stdout
+                .write_all(&buffer[..length])
+                .expect("writing server response failed");
+            server_response = true;
+        }
         Err(_) => stderr
             .write_all(b"Request to the server was sent but no response came back. ")
             .expect("writing to stderr failed"),
@@ -351,8 +356,10 @@ fn evaluate_research(
             return;
         }
     }
-    let mut success_sign = success_sign;
-    success_sign = &mut true;
+
+    if server_response {
+        success_sign.set(true);
+    }
 }
 
 fn generate_nonce() -> u16 {
@@ -389,12 +396,8 @@ mod tests {
         assert_eq!(unwrapped_result.method, Method::Pmp);
         assert_eq!(unwrapped_result.port, 4444);
         //proof that I received an implementer of Transactor
-        let _downcast_value: &PmpTransactor = unwrapped_result
-            .transactor
-            .unwrap()
-            .as_any()
-            .downcast_ref()
-            .unwrap();
+        let _downcast_value: &PmpTransactor =
+            unwrapped_result.transactor.as_any().downcast_ref().unwrap();
     }
 
     #[test]
@@ -516,7 +519,7 @@ mod tests {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: 3545,
-            transactor: Some(Box::new(PmpTransactor::default())),
+            transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = "127.0.0.1:7005";
 
@@ -545,7 +548,7 @@ mod tests {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: 81,
-            transactor: Some(Box::new(PmpTransactor::default())),
+            transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = "127.0.0.1:7010";
 
@@ -576,7 +579,7 @@ mod tests {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: 8000,
-            transactor: Some(Box::new(PmpTransactor::default())),
+            transactor: Box::new(PmpTransactor::default()),
         };
         //fake server  -- caution: a leaking thread
         thread::spawn(move || {
@@ -671,11 +674,11 @@ impl MockStream {
 }
 
 impl Write for MockStream {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
         unimplemented!()
     }
 
-    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+    fn write_vectored(&mut self, _bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
         unimplemented!()
     }
 
@@ -684,7 +687,7 @@ impl Write for MockStream {
         Ok(())
     }
 
-    fn write_all(&mut self, mut buf: &[u8]) -> std::io::Result<()> {
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         self.stream.push_str(std::str::from_utf8(buf).unwrap());
         Ok(())
     }
