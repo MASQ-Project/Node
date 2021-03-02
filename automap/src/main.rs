@@ -3,18 +3,33 @@
 use automap_lib::comm_layer::pmp::PmpTransactor;
 use automap_lib::comm_layer::Transactor;
 use automap_lib::first_level_test_bodies::{test_igdp, test_pcp, test_pmp};
-use masq_lib::utils::find_free_port;
 use rand::{thread_rng, Rng};
-use std::io::{Error, ErrorKind, Read, Write};
+use std::io::{Read, Write, IoSlice};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{thread, io, fmt};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration};
+use std::fmt::{Display, Formatter};
 
 pub fn main() {
-    prepare_router_or_report_failure(Box::new(test_pcp), Box::new(test_pmp), Box::new(test_igdp));
+    let stdout = io::stdout();
+    let mut stderr = io::stderr();
+
+    match prepare_router_or_report_failure(
+        Box::new(test_pcp),
+        Box::new(test_pmp),
+        Box::new(test_igdp)){
+
+        Ok(first_level) => unimplemented!(),
+
+        Err(e) => {
+            e.into_iter().for_each(|s|
+            stderr.write_all(s.as_bytes()).expect("write_all failed"));
+            stderr.flush().expect("failed to flush stderr");
+            std::process::exit(1)}
+    };
 }
 
 #[derive(PartialEq, Debug)]
@@ -24,11 +39,21 @@ enum Method {
     Igdp,
 }
 
+impl Display for Method{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self{
+            Method::Pmp => write!(f,"PMP protocol"),
+            Method::Pcp => write!(f,"PCP protocol"),
+            Method::Igdp => write!(f,"IGDP protocol")
+        }
+    }
+}
+
 struct LevelTwoShifter {
     method: Method,
     ip: IpAddr,
     port: u16,
-    transactor: Box<dyn Transactor>,
+    transactor: Option<Box<dyn Transactor>>,
 }
 
 fn prepare_router_or_report_failure(
@@ -43,7 +68,7 @@ fn prepare_router_or_report_failure(
                 method: Method::Pcp,
                 ip,
                 port,
-                transactor,
+                transactor: Some(transactor),
             })
         }
         Err(e) => collector.push(e),
@@ -54,7 +79,7 @@ fn prepare_router_or_report_failure(
                 method: Method::Pmp,
                 ip,
                 port,
-                transactor,
+                transactor: Some(transactor),
             })
         }
         Err(e) => collector.push(e),
@@ -65,7 +90,7 @@ fn prepare_router_or_report_failure(
                 method: Method::Igdp,
                 ip,
                 port,
-                transactor,
+                transactor: Some(transactor),
             })
         }
         Err(e) => collector.push(e),
@@ -82,6 +107,7 @@ fn deploy_background_listener(
     socket_addr: SocketAddr,
     listener_message_sync: &Arc<Mutex<Vec<(u16, String)>>>,
 ) -> std::io::Result<JoinHandle<()>> {
+
     let listener_message = listener_message_sync;
     let listener_message_clone = Arc::clone(&listener_message);
     let mut error_writer = String::new();
@@ -96,8 +122,9 @@ fn deploy_background_listener(
                 None
             }
         };
-        if let Some(mut listener) = listener_opt {
-            listener.set_nonblocking(true);
+        if let Some(listener) = listener_opt {
+            listener.set_nonblocking(true)
+                .expect("Setting nonblocking connection failed");
             let mut loop_counter: u16 = 0;
             let connection_opt = loop {
                 //os limit or intern limit for attempts up to around 508
@@ -132,7 +159,8 @@ fn deploy_background_listener(
                 connection
                     .set_nonblocking(false)
                     .expect("not successful to set blocking read");
-                connection.set_read_timeout(Some(Duration::from_secs(6)));
+                connection.set_read_timeout(Some(Duration::from_secs(6)))
+                    .expect("setting read timeout failed");
                 match connection.read(&mut buffer) {
                     //shutdown signal elimination
                     Ok(num) if num > 1 => {
@@ -177,65 +205,9 @@ fn probe_researcher(
     server_address: &str,
     params: LevelTwoShifter,
 ) -> Result<(), String> {
-    //     let server_address =
-    //         SocketAddr::from_str(server_address).expect("server socket address parsing error");
-    //     let nonce = generate_nonce();
-    //     let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
-    //     let probe_listener_address = SocketAddr::from_str(&format!("0.0.0.0:{}", params.port))
-    //         .expect("probe listener address parsing error");
-    //     let thread_handle_opt = match deploy_background_listener(probe_listener_address, &listener_result_arc_mut) {
-    //         Ok(handle) => Some(handle),
-    //         Err(e) => {stderr.write_all(e.to_string().as_ref());None},  //untested but reasonably safe
-    //     };
-    //
-    //     if let Some(handle) = thread_handle_opt {
-    //         let http_request = format!(
-    //             "GET /probe_request?ip={}&port={}&nonce={} HTTP/1.1\r\n\r\n",
-    //             params.ip, params.port, nonce
-    //         );
-    //         let tcp_stream_opt: Option<TcpStream> = match TcpStream::connect(server_address) {
-    //             Ok(con) => Some(con),
-    //             Err(e) => unimplemented!(), // {stderr.write_all(b"We couldn't connect to the http server. Test is terminating.").expect("writing failed");None}
-    //         };
-    //         if let Some(mut connection) = tcp_stream_opt {
-    //             match connection.write_all(http_request.as_bytes()) {
-    //                 Ok(_) => (),
-    //                 Err(e) => unimplemented!(),
-    //             }
-    //             let mut buffer = [0u8; 1024];
-    //             connection
-    //                 .set_nonblocking(false)
-    //                 .expect("not successful to set blocking read");
-    //             connection
-    //                 .set_read_timeout(Some(Duration::from_secs(5)))
-    //                 .expect("unsuccessful during setting nonblocking");
-    //             match connection.read(&mut buffer) {
-    //                 Ok(length) => stdout
-    //                     .write_all(&buffer[..length])
-    //                     .expect("writing server response failed"),
-    //                 Err(e) => unimplemented!(),
-    //             };
-    //
-    //             handle
-    //                 .join()
-    //                 .expect("failed to wait for the background thread");
-    //
-    //         let probe_listener_findings =
-    //             listener_result_arc_mut.lock().expect("poisoned mutex")[0].clone();
-    //         if probe_listener_findings.0 != 0 {
-    //             if nonce == probe_listener_findings.0 {
-    //                 stdout.write_all(b"\n\nThe received nonce was evaluated to be a match; test passed");
-    //             } else {
-    //                 let failure_message = format!(
-    //                     "\n\nThe received nonce is different from that one which is expected; \
-    //                  correct: {}, received:{}",
-    //                     nonce, probe_listener_findings.0
-    //                 );
-    //                 stdout.write_all(failure_message.as_bytes());
-    //             }
-    //         }
-    //     }
-    // }
+
+    write!(stdout,"Test of a port forwarded by using {} is starting. \n\n", params.method);
+
     evaluate_research(stdout, stderr, server_address, params);
 
     stderr.flush().expect("failed to flush stdout");
@@ -260,7 +232,7 @@ fn evaluate_research(
         match deploy_background_listener(probe_listener_address, &listener_result_arc_mut) {
             Ok(handle) => handle,
             Err(e) => {
-                stderr.write_all(e.to_string().as_ref());
+                stderr.write_all(e.to_string().as_ref()).expect("write_all failed");
                 return;
             } //untested but reasonably safe
         };
@@ -270,7 +242,7 @@ fn evaluate_research(
     );
     let mut connection: TcpStream = match TcpStream::connect(server_address) {
         Ok(conn) => conn,
-        Err(e) => {
+        Err(_) => {
             stderr
                 .write_all(
                     b"We couldn't connect to the \
@@ -282,7 +254,7 @@ fn evaluate_research(
     };
     match connection.write_all(http_request.as_bytes()) {
         Ok(_) => (),
-        Err(e) => {
+        Err(_) => {
             stderr
                 .write_all(
                     b"Sending an http request to \
@@ -314,14 +286,16 @@ fn evaluate_research(
         listener_result_arc_mut.lock().expect("poisoned mutex")[0].clone();
     if probe_listener_findings.0 != 0 {
         if nonce == probe_listener_findings.0 {
-            stdout.write_all(b"\n\nThe received nonce was evaluated to be a match; test passed");
+            stdout.write_all(b"\n\nThe received nonce was evaluated to be a match; test passed")
+                .expect("write_all failed");
         } else {
             let failure_message = format!(
                 "\n\nThe received nonce is different from that one which is expected; \
                  correct: {}, received:{}",
                 nonce, probe_listener_findings.0
             );
-            stdout.write_all(failure_message.as_bytes());
+            stdout.write_all(failure_message.as_bytes())
+                .expect("write_all failed");
         }
     }
 }
@@ -333,13 +307,8 @@ fn generate_nonce() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        deploy_background_listener, generate_nonce, mock_router_test_finding_ip_and_doing_mapping,
-        mock_router_test_unsuccessful, prepare_router_or_report_failure, probe_researcher,
-        test_stream_acceptor_and_probe_8875_imitator, LevelTwoShifter, Method,
-    };
+    use crate::{deploy_background_listener, generate_nonce, mock_router_test_finding_ip_and_doing_mapping, mock_router_test_unsuccessful, prepare_router_or_report_failure, probe_researcher, test_stream_acceptor_and_probe_8875_imitator, LevelTwoShifter, Method, MockStream};
     use automap_lib::comm_layer::pmp::PmpTransactor;
-    use std::io::{Read, Write};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -362,7 +331,7 @@ mod tests {
         assert_eq!(unwrapped_result.port, 4444);
         //proof that I received an implementer of Transactor
         let _downcast_value: &PmpTransactor =
-            unwrapped_result.transactor.as_any().downcast_ref().unwrap();
+            unwrapped_result.transactor.unwrap().as_any().downcast_ref().unwrap();
     }
 
     #[test]
@@ -476,14 +445,15 @@ mod tests {
     }
 
     #[test]
+    //server must be running so that we can get this test green!
     fn probe_researcher_works() {
-        let mut stdout = vec![];
-        let mut stderr = vec![];
+        let mut stdout = MockStream::new();
+        let mut stderr = MockStream::new();
         let parameters_transferor = LevelTwoShifter {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: 3545,
-            transactor: Box::new(PmpTransactor::default()),
+            transactor: Some(Box::new(PmpTransactor::default())),
         };
         let server_address = "127.0.0.1:7005";
 
@@ -494,25 +464,27 @@ mod tests {
             parameters_transferor,
         );
 
-        thread::sleep(Duration::from_secs(3));
+        thread::sleep(Duration::from_secs(4));
         assert_eq!(result, Ok(()));
-        let str_result_stdout = std::str::from_utf8(stdout.as_slice()).unwrap();
-        assert_eq!(str_result_stdout, "HTTP/1.1 200 OK\r\nContent-Length: 67\r\n\r\nconnection: success; writing: success; connection shutdown: \
-         success\n\nThe received nonce was evaluated to be a match; test passed");
-        assert!(stderr.is_empty())
+        assert_eq!(stdout.stream, "Test of a port forwarded by using PMP protocol is starting. \n\nHTTP/1.1 200 OK\r\nContent-Length: 67\r\n\r\nconnection: success; writing: success; connection shutdown: \
+         success\n\nThe received nonce was evaluated to be a match; test passed"
+            );
+        assert!(stderr.stream.is_empty());
+        assert_eq!(stdout.flush_count,1);
+        assert_eq!(stderr.flush_count,1);
     }
 
     #[test]
     fn probe_researcher_returns_failure_if_cannot_connect_to_the_http_server() {
-        let mut stdout = vec![];
-        let mut stderr = vec![];
+        let mut stdout = MockStream::new();
+        let mut stderr = MockStream::new();
         let parameters_transferor = LevelTwoShifter {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
-            port: 8000,
-            transactor: Box::new(PmpTransactor::default()),
+            port: 81,
+            transactor: Some(Box::new(PmpTransactor::default())),
         };
-        let server_address = "127.0.0.1:7005";
+        let server_address = "127.0.0.1:7010";
 
         let result = probe_researcher(
             &mut stdout,
@@ -521,29 +493,31 @@ mod tests {
             parameters_transferor,
         );
         assert_eq!(result, Ok(()));
-        let str_result_stderr = std::str::from_utf8(stderr.as_slice()).unwrap();
         assert_eq!(
-            str_result_stderr,
+            stderr.stream,
             "We couldn\'t connect to the http server. Test is terminating."
         );
-        assert!(stdout.is_empty())
+        assert_eq!(stdout.stream,"Test of a port forwarded by using PMP protocol is starting. \n\n");
+        assert_eq!(stdout.flush_count,1);
+        assert_eq!(stderr.flush_count,1);
     }
 
     #[test]
     fn probe_researcher_returns_failure_if_response_from_to_the_http_server_is_of_bad_news() {
-        let mut stdout = vec![];
-        let mut stderr = vec![];
+        let mut stdout = MockStream::new();
+        let mut stderr = MockStream::new();
         let parameters_transferor = LevelTwoShifter {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: 8000,
-            transactor: Box::new(PmpTransactor::default()),
+            transactor: Some(Box::new(PmpTransactor::default())),
         };
-        //fake server
-        let handle = thread::spawn(move || {
+        //fake server  -- caution: a leaking thread
+        thread::spawn(move || {
             let listener =
                 TcpListener::bind(SocketAddr::from_str("127.0.0.1:7006").unwrap()).unwrap();
-            let (mut connection, _) = listener.accept().unwrap();
+            let (connection, _) = listener.accept().unwrap();
+            //make busy without sleep
             loop {
                 connection.peer_addr().unwrap();
             }
@@ -558,12 +532,13 @@ mod tests {
             parameters_transferor,
         );
         assert_eq!(result, Ok(()));
-        let str_result_stderr = std::str::from_utf8(stderr.as_slice()).unwrap();
         assert_eq!(
-            str_result_stderr,
+            stderr.stream,
             "Request to the server was sent but no response came back. "
         );
-        assert!(stdout.is_empty())
+        assert_eq!(stdout.stream,"Test of a port forwarded by using PMP protocol is starting. \n\n");
+        assert_eq!(stdout.flush_count,1);
+        assert_eq!(stderr.flush_count,1);
     }
 }
 
@@ -610,4 +585,44 @@ fn u16_to_byte_array(x: u16) -> [u8; 2] {
     let b1: u8 = ((x >> 8) & 0xff) as u8;
     let b2: u8 = (x & 0xff) as u8;
     return [b1, b2];
+}
+
+struct MockStream{
+    stream: String,
+    flush_count: u8
+}
+
+impl MockStream {
+    fn new()->Self{
+        Self{
+            stream: String::new(),
+            flush_count: 0
+        }
+    }
+
+}
+
+impl Write for MockStream{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+        unimplemented!()
+    }
+
+    fn flush(&mut self) ->std::io::Result<()> {
+        self.flush_count += 1;
+        Ok(())
+    }
+
+    fn write_all(&mut self, mut buf: &[u8]) -> std::io::Result<()> {
+        self.stream.push_str(std::str::from_utf8(buf).unwrap());
+        Ok(())
+    }
+
+    fn by_ref(&mut self) -> &mut Self where
+        Self: Sized, {
+        unimplemented!()
+    }
 }

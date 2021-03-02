@@ -78,7 +78,7 @@ fn test_common(
     transactor: &dyn Transactor,
 ) -> (TestStatus, u16) {
     let status = seek_public_ip(status, router_ip, transactor);
-    let (port, mut status) = poke_firewall_hole(status, router_ip, transactor);
+    let (port, status) = poke_firewall_hole(status, router_ip, transactor);
     // if status.step_success {
     //     status = remove_firewall_hole(port, status, router_ip, transactor);
     // }
@@ -217,7 +217,7 @@ fn poke_permanent_firewall_hole(
     }
 }
 
-fn remove_firewall_hole(
+fn _remove_firewall_hole(
     port: u16,
     status: TestStatus,
     router_ip: IpAddr,
@@ -243,7 +243,7 @@ fn remove_firewall_hole(
     }
 }
 
-fn remove_permanent_firewall_hole(
+fn _remove_permanent_firewall_hole(
     port: u16,
     status: TestStatus,
     router_ip: IpAddr,
