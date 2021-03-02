@@ -81,11 +81,11 @@ fn prepare_router_or_report_failure(
 fn deploy_background_listener(
     socket_addr: SocketAddr,
     listener_message_sync: &Arc<Mutex<Vec<(u16, String)>>>,
-) -> Result<JoinHandle<()>, ()> {
+) -> std::io::Result<JoinHandle<()>> {
     let listener_message = listener_message_sync;
     let listener_message_clone = Arc::clone(&listener_message);
     let mut error_writer = String::new();
-    let handle = thread::spawn(move || {
+    let handle = thread::Builder::new().spawn(move || {
         let listener_opt = match TcpListener::bind(socket_addr) {
             Ok(listener) => Some(listener),
             Err(e) => {
@@ -164,7 +164,7 @@ fn deploy_background_listener(
             mutex_shared_err_message(listener_message_clone, error_writer);
         }
     });
-    Ok(handle)
+    handle
 }
 
 fn mutex_shared_err_message(reference: Arc<Mutex<Vec<(u16, String)>>>, message: String) {
@@ -177,74 +177,138 @@ fn probe_researcher(
     server_address: &str,
     params: LevelTwoShifter,
 ) -> Result<(), String> {
-    let server_address =
-        SocketAddr::from_str(server_address).expect("server socket address parsing error");
-    let nonce = generate_nonce();
-    let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
-    let probe_listener_address = SocketAddr::from_str(&format!("0.0.0.0:{}", params.port))
-        .expect("probe listener address parsing error");
-    let thread_handle_opt =
-        match deploy_background_listener(probe_listener_address, &listener_result_arc_mut) {
-            Ok(handle) => Some(handle),
-            Err(()) => unimplemented!(),
-        };
-    let time_stamp = Instant::now();
-    println!("{}", params.ip);
-    let http_request = format!(
-        "GET /probe_request?ip={}&port={}&nonce={} HTTP/1.1\r\n\r\n",
-        params.ip, params.port, nonce
-    );
-
-    let tcp_stream_opt: Option<TcpStream> = match TcpStream::connect(server_address) {
-        Ok(con) => Some(con),
-        Err(e) => unimplemented!(), // {stderr.write_all(b"We couldn't connect to the http server. Test is terminating.").expect("writing failed");None}
-    };
-    if let Some(mut connection) = tcp_stream_opt {
-        match connection.write_all(http_request.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => unimplemented!(),
-        }
-        let mut buffer = [0u8; 1024];
-        connection
-            .set_nonblocking(false)
-            .expect("not successful to set blocking read");
-        connection
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .expect("unsuccessful during setting nonblocking");
-        match connection.read(&mut buffer) {
-            Ok(length) => stdout
-                .write_all(&buffer[..length])
-                .expect("writing server response failed"),
-            Err(e) => unimplemented!(),
-        };
-
-        if let Some(handle) = thread_handle_opt {
-            handle
-                .join()
-                .expect("failed to wait for the background thread")
-        }
-
-        let probe_listener_findings =
-            listener_result_arc_mut.lock().expect("poisoned mutex")[0].clone();
-        if probe_listener_findings.0 != 0 {
-            if nonce == probe_listener_findings.0 {
-                stdout
-                    .write_all(b"\n\nThe received nonce was evaluated to be a match; test passed");
-            } else {
-                let failure_message = format!(
-                    "\n\nThe received nonce is different from that one which is expected; \
-                 correct: {}, received:{}",
-                    nonce, probe_listener_findings.0
-                );
-                stdout.write_all(failure_message.as_bytes());
-            }
-        }
-    }
+//     let server_address =
+//         SocketAddr::from_str(server_address).expect("server socket address parsing error");
+//     let nonce = generate_nonce();
+//     let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
+//     let probe_listener_address = SocketAddr::from_str(&format!("0.0.0.0:{}", params.port))
+//         .expect("probe listener address parsing error");
+//     let thread_handle_opt = match deploy_background_listener(probe_listener_address, &listener_result_arc_mut) {
+//         Ok(handle) => Some(handle),
+//         Err(e) => {stderr.write_all(e.to_string().as_ref());None},  //untested but reasonably safe
+//     };
+//
+//     if let Some(handle) = thread_handle_opt {
+//         let http_request = format!(
+//             "GET /probe_request?ip={}&port={}&nonce={} HTTP/1.1\r\n\r\n",
+//             params.ip, params.port, nonce
+//         );
+//         let tcp_stream_opt: Option<TcpStream> = match TcpStream::connect(server_address) {
+//             Ok(con) => Some(con),
+//             Err(e) => unimplemented!(), // {stderr.write_all(b"We couldn't connect to the http server. Test is terminating.").expect("writing failed");None}
+//         };
+//         if let Some(mut connection) = tcp_stream_opt {
+//             match connection.write_all(http_request.as_bytes()) {
+//                 Ok(_) => (),
+//                 Err(e) => unimplemented!(),
+//             }
+//             let mut buffer = [0u8; 1024];
+//             connection
+//                 .set_nonblocking(false)
+//                 .expect("not successful to set blocking read");
+//             connection
+//                 .set_read_timeout(Some(Duration::from_secs(5)))
+//                 .expect("unsuccessful during setting nonblocking");
+//             match connection.read(&mut buffer) {
+//                 Ok(length) => stdout
+//                     .write_all(&buffer[..length])
+//                     .expect("writing server response failed"),
+//                 Err(e) => unimplemented!(),
+//             };
+//
+//             handle
+//                 .join()
+//                 .expect("failed to wait for the background thread");
+//
+//         let probe_listener_findings =
+//             listener_result_arc_mut.lock().expect("poisoned mutex")[0].clone();
+//         if probe_listener_findings.0 != 0 {
+//             if nonce == probe_listener_findings.0 {
+//                 stdout.write_all(b"\n\nThe received nonce was evaluated to be a match; test passed");
+//             } else {
+//                 let failure_message = format!(
+//                     "\n\nThe received nonce is different from that one which is expected; \
+//                  correct: {}, received:{}",
+//                     nonce, probe_listener_findings.0
+//                 );
+//                 stdout.write_all(failure_message.as_bytes());
+//             }
+//         }
+//     }
+// }
+    evaluate_research(stdout,stderr,server_address,params);
 
     stderr.flush().expect("failed to flush stdout");
     stdout.flush().expect("failed to flush stderr");
 
     Ok(())
+}
+
+fn evaluate_research(
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+    server_address: &str,
+    params: LevelTwoShifter) ->(){
+    let server_address = SocketAddr::from_str(server_address)
+        .expect("server socket address parsing error");
+    let nonce = generate_nonce();
+    let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
+    let probe_listener_address = SocketAddr::from_str(&format!("0.0.0.0:{}", params.port))
+        .expect("probe listener address parsing error");
+    let thread_handle = match deploy_background_listener(
+        probe_listener_address,
+        &listener_result_arc_mut)
+    {
+        Ok(handle) => handle,
+        Err(e) => {stderr.write_all(e.to_string().as_ref()); return},  //untested but reasonably safe
+    };
+        let http_request = format!(
+            "GET /probe_request?ip={}&port={}&nonce={} HTTP/1.1\r\n\r\n",
+            params.ip, params.port, nonce
+        );
+        let mut connection: TcpStream = match TcpStream::connect(server_address) {
+            Ok(conn) => conn,
+            Err(e) => {stderr.write_all(b"We couldn't connect to the \
+             http server. Test is terminating.")
+                .expect("writing failed"); return}
+        };
+            match connection.write_all(http_request.as_bytes()) {
+                Ok(_) => (),
+                Err(e) => {stderr.write_all(b"Sending an http request to \
+                 the server failed. Test is terminating.")
+                    .expect("writing failed"); return}   // untested but safe
+            }
+            let mut buffer = [0u8; 1024];
+            connection
+                .set_nonblocking(false)
+                .expect("not successful to set blocking read");
+            connection
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("unsuccessful during setting nonblocking");
+            match connection.read(&mut buffer)
+            {
+                Ok(length) => stdout
+                    .write_all(&buffer[..length])
+                    .expect("writing server response failed"),
+                Err(e) => unimplemented!(),
+            };
+            thread_handle
+                .join()
+                .expect("failed to wait for the background thread");
+            let probe_listener_findings =
+                listener_result_arc_mut.lock().expect("poisoned mutex")[0].clone();
+            if probe_listener_findings.0 != 0 {
+                if nonce == probe_listener_findings.0 {
+                    stdout.write_all(b"\n\nThe received nonce was evaluated to be a match; test passed");
+                } else {
+                    let failure_message = format!(
+                        "\n\nThe received nonce is different from that one which is expected; \
+                 correct: {}, received:{}",
+                        nonce, probe_listener_findings.0
+                    );
+                    stdout.write_all(failure_message.as_bytes());
+                }
+            }
 }
 
 fn generate_nonce() -> u16 {
@@ -274,7 +338,7 @@ mod tests {
             Box::new(mock_router_test_unsuccessful),
         );
 
-        //sadly all those types implementing Transactor cannot implement PartialEq each
+        //sadly not all of those types implementing Transactor can implement PartialEq each
         assert!(result.is_ok());
         let unwrapped_result = result.unwrap();
         assert_eq!(unwrapped_result.ip, IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)));
@@ -416,10 +480,34 @@ mod tests {
 
         thread::sleep(Duration::from_secs(3));
         assert_eq!(result, Ok(()));
-        let str_result = std::str::from_utf8(stdout.as_slice()).unwrap();
-        assert_eq!(str_result, "HTTP/1.1 200 OK\r\nContent-Length: 67\r\n\r\nconnection: success; writing: success; connection shutdown: \
+        let str_result_stdout = std::str::from_utf8(stdout.as_slice()).unwrap();
+        assert_eq!(str_result_stdout, "HTTP/1.1 200 OK\r\nContent-Length: 67\r\n\r\nconnection: success; writing: success; connection shutdown: \
          success\n\nThe received nonce was evaluated to be a match; test passed");
         assert!(stderr.is_empty())
+    }
+
+    #[test]
+    fn probe_researcher_returns_failure_if_cannot_connect_to_the_http_server() {
+        let mut stdout = vec![];
+        let mut stderr = vec![];
+        let parameters_transferor = LevelTwoShifter {
+            method: Method::Pmp,
+            ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
+            port: 8000,
+            transactor: Box::new(PmpTransactor::default()),
+        };
+        let server_address = "127.0.0.1:7005";
+
+        let result = probe_researcher(
+            &mut stdout,
+            &mut stderr,
+            server_address,
+            parameters_transferor,
+        );
+        assert_eq!(result, Ok(()));
+        let str_result_stderr = std::str::from_utf8(stderr.as_slice()).unwrap();
+        assert_eq!(str_result_stderr, "We couldn\'t connect to the http server. Test is terminating.");
+        assert!(stdout.is_empty())
     }
 }
 
@@ -445,11 +533,10 @@ fn test_stream_acceptor_and_probe_8875_imitator(send_probe: bool, test_option: u
         let message = u16_to_byte_array(8875);
         connection.unwrap().write_all(&message).unwrap();
     } else {
-        //let's make this thread busy, wasting time, without putting it in sleep
         if connection.is_ok() {
             if test_option == 1 {
                 connection.unwrap().shutdown(Shutdown::Both).unwrap();
-                //let's make this thread busy, wasting time, without putting it in sleep
+                //let's make this thread busy, without putting it in sleep
             } else if test_option == 2 {
                 let connection = connection.unwrap();
                 loop {
