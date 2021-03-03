@@ -5,12 +5,14 @@ use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
 use crate::comm_layer::{AutomapError, Transactor};
 use masq_lib::utils::find_free_port;
+use masq_lib::short_writeln;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
+use std::io::Write;
+use crate::probe_researcher::LevelTwoShifter;
 
 pub fn test_pcp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
-    //println!("\n====== PCP TESTS ======");
     let transactor = PcpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor);
     let (status, port) = test_common(status, router_ip, &transactor);
@@ -24,11 +26,10 @@ pub fn test_pcp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
 }
 
 pub fn test_pmp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
-    //println!("\n====== PMP TESTS ======");
     let transactor = PmpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor);
     let (status, port) = test_common(status, router_ip, &transactor);
-    if status.cumulative_success {
+    if !status.cumulative_success {
         Err(String::from(
             "Either PMP is not implemented on your router or we're not doing it right\n",
         ))
@@ -37,12 +38,12 @@ pub fn test_pmp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
     }
 }
 
-pub fn test_igdp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
-    //println!("\n====== IGDP TESTS ======");
+pub fn test_igdp() -> Result<(IpAddr, u16, Box<dyn Transactor>,bool), String> {
     let transactor = IgdpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor);
     let status = seek_public_ip(status, router_ip, &transactor);
     let (mut port, mut status) = poke_firewall_hole(status, router_ip, &transactor);
+    let mut permanent_hole= false;
     let status = if status.step_success {
         status // remove_firewall_hole(port, status, router_ip, &transactor)
     } else if status
@@ -55,6 +56,7 @@ pub fn test_igdp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
         status.cumulative_success = true; // adjustment for retry
         let (port_permanent, status) = poke_permanent_firewall_hole(status, router_ip, &transactor);
         port = port_permanent;
+        permanent_hole = true;
         // if status.step_success {
         //     remove_permanent_firewall_hole(port, status, router_ip, &transactor)
         // } else {
@@ -63,12 +65,12 @@ pub fn test_igdp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
     } else {
         status
     };
-    if status.cumulative_success {
+    if !status.cumulative_success {
         Err(String::from(
             "Either IGDP is not implemented on your router or we're not doing it right\n",
         ))
     } else {
-        Ok((router_ip, port, Box::new(transactor)))
+        Ok((router_ip, port, Box::new(transactor),permanent_hole))
     }
 }
 
@@ -217,59 +219,45 @@ fn poke_permanent_firewall_hole(
     }
 }
 
-fn _remove_firewall_hole(
-    port: u16,
-    status: TestStatus,
-    router_ip: IpAddr,
-    transactor: &dyn Transactor,
-) -> TestStatus {
-    if status.fatal {
-        return status;
-    }
-    println!(
-        "{}. Removing the port-{} hole in the firewall...",
-        status.step, port
+fn remove_firewall_hole(
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+    params: LevelTwoShifter,
+) -> () {
+    short_writeln!(stdout,
+        "Removing the port-{} hole in the firewall...", params.port
     );
     let timer = Timer::new();
-    match transactor.delete_mapping(router_ip, port) {
+    match params.transactor.delete_mapping(params.ip, params.port) {
         Ok(_) => {
-            println!("...success after {}!", timer.ms());
-            status.succeed()
+            short_writeln!(stdout,"...success after {}!", timer.ms());
         }
         Err(e) => {
-            println! ("...failed after {}: {:?} (Note: the hole will disappear on its own in a few seconds.)", timer.ms(), e);
-            status.fail(e)
+            short_writeln!(stderr,"...failed after {}: {:?} (Note: the hole will disappear on its own in a few seconds.)", timer.ms(), e);
         }
     }
 }
 
-fn _remove_permanent_firewall_hole(
-    port: u16,
-    status: TestStatus,
-    router_ip: IpAddr,
-    transactor: &dyn Transactor,
-) -> TestStatus {
-    if status.fatal {
-        return status;
-    }
-    println!(
-        "{}. Removing the port-{} hole in the firewall...",
-        status.step, port
+fn remove_permanent_firewall_hole(
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+    params: LevelTwoShifter,
+) -> (){
+    short_writeln!(stdout,
+        "Removing the port-{} hole in the firewall...", params.port
     );
     let timer = Timer::new();
-    match transactor.delete_mapping(router_ip, port) {
+    match params.transactor.delete_mapping(params.ip, params.port) {
         Ok(_) => {
-            println! ("...success after {}, but IGDP only works with permanent ports on this router. Argh.", timer.ms());
-            status.succeed()
+            short_writeln!(stdout,"...success after {}, but IGDP only works with permanent ports on this router. Argh.", timer.ms());
         }
         Err(e) => {
-            println!("...failed after {}: {:?}", timer.ms(), e);
-            println!("This is a problem! You have a permanent hole in your firewall that I can't");
-            println!(
+            short_writeln!(stderr,"...failed after {}: {:?}", timer.ms(), e);
+            short_writeln!(stderr,"This is a problem! You have a permanent hole in your firewall that I can't");
+            short_writeln!(stderr,
                 "close. You'll need to close it yourself in your router's administration pages."
             );
-            println!("Sorry...I didn't do it on purpose...");
-            status.fail(e)
+            short_writeln!(stderr,"Sorry...I didn't do it on purpose...");
         }
     }
 }
