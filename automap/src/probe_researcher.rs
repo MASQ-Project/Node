@@ -325,15 +325,14 @@ mod tests {
     use crate::comm_layer::Transactor;
     use crate::probe_researcher::{
         deploy_background_listener, generate_nonce,
-        mock_router_common_test_finding_ip_and_doing_mapping, mock_router_common_test_unsuccessful,
-        mock_router_igdp_test_unsuccessful, prepare_router_or_report_failure, probe_researcher,
-        test_stream_acceptor_and_probe_8875_imitator, LevelTwoShifter, Method, MockStream,
+        prepare_router_or_report_failure, probe_researcher, LevelTwoShifter, Method,
     };
     use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use std::io::{Write, IoSlice};
 
     #[test]
     fn prepare_router_or_report_failure_retrieves_ip() {

@@ -9,13 +9,14 @@ use std::str::FromStr;
 pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     match command.execute() {
         Ok(stdout) => {
-            let firsts = stdout.split(&['\n', '\r'][..]).collect::<Vec<&str>>();
+            let mut firsts = stdout.split(&['\n', '\r'][..]).collect::<Vec<&str>>();
+            firsts.push("");
             let mut seconds = vec![""];
             seconds.extend(firsts.clone());
             match firsts
                 .into_iter()
                 .zip(seconds)
-                .find(|(_, first)| first.to_string().contains("Default Gateway"))
+                .filter(|(_, first)| first.to_string().contains("Default Gateway"))
                 .map(|(second, first)| {
                     let first_line_strs = first
                         .split(' ')
@@ -26,19 +27,20 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                         Err(_) => None,
                     };
                     (first_line_strs, second_addr_opt)
-                }) {
+                })
+                .find(|(first_line_strs,_)|first_line_strs.len()>2){
                 None => Ok(vec![]),
                 Some((_, Some(IpAddr::V4(ipv4_addr)))) => Ok(vec![IpAddr::V4(ipv4_addr)]),
                 Some((first_elements, _)) => {
-                    let ip_addr_maybe_with_scope_id = first_elements[2];
-                    let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
-                    match IpAddr::from_str(ip_addr_str) {
-                        Err(_) => Err(AutomapError::OSCommandError(format!(
-                            "ipconfig output shows invalid Default Gateway:\n{}",
-                            stdout
-                        ))),
-                        Ok(addr) => Ok(vec![addr]),
-                    }
+                        let ip_addr_maybe_with_scope_id = first_elements[2];
+                        let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
+                        match IpAddr::from_str(ip_addr_str) {
+                            Err(_) => Err(AutomapError::OSCommandError(format!(
+                                "ipconfig output shows invalid Default Gateway:\n{}",
+                                stdout
+                            ))),
+                            Ok(addr) => Ok(vec![addr]),
+                        }
                 }
             }
         }
@@ -102,6 +104,60 @@ Ethernet adapter Ethernet:
 
         assert_eq!(result, vec![IpAddr::from_str("10.0.2.2").unwrap()])
     }
+
+    #[test]
+    fn find_routers_works_on_another_specific_machine() {
+        let route_n_output =
+"
+Windows IP Configuration
+
+   Host Name . . . . . . . . . . . . : DESKTOP
+   Primary Dns Suffix  . . . . . . . :
+   Node Type . . . . . . . . . . . . : Hybrid
+   IP Routing Enabled. . . . . . . . : No
+   WINS Proxy Enabled. . . . . . . . : No
+
+Ethernet adapter Ethernet 3:
+
+   Connection-specific DNS Suffix  . :
+   Description . . . . . . . . . . . : VirtualBox Host-Only Ethernet Adapter
+   DHCP Enabled. . . . . . . . . . . : No
+   Autoconfiguration Enabled . . . . : Yes
+   Link-local IPv6 Address . . . . . : fi60::3011:4121:5c3b:f131%11(Preferred)
+   IPv4 Address. . . . . . . . . . . : 192.168.56.1(Preferred)
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . . . :
+   NetBIOS over Tcpip. . . . . . . . : Enabled
+
+Wireless LAN adapter Local Network* 4:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Wireless LAN adapter Local Network* 9:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . :
+
+Ethernet adapter Ethernet 2:
+
+   Connection-specific DNS Suffix  . : domain
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration Enabled . . . . : Yes
+   Link-local IPv6 Address . . . . . : fd50::ed11:2c61:6111:f02e%10(Preferred)
+   IPv4 Address. . . . . . . . . . . : 192.168.10.10(Preferred)
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . . . : 192.168.10.5
+   DHCP Server . . . . . . . . . . . : 192.168.1.1
+";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+
+        let result = windows_find_routers(&find_routers_command).unwrap();
+
+        assert_eq!(result, vec![IpAddr::from_str("192.168.10.5").unwrap()])
+    }
+
+
 
     #[test]
     fn find_routers_works_on_galactic_overlords_machine() {
