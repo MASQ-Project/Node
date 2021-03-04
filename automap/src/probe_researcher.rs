@@ -324,15 +324,15 @@ mod tests {
     use crate::comm_layer::pmp::PmpTransactor;
     use crate::comm_layer::Transactor;
     use crate::probe_researcher::{
-        deploy_background_listener, generate_nonce,
-        prepare_router_or_report_failure, probe_researcher, LevelTwoShifter, Method,
+        deploy_background_listener, generate_nonce, prepare_router_or_report_failure,
+        probe_researcher, LevelTwoShifter, Method,
     };
+    use std::io::{IoSlice, Write};
     use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use std::io::{Write, IoSlice};
 
     #[test]
     fn prepare_router_or_report_failure_retrieves_ip() {
@@ -464,6 +464,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     //server must be running so that we can get this test green!
     fn probe_researcher_works() {
         let mut stdout = MockStream::new();

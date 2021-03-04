@@ -28,19 +28,20 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                     };
                     (first_line_strs, second_addr_opt)
                 })
-                .find(|(first_line_strs,_)|first_line_strs.len()>2){
+                .find(|(first_line_strs, _)| first_line_strs.len() > 2)
+            {
                 None => Ok(vec![]),
                 Some((_, Some(IpAddr::V4(ipv4_addr)))) => Ok(vec![IpAddr::V4(ipv4_addr)]),
                 Some((first_elements, _)) => {
-                        let ip_addr_maybe_with_scope_id = first_elements[2];
-                        let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
-                        match IpAddr::from_str(ip_addr_str) {
-                            Err(_) => Err(AutomapError::OSCommandError(format!(
-                                "ipconfig output shows invalid Default Gateway:\n{}",
-                                stdout
-                            ))),
-                            Ok(addr) => Ok(vec![addr]),
-                        }
+                    let ip_addr_maybe_with_scope_id = first_elements[2];
+                    let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
+                    match IpAddr::from_str(ip_addr_str) {
+                        Err(_) => Err(AutomapError::OSCommandError(format!(
+                            "ipconfig output shows invalid Default Gateway:\n{}",
+                            stdout
+                        ))),
+                        Ok(addr) => Ok(vec![addr]),
+                    }
                 }
             }
         }
@@ -107,8 +108,7 @@ Ethernet adapter Ethernet:
 
     #[test]
     fn find_routers_works_on_another_specific_machine() {
-        let route_n_output =
-"
+        let route_n_output = "
 Windows IP Configuration
 
    Host Name . . . . . . . . . . . . : DESKTOP
@@ -156,8 +156,6 @@ Ethernet adapter Ethernet 2:
 
         assert_eq!(result, vec![IpAddr::from_str("192.168.10.5").unwrap()])
     }
-
-
 
     #[test]
     fn find_routers_works_on_galactic_overlords_machine() {
