@@ -1,9 +1,11 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use automap_lib::first_level_test_sequences::{test_igdp, test_pcp, test_pmp};
-use std::io::Write;
+use automap_lib::automap_core_functions::{test_igdp, test_pcp, test_pmp};
+use automap_lib::probe_researcher::{
+    close_exposed_port, prepare_router_or_report_failure, probe_researcher,
+};
 use std::io;
-use automap_lib::probe_researcher::{close_exposed_port, prepare_router_or_report_failure, probe_researcher};
+use std::io::Write;
 
 const SERVER_SOCKET_ADDRESS: &str = "1.2.3.4:5000";
 

@@ -1,50 +1,31 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::automap_core_functions::{remove_firewall_hole, remove_permanent_firewall_hole};
+use crate::comm_layer::Transactor;
 use rand::{thread_rng, Rng};
 use std::cell::Cell;
 use std::fmt::{Display, Formatter};
-use std::io::{IoSlice, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{fmt, thread};
-use crate::comm_layer::Transactor;
-use crate::comm_layer::pmp::PmpTransactor;
 
-
+//so far, println!() is safer for testing, with immediate feedback
 pub fn close_exposed_port(
-    stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
+    _stdout: &mut dyn Write,
+    _stderr: &mut dyn Write,
     params: LevelTwoShifter,
 ) -> Result<(), ()> {
-    write!(stdout, "Preparation for closing the forwarded port").expect("write failed");
-    match params.method{
-        Method::Pmp | Method::Pcp | Method::Igdp(false) => {},
-        Method::Igdp(true)=>{}
-
-
-
-    };
-    // match params.transactor.delete_mapping(params.ip, params.port) {
-    //     Ok(()) => {
-    //         write!(stdout, "Port closed successfully").expect("write failed");
-    //         stdout.flush().expect("flush failed");
-    //         Ok(())
-    //     }
-    //     Err(e) => {
-    //         write!(
-    //             stderr,
-    //             "technical error: {:?}; You may inspect port {} yourself and close it, sorry.",
-    //             e, params.port
-    //         )
-    //         .expect("write failed");
-    //         stderr.flush().expect("flush failed");
-    //         Err(())
-    //     }
-    //}
-    Ok(())
+    println!("Preparation for closing the forwarded port");
+    match params.method {
+        Method::Pmp | Method::Pcp | Method::Igdp(false) => {
+            remove_firewall_hole(_stdout, _stderr, params)
+        }
+        Method::Igdp(true) => remove_permanent_firewall_hole(_stdout, _stderr, params),
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -67,7 +48,7 @@ impl Display for Method {
 pub fn prepare_router_or_report_failure(
     test_pcp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_pmp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
-    test_igdp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>,bool), String>>,
+    test_igdp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>,
 ) -> Result<LevelTwoShifter, Vec<String>> {
     let mut collector: Vec<String> = vec![];
     match test_pcp() {
@@ -93,7 +74,7 @@ pub fn prepare_router_or_report_failure(
         Err(e) => collector.push(e),
     };
     match test_igdp() {
-        Ok((ip, port, transactor,permanent)) => {
+        Ok((ip, port, transactor, permanent)) => {
             return Ok(LevelTwoShifter {
                 method: Method::Igdp(permanent),
                 ip,
@@ -224,7 +205,7 @@ pub fn probe_researcher(
         "Test of a port forwarded by using {} is starting. \n\n",
         params.method
     )
-        .expect("write failed");
+    .expect("write failed");
 
     let success_sign = Cell::new(false);
     evaluate_research(stdout, stderr, server_address, params, &success_sign);
@@ -340,14 +321,19 @@ fn generate_nonce() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use crate::probe_researcher::{deploy_background_listener, generate_nonce, mock_router_common_test_finding_ip_and_doing_mapping, mock_router_common_test_unsuccessful, prepare_router_or_report_failure, probe_researcher, test_stream_acceptor_and_probe_8875_imitator, LevelTwoShifter, Method, MockStream, mock_router_igdp_test_unsuccessful};
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, Shutdown};
+    use crate::comm_layer::pmp::PmpTransactor;
+    use crate::comm_layer::Transactor;
+    use crate::probe_researcher::{
+        deploy_background_listener, generate_nonce,
+        mock_router_common_test_finding_ip_and_doing_mapping, mock_router_common_test_unsuccessful,
+        mock_router_igdp_test_unsuccessful, prepare_router_or_report_failure, probe_researcher,
+        test_stream_acceptor_and_probe_8875_imitator, LevelTwoShifter, Method, MockStream,
+    };
+    use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::comm_layer::pmp::PmpTransactor;
-    use crate::comm_layer::Transactor;
 
     #[test]
     fn prepare_router_or_report_failure_retrieves_ip() {
@@ -407,7 +393,8 @@ mod tests {
     }
 
     #[test] //this test may not describe what can happen in the reality; I couldn't think up a better way to simulate connection interruption though
-    fn deploy_background_listener_without_getting_echo_reports_that_correctly_after_connection_interrupted() {
+    fn deploy_background_listener_without_getting_echo_reports_that_correctly_after_connection_interrupted(
+    ) {
         let port = 7001;
         let socket = SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::from_str("127.0.0.1").unwrap(),
@@ -427,7 +414,8 @@ mod tests {
     }
 
     #[test]
-    fn deploy_background_listener_without_getting_echo_terminates_alone_after_connection_lasts_too_long() {
+    fn deploy_background_listener_without_getting_echo_terminates_alone_after_connection_lasts_too_long(
+    ) {
         let port = 7003;
         let socket = SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::from_str("127.0.0.1").unwrap(),
@@ -449,7 +437,8 @@ mod tests {
     }
 
     #[test]
-    fn deploy_background_listener_ends_its_job_after_waiting_period_for_any_connection_but_none_was_sensed() {
+    fn deploy_background_listener_ends_its_job_after_waiting_period_for_any_connection_but_none_was_sensed(
+    ) {
         let port = 7004;
         let socket = SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::from_str("127.0.0.1").unwrap(),
@@ -579,8 +568,8 @@ mod tests {
         assert_eq!(stderr.flush_count, 1);
     }
 
-
-    fn mock_router_common_test_finding_ip_and_doing_mapping() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
+    fn mock_router_common_test_finding_ip_and_doing_mapping(
+    ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
         Ok((
             IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
             4444,
@@ -588,11 +577,13 @@ mod tests {
         ))
     }
 
-    fn mock_router_common_test_unsuccessful() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
+    fn mock_router_common_test_unsuccessful() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>
+    {
         Err(String::from("Test ended unsuccessfully"))
     }
 
-    fn mock_router_igdp_test_unsuccessful() -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
+    fn mock_router_igdp_test_unsuccessful(
+    ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
 
@@ -662,8 +653,8 @@ mod tests {
         }
 
         fn by_ref(&mut self) -> &mut Self
-            where
-                Self: Sized,
+        where
+            Self: Sized,
         {
             unimplemented!()
         }
