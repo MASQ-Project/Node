@@ -213,6 +213,7 @@ fn poke_permanent_firewall_hole(
 
 //so far, println!() is safer for testing, with immediate feedback;
 //the result types should be change to something more convenient later
+#[allow(clippy::result_unit_err)]
 pub fn remove_firewall_hole(
     _stdout: &mut dyn Write,
     _stderr: &mut dyn Write,
@@ -234,6 +235,7 @@ pub fn remove_firewall_hole(
 
 //so far, println!() is safer for testing, with immediate feedback;
 //the result types should be change to something more convenient later
+#[allow(clippy::result_unit_err)]
 pub fn remove_permanent_firewall_hole(
     _stdout: &mut dyn Write,
     _stderr: &mut dyn Write,

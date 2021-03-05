@@ -14,6 +14,7 @@ use std::time::Duration;
 use std::{fmt, thread};
 
 //so far, println!() is safer for testing, with immediate feedback
+#[allow(clippy::result_unit_err)]
 pub fn close_exposed_port(
     _stdout: &mut dyn Write,
     _stderr: &mut dyn Write,
@@ -45,6 +46,7 @@ impl Display for Method {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub fn prepare_router_or_report_failure(
     test_pcp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_pmp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
@@ -105,7 +107,7 @@ fn deploy_background_listener(
     let listener_message = listener_message_sync;
     let listener_message_clone = Arc::clone(&listener_message);
     let mut error_writer = String::new();
-    let handle = thread::Builder::new().spawn(move || {
+    thread::Builder::new().spawn(move || {
         let listener_opt = match TcpListener::bind(socket_addr) {
             Ok(listener) => Some(listener),
             Err(e) => {
@@ -129,7 +131,7 @@ fn deploy_background_listener(
                     Err(_) if loop_counter <= 300 => {
                         if loop_counter < 28 {
                             thread::sleep(Duration::from_millis(20));
-                        } else if loop_counter >= 28 && loop_counter <= 150 {
+                        } else if (28..=150).contains(&loop_counter) {
                             thread::sleep(Duration::from_millis(5));
                         } else {
                             thread::sleep(Duration::from_millis(15));
@@ -186,8 +188,7 @@ fn deploy_background_listener(
         } else {
             mutex_shared_err_message(listener_message_clone, error_writer);
         }
-    });
-    handle
+    })
 }
 
 fn mutex_shared_err_message(reference: Arc<Mutex<Vec<(u16, String)>>>, message: String) {
@@ -222,7 +223,7 @@ fn evaluate_research(
     server_address: &str,
     params: &mut LevelTwoShifter,
     success_sign: &Cell<bool>,
-) -> () {
+){
     let server_address =
         SocketAddr::from_str(server_address).expect("server socket address parsing error");
     let nonce = generate_nonce();
