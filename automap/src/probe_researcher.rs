@@ -223,7 +223,7 @@ fn evaluate_research(
     server_address: &str,
     params: &mut LevelTwoShifter,
     success_sign: &Cell<bool>,
-){
+) {
     let server_address =
         SocketAddr::from_str(server_address).expect("server socket address parsing error");
     let nonce = generate_nonce();
