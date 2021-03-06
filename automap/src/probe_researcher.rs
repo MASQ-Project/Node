@@ -127,7 +127,7 @@ fn deploy_background_listener(
                 //os limit or intern limit for attempts up to around 508
                 match listener.accept() {
                     Ok((stream, _)) => break Some(stream),
-                    //check incoming connection request but at some point the attempts will get exhausted (gross 6000 millis)
+                    //check incoming connection request but at some point the attempts will get exhausted
                     Err(_) if loop_counter <= 300 => {
                         if loop_counter < 28 {
                             thread::sleep(Duration::from_millis(20));
@@ -388,7 +388,7 @@ mod tests {
         test_stream_acceptor_and_probe_8875_imitator(true, 0, port);
         assert!(process_result.is_ok());
         //we need to wait for the execution in the background thread
-        thread::sleep(Duration::from_millis(250));
+        thread::sleep(Duration::from_millis(2000)); //was 250 and worked well
         let listener_result = listener_result_arc_mut.lock().unwrap();
         assert_eq!(listener_result[0].0, 8875);
         assert!(listener_result[0].1.is_empty())
@@ -406,7 +406,7 @@ mod tests {
         let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
         test_stream_acceptor_and_probe_8875_imitator(false, 1, port);
         assert!(process_result.is_ok());
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_millis(2500)); //was 250 and worked well
         let listener_result = listener_result_arc_mut.lock().unwrap();
         assert_eq!(listener_result[0].0, 0);
         assert_eq!(
@@ -540,12 +540,13 @@ mod tests {
             transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = format!("127.0.0.1:{}", find_free_port());
-        let server_address_background_thread = server_address.clone();
+        let server_address_for_background_thread = server_address.clone();
         //fake server  -- caution: a leaking thread
         thread::spawn(move || {
-            let listener =
-                TcpListener::bind(SocketAddr::from_str(&server_address_background_thread).unwrap())
-                    .unwrap();
+            let listener = TcpListener::bind(
+                SocketAddr::from_str(&server_address_for_background_thread).unwrap(),
+            )
+            .unwrap();
             let (connection, _) = listener.accept().unwrap();
             //make busy without sleep
             loop {
@@ -561,12 +562,12 @@ mod tests {
         );
         assert_eq!(result, false);
         assert_eq!(
-            stderr.stream,
-            "Request to the server was sent but no response came back. "
-        );
-        assert_eq!(
             stdout.stream,
             "Test of a port forwarded by using PMP protocol is starting. \n\n"
+        );
+        assert_eq!(
+            stderr.stream,
+            "Request to the server was sent but no response came back. "
         );
         assert_eq!(stdout.flush_count, 1);
         assert_eq!(stderr.flush_count, 1);
