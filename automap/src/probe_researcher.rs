@@ -5,13 +5,15 @@ use crate::comm_layer::Transactor;
 use rand::{thread_rng, Rng};
 use std::cell::Cell;
 use std::fmt::{Display, Formatter};
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::io::{Read, Write, ErrorKind};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fmt, thread};
+use masq_lib::utils::localhost;
+use std::ops::Add;
 
 //so far, println!() is safer for testing, with immediate feedback
 #[allow(clippy::result_unit_err)]
@@ -101,6 +103,50 @@ pub struct LevelTwoShifter {
 }
 
 fn deploy_background_listener(
+    port: u16,
+    expected_nonce: u16,
+    timeout_millis: u64,
+) -> JoinHandle<Result<(), std::io::Error>> {
+    let listener = TcpListener::bind(SocketAddr::new (IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)), port)).unwrap();
+    listener.set_nonblocking(true);
+    thread::spawn(move || {
+        let deadline = Instant::now().add(Duration::from_millis (timeout_millis));
+        let mut stream = loop {
+            if Instant::now() >= deadline {
+                return Err (std::io::Error::from (ErrorKind::TimedOut));
+            }
+            match listener.accept() {
+                Ok ((stream, _)) => break stream,
+                Err (e) if e.kind() == ErrorKind::WouldBlock => (),
+                Err (e) => return Err (e),
+            }
+        };
+        let mut buf = [0u8; 2];
+        stream.set_read_timeout(Some (Duration::from_millis(timeout_millis))).unwrap();
+        let result = loop {
+            match stream.read (&mut buf) {
+                Ok(0) => {
+                    break (Err (std::io::Error::from (ErrorKind::BrokenPipe)))
+                },
+                Ok(_) => {
+                    let actual_nonce = ((buf[0] as u16) << 8) | (buf[1] as u16);
+                    if actual_nonce == expected_nonce {
+                        break Ok(());
+                    }
+                },
+                Err (e) if e.kind() == ErrorKind::WouldBlock => {
+                    break (Err (std::io::Error::from (ErrorKind::TimedOut)))
+                },
+                Err (e) => {
+                    break Err (e)
+                },
+            }
+        };
+        result
+    })
+}
+
+fn deploy_background_listener_old(
     socket_addr: SocketAddr,
     listener_message_sync: &Arc<Mutex<Vec<(u16, String)>>>,
 ) -> std::io::Result<JoinHandle<()>> {
@@ -228,19 +274,7 @@ fn evaluate_research(
     let server_address =
         SocketAddr::from_str(server_address).expect("server socket address parsing error");
     let nonce = generate_nonce();
-    let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
-    let probe_listener_address = SocketAddr::from_str(&format!("0.0.0.0:{}", params.port))
-        .expect("probe listener address parsing error");
-    let thread_handle =
-        match deploy_background_listener(probe_listener_address, &listener_result_arc_mut) {
-            Ok(handle) => handle,
-            Err(e) => {
-                stderr
-                    .write_all(e.to_string().as_ref())
-                    .expect("write_all failed");
-                return;
-            } //untested but reasonably safe
-        };
+    let thread_handle = deploy_background_listener(params.port, nonce, 3000);
     let http_request = format!(
         "GET /probe_request?ip={}&port={}&nonce={} HTTP/1.1\r\n\r\n",
         params.ip, params.port, nonce
@@ -271,48 +305,39 @@ fn evaluate_research(
     }
     let mut buffer = [0u8; 1024];
     connection
-        .set_nonblocking(false)
-        .expect("not successful to set blocking read");
-    connection
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("unsuccessful during setting nonblocking");
-    let mut server_response = false;
+    let mut server_responded = false;
     match connection.read(&mut buffer) {
         Ok(length) => {
             stdout
                 .write_all(&buffer[..length])
                 .expect("writing server response failed");
-            server_response = true;
+            server_responded = true;
         }
-        Err(_) => stderr
+        Err(e) if e.kind() == ErrorKind::TimedOut => stderr
             .write_all(b"Request to the server was sent but no response came back. ")
             .expect("writing to stderr failed"),
+        Err(e) => write! (stderr, "Request to the server was sent but reading the response failed: {:?} ", e)
+            .expect("write!ing to stderr failed"),
     };
-    thread_handle
-        .join()
-        .expect("failed to wait for the background thread");
-    let probe_listener_findings =
-        listener_result_arc_mut.lock().expect("poisoned mutex")[0].clone();
-    if probe_listener_findings.0 != 0 {
-        if nonce == probe_listener_findings.0 {
+    if !server_responded {
+        return;
+    }
+    match thread_handle.join() {
+        Ok (Ok (_)) => {
             stdout
                 .write_all(b"\n\nThe received nonce was evaluated to be a match; test passed")
                 .expect("write_all failed");
-        } else {
-            let failure_message = format!(
-                "\n\nThe received nonce is different from that one which is expected; \
-                 correct: {}, received:{}",
-                nonce, probe_listener_findings.0
-            );
-            stdout
-                .write_all(failure_message.as_bytes())
-                .expect("write_all failed");
-            return;
-        }
-    }
-
-    if server_response {
-        success_sign.set(true);
+            success_sign.set (true);
+        },
+        Ok (Err (e)) if e.kind() == ErrorKind::TimedOut => stdout
+            .write_all(b"\n\nThe probe detector detected no incoming probe")
+            .expect("write_all failed"),
+        Ok (Err (e)) => write! (stdout, "\n\nThe probe detector ran into a problem: {:?}", e)
+            .expect("write! failed"),
+        Err (e) => write! (stdout, "\n\nThe probe detector panicked: {:?}", e)
+            .expect("write_all failed"),
     }
 }
 
@@ -329,8 +354,8 @@ mod tests {
         deploy_background_listener, generate_nonce, prepare_router_or_report_failure,
         probe_researcher, LevelTwoShifter, Method,
     };
-    use masq_lib::utils::find_free_port;
-    use std::io::{IoSlice, Write};
+    use masq_lib::utils::{find_free_port, localhost};
+    use std::io::{IoSlice, Write, ErrorKind};
     use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -379,83 +404,57 @@ mod tests {
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
         let port = find_free_port();
-        let socket = SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::from_str("127.0.0.1").unwrap(),
-            port,
-        ));
-        let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
-        let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
-        test_stream_acceptor_and_probe_8875_imitator(true, 0, port);
-        assert!(process_result.is_ok());
-        //we need to wait for the execution in the background thread
-        thread::sleep(Duration::from_millis(2000)); //was 250 and worked well
-        let listener_result = listener_result_arc_mut.lock().unwrap();
-        assert_eq!(listener_result[0].0, 8875);
-        assert!(listener_result[0].1.is_empty())
+
+        let handle = deploy_background_listener(port, 8875, 500);
+        test_stream_acceptor_and_probe_8875_imitator(true, 1, port);
+
+        let result = handle.join();
+        match result {
+            Ok (Ok (())) => (),
+            x => panic! ("Expected Ok(Ok(())), got {:?}", x),
+        }
     }
 
     #[test] //this test may not describe what can happen in the reality; I couldn't think up a better way to simulate connection interruption though
-    fn deploy_background_listener_without_getting_echo_reports_that_correctly_after_connection_interrupted(
+    fn deploy_background_listener_without_getting_probe_reports_that_fact_correctly_after_connection_interrupted(
     ) {
         let port = find_free_port();
-        let socket = SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::from_str("127.0.0.1").unwrap(),
-            port,
-        ));
-        let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
-        let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
-        test_stream_acceptor_and_probe_8875_imitator(false, 1, port);
-        assert!(process_result.is_ok());
-        thread::sleep(Duration::from_millis(2500)); //was 250 and worked well
-        let listener_result = listener_result_arc_mut.lock().unwrap();
-        assert_eq!(listener_result[0].0, 0);
-        assert_eq!(
-            listener_result[0].1,
-            "Communication can't continue. Stream was muted. ".to_string()
-        )
+
+        let handle = deploy_background_listener(port, 8875, 100);
+        test_stream_acceptor_and_probe_8875_imitator(false, 0, port);
+
+        let result = handle.join ();
+        match result {
+            Ok (Err (e)) if e.kind() == ErrorKind::BrokenPipe => (),
+            x => panic! ("Expected Ok(Err(BrokenPipe)); got {:?}", x),
+        }
     }
 
     #[test]
     fn deploy_background_listener_without_getting_echo_terminates_alone_after_connection_lasts_too_long(
     ) {
-        let port = 7003;
-        let socket = SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::from_str("127.0.0.1").unwrap(),
-            port,
-        ));
-        let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
-        let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
-        //CAUTION: probably a leaking thread; this thread keeps the connection alive so that we can run out of patient with waiting
-        // for the nonce message; thus deploy_background_listener terminates deliberately
-        thread::spawn(move || test_stream_acceptor_and_probe_8875_imitator(false, 2, port));
-        thread::sleep(Duration::from_millis(7000));
-        assert!(process_result.is_ok());
-        let listener_result = listener_result_arc_mut.lock().unwrap();
-        assert_eq!(listener_result[0].0, 0);
-        assert_eq!(
-            listener_result[0].1,
-            "No incoming request of connecting; waiting too long. ".to_string()
-        )
+        let port = find_free_port();
+        let handle = deploy_background_listener(port, 8875, 200);
+
+        test_stream_acceptor_and_probe_8875_imitator(false, 300, port);
+
+        let result = handle.join();
+        match result {
+            Ok (Err (e)) if e.kind() == ErrorKind::TimedOut => (),
+            x => panic! ("Expected Ok(Err(TimedOut)); got {:?}", x),
+        }
     }
 
     #[test]
     fn deploy_background_listener_ends_its_job_after_waiting_period_for_any_connection_but_none_was_sensed(
     ) {
-        let port = 7004;
-        let socket = SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::from_str("127.0.0.1").unwrap(),
-            port,
-        ));
-        let listener_result_arc_mut: Arc<Mutex<Vec<(u16, String)>>> = Arc::new(Mutex::new(vec![]));
-        let process_result = deploy_background_listener(socket, &listener_result_arc_mut);
-        assert!(process_result.is_ok());
-        thread::sleep(Duration::from_millis(6500));
-        let listener_result = listener_result_arc_mut.lock().unwrap();
-        assert_eq!(listener_result[0].0, 0);
-        assert_eq!(
-            listener_result[0].1,
-            "No incoming request of connecting; waiting too long. ".to_string()
-        )
+        let handle = deploy_background_listener(7004, 1234, 10);
+
+        let result = handle.join();
+        match result {
+            Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
+            x => panic! ("Expected Ok(Err(TimedOut)), got {:?}", x),
+        }
     }
 
     #[test]
@@ -502,10 +501,11 @@ mod tests {
     fn probe_researcher_returns_failure_if_cannot_connect_to_the_http_server() {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
+        let port = find_free_port();
         let mut parameters_transferor = LevelTwoShifter {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
-            port: 81,
+            port,
             transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = "127.0.0.1:7010";
@@ -530,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_researcher_returns_failure_if_response_from_to_the_http_server_is_of_bad_news() {
+    fn probe_researcher_returns_failure_if_response_from_the_http_server_is_of_bad_news() {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
         let mut parameters_transferor = LevelTwoShifter {
@@ -565,9 +565,10 @@ mod tests {
             stdout.stream,
             "Test of a port forwarded by using PMP protocol is starting. \n\n"
         );
-        assert_eq!(
-            stderr.stream,
-            "Request to the server was sent but no response came back. "
+        assert!(
+            stderr.stream.starts_with ("Request to the server was sent but reading the response failed: "),
+            "{}",
+            stderr.stream
         );
         assert_eq!(stdout.flush_count, 1);
         assert_eq!(stderr.flush_count, 1);
@@ -592,28 +593,16 @@ mod tests {
         Err(String::from("Test ended unsuccessfully"))
     }
 
-    fn test_stream_acceptor_and_probe_8875_imitator(send_probe: bool, test_option: u8, port: u16) {
-        let connection = TcpStream::connect(SocketAddrV4::new(
-            Ipv4Addr::from_str("127.0.0.1").unwrap(),
-            port,
-        ));
-        if connection.is_ok() & send_probe {
+    fn test_stream_acceptor_and_probe_8875_imitator(send_probe: bool, shutdown_delay_millis: u64, port: u16) {
+        let mut connection = TcpStream::connect(SocketAddr::new(localhost(), port)).unwrap();
+        if send_probe {
             let message = u16_to_byte_array(8875);
-            connection.unwrap().write_all(&message).unwrap();
+            connection.write_all(&message).unwrap();
         } else {
-            if connection.is_ok() {
-                if test_option == 1 {
-                    connection.unwrap().shutdown(Shutdown::Both).unwrap();
-                    //let's make this thread busy, without putting it in sleep
-                } else if test_option == 2 {
-                    let connection = connection.unwrap();
-                    loop {
-                        match connection.write_timeout() {
-                            Ok(_) => continue,
-                            Err(_) => break,
-                        }
-                    }
-                }
+            if shutdown_delay_millis == 0 {
+                connection.shutdown(Shutdown::Both).unwrap();
+            } else {
+                thread::sleep (Duration::from_millis (shutdown_delay_millis));
             }
         }
     }
