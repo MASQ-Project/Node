@@ -5,15 +5,13 @@ use crate::comm_layer::Transactor;
 use rand::{thread_rng, Rng};
 use std::cell::Cell;
 use std::fmt::{Display, Formatter};
-use std::io::{Read, Write, ErrorKind};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, Ipv4Addr};
+use std::io::{ErrorKind, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::ops::Add;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{fmt, thread};
-use masq_lib::utils::localhost;
-use std::ops::Add;
 
 //so far, println!() is safer for testing, with immediate feedback
 #[allow(clippy::result_unit_err)]
@@ -107,139 +105,41 @@ fn deploy_background_listener(
     expected_nonce: u16,
     timeout_millis: u64,
 ) -> JoinHandle<Result<(), std::io::Error>> {
-    let listener = TcpListener::bind(SocketAddr::new (IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)), port)).unwrap();
-    listener.set_nonblocking(true);
+    let listener =
+        TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port)).unwrap();
+    listener.set_nonblocking(true).unwrap();
     thread::spawn(move || {
-        let deadline = Instant::now().add(Duration::from_millis (timeout_millis));
+        let deadline = Instant::now().add(Duration::from_millis(timeout_millis));
         let mut stream = loop {
             if Instant::now() >= deadline {
-                return Err (std::io::Error::from (ErrorKind::TimedOut));
+                return Err(std::io::Error::from(ErrorKind::TimedOut));
             }
             match listener.accept() {
-                Ok ((stream, _)) => break stream,
-                Err (e) if e.kind() == ErrorKind::WouldBlock => (),
-                Err (e) => return Err (e),
+                Ok((stream, _)) => break stream,
+                Err(e) if e.kind() == ErrorKind::WouldBlock => (),
+                Err(e) => return Err(e),
             }
         };
         let mut buf = [0u8; 2];
-        stream.set_read_timeout(Some (Duration::from_millis(timeout_millis))).unwrap();
-        let result = loop {
-            match stream.read (&mut buf) {
-                Ok(0) => {
-                    break (Err (std::io::Error::from (ErrorKind::BrokenPipe)))
-                },
+        stream
+            .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
+            .unwrap();
+        loop {
+            match stream.read(&mut buf) {
+                Ok(0) => break (Err(std::io::Error::from(ErrorKind::BrokenPipe))),
                 Ok(_) => {
                     let actual_nonce = ((buf[0] as u16) << 8) | (buf[1] as u16);
                     if actual_nonce == expected_nonce {
                         break Ok(());
                     }
-                },
-                Err (e) if e.kind() == ErrorKind::WouldBlock => {
-                    break (Err (std::io::Error::from (ErrorKind::TimedOut)))
-                },
-                Err (e) => {
-                    break Err (e)
-                },
-            }
-        };
-        result
-    })
-}
-
-fn deploy_background_listener_old(
-    socket_addr: SocketAddr,
-    listener_message_sync: &Arc<Mutex<Vec<(u16, String)>>>,
-) -> std::io::Result<JoinHandle<()>> {
-    let listener_message = listener_message_sync;
-    let listener_message_clone = Arc::clone(&listener_message);
-    let mut error_writer = String::new();
-    thread::Builder::new().spawn(move || {
-        let listener_opt = match TcpListener::bind(socket_addr) {
-            Ok(listener) => Some(listener),
-            Err(e) => {
-                error_writer.push_str(&format!(
-                    "Test is unsuccessful; starting to cancel it: {}",
-                    e
-                ));
-                None
-            }
-        };
-        if let Some(listener) = listener_opt {
-            listener
-                .set_nonblocking(true)
-                .expect("Setting nonblocking connection failed");
-            let mut loop_counter: u16 = 0;
-            let connection_opt = loop {
-                //os limit or intern limit for attempts up to around 508
-                match listener.accept() {
-                    Ok((stream, _)) => break Some(stream),
-                    //check incoming connection request but at some point the attempts will get exhausted
-                    Err(_) if loop_counter <= 300 => {
-                        if loop_counter < 28 {
-                            thread::sleep(Duration::from_millis(20));
-                        } else if (28..=150).contains(&loop_counter) {
-                            thread::sleep(Duration::from_millis(5));
-                        } else {
-                            thread::sleep(Duration::from_millis(15));
-                        }
-                        loop_counter += 1;
-                        continue;
-                    }
-                    Err(_) if loop_counter > 300 => {
-                        error_writer
-                            .push_str("No incoming request of connecting; waiting too long. ");
-                        break None;
-                    }
-                    _ => {
-                        error_writer.push_str("should never happen; unexpected");
-                        break None;
-                    }
                 }
-            };
-            if let Some(mut connection) = connection_opt {
-                let mut buffer = [0u8; 2];
-                connection
-                    .set_nonblocking(false)
-                    .expect("not successful to set blocking read");
-                connection
-                    .set_read_timeout(Some(Duration::from_secs(6)))
-                    .expect("setting read timeout failed");
-                match connection.read(&mut buffer) {
-                    //shutdown signal elimination
-                    Ok(num) if num > 1 => {
-                        let converted_to_txt = u16::from_be_bytes(buffer);
-                        listener_message_clone
-                            .lock()
-                            .unwrap()
-                            .push((converted_to_txt, String::new()));
-                    }
-                    Ok(num) if num <= 1 => {
-                        error_writer.push_str("Communication can't continue. Stream was muted. ");
-                        mutex_shared_err_message(listener_message_clone, error_writer);
-                    }
-                    Err(_) => {
-                        error_writer
-                            .push_str("No incoming request of connecting; waiting too long. ");
-                        mutex_shared_err_message(listener_message_clone, error_writer);
-                    }
-                    //untested but enforced by the compiler (match pattering must be exhaustive)
-                    _ => {
-                        error_writer.push_str("Unexpected value; terminating unsuccessful ");
-                        mutex_shared_err_message(listener_message_clone, error_writer)
-                    }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                    break (Err(std::io::Error::from(ErrorKind::TimedOut)))
                 }
-            } else {
-                mutex_shared_err_message(listener_message_clone, error_writer);
+                Err(e) => break Err(e),
             }
-        } else {
-            mutex_shared_err_message(listener_message_clone, error_writer);
         }
     })
-}
-
-fn mutex_shared_err_message(reference: Arc<Mutex<Vec<(u16, String)>>>, message: String) {
-    //message in expect for tracking crashes
-    reference.lock().expect(&message).push((0, message));
 }
 
 pub fn probe_researcher(
@@ -318,26 +218,31 @@ fn evaluate_research(
         Err(e) if e.kind() == ErrorKind::TimedOut => stderr
             .write_all(b"Request to the server was sent but no response came back. ")
             .expect("writing to stderr failed"),
-        Err(e) => write! (stderr, "Request to the server was sent but reading the response failed: {:?} ", e)
-            .expect("write!ing to stderr failed"),
+        Err(e) => write!(
+            stderr,
+            "Request to the server was sent but reading the response failed: {:?} ",
+            e
+        )
+        .expect("write!ing to stderr failed"),
     };
     if !server_responded {
         return;
     }
     match thread_handle.join() {
-        Ok (Ok (_)) => {
+        Ok(Ok(_)) => {
             stdout
                 .write_all(b"\n\nThe received nonce was evaluated to be a match; test passed")
                 .expect("write_all failed");
-            success_sign.set (true);
-        },
-        Ok (Err (e)) if e.kind() == ErrorKind::TimedOut => stdout
+            success_sign.set(true);
+        }
+        Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => stdout
             .write_all(b"\n\nThe probe detector detected no incoming probe")
             .expect("write_all failed"),
-        Ok (Err (e)) => write! (stdout, "\n\nThe probe detector ran into a problem: {:?}", e)
+        Ok(Err(e)) => write!(stdout, "\n\nThe probe detector ran into a problem: {:?}", e)
             .expect("write! failed"),
-        Err (e) => write! (stdout, "\n\nThe probe detector panicked: {:?}", e)
-            .expect("write_all failed"),
+        Err(e) => {
+            write!(stderr, "\n\nThe probe detector panicked: {:?}", e).expect("write_all failed")
+        }
     }
 }
 
@@ -355,10 +260,9 @@ mod tests {
         probe_researcher, LevelTwoShifter, Method,
     };
     use masq_lib::utils::{find_free_port, localhost};
-    use std::io::{IoSlice, Write, ErrorKind};
-    use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
+    use std::io::{ErrorKind, IoSlice, Write};
+    use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -410,28 +314,28 @@ mod tests {
 
         let result = handle.join();
         match result {
-            Ok (Ok (())) => (),
-            x => panic! ("Expected Ok(Ok(())), got {:?}", x),
+            Ok(Ok(())) => (),
+            x => panic!("Expected Ok(Ok(())), got {:?}", x),
         }
     }
 
-    #[test] //this test may not describe what can happen in the reality; I couldn't think up a better way to simulate connection interruption though
-    fn deploy_background_listener_without_getting_probe_reports_that_fact_correctly_after_connection_interrupted(
+    #[test]
+    fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
         let port = find_free_port();
 
         let handle = deploy_background_listener(port, 8875, 100);
         test_stream_acceptor_and_probe_8875_imitator(false, 0, port);
 
-        let result = handle.join ();
+        let result = handle.join();
         match result {
-            Ok (Err (e)) if e.kind() == ErrorKind::BrokenPipe => (),
-            x => panic! ("Expected Ok(Err(BrokenPipe)); got {:?}", x),
+            Ok(Err(e)) if e.kind() == ErrorKind::BrokenPipe => (),
+            x => panic!("Expected Ok(Err(BrokenPipe)); got {:?}", x),
         }
     }
 
     #[test]
-    fn deploy_background_listener_without_getting_echo_terminates_alone_after_connection_lasts_too_long(
+    fn deploy_background_listener_without_getting_probe_terminates_alone_after_connection_lasts_too_long(
     ) {
         let port = find_free_port();
         let handle = deploy_background_listener(port, 8875, 200);
@@ -440,8 +344,8 @@ mod tests {
 
         let result = handle.join();
         match result {
-            Ok (Err (e)) if e.kind() == ErrorKind::TimedOut => (),
-            x => panic! ("Expected Ok(Err(TimedOut)); got {:?}", x),
+            Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
+            x => panic!("Expected Ok(Err(TimedOut)); got {:?}", x),
         }
     }
 
@@ -453,7 +357,7 @@ mod tests {
         let result = handle.join();
         match result {
             Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
-            x => panic! ("Expected Ok(Err(TimedOut)), got {:?}", x),
+            x => panic!("Expected Ok(Err(TimedOut)), got {:?}", x),
         }
     }
 
@@ -486,7 +390,7 @@ mod tests {
             &mut parameters_transferor,
         );
 
-        thread::sleep(Duration::from_secs(4));
+        thread::sleep(Duration::from_secs(2));
         assert_eq!(result, true);
         assert_eq!(stdout.stream, "Test of a port forwarded by using PMP protocol is starting. \
          \n\nHTTP/1.1 200 OK\r\nContent-Length: 67\r\n\r\nconnection: success; writing: success; connection shutdown: \
@@ -530,7 +434,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_researcher_returns_failure_if_response_from_the_http_server_is_of_bad_news() {
+    fn probe_researcher_sends_request_and_returns_failure_as_the_response_from_the_http_server_has_never_come_back(
+    ) {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
         let mut parameters_transferor = LevelTwoShifter {
@@ -566,7 +471,9 @@ mod tests {
             "Test of a port forwarded by using PMP protocol is starting. \n\n"
         );
         assert!(
-            stderr.stream.starts_with ("Request to the server was sent but reading the response failed: "),
+            stderr
+                .stream
+                .starts_with("Request to the server was sent but "),
             "{}",
             stderr.stream
         );
@@ -593,7 +500,11 @@ mod tests {
         Err(String::from("Test ended unsuccessfully"))
     }
 
-    fn test_stream_acceptor_and_probe_8875_imitator(send_probe: bool, shutdown_delay_millis: u64, port: u16) {
+    fn test_stream_acceptor_and_probe_8875_imitator(
+        send_probe: bool,
+        shutdown_delay_millis: u64,
+        port: u16,
+    ) {
         let mut connection = TcpStream::connect(SocketAddr::new(localhost(), port)).unwrap();
         if send_probe {
             let message = u16_to_byte_array(8875);
@@ -602,7 +513,7 @@ mod tests {
             if shutdown_delay_millis == 0 {
                 connection.shutdown(Shutdown::Both).unwrap();
             } else {
-                thread::sleep (Duration::from_millis (shutdown_delay_millis));
+                thread::sleep(Duration::from_millis(shutdown_delay_millis));
             }
         }
     }
