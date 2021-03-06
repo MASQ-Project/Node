@@ -192,7 +192,8 @@ fn deploy_background_listener(
 }
 
 fn mutex_shared_err_message(reference: Arc<Mutex<Vec<(u16, String)>>>, message: String) {
-    reference.lock().unwrap().push((0, message));
+    //message in expect for tracking crashes
+    reference.lock().expect(&message).push((0, message));
 }
 
 pub fn probe_researcher(
@@ -328,6 +329,7 @@ mod tests {
         deploy_background_listener, generate_nonce, prepare_router_or_report_failure,
         probe_researcher, LevelTwoShifter, Method,
     };
+    use masq_lib::utils::find_free_port;
     use std::io::{IoSlice, Write};
     use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
     use std::str::FromStr;
@@ -376,7 +378,7 @@ mod tests {
 
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
-        let port = 7000;
+        let port = find_free_port();
         let socket = SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::from_str("127.0.0.1").unwrap(),
             port,
@@ -395,7 +397,7 @@ mod tests {
     #[test] //this test may not describe what can happen in the reality; I couldn't think up a better way to simulate connection interruption though
     fn deploy_background_listener_without_getting_echo_reports_that_correctly_after_connection_interrupted(
     ) {
-        let port = 7001;
+        let port = find_free_port();
         let socket = SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::from_str("127.0.0.1").unwrap(),
             port,
@@ -534,13 +536,16 @@ mod tests {
         let mut parameters_transferor = LevelTwoShifter {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
-            port: 8000,
+            port: find_free_port(),
             transactor: Box::new(PmpTransactor::default()),
         };
+        let server_address = format!("127.0.0.1:{}", find_free_port());
+        let server_address_background_thread = server_address.clone();
         //fake server  -- caution: a leaking thread
         thread::spawn(move || {
             let listener =
-                TcpListener::bind(SocketAddr::from_str("127.0.0.1:7006").unwrap()).unwrap();
+                TcpListener::bind(SocketAddr::from_str(&server_address_background_thread).unwrap())
+                    .unwrap();
             let (connection, _) = listener.accept().unwrap();
             //make busy without sleep
             loop {
@@ -548,12 +553,10 @@ mod tests {
             }
         });
 
-        let server_address = "127.0.0.1:7006";
-
         let result = probe_researcher(
             &mut stdout,
             &mut stderr,
-            server_address,
+            &server_address,
             &mut parameters_transferor,
         );
         assert_eq!(result, false);
