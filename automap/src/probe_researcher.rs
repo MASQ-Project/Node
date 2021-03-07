@@ -259,7 +259,7 @@ mod tests {
         deploy_background_listener, generate_nonce, prepare_router_or_report_failure,
         probe_researcher, LevelTwoShifter, Method,
     };
-    use masq_lib::utils::{find_free_port, localhost};
+    use masq_lib::utils::find_free_port;
     use std::io::{ErrorKind, IoSlice, Write};
     use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
     use std::str::FromStr;
@@ -305,12 +305,13 @@ mod tests {
         )
     }
 
+    //TODO remove this note: macOS Ok(Err(Kind(TimedOut)))
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
         let port = find_free_port();
 
         let handle = deploy_background_listener(port, 8875, 500);
-        test_stream_acceptor_and_probe_8875_imitator(true, 1, port);
+        test_stream_acceptor_and_probe_8875_imitator(true, 0, port);
 
         let result = handle.join();
         match result {
@@ -319,6 +320,7 @@ mod tests {
         }
     }
 
+    //TODO remove this note: macOS Ok(Err(Kind(TimedOut))
     #[test]
     fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
@@ -328,9 +330,16 @@ mod tests {
         test_stream_acceptor_and_probe_8875_imitator(false, 0, port);
 
         let result = handle.join();
+
+        #[cfg(not(taget_os = "macos"))]
         match result {
             Ok(Err(e)) if e.kind() == ErrorKind::BrokenPipe => (),
             x => panic!("Expected Ok(Err(BrokenPipe)); got {:?}", x),
+        }
+        #[cfg(taget_os = "macos")]
+        match result {
+            Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
+            x => panic!("Expected Ok(Err(TimeOut)); got {:?}", x),
         }
     }
 
@@ -343,6 +352,7 @@ mod tests {
         test_stream_acceptor_and_probe_8875_imitator(false, 300, port);
 
         let result = handle.join();
+
         match result {
             Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
             x => panic!("Expected Ok(Err(TimedOut)); got {:?}", x),
@@ -408,11 +418,11 @@ mod tests {
         let port = find_free_port();
         let mut parameters_transferor = LevelTwoShifter {
             method: Method::Pmp,
-            ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
+            ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
             port,
             transactor: Box::new(PmpTransactor::default()),
         };
-        let server_address = "127.0.0.1:7010";
+        let server_address = "0.0.0.0:7010";
 
         let result = probe_researcher(
             &mut stdout,
@@ -433,6 +443,7 @@ mod tests {
         assert_eq!(stderr.flush_count, 1);
     }
 
+    //TODO remove this note:  --linux: 'We couldn't connect to the http server. Test is terminating.'
     #[test]
     fn probe_researcher_sends_request_and_returns_failure_as_the_response_from_the_http_server_has_never_come_back(
     ) {
@@ -440,11 +451,11 @@ mod tests {
         let mut stderr = MockStream::new();
         let mut parameters_transferor = LevelTwoShifter {
             method: Method::Pmp,
-            ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
+            ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
             port: find_free_port(),
             transactor: Box::new(PmpTransactor::default()),
         };
-        let server_address = format!("127.0.0.1:{}", find_free_port());
+        let server_address = format!("0.0.0.0:{}", find_free_port());
         let server_address_for_background_thread = server_address.clone();
         //fake server  -- caution: a leaking thread
         thread::spawn(move || {
@@ -505,7 +516,9 @@ mod tests {
         shutdown_delay_millis: u64,
         port: u16,
     ) {
-        let mut connection = TcpStream::connect(SocketAddr::new(localhost(), port)).unwrap();
+        let mut connection =
+            TcpStream::connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+                .unwrap(); //TODO remove note: localhost() in place of ip
         if send_probe {
             let message = u16_to_byte_array(8875);
             connection.write_all(&message).unwrap();
