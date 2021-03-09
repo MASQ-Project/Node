@@ -145,7 +145,7 @@ fn deploy_background_listener(
 pub fn probe_researcher(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    server_address: &str,
+    server_address: &str, // TODO: Make this a SocketAddr instead of a string
     params: &mut LevelTwoShifter,
 ) -> bool {
     write!(
@@ -181,13 +181,14 @@ fn evaluate_research(
     );
     let mut connection: TcpStream = match TcpStream::connect(server_address) {
         Ok(conn) => conn,
-        Err(_) => {
-            stderr
-                .write_all(
-                    b"We couldn't connect to the \
-             http server. Test is terminating.",
-                )
-                .expect("writing failed");
+        Err(e) => {
+            write!(
+                stderr,
+                "We couldn't connect to the \
+             http server: {:?}. Test is terminating.",
+                e
+            )
+            .expect("writing failed");
             return;
         }
     };
@@ -260,7 +261,7 @@ mod tests {
         probe_researcher, LevelTwoShifter, Method,
     };
     use masq_lib::utils::find_free_port;
-    use std::io::{ErrorKind, IoSlice, Write};
+    use std::io::{ErrorKind, IoSlice, Read, Write};
     use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
     use std::str::FromStr;
     use std::thread;
@@ -431,9 +432,17 @@ mod tests {
             &mut parameters_transferor,
         );
         assert_eq!(result, false);
-        assert_eq!(
-            stderr.stream,
-            "We couldn\'t connect to the http server. Test is terminating."
+        assert!(
+            stderr
+                .stream
+                .starts_with("We couldn\'t connect to the http server: "),
+            "{}",
+            stderr.stream
+        );
+        assert!(
+            stderr.stream.ends_with(". Test is terminating."),
+            "{}",
+            stderr.stream
         );
         assert_eq!(
             stdout.stream,
@@ -457,17 +466,19 @@ mod tests {
         };
         let server_address = format!("0.0.0.0:{}", find_free_port());
         let server_address_for_background_thread = server_address.clone();
-        //fake server  -- caution: a leaking thread
+        //fake server
         thread::spawn(move || {
             let listener = TcpListener::bind(
                 SocketAddr::from_str(&server_address_for_background_thread).unwrap(),
             )
             .unwrap();
-            let (connection, _) = listener.accept().unwrap();
-            //make busy without sleep
-            loop {
-                connection.peer_addr().unwrap();
-            }
+            let (mut connection, _) = listener.accept().unwrap();
+            connection
+                .set_read_timeout(Some(Duration::from_millis(1000)))
+                .unwrap();
+            let mut buf = [0u8; 1024];
+            connection.read(&mut buf).unwrap();
+            thread::sleep(Duration::from_millis(5000))
         });
 
         let result = probe_researcher(

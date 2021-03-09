@@ -32,7 +32,7 @@ pub struct LinuxFindRoutersCommand {}
 
 impl FindRoutersCommand for LinuxFindRoutersCommand {
     fn execute(&self) -> Result<String, String> {
-        self.execute_command("bash route -n")
+        self.execute_command("route -n")
     }
 }
 
