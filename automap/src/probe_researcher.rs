@@ -8,7 +8,6 @@ use std::fmt::{Display, Formatter};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::ops::Add;
-use std::str::FromStr;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{fmt, thread};

@@ -6,6 +6,8 @@ use automap_lib::probe_researcher::{
 };
 use std::io;
 use std::io::Write;
+use std::net::SocketAddr;
+use std::str::FromStr;
 
 const SERVER_SOCKET_ADDRESS: &str = "1.2.3.4:5000";
 
@@ -19,12 +21,10 @@ pub fn main() {
         Box::new(test_igdp),
     ) {
         Ok(mut first_level) => {
-            let success = probe_researcher(
-                &mut stdout,
-                &mut stderr,
-                SERVER_SOCKET_ADDRESS,
-                &mut first_level,
-            );
+            let server_address =
+                SocketAddr::from_str(SERVER_SOCKET_ADDRESS).expect("server address in bad format");
+            let success =
+                probe_researcher(&mut stdout, &mut stderr, server_address, &mut first_level);
             let closing_result = close_exposed_port(&mut stdout, &mut stderr, first_level);
             match (success, closing_result) {
                 (true, Ok(_)) => std::process::exit(0),
