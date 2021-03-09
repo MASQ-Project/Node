@@ -18,7 +18,7 @@ use std::{fmt, thread};
 pub fn close_exposed_port(
     _stdout: &mut dyn Write,
     _stderr: &mut dyn Write,
-    params: LevelTwoShifter,
+    params: NextSectionShifter,
 ) -> Result<(), ()> {
     println!("Preparation for closing the forwarded port");
     match params.method {
@@ -51,11 +51,11 @@ pub fn prepare_router_or_report_failure(
     test_pcp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_pmp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_igdp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>,
-) -> Result<LevelTwoShifter, Vec<String>> {
+) -> Result<NextSectionShifter, Vec<String>> {
     let mut collector: Vec<String> = vec![];
     match test_pcp() {
         Ok((ip, port, transactor)) => {
-            return Ok(LevelTwoShifter {
+            return Ok(NextSectionShifter {
                 method: Method::Pcp,
                 ip,
                 port,
@@ -66,7 +66,7 @@ pub fn prepare_router_or_report_failure(
     };
     match test_pmp() {
         Ok((ip, port, transactor)) => {
-            return Ok(LevelTwoShifter {
+            return Ok(NextSectionShifter {
                 method: Method::Pmp,
                 ip,
                 port,
@@ -77,7 +77,7 @@ pub fn prepare_router_or_report_failure(
     };
     match test_igdp() {
         Ok((ip, port, transactor, permanent)) => {
-            return Ok(LevelTwoShifter {
+            return Ok(NextSectionShifter {
                 method: Method::Igdp(permanent),
                 ip,
                 port,
@@ -93,7 +93,7 @@ pub fn prepare_router_or_report_failure(
     }
 }
 
-pub struct LevelTwoShifter {
+pub struct NextSectionShifter {
     pub method: Method,
     pub ip: IpAddr,
     pub port: u16,
@@ -145,8 +145,8 @@ fn deploy_background_listener(
 pub fn probe_researcher(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    server_address: &str, // TODO: Make this a SocketAddr instead of a string
-    params: &mut LevelTwoShifter,
+    server_address: SocketAddr,
+    params: &mut NextSectionShifter,
 ) -> bool {
     write!(
         stdout,
@@ -167,12 +167,10 @@ pub fn probe_researcher(
 fn evaluate_research(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    server_address: &str,
-    params: &mut LevelTwoShifter,
+    server_address: SocketAddr,
+    params: &mut NextSectionShifter,
     success_sign: &Cell<bool>,
 ) {
-    let server_address =
-        SocketAddr::from_str(server_address).expect("server socket address parsing error");
     let nonce = generate_nonce();
     let thread_handle = deploy_background_listener(params.port, nonce, 3000);
     let http_request = format!(
@@ -258,9 +256,9 @@ mod tests {
     use crate::comm_layer::Transactor;
     use crate::probe_researcher::{
         deploy_background_listener, generate_nonce, prepare_router_or_report_failure,
-        probe_researcher, LevelTwoShifter, Method,
+        probe_researcher, Method, NextSectionShifter,
     };
-    use masq_lib::utils::find_free_port;
+    use masq_lib::utils::{find_free_port, localhost};
     use std::io::{ErrorKind, IoSlice, Read, Write};
     use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
     use std::str::FromStr;
@@ -386,13 +384,13 @@ mod tests {
     fn probe_researcher_works() {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
-        let mut parameters_transferor = LevelTwoShifter {
+        let mut parameters_transferor = NextSectionShifter {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: 3545,
             transactor: Box::new(PmpTransactor::default()),
         };
-        let server_address = "127.0.0.1:7005";
+        let server_address = SocketAddr::from_str("127.0.0.1:7005").unwrap();
 
         let result = probe_researcher(
             &mut stdout,
@@ -417,13 +415,13 @@ mod tests {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
         let port = find_free_port();
-        let mut parameters_transferor = LevelTwoShifter {
+        let mut parameters_transferor = NextSectionShifter {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
             port,
             transactor: Box::new(PmpTransactor::default()),
         };
-        let server_address = "0.0.0.0:7010";
+        let server_address = SocketAddr::from_str("0.0.0.0:7010").unwrap();
 
         let result = probe_researcher(
             &mut stdout,
@@ -458,20 +456,14 @@ mod tests {
     ) {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
-        let mut parameters_transferor = LevelTwoShifter {
-            method: Method::Pmp,
-            ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
-            port: find_free_port(),
-            transactor: Box::new(PmpTransactor::default()),
-        };
-        let server_address = format!("0.0.0.0:{}", find_free_port());
-        let server_address_for_background_thread = server_address.clone();
+
+        let server_address_string = format!("127.0.0.40:{}", find_free_port());
+        let server_address_clone = server_address_string.clone();
         //fake server
         thread::spawn(move || {
-            let listener = TcpListener::bind(
-                SocketAddr::from_str(&server_address_for_background_thread).unwrap(),
-            )
-            .unwrap();
+            let listener =
+                TcpListener::bind(SocketAddr::from_str(&server_address_clone).unwrap()).unwrap();
+
             let (mut connection, _) = listener.accept().unwrap();
             connection
                 .set_read_timeout(Some(Duration::from_millis(1000)))
@@ -481,10 +473,19 @@ mod tests {
             thread::sleep(Duration::from_millis(5000))
         });
 
+        let mut parameters_transferor = NextSectionShifter {
+            method: Method::Pmp,
+            ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
+            port: find_free_port(),
+            transactor: Box::new(PmpTransactor::default()),
+        };
+
+        let server_socket_addr = SocketAddr::from_str(&server_address_string).unwrap();
+
         let result = probe_researcher(
             &mut stdout,
             &mut stderr,
-            &server_address,
+            server_socket_addr,
             &mut parameters_transferor,
         );
         assert_eq!(result, false);
@@ -527,9 +528,7 @@ mod tests {
         shutdown_delay_millis: u64,
         port: u16,
     ) {
-        let mut connection =
-            TcpStream::connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
-                .unwrap(); //TODO remove note: localhost() in place of ip
+        let mut connection = TcpStream::connect(SocketAddr::new(localhost(), port)).unwrap();
         if send_probe {
             let message = u16_to_byte_array(8875);
             connection.write_all(&message).unwrap();

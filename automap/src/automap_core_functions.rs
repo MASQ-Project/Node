@@ -4,7 +4,7 @@ use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
 use crate::comm_layer::{AutomapError, Transactor};
-use crate::probe_researcher::LevelTwoShifter;
+use crate::probe_researcher::NextSectionShifter;
 use masq_lib::utils::find_free_port;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -217,7 +217,7 @@ fn poke_permanent_firewall_hole(
 pub fn remove_firewall_hole(
     _stdout: &mut dyn Write,
     _stderr: &mut dyn Write,
-    params: LevelTwoShifter,
+    params: NextSectionShifter,
 ) -> Result<(), ()> {
     println!("Removing the port-{} hole in the firewall...", params.port);
     let timer = Timer::new();
@@ -239,7 +239,7 @@ pub fn remove_firewall_hole(
 pub fn remove_permanent_firewall_hole(
     _stdout: &mut dyn Write,
     _stderr: &mut dyn Write,
-    params: LevelTwoShifter,
+    params: NextSectionShifter,
 ) -> Result<(), ()> {
     println!("Removing the port-{} hole in the firewall...", params.port);
     let timer = Timer::new();
