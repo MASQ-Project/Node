@@ -146,7 +146,7 @@ pub fn probe_researcher(
     stderr: &mut dyn Write,
     server_address: SocketAddr,
     params: &mut NextSectionShifter,
-    server_response_timeout: u64
+    server_response_timeout: u64,
 ) -> bool {
     write!(
         stdout,
@@ -156,7 +156,14 @@ pub fn probe_researcher(
     .expect("write failed");
 
     let success_sign = Cell::new(false);
-    evaluate_research(stdout, stderr, server_address, params, server_response_timeout,&success_sign);
+    evaluate_research(
+        stdout,
+        stderr,
+        server_address,
+        params,
+        server_response_timeout,
+        &success_sign,
+    );
 
     stderr.flush().expect("failed to flush stdout");
     stdout.flush().expect("failed to flush stderr");
@@ -215,9 +222,11 @@ fn evaluate_research(
                 .expect("writing server response failed");
             server_responded = true;
         }
-        Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => stderr
-            .write_all(b"Request to the server was sent but no response came back. ")
-            .expect("writing to stderr failed"),
+        Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
+            stderr
+                .write_all(b"Request to the server was sent but no response came back. ")
+                .expect("writing to stderr failed")
+        }
         Err(e) => write!(
             stderr,
             "Request to the server was sent but reading the response failed: {:?} ",
@@ -398,7 +407,7 @@ mod tests {
             &mut stderr,
             server_address,
             &mut parameters_transferor,
-            5000
+            5000,
         );
 
         thread::sleep(Duration::from_secs(2));
@@ -430,7 +439,7 @@ mod tests {
             &mut stderr,
             server_address,
             &mut parameters_transferor,
-            1500
+            1500,
         );
         assert_eq!(result, false);
         assert!(
@@ -494,7 +503,7 @@ mod tests {
             &mut stderr,
             server_socket_addr,
             &mut parameters_transferor,
-            10
+            10,
         );
         assert_eq!(result, false);
         assert_eq!(
