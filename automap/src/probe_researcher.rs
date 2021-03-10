@@ -317,10 +317,21 @@ mod tests {
     //TODO remove this note: macOS Ok(Err(Kind(TimedOut)))
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
+        // TODO Take me out! Take me out!
+        #[cfg(target_os = "macos")]
+        thread::sleep(Duration::from_secs(540));
+
         let port = find_free_port();
 
         let handle = deploy_background_listener(port, 8875, 500);
-        test_stream_acceptor_and_probe_8875_imitator(true, 0, port);
+
+        #[cfg(not(target_os = "macos"))]
+        let send_probe_addr = SocketAddr::new(localhost(), port);
+
+        #[cfg(target_os = "macos")]
+        let send_probe_addr = SocketAddr::new(IpAddr::from_str("0.0.0.0").unwrap(), port);
+
+        test_stream_acceptor_and_probe_8875_imitator(true, 0, send_probe_addr);
 
         let result = handle.join();
         match result {
@@ -329,14 +340,14 @@ mod tests {
         }
     }
 
-    //TODO remove this note: macOS Ok(Err(Kind(TimedOut))
     #[test]
     fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
         let port = find_free_port();
 
         let handle = deploy_background_listener(port, 8875, 100);
-        test_stream_acceptor_and_probe_8875_imitator(false, 0, port);
+        let send_probe_addr = SocketAddr::new(localhost(), port);
+        test_stream_acceptor_and_probe_8875_imitator(false, 0, send_probe_addr);
 
         let result = handle.join();
 
@@ -357,8 +368,8 @@ mod tests {
     ) {
         let port = find_free_port();
         let handle = deploy_background_listener(port, 8875, 200);
-
-        test_stream_acceptor_and_probe_8875_imitator(false, 300, port);
+        let send_probe_addr = SocketAddr::new(localhost(), port);
+        test_stream_acceptor_and_probe_8875_imitator(false, 300, send_probe_addr);
 
         let result = handle.join();
 
@@ -468,7 +479,7 @@ mod tests {
     ) {
         // TODO Take me out! Take me out!
         #[cfg(target_os = "linux")]
-        thread::sleep(Duration::from_secs(600));
+        thread::sleep(Duration::from_secs(540));
 
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
@@ -543,9 +554,9 @@ mod tests {
     fn test_stream_acceptor_and_probe_8875_imitator(
         send_probe: bool,
         shutdown_delay_millis: u64,
-        port: u16,
+        send_probe_socket: SocketAddr,
     ) {
-        let mut connection = TcpStream::connect(SocketAddr::new(localhost(), port)).unwrap();
+        let mut connection = TcpStream::connect(send_probe_socket).unwrap();
         if send_probe {
             let message = u16_to_byte_array(8875);
             connection.write_all(&message).unwrap();
