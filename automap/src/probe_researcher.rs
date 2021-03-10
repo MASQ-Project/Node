@@ -120,10 +120,14 @@ fn deploy_background_listener(
             }
         };
         let mut buf = [0u8; 2];
-        stream
-            .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
-            .unwrap();
+        // stream
+        //     .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
+        //     .unwrap();
+        let deadline = Instant::now().add(Duration::from_millis(timeout_millis));
         loop {
+            if Instant::now() >= deadline {
+                return Err(std::io::Error::from(ErrorKind::TimedOut));
+            }
             match stream.read(&mut buf) {
                 Ok(0) => break (Err(std::io::Error::from(ErrorKind::BrokenPipe))),
                 Ok(_) => {
@@ -132,9 +136,8 @@ fn deploy_background_listener(
                         break Ok(());
                     }
                 }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    break (Err(std::io::Error::from(ErrorKind::TimedOut)))
-                }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
+                // break (Err(std::io::Error::from(ErrorKind::TimedOut)))
                 Err(e) => break Err(e),
             }
         }
@@ -317,19 +320,11 @@ mod tests {
     //TODO remove this note: macOS Ok(Err(Kind(TimedOut)))
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
-        // TODO Take me out! Take me out!
-        #[cfg(target_os = "macos")]
-        thread::sleep(Duration::from_secs(540));
-
         let port = find_free_port();
 
         let handle = deploy_background_listener(port, 8875, 500);
 
-        #[cfg(not(target_os = "macos"))]
         let send_probe_addr = SocketAddr::new(localhost(), port);
-
-        #[cfg(target_os = "macos")]
-        let send_probe_addr = SocketAddr::new(IpAddr::from_str("0.0.0.0").unwrap(), port);
 
         test_stream_acceptor_and_probe_8875_imitator(true, 0, send_probe_addr);
 
@@ -343,6 +338,10 @@ mod tests {
     #[test]
     fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
+        // TODO Take me out! Take me out!
+        #[cfg(target_os = "macos")]
+        thread::sleep(Duration::from_secs(700));
+
         let port = find_free_port();
 
         let handle = deploy_background_listener(port, 8875, 100);
@@ -351,16 +350,16 @@ mod tests {
 
         let result = handle.join();
 
-        #[cfg(not(target_os = "macos"))]
+        // #[cfg(not(target_os = "macos"))]
         match result {
             Ok(Err(e)) if e.kind() == ErrorKind::BrokenPipe => (),
             x => panic!("Expected Ok(Err(BrokenPipe)); got {:?}", x),
         }
-        #[cfg(target_os = "macos")]
-        match result {
-            Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
-            x => panic!("Expected Ok(Err(TimeOut)); got {:?}", x),
-        }
+        // #[cfg(target_os = "macos")]
+        // match result {
+        //     Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
+        //     x => panic!("Expected Ok(Err(TimeOut)); got {:?}", x),
+        // }
     }
 
     #[test]
