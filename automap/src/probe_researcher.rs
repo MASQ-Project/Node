@@ -129,7 +129,7 @@ fn deploy_background_listener(
                 return Err(std::io::Error::from(ErrorKind::TimedOut));
             }
             match stream.read(&mut buf) {
-                Ok(0) => break (Err(std::io::Error::from(ErrorKind::BrokenPipe))),
+                Ok(0) => break Err(std::io::Error::from(ErrorKind::BrokenPipe)),
                 Ok(_) => {
                     let actual_nonce = ((buf[0] as u16) << 8) | (buf[1] as u16);
                     if actual_nonce == expected_nonce {
@@ -340,7 +340,7 @@ mod tests {
     ) {
         // TODO Take me out! Take me out!
         #[cfg(target_os = "macos")]
-        thread::sleep(Duration::from_secs(700));
+        thread::sleep(Duration::from_secs(1200));
 
         let port = find_free_port();
 
@@ -368,7 +368,7 @@ mod tests {
         let port = find_free_port();
         let handle = deploy_background_listener(port, 8875, 200);
         let send_probe_addr = SocketAddr::new(localhost(), port);
-        test_stream_acceptor_and_probe_8875_imitator(false, 300, send_probe_addr);
+        test_stream_acceptor_and_probe_8875_imitator(false, 500, send_probe_addr);
 
         let result = handle.join();
 
