@@ -215,7 +215,7 @@ fn evaluate_research(
                 .expect("writing server response failed");
             server_responded = true;
         }
-        Err(e) if e.kind() == ErrorKind::TimedOut => stderr
+        Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => stderr
             .write_all(b"Request to the server was sent but no response came back. ")
             .expect("writing to stderr failed"),
         Err(e) => write!(
@@ -454,10 +454,13 @@ mod tests {
     }
 
     //TODO remove this note:  --linux: 'We couldn't connect to the http server. Test is terminating.'
-    #[cfg(not(target_os="linux"))]
     #[test]
     fn probe_researcher_sends_request_and_returns_failure_as_the_response_from_the_http_server_has_never_come_back(
     ) {
+        // TODO Take me out! Take me out!
+        #[cfg(target_os = "linux")]
+        thread::sleep(Duration::from_secs(600));
+
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
 
