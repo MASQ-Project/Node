@@ -2,7 +2,7 @@
 
 use automap_lib::automap_core_functions::{test_igdp, test_pcp, test_pmp};
 use automap_lib::probe_researcher::{
-    close_exposed_port, prepare_router_or_report_failure, probe_researcher,
+    close_exposed_port, prepare_router_or_report_failure, researcher_with_probe,
 };
 use std::io;
 use std::io::Write;
@@ -23,7 +23,7 @@ pub fn main() {
         Ok(mut first_level) => {
             let server_address =
                 SocketAddr::from_str(SERVER_SOCKET_ADDRESS).expect("server address in bad format");
-            let success = probe_researcher(
+            let success = researcher_with_probe(
                 &mut stdout,
                 &mut stderr,
                 server_address,

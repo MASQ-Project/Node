@@ -17,7 +17,7 @@ use std::{fmt, thread};
 pub fn close_exposed_port(
     _stdout: &mut dyn Write,
     _stderr: &mut dyn Write,
-    params: NextSectionShifter,
+    params: FirstSectionDataProvider,
 ) -> Result<(), ()> {
     println!("Preparation for closing the forwarded port");
     match params.method {
@@ -50,11 +50,11 @@ pub fn prepare_router_or_report_failure(
     test_pcp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_pmp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_igdp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>,
-) -> Result<NextSectionShifter, Vec<String>> {
+) -> Result<FirstSectionDataProvider, Vec<String>> {
     let mut collector: Vec<String> = vec![];
     match test_pcp() {
         Ok((ip, port, transactor)) => {
-            return Ok(NextSectionShifter {
+            return Ok(FirstSectionDataProvider {
                 method: Method::Pcp,
                 ip,
                 port,
@@ -65,7 +65,7 @@ pub fn prepare_router_or_report_failure(
     };
     match test_pmp() {
         Ok((ip, port, transactor)) => {
-            return Ok(NextSectionShifter {
+            return Ok(FirstSectionDataProvider {
                 method: Method::Pmp,
                 ip,
                 port,
@@ -76,7 +76,7 @@ pub fn prepare_router_or_report_failure(
     };
     match test_igdp() {
         Ok((ip, port, transactor, permanent)) => {
-            return Ok(NextSectionShifter {
+            return Ok(FirstSectionDataProvider {
                 method: Method::Igdp(permanent),
                 ip,
                 port,
@@ -92,7 +92,7 @@ pub fn prepare_router_or_report_failure(
     }
 }
 
-pub struct NextSectionShifter {
+pub struct FirstSectionDataProvider {
     pub method: Method,
     pub ip: IpAddr,
     pub port: u16,
@@ -147,18 +147,17 @@ fn deploy_background_listener(
                 {
                     continue
                 }
-                // break (Err(std::io::Error::from(ErrorKind::TimedOut)))
                 Err(e) => break Err(e),
             }
         }
     })
 }
 
-pub fn probe_researcher(
+pub fn researcher_with_probe(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
     server_address: SocketAddr,
-    params: &mut NextSectionShifter,
+    params: &mut FirstSectionDataProvider,
     server_response_timeout: u64,
 ) -> bool {
     write!(
@@ -188,7 +187,7 @@ fn evaluate_research(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
     server_address: SocketAddr,
-    params: &mut NextSectionShifter,
+    params: &mut FirstSectionDataProvider,
     server_response_timeout: u64,
     success_sign: &Cell<bool>,
 ) {
@@ -279,7 +278,7 @@ mod tests {
     use crate::comm_layer::Transactor;
     use crate::probe_researcher::{
         deploy_background_listener, generate_nonce, prepare_router_or_report_failure,
-        probe_researcher, Method, NextSectionShifter,
+        researcher_with_probe, FirstSectionDataProvider, Method,
     };
     use masq_lib::utils::{find_free_port, localhost};
     use std::io::{ErrorKind, IoSlice, Read, Write};
@@ -327,7 +326,6 @@ mod tests {
         )
     }
 
-    //TODO remove this note: macOS Ok(Err(Kind(TimedOut)))
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
         let port = find_free_port();
@@ -382,9 +380,6 @@ mod tests {
     #[test]
     fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
-        // TODO Take me out! Take me out!
-        #[cfg(target_os = "macos")]
-        thread::sleep(Duration::from_secs(1100));
         let port = find_free_port();
         let handle = deploy_background_listener(port, 8875, 100);
         let send_probe_addr = SocketAddr::new(localhost(), port);
@@ -441,10 +436,10 @@ mod tests {
     #[test]
     #[ignore]
     //server must be running so that we can get this test green!
-    fn probe_researcher_works() {
+    fn researcher_with_probe_works() {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
-        let mut parameters_transferor = NextSectionShifter {
+        let mut parameters_transferor = FirstSectionDataProvider {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: 3545,
@@ -452,7 +447,7 @@ mod tests {
         };
         let server_address = SocketAddr::from_str("127.0.0.1:7005").unwrap();
 
-        let result = probe_researcher(
+        let result = researcher_with_probe(
             &mut stdout,
             &mut stderr,
             server_address,
@@ -472,11 +467,11 @@ mod tests {
     }
 
     #[test]
-    fn probe_researcher_returns_failure_if_cannot_connect_to_the_http_server() {
+    fn researcher_with_probe_returns_failure_if_cannot_connect_to_the_http_server() {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
         let port = find_free_port();
-        let mut parameters_transferor = NextSectionShifter {
+        let mut parameters_transferor = FirstSectionDataProvider {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
             port,
@@ -484,7 +479,7 @@ mod tests {
         };
         let server_address = SocketAddr::from_str("0.0.0.0:7010").unwrap();
 
-        let result = probe_researcher(
+        let result = researcher_with_probe(
             &mut stdout,
             &mut stderr,
             server_address,
@@ -512,14 +507,9 @@ mod tests {
         assert_eq!(stderr.flush_count, 1);
     }
 
-    //TODO remove this note:  --linux: 'We couldn't connect to the http server. Test is terminating.'
     #[test]
-    fn probe_researcher_sends_request_and_returns_failure_as_the_response_from_the_http_server_has_never_come_back(
+    fn researcher_with_probe_sends_http_request_and_returns_failure_for_no_response_ever_coming_back(
     ) {
-        // // TODO Take me out! Take me out!
-        // #[cfg(target_os = "linux")]
-        // thread::sleep(Duration::from_secs(1200));
-
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
 
@@ -538,7 +528,7 @@ mod tests {
             thread::sleep(Duration::from_millis(3000))
         });
 
-        let mut parameters_transferor = NextSectionShifter {
+        let mut parameters_transferor = FirstSectionDataProvider {
             method: Method::Pmp,
             ip: localhost(),
             port: find_free_port(),
@@ -546,7 +536,7 @@ mod tests {
         };
 
         rx.recv().unwrap();
-        let result = probe_researcher(
+        let result = researcher_with_probe(
             &mut stdout,
             &mut stderr,
             server_address,
