@@ -2,7 +2,7 @@
 
 use crate::line_reader::LineReader;
 use std::io::BufRead;
-use std::sync::{Mutex, Arc};
+use std::sync::{Arc, Mutex};
 
 pub const MASQ_PROMPT: &str = "masq> ";
 

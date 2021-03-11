@@ -11,7 +11,7 @@ use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
-use std::sync::{Mutex, Arc};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContextError {
@@ -66,7 +66,7 @@ pub struct CommandContextReal {
     pub stdin: Box<dyn Read>,
     pub stdout: Box<dyn Write>,
     pub stderr: Box<dyn Write>,
-    pub output_synchronizer: Arc<Mutex<()>>
+    pub output_synchronizer: Arc<Mutex<()>>,
 }
 
 impl Debug for CommandContextReal {

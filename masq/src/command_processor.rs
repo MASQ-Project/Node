@@ -65,12 +65,12 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
+    use crate::test_utils::mocks::TestStreamFactory;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
-    use crate::test_utils::mocks::TestStreamFactory;
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
 
     #[derive(Debug)]
     struct TestCommand {}
@@ -127,12 +127,12 @@ mod tests {
         assert_eq!(received, vec![Ok(UiShutdownRequest {}.tmb(1))]);
     }
 
-    #[derive (Debug)]
+    #[derive(Debug)]
     struct TameCommand {}
 
     impl Command for TameCommand {
         fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            writeln! (context.stdout, "Tame output");
+            writeln!(context.stdout, "Tame output");
             Ok(())
         }
     }
@@ -141,12 +141,9 @@ mod tests {
     fn process_locks_output_synchronizer() {
         let port = find_free_port();
         let broadcast_stream_factory = TestStreamFactory::new();
-        let mut command_context = CommandContextReal::new(
-            port,
-            Box::new (broadcast_stream_factory)
-        );
+        let mut command_context = CommandContextReal::new(port, Box::new(broadcast_stream_factory));
         let stdout = ByteArrayWriter::new();
-        command_context.stdout = Box::new (stdout);
+        command_context.stdout = Box::new(stdout);
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
         let subject = CommandProcessorFactoryReal::new();
