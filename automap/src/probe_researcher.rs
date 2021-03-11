@@ -138,7 +138,8 @@ fn deploy_background_listener(
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
                 // break (Err(std::io::Error::from(ErrorKind::TimedOut)))
-                Err(e) => break Err(e),
+                Err(e) if e.kind() != ErrorKind::BrokenPipe => break Err(e), //remove this gard if turns out needless
+                _ => continue,
             }
         }
     })
@@ -340,7 +341,7 @@ mod tests {
     ) {
         // TODO Take me out! Take me out!
         #[cfg(target_os = "macos")]
-        thread::sleep(Duration::from_secs(1200));
+        thread::sleep(Duration::from_secs(1100));
 
         let port = find_free_port();
 
@@ -478,7 +479,7 @@ mod tests {
     ) {
         // TODO Take me out! Take me out!
         #[cfg(target_os = "linux")]
-        thread::sleep(Duration::from_secs(540));
+        thread::sleep(Duration::from_secs(1200));
 
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
