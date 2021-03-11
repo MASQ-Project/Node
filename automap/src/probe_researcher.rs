@@ -6,7 +6,7 @@ use rand::{thread_rng, Rng};
 use std::cell::Cell;
 use std::fmt::{Display, Formatter};
 use std::io::{ErrorKind, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::ops::Add;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -119,27 +119,36 @@ fn deploy_background_listener(
                 Err(e) => return Err(e),
             }
         };
-        let mut buf = [0u8; 2];
-        // stream
-        //     .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
-        //     .unwrap();
+        let mut buf = [0u8; 3];
+        let mut buf_count = 0usize;
+        stream.set_nonblocking(true)?;
         let deadline = Instant::now().add(Duration::from_millis(timeout_millis));
         loop {
+            thread::sleep(Duration::from_millis(10));
             if Instant::now() >= deadline {
                 return Err(std::io::Error::from(ErrorKind::TimedOut));
             }
-            match stream.read(&mut buf) {
-                Ok(0) => break Err(std::io::Error::from(ErrorKind::BrokenPipe)),
-                Ok(_) => {
+            match stream.read(&mut buf[buf_count..]) {
+                Ok(0) => {
+                    stream.shutdown(Shutdown::Both)?;
+                    if buf_count != 2 {
+                        break Err(std::io::Error::from(ErrorKind::InvalidData));
+                    }
                     let actual_nonce = ((buf[0] as u16) << 8) | (buf[1] as u16);
                     if actual_nonce == expected_nonce {
                         break Ok(());
                     }
                 }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
+                Ok(len) => {
+                    buf_count += len;
+                }
+                Err(e)
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
+                {
+                    continue
+                }
                 // break (Err(std::io::Error::from(ErrorKind::TimedOut)))
-                Err(e) if e.kind() != ErrorKind::BrokenPipe => break Err(e), //remove this gard if turns out needless
-                _ => continue,
+                Err(e) => break Err(e),
             }
         }
     })
@@ -327,7 +336,7 @@ mod tests {
 
         let send_probe_addr = SocketAddr::new(localhost(), port);
 
-        test_stream_acceptor_and_probe_8875_imitator(true, 0, send_probe_addr);
+        test_stream_acceptor_and_probe_8875_imitator(0, send_probe_addr);
 
         let result = handle.join();
         match result {
@@ -337,30 +346,60 @@ mod tests {
     }
 
     #[test]
+    fn deploy_background_listener_complains_about_probe_of_insufficient_length() {
+        let port = find_free_port();
+        let handle = deploy_background_listener(port, 8875, 100);
+        let send_probe_addr = SocketAddr::new(localhost(), port);
+        let mut probe = Vec::from(u16_to_byte_array(8875));
+        probe.remove(1); // One byte too few
+
+        test_stream_acceptor_and_probe(probe.as_slice(), 0, send_probe_addr);
+
+        let result = handle.join();
+        match result {
+            Ok(Err(e)) if (e.kind() == ErrorKind::InvalidData) => (),
+            x => panic!("Expected Ok(Err(InvalidData)), got {:?}", x),
+        }
+    }
+
+    #[test]
+    fn deploy_background_listener_complains_about_probe_of_excessive_length() {
+        let port = find_free_port();
+        let handle = deploy_background_listener(port, 8875, 100);
+        let send_probe_addr = SocketAddr::new(localhost(), port);
+        let mut probe = Vec::from(u16_to_byte_array(8875));
+        probe.push(0xFF); // one byte too long
+
+        test_stream_acceptor_and_probe(probe.as_slice(), 0, send_probe_addr);
+
+        let result = handle.join();
+        match result {
+            Ok(Err(e)) if (e.kind() == ErrorKind::InvalidData) => (),
+            x => panic!("Expected Ok(Err(InvalidData)), got {:?}", x),
+        }
+    }
+
+    #[test]
     fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
         // TODO Take me out! Take me out!
         #[cfg(target_os = "macos")]
         thread::sleep(Duration::from_secs(1100));
-
         let port = find_free_port();
-
         let handle = deploy_background_listener(port, 8875, 100);
         let send_probe_addr = SocketAddr::new(localhost(), port);
-        test_stream_acceptor_and_probe_8875_imitator(false, 0, send_probe_addr);
+
+        test_stream_acceptor_and_probe(&[], 0, send_probe_addr);
 
         let result = handle.join();
-
-        // #[cfg(not(target_os = "macos"))]
         match result {
             Ok(Err(e)) if e.kind() == ErrorKind::BrokenPipe => (),
-            x => panic!("Expected Ok(Err(BrokenPipe)); got {:?}", x),
+            Ok(Err(e)) if e.kind() == ErrorKind::InvalidData => (),
+            x => panic!(
+                "Expected Ok(Err(BrokenPipe)) or Ok(Err(InvalidData)); got {:?}",
+                x
+            ),
         }
-        // #[cfg(target_os = "macos")]
-        // match result {
-        //     Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
-        //     x => panic!("Expected Ok(Err(TimeOut)); got {:?}", x),
-        // }
     }
 
     #[test]
@@ -369,7 +408,7 @@ mod tests {
         let port = find_free_port();
         let handle = deploy_background_listener(port, 8875, 200);
         let send_probe_addr = SocketAddr::new(localhost(), port);
-        test_stream_acceptor_and_probe_8875_imitator(false, 500, send_probe_addr);
+        test_stream_acceptor_and_probe(&[], 500, send_probe_addr);
 
         let result = handle.join();
 
@@ -477,23 +516,22 @@ mod tests {
     #[test]
     fn probe_researcher_sends_request_and_returns_failure_as_the_response_from_the_http_server_has_never_come_back(
     ) {
-        // TODO Take me out! Take me out!
-        #[cfg(target_os = "linux")]
-        thread::sleep(Duration::from_secs(1200));
+        // // TODO Take me out! Take me out!
+        // #[cfg(target_os = "linux")]
+        // thread::sleep(Duration::from_secs(1200));
 
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
 
-        let server_address_string = format!("127.0.0.1:{}", find_free_port());
-        let server_address_clone = server_address_string.clone();
+        let server_address = SocketAddr::new(localhost(), find_free_port());
         //fake server
+        let (tx, rx) = std::sync::mpsc::channel();
         thread::spawn(move || {
-            let listener =
-                TcpListener::bind(SocketAddr::from_str(&server_address_clone).unwrap()).unwrap();
-
+            let listener = TcpListener::bind(server_address).unwrap();
+            tx.send(()).unwrap();
             let (mut connection, _) = listener.accept().unwrap();
             connection
-                .set_read_timeout(Some(Duration::from_millis(1000)))
+                .set_read_timeout(Some(Duration::from_millis(100)))
                 .unwrap();
             let mut buf = [0u8; 1024];
             connection.read(&mut buf).unwrap();
@@ -502,17 +540,16 @@ mod tests {
 
         let mut parameters_transferor = NextSectionShifter {
             method: Method::Pmp,
-            ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
+            ip: localhost(),
             port: find_free_port(),
             transactor: Box::new(PmpTransactor::default()),
         };
 
-        let server_socket_addr = SocketAddr::from_str(&server_address_string).unwrap();
-
+        rx.recv().unwrap();
         let result = probe_researcher(
             &mut stdout,
             &mut stderr,
-            server_socket_addr,
+            server_address,
             &mut parameters_transferor,
             10,
         );
@@ -552,14 +589,21 @@ mod tests {
     }
 
     fn test_stream_acceptor_and_probe_8875_imitator(
-        send_probe: bool,
+        shutdown_delay_millis: u64,
+        send_probe_socket: SocketAddr,
+    ) {
+        let message = u16_to_byte_array(8875);
+        test_stream_acceptor_and_probe(&message, shutdown_delay_millis, send_probe_socket);
+    }
+
+    fn test_stream_acceptor_and_probe(
+        probe: &[u8],
         shutdown_delay_millis: u64,
         send_probe_socket: SocketAddr,
     ) {
         let mut connection = TcpStream::connect(send_probe_socket).unwrap();
-        if send_probe {
-            let message = u16_to_byte_array(8875);
-            connection.write_all(&message).unwrap();
+        if !probe.is_empty() {
+            connection.write_all(probe).unwrap();
         } else {
             if shutdown_delay_millis == 0 {
                 connection.shutdown(Shutdown::Both).unwrap();
