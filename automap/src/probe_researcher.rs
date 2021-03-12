@@ -130,7 +130,7 @@ fn deploy_background_listener(
             }
             match stream.read(&mut buf[buf_count..]) {
                 Ok(0) => {
-                    stream.shutdown(Shutdown::Both)?;
+                    let _ = stream.shutdown(Shutdown::Both);
                     if buf_count != 2 {
                         break Err(std::io::Error::from(ErrorKind::InvalidData));
                     }
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn deploy_background_listener_complains_about_probe_of_insufficient_length() {
         let port = find_free_port();
-        let handle = deploy_background_listener(port, 8875, 100);
+        let handle = deploy_background_listener(port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
         let mut probe = Vec::from(u16_to_byte_array(8875));
         probe.remove(1); // One byte too few
@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn deploy_background_listener_complains_about_probe_of_excessive_length() {
         let port = find_free_port();
-        let handle = deploy_background_listener(port, 8875, 100);
+        let handle = deploy_background_listener(port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
         let mut probe = Vec::from(u16_to_byte_array(8875));
         probe.push(0xFF); // one byte too long
@@ -381,7 +381,7 @@ mod tests {
     fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
         let port = find_free_port();
-        let handle = deploy_background_listener(port, 8875, 100);
+        let handle = deploy_background_listener(port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
 
         test_stream_acceptor_and_probe(&[], 0, send_probe_addr);
