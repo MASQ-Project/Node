@@ -2,5 +2,6 @@
 
 pub mod automap_core_functions;
 pub mod comm_layer;
+pub mod logger;
 pub mod probe_researcher;
 pub mod protocols;

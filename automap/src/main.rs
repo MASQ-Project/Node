@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use automap_lib::automap_core_functions::{test_igdp, test_pcp, test_pmp};
+use automap_lib::logger::initiate_logger;
 use automap_lib::probe_researcher::{
     close_exposed_port, prepare_router_or_report_failure, researcher_with_probe,
 };
@@ -9,11 +10,13 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-const SERVER_SOCKET_ADDRESS: &str = "1.2.3.4:5000";
+const SERVER_SOCKET_ADDRESS: &str = "54.200.22.175:8081";
 
 pub fn main() {
     let mut stdout = io::stdout();
     let mut stderr = io::stderr();
+
+    initiate_logger();
 
     match prepare_router_or_report_failure(
         Box::new(test_pcp),

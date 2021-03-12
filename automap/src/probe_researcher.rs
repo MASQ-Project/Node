@@ -2,6 +2,7 @@
 
 use crate::automap_core_functions::{remove_firewall_hole, remove_permanent_firewall_hole};
 use crate::comm_layer::Transactor;
+use log::info;
 use rand::{thread_rng, Rng};
 use std::cell::Cell;
 use std::fmt::{Display, Formatter};
@@ -15,16 +16,16 @@ use std::{fmt, thread};
 //so far, println!() is safer for testing, with immediate feedback
 #[allow(clippy::result_unit_err)]
 pub fn close_exposed_port(
-    _stdout: &mut dyn Write,
-    _stderr: &mut dyn Write,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
     params: FirstSectionDataProvider,
 ) -> Result<(), ()> {
     println!("Preparation for closing the forwarded port");
     match params.method {
         Method::Pmp | Method::Pcp | Method::Igdp(false) => {
-            remove_firewall_hole(_stdout, _stderr, params)
+            remove_firewall_hole(stdout, stderr, params)
         }
-        Method::Igdp(true) => remove_permanent_firewall_hole(_stdout, _stderr, params),
+        Method::Igdp(true) => remove_permanent_firewall_hole(stdout, stderr, params),
     }
 }
 
@@ -45,6 +46,7 @@ impl Display for Method {
     }
 }
 
+//it was meant to be prepared for eventual collecting of errors but now it is ended with a merge and a single message
 #[allow(clippy::type_complexity)]
 pub fn prepare_router_or_report_failure(
     test_pcp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
@@ -86,6 +88,9 @@ pub fn prepare_router_or_report_failure(
         Err(e) => collector.push(e),
     };
     if collector.len() == 3 {
+        //this may be reworked in the future, using the errors properly
+        collector.clear();
+        collector.push("Neither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong".to_string());
         Err(collector)
     } else {
         panic!("shouldn't happen")
@@ -119,6 +124,7 @@ fn deploy_background_listener(
                 Err(e) => return Err(e),
             }
         };
+        info!("connection for listening for probe was established");
         let mut buf = [0u8; 3];
         let mut buf_count = 0usize;
         stream.set_nonblocking(true)?;
@@ -306,6 +312,8 @@ mod tests {
             unwrapped_result.transactor.as_any().downcast_ref().unwrap();
     }
 
+    // TODO rework this test; it aged. We gather results from each module laboriously and then we provide a simple message as some kind of summary.
+    // Or make it clear that it should test something else ideally
     #[test]
     fn prepare_router_or_report_failure_reports_of_accumulated_errors() {
         let result = prepare_router_or_report_failure(
@@ -314,14 +322,10 @@ mod tests {
             Box::new(mock_router_igdp_test_unsuccessful),
         );
 
-        let expected_message = String::from("Test ended unsuccessfully");
-
         assert_eq!(
             result.err().unwrap(),
             vec![
-                expected_message.clone(),
-                expected_message.clone(),
-                expected_message
+                "Neither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong"
             ]
         )
     }

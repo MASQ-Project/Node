@@ -14,6 +14,9 @@ igd = "0.12.0"
 masq_lib = { path = "../masq_lib" }
 port_scanner = "0.1.5"
 rand = {version = "0.7.0", features = ["getrandom", "small_rng"]}
+log = "0.4.8"
+flexi_logger = "0.17.1"
+lazy_static = "1.4.0"
 
 [[bin]]
 name = "automap"
