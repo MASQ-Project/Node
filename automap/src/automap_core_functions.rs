@@ -4,7 +4,7 @@ use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
 use crate::comm_layer::{AutomapError, Transactor};
-use crate::probe_researcher::FirstSectionDataProvider;
+use crate::probe_researcher::FirstSectionData;
 use log::{info, warn};
 use masq_lib::short_writeln;
 use masq_lib::utils::find_free_port;
@@ -230,7 +230,7 @@ fn poke_permanent_firewall_hole(
 pub fn remove_firewall_hole(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    params: FirstSectionDataProvider,
+    params: FirstSectionData,
 ) -> Result<(), ()> {
     info!("Removing the port-{} hole in the firewall...", params.port);
     let timer = Timer::new();
@@ -254,7 +254,7 @@ pub fn remove_firewall_hole(
 pub fn remove_permanent_firewall_hole(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    params: FirstSectionDataProvider,
+    params: FirstSectionData,
 ) -> Result<(), ()> {
     info!("Removing the port-{} hole in the firewall...", params.port);
     let timer = Timer::new();

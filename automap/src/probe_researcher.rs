@@ -18,7 +18,7 @@ use std::{fmt, thread};
 pub fn close_exposed_port(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    params: FirstSectionDataProvider,
+    params: FirstSectionData,
 ) -> Result<(), ()> {
     println!("Preparation for closing the forwarded port");
     match params.method {
@@ -52,11 +52,11 @@ pub fn prepare_router_or_report_failure(
     test_pcp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_pmp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_igdp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>,
-) -> Result<FirstSectionDataProvider, Vec<String>> {
+) -> Result<FirstSectionData, Vec<String>> {
     let mut collector: Vec<String> = vec![];
     match test_pcp() {
         Ok((ip, port, transactor)) => {
-            return Ok(FirstSectionDataProvider {
+            return Ok(FirstSectionData {
                 method: Method::Pcp,
                 ip,
                 port,
@@ -67,7 +67,7 @@ pub fn prepare_router_or_report_failure(
     };
     match test_pmp() {
         Ok((ip, port, transactor)) => {
-            return Ok(FirstSectionDataProvider {
+            return Ok(FirstSectionData {
                 method: Method::Pmp,
                 ip,
                 port,
@@ -78,7 +78,7 @@ pub fn prepare_router_or_report_failure(
     };
     match test_igdp() {
         Ok((ip, port, transactor, permanent)) => {
-            return Ok(FirstSectionDataProvider {
+            return Ok(FirstSectionData {
                 method: Method::Igdp(permanent),
                 ip,
                 port,
@@ -97,7 +97,7 @@ pub fn prepare_router_or_report_failure(
     }
 }
 
-pub struct FirstSectionDataProvider {
+pub struct FirstSectionData {
     pub method: Method,
     pub ip: IpAddr,
     pub port: u16,
@@ -163,7 +163,7 @@ pub fn researcher_with_probe(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
     server_address: SocketAddr,
-    params: &mut FirstSectionDataProvider,
+    params: &mut FirstSectionData,
     server_response_timeout: u64,
 ) -> bool {
     write!(
@@ -189,11 +189,11 @@ pub fn researcher_with_probe(
     success_sign.take()
 }
 
-fn evaluate_research(
+pub fn evaluate_research(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
     server_address: SocketAddr,
-    params: &mut FirstSectionDataProvider,
+    params: &mut FirstSectionData,
     server_response_timeout: u64,
     success_sign: &Cell<bool>,
 ) {
@@ -281,14 +281,18 @@ fn generate_nonce() -> u16 {
 #[cfg(test)]
 mod tests {
     use crate::comm_layer::pmp::PmpTransactor;
-    use crate::comm_layer::Transactor;
+    use crate::probe_researcher::mock_tools::{
+        mock_router_common_test_finding_ip_and_doing_mapping, mock_router_common_test_unsuccessful,
+        mock_router_igdp_test_unsuccessful, test_stream_acceptor_and_probe,
+        test_stream_acceptor_and_probe_8875_imitator, u16_to_byte_array, MockStream,
+    };
     use crate::probe_researcher::{
         deploy_background_listener, generate_nonce, prepare_router_or_report_failure,
-        researcher_with_probe, FirstSectionDataProvider, Method,
+        researcher_with_probe, FirstSectionData, Method,
     };
     use masq_lib::utils::{find_free_port, localhost};
-    use std::io::{ErrorKind, IoSlice, Read, Write};
-    use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+    use std::io::{ErrorKind, Read};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
     use std::str::FromStr;
     use std::thread;
     use std::time::Duration;
@@ -438,44 +442,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    //server must be running so that we can get this test green!
-    fn researcher_with_probe_works() {
-        let mut stdout = MockStream::new();
-        let mut stderr = MockStream::new();
-        let mut parameters_transferor = FirstSectionDataProvider {
-            method: Method::Pmp,
-            ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
-            port: 3545,
-            transactor: Box::new(PmpTransactor::default()),
-        };
-        let server_address = SocketAddr::from_str("127.0.0.1:7005").unwrap();
-
-        let result = researcher_with_probe(
-            &mut stdout,
-            &mut stderr,
-            server_address,
-            &mut parameters_transferor,
-            5000,
-        );
-
-        thread::sleep(Duration::from_secs(2));
-        assert_eq!(result, true);
-        assert_eq!(stdout.stream, "Test of a port forwarded by using PMP protocol is starting. \
-         \n\nHTTP/1.1 200 OK\r\nContent-Length: 67\r\n\r\nconnection: success; writing: success; connection shutdown: \
-         success\n\nThe received nonce was evaluated to be a match; test passed"
-        );
-        assert!(stderr.stream.is_empty());
-        assert_eq!(stdout.flush_count, 1);
-        assert_eq!(stderr.flush_count, 1);
-    }
-
-    #[test]
     fn researcher_with_probe_returns_failure_if_cannot_connect_to_the_http_server() {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
         let port = find_free_port();
-        let mut parameters_transferor = FirstSectionDataProvider {
+        let mut parameters = FirstSectionData {
             method: Method::Pmp,
             ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
             port,
@@ -487,7 +458,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             server_address,
-            &mut parameters_transferor,
+            &mut parameters,
             1500,
         );
         assert_eq!(result, false);
@@ -532,7 +503,7 @@ mod tests {
             thread::sleep(Duration::from_millis(3000))
         });
 
-        let mut parameters_transferor = FirstSectionDataProvider {
+        let mut parameters = FirstSectionData {
             method: Method::Pmp,
             ip: localhost(),
             port: find_free_port(),
@@ -544,7 +515,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             server_address,
-            &mut parameters_transferor,
+            &mut parameters,
             10,
         );
         assert_eq!(result, false);
@@ -562,8 +533,14 @@ mod tests {
         assert_eq!(stdout.flush_count, 1);
         assert_eq!(stderr.flush_count, 1);
     }
+}
 
-    fn mock_router_common_test_finding_ip_and_doing_mapping(
+pub mod mock_tools {
+    use super::*;
+    use crate::comm_layer::pmp::PmpTransactor;
+    use std::io::IoSlice;
+
+    pub fn mock_router_common_test_finding_ip_and_doing_mapping(
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
         Ok((
             IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
@@ -572,17 +549,17 @@ mod tests {
         ))
     }
 
-    fn mock_router_common_test_unsuccessful() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>
-    {
+    pub fn mock_router_common_test_unsuccessful(
+    ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
 
-    fn mock_router_igdp_test_unsuccessful(
+    pub fn mock_router_igdp_test_unsuccessful(
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
 
-    fn test_stream_acceptor_and_probe_8875_imitator(
+    pub fn test_stream_acceptor_and_probe_8875_imitator(
         shutdown_delay_millis: u64,
         send_probe_socket: SocketAddr,
     ) {
@@ -590,7 +567,7 @@ mod tests {
         test_stream_acceptor_and_probe(&message, shutdown_delay_millis, send_probe_socket);
     }
 
-    fn test_stream_acceptor_and_probe(
+    pub fn test_stream_acceptor_and_probe(
         probe: &[u8],
         shutdown_delay_millis: u64,
         send_probe_socket: SocketAddr,
@@ -607,19 +584,19 @@ mod tests {
         }
     }
 
-    fn u16_to_byte_array(x: u16) -> [u8; 2] {
+    pub fn u16_to_byte_array(x: u16) -> [u8; 2] {
         let b1: u8 = ((x >> 8) & 0xff) as u8;
         let b2: u8 = (x & 0xff) as u8;
         return [b1, b2];
     }
 
-    struct MockStream {
-        stream: String,
-        flush_count: u8,
+    pub struct MockStream {
+        pub stream: String,
+        pub flush_count: u8,
     }
 
     impl MockStream {
-        fn new() -> Self {
+        pub fn new() -> Self {
             Self {
                 stream: String::new(),
                 flush_count: 0,
