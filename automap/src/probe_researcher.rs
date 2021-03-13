@@ -581,19 +581,17 @@ pub mod mock_tools {
         let mut connection = TcpStream::connect(send_probe_socket).unwrap();
         if !probe.is_empty() {
             connection.write_all(probe).unwrap();
+        } else if shutdown_delay_millis == 0 {
+            connection.shutdown(Shutdown::Both).unwrap();
         } else {
-            if shutdown_delay_millis == 0 {
-                connection.shutdown(Shutdown::Both).unwrap();
-            } else {
-                thread::sleep(Duration::from_millis(shutdown_delay_millis));
-            }
+            thread::sleep(Duration::from_millis(shutdown_delay_millis));
         }
     }
 
     pub fn u16_to_byte_array(x: u16) -> [u8; 2] {
         let b1: u8 = ((x >> 8) & 0xff) as u8;
         let b2: u8 = (x & 0xff) as u8;
-        return [b1, b2];
+        [b1, b2]
     }
 
     pub struct MockStream {
@@ -601,6 +599,7 @@ pub mod mock_tools {
         pub flush_count: u8,
     }
 
+    #[allow(clippy::new_without_default)]
     impl MockStream {
         pub fn new() -> Self {
             Self {
