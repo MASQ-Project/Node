@@ -18,6 +18,11 @@ pub fn main() {
 
     initiate_logger();
 
+    println!(
+        "For further information of the course of this test, look inside the log-file. \
+     You can also see warnings and recommendations there if something is wrong. \n"
+    );
+
     match prepare_router_or_report_failure(
         Box::new(test_pcp),
         Box::new(test_pmp),

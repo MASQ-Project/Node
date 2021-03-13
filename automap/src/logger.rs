@@ -27,23 +27,5 @@ fn brief_format(
     _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), std::io::Error> {
-    write!(
-        w,
-        "{} [{}] {}",
-        record.level(),
-        {
-            let original = record.module_path().unwrap_or("<unnamed>");
-            let original_stripped = original
-                .strip_prefix("automap_lib::")
-                .expect("module name looks differently");
-            let remainder_len = original_stripped.len();
-            let to_be_shown = if remainder_len < 13 {
-                &original_stripped[..12]
-            } else {
-                &original_stripped[..remainder_len]
-            };
-            format!("{}..", to_be_shown)
-        },
-        record.args()
-    )
+    write!(w, "{}:   {}", record.level(), record.args())
 }

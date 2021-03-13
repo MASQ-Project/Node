@@ -2,7 +2,6 @@
 
 use crate::automap_core_functions::{remove_firewall_hole, remove_permanent_firewall_hole};
 use crate::comm_layer::Transactor;
-use log::info;
 use rand::{thread_rng, Rng};
 use std::cell::Cell;
 use std::fmt::{Display, Formatter};
@@ -90,7 +89,11 @@ pub fn prepare_router_or_report_failure(
     if collector.len() == 3 {
         //this may be reworked in the future, using the errors properly
         collector.clear();
-        collector.push("Neither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong".to_string());
+        collector.push(
+            "Neither a PCP, PMP or IGDP protocol is being detected on your router \
+         or something is wrong. \n"
+                .to_string(),
+        );
         Err(collector)
     } else {
         panic!("shouldn't happen")
@@ -124,7 +127,6 @@ fn deploy_background_listener(
                 Err(e) => return Err(e),
             }
         };
-        info!("connection for listening for probe was established");
         let mut buf = [0u8; 3];
         let mut buf_count = 0usize;
         stream.set_nonblocking(true)?;
@@ -168,7 +170,7 @@ pub fn researcher_with_probe(
 ) -> bool {
     write!(
         stdout,
-        "Test of a port forwarded by using {} is starting. \n\n",
+        "\nTest of a port forwarded by using {} is starting. \n\n",
         params.method
     )
     .expect("write failed");
@@ -209,7 +211,7 @@ pub fn evaluate_research(
             write!(
                 stderr,
                 "We couldn't connect to the \
-             http server: {:?}. Test is terminating.",
+             http server: {:?}. Test is terminating. ",
                 e
             )
             .expect("writing failed");
@@ -222,7 +224,7 @@ pub fn evaluate_research(
             stderr
                 .write_all(
                     b"Sending an http request to \
-                 the server failed. Test is terminating.",
+                 the server failed. Test is terminating. ",
                 )
                 .expect("writing failed");
             return;
@@ -258,15 +260,19 @@ pub fn evaluate_research(
     match thread_handle.join() {
         Ok(Ok(_)) => {
             stdout
-                .write_all(b"\n\nThe received nonce was evaluated to be a match; test passed")
+                .write_all(b"\n\nThe received nonce was evaluated to be a match; test passed. ")
                 .expect("write_all failed");
             success_sign.set(true);
         }
         Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => stdout
-            .write_all(b"\n\nThe probe detector detected no incoming probe")
+            .write_all(b"\n\nThe probe detector detected no incoming probe. ")
             .expect("write_all failed"),
-        Ok(Err(e)) => write!(stdout, "\n\nThe probe detector ran into a problem: {:?}", e)
-            .expect("write! failed"),
+        Ok(Err(e)) => write!(
+            stdout,
+            "\n\nThe probe detector ran into a problem: {:?}. ",
+            e
+        )
+        .expect("write! failed"),
         Err(e) => {
             write!(stderr, "\n\nThe probe detector panicked: {:?}", e).expect("write_all failed")
         }
@@ -329,7 +335,7 @@ mod tests {
         assert_eq!(
             result.err().unwrap(),
             vec![
-                "Neither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong"
+                "Neither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong. \n"
             ]
         )
     }
@@ -470,13 +476,13 @@ mod tests {
             stderr.stream
         );
         assert!(
-            stderr.stream.ends_with(". Test is terminating."),
+            stderr.stream.ends_with(". Test is terminating. "),
             "{}",
             stderr.stream
         );
         assert_eq!(
             stdout.stream,
-            "Test of a port forwarded by using PMP protocol is starting. \n\n"
+            "\nTest of a port forwarded by using PMP protocol is starting. \n\n"
         );
         assert_eq!(stdout.flush_count, 1);
         assert_eq!(stderr.flush_count, 1);
@@ -521,7 +527,7 @@ mod tests {
         assert_eq!(result, false);
         assert_eq!(
             stdout.stream,
-            "Test of a port forwarded by using PMP protocol is starting. \n\n"
+            "\nTest of a port forwarded by using PMP protocol is starting. \n\n"
         );
         assert!(
             stderr
