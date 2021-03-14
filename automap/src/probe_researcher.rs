@@ -87,10 +87,10 @@ pub fn prepare_router_or_report_failure(
         Err(e) => collector.push(e),
     };
     if collector.len() == 3 {
-        //this may be reworked in the future, using the errors properly
+        //this should be reworked in the future, processing the errors with more care
         collector.clear();
         collector.push(
-            "Neither a PCP, PMP or IGDP protocol is being detected on your router \
+            "\nNeither a PCP, PMP or IGDP protocol is being detected on your router \
          or something is wrong. \n"
                 .to_string(),
         );
