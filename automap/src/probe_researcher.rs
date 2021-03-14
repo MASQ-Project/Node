@@ -335,7 +335,7 @@ mod tests {
         assert_eq!(
             result.err().unwrap(),
             vec![
-                "Neither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong. \n"
+                "\nNeither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong. \n"
             ]
         )
     }
