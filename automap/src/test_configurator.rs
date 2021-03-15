@@ -49,7 +49,7 @@ pub fn build_test_config(args: Vec<String>) -> Result<TestConfig, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::utils::{localhost, find_free_port};
+    use masq_lib::utils::{find_free_port, localhost};
     use std::net::TcpListener;
 
     #[test]
