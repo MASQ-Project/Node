@@ -2,3 +2,4 @@
 
 pub mod comm_layer;
 pub mod protocols;
+pub mod test_configurator;

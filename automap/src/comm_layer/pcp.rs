@@ -9,7 +9,7 @@ use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
 use rand::RngCore;
 use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 trait MappingNonceFactory {
@@ -526,7 +526,12 @@ mod tests {
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
-            vec![SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from_str("::").unwrap(), 34567, 0, 0))]
+            vec![SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::from_str("::").unwrap(),
+                34567,
+                0,
+                0
+            ))]
         );
         let read_timeout_params = read_timeout_params_arc.lock().unwrap();
         assert_eq!(*read_timeout_params, vec![Some(Duration::from_secs(3))]);
