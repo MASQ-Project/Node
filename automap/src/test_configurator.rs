@@ -49,7 +49,7 @@ pub fn build_test_config(args: Vec<String>) -> Result<TestConfig, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::utils::localhost;
+    use masq_lib::utils::{localhost, find_free_port};
     use std::net::TcpListener;
 
     #[test]
@@ -152,9 +152,10 @@ mod tests {
 
     #[test]
     fn build_test_config_specific_test_including_specific_port_but_bad_port() {
-        let _ = TcpListener::bind(format!("{}:{}", localhost(), 40)).unwrap();
+        let port = find_free_port();
+        let _blocker = TcpListener::bind(format!("{}:{}", localhost(), port)).unwrap();
 
-        let args = vec!["automap".to_string(), "igdp".to_string(), "40".to_string()];
+        let args = vec!["automap".to_string(), "igdp".to_string(), port.to_string()];
 
         let result = build_test_config(args);
 
