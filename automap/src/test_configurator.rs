@@ -263,7 +263,7 @@ mod tests {
             "igdp".to_string(),
             port.to_string(),
             "noremove".to_string(),
-            "600000000".to_string(),
+            "9999999999".to_string(),
         ];
 
         let result = build_test_config(args);
