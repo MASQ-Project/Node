@@ -20,9 +20,9 @@ pub fn main() {
                 .iter()
                 .zip(
                     [
-                        Box::new(test_igdp as fn(TestConfig)),
-                        Box::new(test_pcp),
+                        Box::new(test_pcp as fn(TestConfig)),
                         Box::new(test_pmp),
+                        Box::new(test_igdp),
                     ]
                     .iter(),
                 )
@@ -74,33 +74,43 @@ fn test_igdp(test_config: TestConfig) {
     let transactor = IgdpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor);
     let status = seek_public_ip(status, router_ip, &transactor);
-    let (port, mut status) = poke_firewall_hole(status, router_ip, &transactor, test_config.port);
-    let status = if !test_config.no_remove && status.step_success {
-        remove_firewall_hole(port, status, router_ip, &transactor)
-    } else if status
-        .step_error
-        .as_ref()
-        .expect("Step failure, but no error recorded!")
-        == &AutomapError::AddMappingError("OnlyPermanentLeasesSupported".to_string())
-    {
-        println! ("This router doesn't like keeping track of holes and closing them on a schedule. We'll try a permanent one.");
-        status.cumulative_success = true; // adjustment for retry
-        let (port, status) =
-            poke_permanent_firewall_hole(status, router_ip, &transactor, test_config.port);
-        if !test_config.no_remove && status.step_success {
-            remove_permanent_firewall_hole(port, status, router_ip, &transactor)
-        } else {
-            status
+    let (port, mut status) = poke_firewall_hole(
+        status,
+        router_ip,
+        &transactor,
+        test_config.port,
+        test_config.open_port_time_period,
+    );
+    status = match (
+        test_config.no_remove,
+        status.step_success,
+        status.step_error.as_ref(),
+    ) {
+        (true, _, _) => status,
+        (false, true, _) => remove_firewall_hole(port, status, router_ip, &transactor),
+        (_, _, Some(error))
+            if *error
+                == AutomapError::AddMappingError("OnlyPermanentLeasesSupported".to_string()) =>
+        {
+            println!("This router doesn't like keeping track of holes and closing them on a schedule. We'll try a permanent one.");
+            status.cumulative_success = true; // adjustment for retry
+            let (port, status) =
+                poke_permanent_firewall_hole(status, router_ip, &transactor, test_config.port);
+            if !test_config.no_remove && status.step_success {
+                remove_permanent_firewall_hole(port, status, router_ip, &transactor)
+            } else {
+                status
+            }
         }
-    } else {
-        status
+        (_, _, None) => status,
+        _ => unreachable!(),
     };
     if status.cumulative_success {
         println!(
             "====== IGDP is implemented on your router and we can successfully employ it ======\n"
         )
     } else {
-        println! ("====== Either IGDP is not implemented on your router or we're not doing it right ======\n")
+        println!("====== Either IGDP is not implemented on your router or we're not doing it right ======\n")
     }
 }
 
@@ -111,7 +121,13 @@ fn test_common(
     test_config: TestConfig,
 ) -> TestStatus {
     let status = seek_public_ip(status, router_ip, transactor);
-    let (port, mut status) = poke_firewall_hole(status, router_ip, transactor, test_config.port);
+    let (port, mut status) = poke_firewall_hole(
+        status,
+        router_ip,
+        transactor,
+        test_config.port,
+        test_config.open_port_time_period,
+    );
     if !test_config.no_remove && status.step_success {
         status = remove_firewall_hole(port, status, router_ip, transactor);
     }
@@ -165,6 +181,7 @@ fn poke_firewall_hole(
     router_ip: IpAddr,
     transactor: &dyn Transactor,
     spec_port: Option<u16>,
+    open_port_timeout: Option<u32>,
 ) -> (u16, TestStatus) {
     if status.fatal {
         return (0, status);
@@ -190,11 +207,25 @@ fn poke_firewall_hole(
             }
         };
     println!(
-        "{}. Poking a 3-second hole in the firewall for port {}...",
-        status.step, port
+        "{}. Poking a {}-second hole in the firewall for port {}...",
+        status.step,
+        if let Some(secs) = open_port_timeout {
+            secs
+        } else {
+            5
+        },
+        port
     );
     let timer = Timer::new();
-    match transactor.add_mapping(router_ip, port, 5) {
+    match transactor.add_mapping(
+        router_ip,
+        port,
+        if let Some(secs) = open_port_timeout {
+            secs
+        } else {
+            5
+        },
+    ) {
         Ok(delay) => {
             println!(
                 "...success after {}! Recommended remap delay is {} seconds.",

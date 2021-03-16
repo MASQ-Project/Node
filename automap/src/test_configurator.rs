@@ -6,6 +6,7 @@ pub struct TestConfig {
     pub test_to_run: [bool; 3],
     pub port: Option<u16>,
     pub no_remove: bool,
+    pub open_port_time_period: Option<u32>,
 }
 
 pub fn build_test_config(args: Vec<String>) -> Result<TestConfig, String> {
@@ -20,11 +21,12 @@ pub fn build_test_config(args: Vec<String>) -> Result<TestConfig, String> {
                     test_to_run: [true, true, true],
                     port: None,
                     no_remove: false,
+                    open_port_time_period: None,
                 })
             }
-            name if &*(name.as_ref().unwrap()) == "igdp" => [true, false, false],
-            name if &*(name.as_ref().unwrap()) == "pmp" => [false, false, true],
-            name if &*(name.as_ref().unwrap()) == "pcp" => [false, true, false],
+            name if &*(name.as_ref().unwrap()) == "igdp" => [false, false, true],
+            name if &*(name.as_ref().unwrap()) == "pmp" => [false, true, false],
+            name if &*(name.as_ref().unwrap()) == "pcp" => [true, false, false],
             name => return Err(format!("Unknown argument: {}", name.unwrap())),
         },
         port: match pure_args.next() {
@@ -42,6 +44,13 @@ pub fn build_test_config(args: Vec<String>) -> Result<TestConfig, String> {
             Some(value) if &value == "noremove" => true,
             arg if arg.is_some() => return Err(format!("Unknown argument: {}", arg.unwrap())),
             _ => unreachable!(),
+        },
+        open_port_time_period: match pure_args.next() {
+            None => None,
+            Some(value) => match value.parse::<u32>() {
+                Ok(timeout) => Some(timeout),
+                Err(e) => return Err(format!("Open port time limit: {}", e)),
+            },
         },
     })
 }
@@ -63,7 +72,8 @@ mod tests {
             Ok(TestConfig {
                 test_to_run: [true, true, true],
                 port: None,
-                no_remove: false
+                no_remove: false,
+                open_port_time_period: None
             })
         )
     }
@@ -79,7 +89,8 @@ mod tests {
             Ok(TestConfig {
                 test_to_run: [true, true, true],
                 port: None,
-                no_remove: false
+                no_remove: false,
+                open_port_time_period: None
             })
         )
     }
@@ -111,19 +122,22 @@ mod tests {
             results,
             vec![
                 Ok(TestConfig {
+                    test_to_run: [true, false, false],
+                    port: None,
+                    no_remove: false,
+                    open_port_time_period: None
+                }),
+                Ok(TestConfig {
                     test_to_run: [false, true, false],
                     port: None,
-                    no_remove: false
+                    no_remove: false,
+                    open_port_time_period: None
                 }),
                 Ok(TestConfig {
                     test_to_run: [false, false, true],
                     port: None,
-                    no_remove: false
-                }),
-                Ok(TestConfig {
-                    test_to_run: [true, false, false],
-                    port: None,
-                    no_remove: false
+                    no_remove: false,
+                    open_port_time_period: None
                 }),
             ]
         )
@@ -143,9 +157,10 @@ mod tests {
         assert_eq!(
             result,
             Ok(TestConfig {
-                test_to_run: [true, false, false],
+                test_to_run: [false, false, true],
                 port: Some(16000),
-                no_remove: false
+                no_remove: false,
+                open_port_time_period: None
             })
         )
     }
@@ -179,11 +194,13 @@ mod tests {
     }
 
     #[test]
-    fn build_test_config_with_all_params_supplied_works() {
+    fn build_test_config_works_with_all_params_except_open_port_time_param() {
+        //this setting implies the former value hardcoded for the open port interval
+        let port = find_free_port();
         let args = vec![
             "automap".to_string(),
             "igdp".to_string(),
-            "16444".to_string(),
+            port.to_string(),
             "noremove".to_string(),
         ];
 
@@ -192,9 +209,10 @@ mod tests {
         assert_eq!(
             result,
             Ok(TestConfig {
-                test_to_run: [true, false, false],
-                port: Some(16444),
-                no_remove: true
+                test_to_run: [false, false, true],
+                port: Some(port),
+                no_remove: true,
+                open_port_time_period: None
             })
         )
     }
@@ -211,5 +229,48 @@ mod tests {
         let result = build_test_config(args);
 
         assert_eq!(result, Err("Unknown argument: norrrrremove".to_string()))
+    }
+
+    #[test]
+    fn build_test_config_works_with_all_params_supplied() {
+        let port = find_free_port();
+        let args = vec![
+            "automap".to_string(),
+            "igdp".to_string(),
+            port.to_string(),
+            "noremove".to_string(),
+            "600".to_string(),
+        ];
+
+        let result = build_test_config(args);
+
+        assert_eq!(
+            result,
+            Ok(TestConfig {
+                test_to_run: [false, false, true],
+                port: Some(port),
+                no_remove: true,
+                open_port_time_period: Some(600)
+            })
+        )
+    }
+
+    #[test]
+    fn build_test_config_catch_an_error_internally_at_the_last_parameter() {
+        let port = find_free_port();
+        let args = vec![
+            "automap".to_string(),
+            "igdp".to_string(),
+            port.to_string(),
+            "noremove".to_string(),
+            "600000000".to_string(),
+        ];
+
+        let result = build_test_config(args);
+
+        assert_eq!(
+            result,
+            Err("Open port time limit: number too large to fit in target type".to_string())
+        )
     }
 }
