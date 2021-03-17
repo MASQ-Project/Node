@@ -555,8 +555,15 @@ pub mod standard {
                 }
             }
             Some(ref s) if s == "consume-only" => {
+                let mut errors = ConfiguratorError::new(vec![]);
                 if neighbor_configs.is_empty() {
-                    Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified"))
+                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
+                }
+                if value_m!(multi_config, "dns-servers", String).is_some() {
+                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified");
+                }
+                if !errors.is_empty() {
+                    Err(errors)
                 } else {
                     Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
                 }
@@ -1317,13 +1324,15 @@ mod tests {
     }
 
     #[test]
-    fn make_neighborhood_config_consume_only_does_need_at_least_one_neighbor() {
+    fn make_neighborhood_config_consume_only_rejects_dns_servers_and_needs_at_least_one_neighbor() {
         running_test();
         let multi_config = make_new_test_multi_config(
             &app(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
                     .param("--neighborhood-mode", "consume-only")
+                    .param("--dns-servers", "1.1.1.1")
+                    .param("--fake-public-key", "booga")
                     .into(),
             ))],
         )
@@ -1332,7 +1341,7 @@ mod tests {
         let result = standard::make_neighborhood_config(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1341,6 +1350,10 @@ mod tests {
             Err(ConfiguratorError::required(
                 "neighborhood-mode",
                 "Node cannot run as --neighborhood-mode consume-only without --neighbors specified"
+            )
+            .another_required(
+                "neighborhood-mode",
+                "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified"
             ))
         )
     }

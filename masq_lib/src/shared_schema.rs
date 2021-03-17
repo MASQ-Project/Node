@@ -468,6 +468,14 @@ impl ConfiguratorError {
     pub fn extend(&mut self, extension: Self) {
         self.param_errors.extend(extension.param_errors);
     }
+
+    pub fn len(&self) -> usize {
+        self.param_errors.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[cfg(test)]

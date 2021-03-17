@@ -164,7 +164,7 @@ mod tests {
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
-            tx.send(peer_actors.proxy_client.inbound_server_data)
+            tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
             system.run();
         });
@@ -244,7 +244,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            tx.send(peer_actors.proxy_client.inbound_server_data)
+            tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
 
             system.run();
@@ -320,7 +320,7 @@ mod tests {
 
         let mut subject = StreamReader {
             stream_key,
-            proxy_client_sub: peer_actors.proxy_client.inbound_server_data,
+            proxy_client_sub: peer_actors.proxy_client_opt.unwrap().inbound_server_data,
             stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
@@ -360,7 +360,7 @@ mod tests {
             let system = System::new("non_dead_stream_read_errors_log_but_do_not_shut_down");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
-            tx.send(peer_actors.proxy_client.inbound_server_data)
+            tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
             system.run();
         });

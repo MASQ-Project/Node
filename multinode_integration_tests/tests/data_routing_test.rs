@@ -16,7 +16,7 @@ use node_lib::proxy_server::protocol_pack::ServerImpersonator;
 use node_lib::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use node_lib::test_utils::{handle_connection_error, read_until_timeout};
 use std::io::Write;
-use std::net::{SocketAddr, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
@@ -114,6 +114,24 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
     );
+}
+
+#[test]
+#[should_panic(expected = "extracting node reference")]
+fn consume_only_mode_rejects_dns_servers_parameter() {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let first_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .chain(chain_name_from_id(cluster.chain_id))
+            .build(),
+    );
+    let config = NodeStartupConfigBuilder::consume_only()
+        .dns_servers(vec![IpAddr::from_str("1.1.1.1").unwrap()])
+        .neighbor(first_node.node_reference())
+        .chain(chain_name_from_id(cluster.chain_id))
+        .build();
+
+    let _ = cluster.start_real_node(config);
 }
 
 #[test]

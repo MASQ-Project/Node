@@ -2,6 +2,9 @@
 
 use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
+use crate::daemon::dns_inspector::dns_inspector_factory::{
+    DnsInspectorFactory, DnsInspectorFactoryReal,
+};
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -12,6 +15,7 @@ use crate::node_configurator::node_configurator_standard::standard::{
 use crate::node_configurator::{
     app_head, data_directory_from_context, determine_config_file_path, DirsWrapper, RealDirsWrapper,
 };
+use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
@@ -633,7 +637,18 @@ impl ValueRetriever for DbPassword {
     }
 }
 
-struct DnsServers {}
+struct DnsServers {
+    factory: Box<dyn DnsInspectorFactory>,
+    logger: Logger,
+}
+impl DnsServers {
+    pub fn new() -> Self {
+        Self {
+            factory: Box::new(DnsInspectorFactoryReal::new()),
+            logger: Logger::new("DnsServers"),
+        }
+    }
+}
 impl ValueRetriever for DnsServers {
     fn value_name(&self) -> &'static str {
         "dns-servers"
@@ -645,11 +660,30 @@ impl ValueRetriever for DnsServers {
         _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        Some(("1.1.1.1".to_string(), Default))
+        let inspector = self.factory.make()?;
+        match inspector.inspect() {
+            Ok(ip_addrs) => {
+                if ip_addrs.is_empty() {
+                    return None;
+                }
+                if ip_addrs.iter().any(|ip_addr| ip_addr.is_loopback()) {
+                    return None;
+                }
+                let dns_servers = ip_addrs
+                    .into_iter()
+                    .map(|ip_addr| ip_addr.to_string())
+                    .join(",");
+                Some((dns_servers, Default))
+            }
+            Err(e) => {
+                warning!(self.logger, "Error inspecting DNS settings: {:?}", e);
+                None
+            }
+        }
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
-        true
+        !matches!(_params.get("neighborhood-mode"), Some(nhm) if &nhm.value == "consume-only")
     }
 }
 
@@ -832,7 +866,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(CrashPoint {}),
         Box::new(DataDirectory::new(dirs_wrapper)),
         Box::new(DbPassword {}),
-        Box::new(DnsServers {}),
+        Box::new(DnsServers::new()),
         Box::new(EarningWallet {}),
         Box::new(GasPrice {}),
         Box::new(Ip {}),
@@ -849,6 +883,8 @@ mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::RealUser;
+    use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
+    use crate::daemon::dns_inspector::DnsInspectionError;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -859,10 +895,12 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
     use std::fs::File;
@@ -870,6 +908,56 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+
+    pub struct DnsInspectorMock {
+        inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
+    }
+
+    impl DnsInspector for DnsInspectorMock {
+        fn inspect(&self) -> Result<Vec<IpAddr>, DnsInspectionError> {
+            self.inspect_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl DnsInspectorMock {
+        pub fn new() -> DnsInspectorMock {
+            DnsInspectorMock {
+                inspect_results: RefCell::new(vec![]),
+            }
+        }
+
+        pub fn inspect_result(
+            self,
+            result: Result<Vec<IpAddr>, DnsInspectionError>,
+        ) -> DnsInspectorMock {
+            self.inspect_results.borrow_mut().push(result);
+            self
+        }
+    }
+
+    #[derive(Default)]
+    pub struct DnsModifierFactoryMock {
+        make_results: RefCell<Vec<Option<Box<dyn DnsInspector>>>>,
+    }
+
+    impl DnsInspectorFactory for DnsModifierFactoryMock {
+        fn make(&self) -> Option<Box<dyn DnsInspector>> {
+            self.make_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl DnsModifierFactoryMock {
+        pub fn new() -> DnsModifierFactoryMock {
+            DnsModifierFactoryMock {
+                make_results: RefCell::new(vec![]),
+            }
+        }
+
+        pub fn make_result(self, result: Option<Box<dyn DnsInspector>>) -> DnsModifierFactoryMock {
+            self.make_results.borrow_mut().push(result);
+            self
+        }
+    }
 
     #[test]
     fn everything_in_defaults_is_properly_constructed() {
@@ -951,6 +1039,11 @@ mod tests {
             .get_modified_setup(HashMap::new(), incoming_setup)
             .unwrap();
 
+        let (dns_servers_str, dns_servers_status) =
+            match DnsServers::new().computed_default(&BootstrapperConfig::new(), &None, &None) {
+                Some((dss, _)) => (dss, Default),
+                None => ("".to_string(), Required),
+            };
         let expected_result = vec![
             ("blockchain-service-url", "", Required),
             ("chain", DEFAULT_CHAIN_NAME, Default),
@@ -960,7 +1053,7 @@ mod tests {
             ("crash-point", "", Blank),
             ("data-directory", home_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
-            ("dns-servers", "1.1.1.1", Default),
+            ("dns-servers", &dns_servers_str, dns_servers_status),
             ("earning-wallet", "", Blank),
             ("gas-price", "1234567890", Default),
             ("ip", "4.3.2.1", Set),
@@ -2037,12 +2130,69 @@ mod tests {
     }
 
     #[test]
-    fn dns_servers_computed_default() {
-        let subject = DnsServers {};
+    fn dns_servers_computed_default_does_not_exist_when_platform_is_not_recognized() {
+        let factory = DnsModifierFactoryMock::new().make_result(None);
+        let mut subject = DnsServers::new();
+        subject.factory = Box::new(factory);
 
         let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
 
-        assert_eq!(result, Some(("1.1.1.1".to_string(), Default)))
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn dns_servers_computed_default_does_not_exist_when_dns_is_subverted() {
+        let modifier = DnsInspectorMock::new()
+            .inspect_result(Ok(vec![IpAddr::from_str("127.0.0.1").unwrap()]));
+        let factory = DnsModifierFactoryMock::new().make_result(Some(Box::new(modifier)));
+        let mut subject = DnsServers::new();
+        subject.factory = Box::new(factory);
+
+        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn dns_servers_computed_default_does_not_exist_when_dns_inspection_fails() {
+        init_test_logging();
+        let modifier =
+            DnsInspectorMock::new().inspect_result(Err(DnsInspectionError::NotConnected));
+        let factory = DnsModifierFactoryMock::new().make_result(Some(Box::new(modifier)));
+        let mut subject = DnsServers::new();
+        subject.factory = Box::new(factory);
+
+        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+
+        assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing("WARN: DnsServers: Error inspecting DNS settings: This system does not appear to be connected to a network");
+    }
+
+    #[test]
+    fn dns_servers_computed_default_does_not_exist_when_dns_inspection_returns_no_addresses() {
+        let modifier = DnsInspectorMock::new().inspect_result(Ok(vec![]));
+        let factory = DnsModifierFactoryMock::new().make_result(Some(Box::new(modifier)));
+        let mut subject = DnsServers::new();
+        subject.factory = Box::new(factory);
+
+        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn dns_servers_computed_default_exists_when_dns_inspection_succeeds() {
+        let modifier = DnsInspectorMock::new().inspect_result(Ok(vec![
+            IpAddr::from_str("192.168.0.1").unwrap(),
+            IpAddr::from_str("8.8.8.8").unwrap(),
+        ]));
+        let factory = DnsModifierFactoryMock::new().make_result(Some(Box::new(modifier)));
+        let mut subject = DnsServers::new();
+        subject.factory = Box::new(factory);
+
+        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+
+        assert_eq!(result, Some(("192.168.0.1,8.8.8.8".to_string(), Default)))
     }
 
     #[test]
@@ -2258,6 +2408,20 @@ mod tests {
     }
 
     #[test]
+    fn dnsservers_requirements() {
+        verify_requirements(
+            &DnsServers::new(),
+            "neighborhood-mode",
+            vec![
+                ("standard", true),
+                ("zero-hop", true),
+                ("originate-only", true),
+                ("consume-only", false),
+            ],
+        );
+    }
+
+    #[test]
     fn neighbors_requirements() {
         verify_requirements(
             &Neighbors {},
@@ -2288,7 +2452,7 @@ mod tests {
         assert_eq!(ConsumingPrivateKey {}.is_required(&params), false);
         assert_eq!(DataDirectory::default().is_required(&params), true);
         assert_eq!(DbPassword {}.is_required(&params), true);
-        assert_eq!(DnsServers {}.is_required(&params), true);
+        assert_eq!(DnsServers::new().is_required(&params), true);
         assert_eq!(EarningWallet {}.is_required(&params), false);
         assert_eq!(GasPrice {}.is_required(&params), true);
         assert_eq!(Ip {}.is_required(&params), true);

@@ -82,7 +82,7 @@ impl DnsUtility {
         let mut stream_buf: Vec<u8> = vec![];
         modifier.inspect(&mut stream_buf)?;
         let status = match String::from_utf8(stream_buf) {
-            Ok(s) => self.status_from_inspect(s)?,
+            Ok(s) => self.status_from_inspect(s),
             Err(e) => panic!(
                 "Internal error: UTF-8 String suddenly became non-UTF-8: {}",
                 e
@@ -92,11 +92,10 @@ impl DnsUtility {
         Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn status_from_inspect(&self, dns_server_list: String) -> Result<String, String> {
+    fn status_from_inspect(&self, dns_server_list: String) -> String {
         match dns_server_list {
-            ref s if s == &String::from("127.0.0.1\n") => Ok(String::from("subverted")),
-            _ => Ok(String::from("reverted")),
+            ref s if s == &String::from("127.0.0.1\n") => String::from("subverted"),
+            _ => String::from("reverted"),
         }
     }
 

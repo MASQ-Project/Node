@@ -531,7 +531,7 @@ impl PeerActorsBuilder {
             proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
             dispatcher: make_dispatcher_subs_from(&dispatcher_addr),
             hopper: make_hopper_subs_from(&hopper_addr),
-            proxy_client: make_proxy_client_subs_from(&proxy_client_addr),
+            proxy_client_opt: Some(make_proxy_client_subs_from(&proxy_client_addr)),
             neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
             accountant: make_accountant_subs_from(&accountant_addr),
             ui_gateway: make_ui_gateway_subs_from(&ui_gateway_addr),

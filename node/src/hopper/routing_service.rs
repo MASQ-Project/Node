@@ -20,7 +20,7 @@ use std::convert::TryFrom;
 use std::net::SocketAddr;
 
 pub struct RoutingServiceSubs {
-    pub proxy_client_subs: ProxyClientSubs,
+    pub proxy_client_subs_opt: Option<ProxyClientSubs>,
     pub proxy_server_subs: ProxyServerSubs,
     pub neighborhood_subs: NeighborhoodSubs,
     pub hopper_subs: HopperSubs,
@@ -274,9 +274,17 @@ impl RoutingService {
         expired_package: ExpiredCoresPackage<MessageType>,
         payer_owns_secret_key: bool,
     ) {
+        let immediate_neighbor = expired_package.immediate_neighbor;
         match (component, expired_package.payload) {
             (Component::ProxyClient, MessageType::ClientRequest(vd)) => {
                 if !self.is_decentralized || payer_owns_secret_key {
+                    let proxy_client_subs = match &self.routing_service_subs.proxy_client_subs_opt {
+                        Some(pcs) => pcs,
+                        None => {
+                            warning!(self.logger, "Received CORES package from {:?} for Proxy Client, but Proxy Client isn't running", immediate_neighbor);
+                            return;
+                        }
+                    };
                     let client_request = match ClientRequestPayload_0v1::try_from(vd) {
                         Ok(crp) => crp,
                         Err(e) => {
@@ -287,8 +295,7 @@ impl RoutingService {
                             return;
                         }
                     };
-                    self.routing_service_subs
-                        .proxy_client_subs
+                    proxy_client_subs
                         .from_hopper
                         .try_send(ExpiredCoresPackage::new(
                             expired_package.immediate_neighbor,
@@ -572,7 +579,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -618,7 +625,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -662,7 +669,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -711,7 +718,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -727,9 +734,8 @@ mod tests {
     }
 
     #[test]
-    fn converts_live_message_to_expired_for_proxy_client() {
+    fn converts_live_message_to_expired_for_existing_proxy_client() {
         let _eg = EnvironmentGuard::new();
-        init_test_logging();
         BAN_CACHE.clear();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
@@ -765,7 +771,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -796,6 +802,64 @@ mod tests {
         assert_eq!(record.remaining_route, expected_ecp.remaining_route);
         assert_eq!(record.payload, payload);
         assert_eq!(record.payload_len, expected_ecp.payload_len);
+    }
+
+    #[test]
+    fn complains_about_live_message_for_nonexistent_proxy_client() {
+        let _eg = EnvironmentGuard::new();
+        init_test_logging();
+        BAN_CACHE.clear();
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
+        let payload = make_request_payload(0, main_cryptde);
+        let lcp = LiveCoresPackage::new(
+            route,
+            encodex::<MessageType>(
+                main_cryptde,
+                &main_cryptde.public_key(),
+                &payload.clone().into(),
+            )
+            .unwrap(),
+        );
+        let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
+        let data_enc = main_cryptde
+            .encode(&main_cryptde.public_key(), &data_ser)
+            .unwrap();
+        let inbound_client_data = InboundClientData {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port: None,
+            sequence_number: None,
+            last_data: true,
+            is_clandestine: false,
+            data: data_enc.into(),
+        };
+
+        let system = System::new("converts_live_message_to_expired_for_proxy_client");
+        let peer_actors = peer_actors_builder().build();
+        let subject = RoutingService::new(
+            main_cryptde,
+            alias_cryptde,
+            RoutingServiceSubs {
+                proxy_client_subs_opt: None,
+                proxy_server_subs: peer_actors.proxy_server,
+                neighborhood_subs: peer_actors.neighborhood,
+                hopper_subs: peer_actors.hopper,
+                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+            },
+            0,
+            0,
+            false,
+        );
+
+        subject.route(inbound_client_data);
+
+        System::current().stop();
+        system.run();
+        let tlh = TestLogHandler::new();
+        tlh.exists_no_log_containing("Couldn't decode CORES package in 8-byte buffer");
+        tlh.exists_log_containing("WARN: RoutingService: Received CORES package from 1.2.3.4:5678 for Proxy Client, but Proxy Client isn't running");
     }
 
     #[test]
@@ -833,7 +897,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -911,7 +975,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -985,7 +1049,7 @@ mod tests {
             cryptde,
             alias_cryptde(),
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1064,7 +1128,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1153,7 +1217,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1243,7 +1307,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1344,7 +1408,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1440,7 +1504,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1513,7 +1577,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1584,7 +1648,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1634,7 +1698,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1692,7 +1756,7 @@ mod tests {
             main_cryptde,
             alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1725,7 +1789,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1762,7 +1826,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1802,7 +1866,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1842,7 +1906,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1882,7 +1946,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,
@@ -1922,7 +1986,7 @@ mod tests {
             main_cryptde(),
             alias_cryptde(),
             RoutingServiceSubs {
-                proxy_client_subs: peer_actors.proxy_client,
+                proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
                 neighborhood_subs: peer_actors.neighborhood,
                 hopper_subs: peer_actors.hopper,

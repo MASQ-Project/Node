@@ -569,13 +569,17 @@ mod tests {
                 stream_adder_tx: mpsc::channel().0,
                 stream_killer_tx: mpsc::channel().0,
                 stream_connector: Box::new(StreamConnectorMock::new()),
-                proxy_client_sub: peer_actors.proxy_client.inbound_server_data.clone(),
+                proxy_client_sub: peer_actors
+                    .proxy_client_opt
+                    .clone()
+                    .unwrap()
+                    .inbound_server_data,
                 logger: logger.clone(),
                 channel_factory: Box::new(FuturesChannelFactoryMock::default()),
             };
             let inner = StreamHandlerPoolRealInner {
                 accountant_sub: peer_actors.accountant.report_exit_service_provided.clone(),
-                proxy_client_subs: peer_actors.proxy_client.clone(),
+                proxy_client_subs: peer_actors.proxy_client_opt.clone().unwrap(),
                 stream_writer_channels: HashMap::new(),
                 resolver: Box::new(resolver_mock),
                 logger,
@@ -647,7 +651,7 @@ mod tests {
                 Box::new(ResolverWrapperMock::new()),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -708,7 +712,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -790,7 +794,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -899,7 +903,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -986,7 +990,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -1070,7 +1074,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -1158,12 +1162,16 @@ mod tests {
                     IpAddr::from_str("2.3.4.5").unwrap(),
                     IpAddr::from_str("3.4.5.6").unwrap(),
                 ]);
-            let proxy_client_sub = peer_actors.proxy_client.inbound_server_data.clone();
+            let proxy_client_sub = peer_actors
+                .proxy_client_opt
+                .clone()
+                .unwrap()
+                .inbound_server_data;
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.clone().unwrap(),
                 100,
                 200,
             );
@@ -1263,7 +1271,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.clone().unwrap(),
                 100,
                 200,
             );
@@ -1287,7 +1295,11 @@ mod tests {
                         StreamConnectorMock::new()
                             .with_connection(peer_addr, peer_addr, reader, writer),
                     ),
-                    proxy_client_sub: peer_actors.proxy_client.inbound_server_data.clone(),
+                    proxy_client_sub: peer_actors
+                        .proxy_client_opt
+                        .clone()
+                        .unwrap()
+                        .inbound_server_data,
                     logger: inner.logger.clone(),
                     channel_factory: Box::new(FuturesChannelFactoryMock {
                         results: vec![(
@@ -1356,7 +1368,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -1424,7 +1436,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -1481,7 +1493,7 @@ mod tests {
                 Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
@@ -1517,7 +1529,7 @@ mod tests {
             Box::new(ResolverWrapperMock::new()),
             main_cryptde(),
             peer_actors.accountant.report_exit_service_provided,
-            peer_actors.proxy_client,
+            peer_actors.proxy_client_opt.unwrap(),
             0,
             0,
         );
@@ -1560,7 +1572,7 @@ mod tests {
             Box::new(ResolverWrapperMock::new()),
             main_cryptde(),
             peer_actors.accountant.report_exit_service_provided,
-            peer_actors.proxy_client,
+            peer_actors.proxy_client_opt.unwrap(),
             0,
             0,
         );

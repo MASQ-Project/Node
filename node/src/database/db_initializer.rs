@@ -71,10 +71,8 @@ impl DbInitializer for DbInitializerReal {
                 match Connection::open_with_flags(database_file_path, flags) {
                     Ok(conn) => {
                         eprintln!("Created new database at {:?}", database_file_path);
-                        match self.create_database_tables(&conn, chain_id) {
-                            Ok(()) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                            Err(e) => Err(e),
-                        }
+                        self.create_database_tables(&conn, chain_id);
+                        Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
                     Err(e) => Err(InitializationError::SqliteError(e)),
                 }
@@ -112,20 +110,15 @@ impl DbInitializerReal {
         }
     }
 
-    fn create_database_tables(
-        &self,
-        conn: &Connection,
-        chain_id: u8,
-    ) -> Result<(), InitializationError> {
-        self.create_config_table(conn)?;
-        self.initialize_config(conn, chain_id)?;
-        self.create_payable_table(conn)?;
-        self.create_receivable_table(conn)?;
-        self.create_banned_table(conn)
+    fn create_database_tables(&self, conn: &Connection, chain_id: u8) {
+        self.create_config_table(conn);
+        self.initialize_config(conn, chain_id);
+        self.create_payable_table(conn);
+        self.create_receivable_table(conn);
+        self.create_banned_table(conn);
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn create_config_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+    fn create_config_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists config (
                 name text not null,
@@ -140,15 +133,9 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create config name index");
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn initialize_config(
-        &self,
-        conn: &Connection,
-        chain_id: u8,
-    ) -> Result<(), InitializationError> {
+    fn initialize_config(&self, conn: &Connection, chain_id: u8) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
@@ -201,11 +188,9 @@ impl DbInitializerReal {
             "gas price",
         );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn create_payable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+    fn create_payable_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists payable (
                 wallet_address text primary key,
@@ -221,11 +206,9 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create payable wallet_address index");
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn create_receivable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+    fn create_receivable_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists receivable (
                 wallet_address text primary key,
@@ -240,11 +223,9 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create receivable wallet_address index");
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn create_banned_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+    fn create_banned_table(&self, conn: &Connection) {
         conn.execute(
             "create table banned ( wallet_address text primary key )",
             NO_PARAMS,
@@ -255,7 +236,6 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create banned wallet_address index");
-        Ok(())
     }
 
     fn extract_configurations(&self, conn: &Connection) -> HashMap<String, Option<String>> {
