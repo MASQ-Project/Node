@@ -47,13 +47,13 @@ impl Display for Method {
 
 //it was meant to be prepared for eventual collecting of errors but now it is ended with a merge and a single message
 #[allow(clippy::type_complexity)]
-pub fn prepare_router_or_report_failure(
-    test_pcp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
-    test_pmp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
-    test_igdp: Box<dyn FnOnce() -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>,
+pub fn prepare_router_or_report_failure(test_port: Option<u16>,
+    test_pcp: Box<dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
+    test_pmp: Box<dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
+    test_igdp: Box<dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>,
 ) -> Result<FirstSectionData, Vec<String>> {
     let mut collector: Vec<String> = vec![];
-    match test_pcp() {
+    match test_pcp(test_port) {
         Ok((ip, port, transactor)) => {
             return Ok(FirstSectionData {
                 method: Method::Pcp,
@@ -64,7 +64,7 @@ pub fn prepare_router_or_report_failure(
         }
         Err(e) => collector.push(e),
     };
-    match test_pmp() {
+    match test_pmp(test_port) {
         Ok((ip, port, transactor)) => {
             return Ok(FirstSectionData {
                 method: Method::Pmp,
@@ -75,7 +75,7 @@ pub fn prepare_router_or_report_failure(
         }
         Err(e) => collector.push(e),
     };
-    match test_igdp() {
+    match test_igdp(test_port) {
         Ok((ip, port, transactor, permanent)) => {
             return Ok(FirstSectionData {
                 method: Method::Igdp(permanent),
@@ -91,7 +91,7 @@ pub fn prepare_router_or_report_failure(
         collector.clear();
         collector.push(
             "\nNeither a PCP, PMP or IGDP protocol is being detected on your router \
-         or something is wrong. \n"
+         or something is wrong. \n\n"
                 .to_string(),
         );
         Err(collector)
@@ -306,6 +306,7 @@ mod tests {
     #[test]
     fn prepare_router_or_report_failure_retrieves_ip() {
         let result = prepare_router_or_report_failure(
+            None,
             Box::new(mock_router_common_test_unsuccessful),
             Box::new(mock_router_common_test_finding_ip_and_doing_mapping),
             Box::new(mock_router_igdp_test_unsuccessful),
@@ -327,6 +328,7 @@ mod tests {
     #[test]
     fn prepare_router_or_report_failure_reports_of_accumulated_errors() {
         let result = prepare_router_or_report_failure(
+            None,
             Box::new(mock_router_common_test_unsuccessful),
             Box::new(mock_router_common_test_unsuccessful),
             Box::new(mock_router_igdp_test_unsuccessful),
@@ -335,7 +337,7 @@ mod tests {
         assert_eq!(
             result.err().unwrap(),
             vec![
-                "\nNeither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong. \n"
+                "\nNeither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong. \n\n"
             ]
         )
     }
@@ -546,7 +548,7 @@ pub mod mock_tools {
     use crate::comm_layer::pmp::PmpTransactor;
     use std::io::IoSlice;
 
-    pub fn mock_router_common_test_finding_ip_and_doing_mapping(
+    pub fn mock_router_common_test_finding_ip_and_doing_mapping(_port:Option<u16>
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
         Ok((
             IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
@@ -555,12 +557,12 @@ pub mod mock_tools {
         ))
     }
 
-    pub fn mock_router_common_test_unsuccessful(
+    pub fn mock_router_common_test_unsuccessful(_port:Option<u16>
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
 
-    pub fn mock_router_igdp_test_unsuccessful(
+    pub fn mock_router_igdp_test_unsuccessful(_port:Option<u16>
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Err(String::from("Test ended unsuccessfully"))
     }

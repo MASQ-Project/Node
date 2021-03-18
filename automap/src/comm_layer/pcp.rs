@@ -531,10 +531,7 @@ mod tests {
         assert_eq!(
             *make_params,
             vec![SocketAddr::V4(SocketAddrV4::new(
-                Ipv4Addr::from_str("0.0.
-                0.
-                0
-            ").unwrap(),
+                Ipv4Addr::from_str("0.0.0.0").unwrap(),
                 34567
             ))]
         );

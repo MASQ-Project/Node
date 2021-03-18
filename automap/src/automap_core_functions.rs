@@ -13,10 +13,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-pub fn test_pcp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
+pub fn test_pcp(test_port: Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
     let transactor = PcpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor, " PCP ");
-    let (status, port) = test_common(status, router_ip, &transactor);
+    let (status, port) = test_common(test_port, status, router_ip, &transactor);
     if !status.cumulative_success {
         Err(String::from(
             "\
@@ -28,10 +28,10 @@ Either PCP is not implemented on your router or we're not doing it right\n\
     }
 }
 
-pub fn test_pmp() -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
+pub fn test_pmp(test_port: Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
     let transactor = PmpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor, " PMP ");
-    let (status, port) = test_common(status, router_ip, &transactor);
+    let (status, port) = test_common(test_port, status, router_ip, &transactor);
     if !status.cumulative_success {
         Err(String::from(
             "\
@@ -43,11 +43,11 @@ Either PMP is not implemented on your router or we're not doing it right\n\
     }
 }
 
-pub fn test_igdp() -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
+pub fn test_igdp(test_port: Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
     let transactor = IgdpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor, " IGDP ");
     let status = seek_public_ip(status, router_ip, &transactor);
-    let (mut port, mut status) = poke_firewall_hole(status, router_ip, &transactor);
+    let (mut port, mut status) = poke_firewall_hole(test_port, status, router_ip, &transactor);
     let mut permanent_hole = false;
     let status = if status.step_success {
         status
@@ -80,12 +80,13 @@ Either IGDP is not implemented on your router or we're not doing it right\n\
 }
 
 fn test_common(
+    test_port: Option<u16>,
     status: TestStatus,
     router_ip: IpAddr,
     transactor: &dyn Transactor,
 ) -> (TestStatus, u16) {
     let status = seek_public_ip(status, router_ip, transactor);
-    let (port, status) = poke_firewall_hole(status, router_ip, transactor);
+    let (port, status) = poke_firewall_hole(test_port, status, router_ip, transactor);
     (status, port)
 }
 
@@ -137,6 +138,7 @@ fn seek_public_ip(
 }
 
 fn poke_firewall_hole(
+    test_port: Option<u16>,
     status: TestStatus,
     router_ip: IpAddr,
     transactor: &dyn Transactor,
@@ -144,7 +146,7 @@ fn poke_firewall_hole(
     if status.fatal {
         return (0, status);
     }
-    let port = find_free_port();
+    let port = if let Some(port) = test_port{port} else {find_free_port()};
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port);
     let _socket =
         match UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port)) {
