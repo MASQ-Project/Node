@@ -116,7 +116,7 @@ impl PcpTransactor {
             .marshal(&mut buffer)
             .expect("Bad packet construction");
         let socket_addr = SocketAddr::new(
-            IpAddr::V6(Ipv6Addr::from([0u8; 16])),
+            IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)),
             self.free_port_factory.make(),
         );
         let socket = match self.socket_factory.make(socket_addr) {
