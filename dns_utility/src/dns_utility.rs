@@ -4,6 +4,7 @@ use crate::dns_modifier_factory::DnsModifierFactory;
 use crate::dns_modifier_factory::DnsModifierFactoryReal;
 use masq_lib::command::Command;
 use masq_lib::command::StdStreams;
+use masq_lib::short_writeln;
 use std::io::Write;
 
 enum Action {
@@ -47,11 +48,10 @@ impl DnsUtility {
     fn perform_action(&self, action: Action, streams: &mut StdStreams<'_>) -> u8 {
         let modifier = match self.factory.make() {
             None => {
-                writeln!(
+                short_writeln!(
                     streams.stderr,
                     "Don't know how to modify DNS settings on this system"
-                )
-                .expect("Could not writeln");
+                );
                 return 1;
             }
             Some(m) => m,
@@ -68,7 +68,7 @@ impl DnsUtility {
         match result {
             Ok(_) => 0,
             Err(msg) => {
-                writeln!(streams.stderr, "Cannot {}: {}", name, msg).expect("Could not writeln");
+                short_writeln!(streams.stderr, "Cannot {}: {}", name, msg);
                 1
             }
         }
@@ -82,30 +82,28 @@ impl DnsUtility {
         let mut stream_buf: Vec<u8> = vec![];
         modifier.inspect(&mut stream_buf)?;
         let status = match String::from_utf8(stream_buf) {
-            Ok(s) => self.status_from_inspect(s)?,
+            Ok(s) => self.status_from_inspect(s),
             Err(e) => panic!(
                 "Internal error: UTF-8 String suddenly became non-UTF-8: {}",
                 e
             ),
         };
-        writeln!(stdout, "{}", status).expect("write doesn't work");
+        short_writeln!(stdout, "{}", status);
         Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn status_from_inspect(&self, dns_server_list: String) -> Result<String, String> {
+    fn status_from_inspect(&self, dns_server_list: String) -> String {
         match dns_server_list {
-            ref s if s == &String::from("127.0.0.1\n") => Ok(String::from("subverted")),
-            _ => Ok(String::from("reverted")),
+            ref s if s == &String::from("127.0.0.1\n") => String::from("subverted"),
+            _ => String::from("reverted"),
         }
     }
 
     fn usage(streams: &mut StdStreams<'_>) -> u8 {
-        writeln!(
+        short_writeln!(
             streams.stderr,
             "Usage: dns_utility [ subvert | revert | inspect | status ]"
-        )
-        .expect("Internal error");
+        );
         1
     }
 }

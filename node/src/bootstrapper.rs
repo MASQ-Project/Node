@@ -523,7 +523,7 @@ impl Bootstrapper {
             ),
         };
         let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);
-        writeln!(streams.stdout, "{}", descriptor_msg).expect("Internal error");
+        short_writeln!(streams.stdout, "{}", descriptor_msg);
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
         descriptor
     }
@@ -580,10 +580,7 @@ impl Bootstrapper {
             }
         }
         match persistent_config.clandestine_port() {
-            Ok(clandestine_port_opt) => match clandestine_port_opt {
-                Some(clandestine_port) => clandestine_port,
-                None => panic!("Database is corrupt: clandestine port is missing"),
-            },
+            Ok(clandestine_port) => clandestine_port,
             Err(pce) => panic!(
                 "Database is corrupt: error reading clandestine port: {:?}",
                 pce
@@ -1613,10 +1610,7 @@ mod tests {
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        assert_eq!(
-            1234u16,
-            persistent_config.clandestine_port().unwrap().unwrap()
-        );
+        assert_eq!(1234u16, persistent_config.clandestine_port().unwrap());
         assert_eq!(
             subject
                 .config
@@ -1685,7 +1679,7 @@ mod tests {
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-        let clandestine_port = persistent_config.clandestine_port().unwrap().unwrap();
+        let clandestine_port = persistent_config.clandestine_port().unwrap();
         assert_eq!(
             subject
                 .config
@@ -1818,16 +1812,6 @@ mod tests {
     fn establish_clandestine_port_handles_error_reading_port() {
         let mut persistent_config = PersistentConfigurationMock::new()
             .clandestine_port_result(Err(PersistentConfigError::NotPresent));
-        let subject = BootstrapperBuilder::new().build();
-
-        let _ = subject.establish_clandestine_port(&mut persistent_config);
-    }
-
-    #[test]
-    #[should_panic(expected = "Database is corrupt: clandestine port is missing")]
-    fn establish_clandestine_port_handles_missing_port() {
-        let mut persistent_config =
-            PersistentConfigurationMock::new().clandestine_port_result(Ok(None));
         let subject = BootstrapperBuilder::new().build();
 
         let _ = subject.establish_clandestine_port(&mut persistent_config);

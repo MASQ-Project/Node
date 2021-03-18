@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use masq_cli_lib::command_factory::{CommandFactory, CommandFactoryReal};
@@ -9,6 +9,7 @@ use masq_cli_lib::communications::broadcast_handler::StreamFactoryReal;
 use masq_cli_lib::utils::{BufReadFactory, BufReadFactoryReal};
 use masq_lib::command;
 use masq_lib::command::{Command, StdStreams};
+use masq_lib::short_writeln;
 use std::io;
 use std::io::BufRead;
 
@@ -40,7 +41,7 @@ impl command::Command for Main {
         {
             Ok(processor) => processor,
             Err(e) => {
-                writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e).expect ("writeln! failed");
+                short_writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e);
                 return 1;
             }
         };
@@ -123,7 +124,7 @@ impl Main {
                 Ok(Some(args)) => args,
                 Ok(None) => break, //EOF
                 Err(e) => {
-                    writeln!(streams.stderr, "{:?}", e.kind()).expect("writeln! failed");
+                    short_writeln!(streams.stderr, "{:?}", e.kind());
                     return 1;
                 }
             };
@@ -150,16 +151,16 @@ impl Main {
         let command = match self.command_factory.make(command_parts) {
             Ok(c) => c,
             Err(UnrecognizedSubcommand(msg)) => {
-                writeln!(stderr, "Unrecognized command: '{}'", msg).expect("writeln! failed");
+                short_writeln!(stderr, "Unrecognized command: '{}'", msg);
                 return Err(());
             }
             Err(CommandSyntax(msg)) => {
-                writeln!(stderr, "{}", msg).expect("writeln! failed");
+                short_writeln!(stderr, "{}", msg);
                 return Err(());
             }
         };
         if let Err(e) = processor.process(command) {
-            writeln!(stderr, "{}", e).expect("writeln! failed");
+            short_writeln!(stderr, "{}", e);
             Err(())
         } else {
             Ok(())

@@ -162,9 +162,7 @@ pub mod standard {
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
-    use masq_lib::constants::{
-        DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT,
-    };
+    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
@@ -295,10 +293,7 @@ pub mod standard {
         } else {
             match persistent_config_opt {
                 Some(ref persistent_config) => match persistent_config.gas_price() {
-                    Ok(Some(price)) => price,
-                    Ok(None) => DEFAULT_GAS_PRICE
-                        .parse()
-                        .expect("DEFAULT_GAS_PRICE bad syntax"),
+                    Ok(price) => price,
                     Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 },
                 None => 1,
@@ -560,8 +555,15 @@ pub mod standard {
                 }
             }
             Some(ref s) if s == "consume-only" => {
+                let mut errors = ConfiguratorError::new(vec![]);
                 if neighbor_configs.is_empty() {
-                    Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified"))
+                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
+                }
+                if value_m!(multi_config, "dns-servers", String).is_some() {
+                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified");
+                }
+                if !errors.is_empty() {
+                    Err(errors)
                 } else {
                     Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
                 }
@@ -1322,13 +1324,15 @@ mod tests {
     }
 
     #[test]
-    fn make_neighborhood_config_consume_only_does_need_at_least_one_neighbor() {
+    fn make_neighborhood_config_consume_only_rejects_dns_servers_and_needs_at_least_one_neighbor() {
         running_test();
         let multi_config = make_new_test_multi_config(
             &app(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
                     .param("--neighborhood-mode", "consume-only")
+                    .param("--dns-servers", "1.1.1.1")
+                    .param("--fake-public-key", "booga")
                     .into(),
             ))],
         )
@@ -1337,7 +1341,7 @@ mod tests {
         let result = standard::make_neighborhood_config(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1346,6 +1350,10 @@ mod tests {
             Err(ConfiguratorError::required(
                 "neighborhood-mode",
                 "Node cannot run as --neighborhood-mode consume-only without --neighbors specified"
+            )
+            .another_required(
+                "neighborhood-mode",
+                "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified"
             ))
         )
     }
@@ -1637,12 +1645,11 @@ mod tests {
         let config_file_path = home_dir.join("config.toml");
         {
             let mut config_file = File::create(&config_file_path).unwrap();
-            writeln!(
+            short_writeln!(
                 config_file,
                 "consuming-private-key = \"{}\"",
                 consuming_private_key
-            )
-            .unwrap();
+            );
         }
         let args = ArgsBuilder::new()
             .param("--data-directory", home_dir.to_str().unwrap())
@@ -1937,33 +1944,6 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_handles_missing_gas_price() {
-        let multi_config =
-            test_utils::make_multi_config(ArgsBuilder::new().param("--ip", "1.2.3.4"));
-        let mut unprivileged_config = BootstrapperConfig::new();
-        let mut holder = FakeStreamHolder::new();
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .gas_price_result(Ok(None))
-            .earning_wallet_from_address_result(Ok(Some(Wallet::new(
-                "0x0123456789012345678901234567890123456789",
-            ))))
-            .mnemonic_seed_exists_result(Ok(false));
-
-        standard::unprivileged_parse_args(
-            &multi_config,
-            &mut unprivileged_config,
-            &mut holder.streams(),
-            Some(&mut persistent_config),
-        )
-        .unwrap();
-
-        assert_eq!(
-            unprivileged_config.blockchain_bridge_config.gas_price,
-            DEFAULT_GAS_PRICE.parse::<u64>().unwrap()
-        );
-    }
-
-    #[test]
     fn privileged_parse_args_creates_configuration_with_defaults() {
         running_test();
         let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
@@ -2070,7 +2050,7 @@ mod tests {
             .mnemonic_seed_exists_result(mnemonic_seed_exists_result)
             .consuming_wallet_derivation_path_result(Ok(consuming_wallet_derivation_path_opt))
             .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))
-            .gas_price_result(Ok(Some(gas_price)))
+            .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
     }
 

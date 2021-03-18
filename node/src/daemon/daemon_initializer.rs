@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::bootstrapper::RealUser;
 use crate::daemon::launcher::LauncherReal;
@@ -71,7 +71,7 @@ pub struct DaemonInitializer {
 impl Command for DaemonInitializer {
     fn go(&mut self, streams: &mut StdStreams<'_>, _args: &[String]) -> u8 {
         if port_is_busy(self.config.ui_port) {
-            writeln! (streams.stderr, "There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port).unwrap();
+            short_writeln! (streams.stderr, "There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
             return 1;
         }
         let system = System::new("daemon");

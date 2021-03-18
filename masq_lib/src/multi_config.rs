@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-
 use crate::command::StdStreams;
 use crate::shared_schema::{ConfiguratorError, ParamError};
+use crate::short_writeln;
 use crate::utils::exit_process;
 #[allow(unused_imports)]
 use clap::{value_t, values_t};
@@ -99,7 +99,7 @@ impl<'a> MultiConfig<'a> {
                 if (e.kind == clap::ErrorKind::HelpDisplayed)
                     || (e.kind == clap::ErrorKind::VersionDisplayed) =>
             {
-                writeln!(streams.stdout, "{}", e.message).expect("writeln! failed");
+                short_writeln!(streams.stdout, "{}", e.message);
                 exit_process(0, "");
                 panic!("This line should never execute, but tells Rust there's no return");
             }

@@ -1,13 +1,14 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
-};
+use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, SubCommand};
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
+use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
+
+const START_COMMAND_TIMEOUT_MILLIS: u64 = 5000;
 
 pub fn start_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("start")
@@ -21,16 +22,15 @@ impl Command for StartCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let out_message = UiStartOrder {};
         let result: Result<UiStartResponse, CommandError> =
-            transaction(out_message, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+            transaction(out_message, context, START_COMMAND_TIMEOUT_MILLIS);
         match result {
             Ok(response) => {
-                writeln!(
+                short_writeln!(
                     context.stdout(),
                     "MASQNode successfully started in process {} on port {}",
                     response.new_process_id,
-                    response.redirect_ui_port,
-                )
-                .expect("write! failed");
+                    response.redirect_ui_port
+                );
                 Ok(())
             }
             Err(e) => Err(e),
@@ -46,9 +46,8 @@ impl StartCommand {
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::commands::commands_common::STANDARD_COMMAND_TIMEOUT_MILLIS;
+    use crate::commands::start_command::START_COMMAND_TIMEOUT_MILLIS;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
@@ -76,7 +75,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiStartOrder {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiStartOrder {}.tmb(0), START_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),

@@ -87,7 +87,7 @@ impl Handler<BindMessage> for ProxyClient {
             resolver,
             self.cryptde,
             self.to_accountant.clone().expect("Accountant is unbound"),
-            msg.peer_actors.proxy_client,
+            msg.peer_actors.proxy_client_opt.unwrap(),
             self.exit_service_rate,
             self.exit_byte_rate,
         ));

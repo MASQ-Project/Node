@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::{
@@ -8,7 +8,9 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, SubCommand};
-use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR};
+use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
+use masq_lib::short_writeln;
 use masq_lib::utils::localhost;
 use std::fmt::Debug;
 use std::net::{SocketAddr, TcpStream};
@@ -39,27 +41,24 @@ impl Command for ShutdownCommand {
         match output {
             Ok(_) => (),
             Err(ConnectionProblem(_)) => {
-                writeln!(
+                short_writeln!(
                     context.stdout(),
                     "MASQNode was instructed to shut down and has broken its connection"
-                )
-                .expect("write! failed");
+                );
                 return Ok(());
             }
             Err(Transmission(_)) => {
-                writeln!(
+                short_writeln!(
                     context.stdout(),
                     "MASQNode was instructed to shut down and has broken its connection"
-                )
-                .expect("write! failed");
+                );
                 return Ok(());
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                writeln!(
+                short_writeln!(
                     context.stderr(),
                     "MASQNode is not running; therefore it cannot be shut down"
-                )
-                .expect("write! failed");
+                );
                 return Err(Payload(code, message));
             }
 
@@ -69,11 +68,10 @@ impl Command for ShutdownCommand {
         }
         match context.active_port() {
             None => {
-                writeln!(
+                short_writeln!(
                     context.stdout(),
                     "MASQNode was instructed to shut down and has stopped answering; but the Daemon seems to be down as well"
-                )
-                .expect("writeln! failed");
+                );
                 Ok(())
             }
             Some(active_port) => {
@@ -82,18 +80,16 @@ impl Command for ShutdownCommand {
                     self.attempt_interval,
                     self.attempt_limit,
                 ) {
-                    writeln!(
+                    short_writeln!(
                         context.stdout(),
                         "MASQNode was instructed to shut down and has stopped answering"
-                    )
-                    .expect("writeln! failed");
+                    );
                     Ok(())
                 } else {
-                    writeln!(
+                    short_writeln!(
                         context.stderr(),
                         "MASQNode ignored the instruction to shut down and is still running"
-                    )
-                    .expect("writeln! failed");
+                    );
                     Err(Other("Shutdown failed".to_string()))
                 }
             }
@@ -147,7 +143,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
-    use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, NODE_NOT_RUNNING_ERROR};
+    use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::utils::find_free_port;
     use std::cell::RefCell;
     use std::net::TcpListener;

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
@@ -6,6 +6,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
+use masq_lib::short_writeln;
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
@@ -31,7 +32,7 @@ impl Command for CheckPasswordCommand {
         };
         let msg: UiCheckPasswordResponse =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        writeln!(
+        short_writeln!(
             context.stdout(),
             "{}",
             if msg.matches {
@@ -39,8 +40,7 @@ impl Command for CheckPasswordCommand {
             } else {
                 "Password is incorrect"
             }
-        )
-        .expect("writeln! failed");
+        );
         Ok(())
     }
 

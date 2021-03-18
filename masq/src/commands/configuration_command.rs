@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::Payload;
@@ -6,7 +6,9 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse, NODE_NOT_RUNNING_ERROR};
+use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
+use masq_lib::short_writeln;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
@@ -40,16 +42,14 @@ impl Command for ConfigurationCommand {
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                writeln!(
+                short_writeln!(
                     context.stderr(),
                     "MASQNode is not running; therefore its configuration cannot be displayed."
-                )
-                .expect("write! failed");
+                );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                writeln!(context.stderr(), "Configuration retrieval failed: {:?}", e)
-                    .expect("write! failed");
+                short_writeln!(context.stderr(), "Configuration retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -131,7 +131,7 @@ impl ConfigurationCommand {
     }
 
     fn dump_configuration_line(stream: &mut dyn Write, name: &str, value: &str) {
-        writeln!(stream, "{:33} {}", name, value).expect("writeln! failed");
+        short_writeln!(stream, "{:33} {}", name, value);
     }
 }
 
@@ -143,6 +143,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
+    use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use std::sync::{Arc, Mutex};
 

@@ -18,7 +18,7 @@ pub struct PeerActors {
     pub proxy_server: ProxyServerSubs,
     pub dispatcher: DispatcherSubs,
     pub hopper: HopperSubs,
-    pub proxy_client: ProxyClientSubs,
+    pub proxy_client_opt: Option<ProxyClientSubs>,
     pub neighborhood: NeighborhoodSubs,
     pub accountant: AccountantSubs,
     pub ui_gateway: UiGatewaySubs,

@@ -7,7 +7,8 @@ use masq_lib::messages::{
     UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
     UiConfigurationResponse, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     UiNewPasswordBroadcast, UiRecoverWalletsRequest, UiRecoverWalletsResponse,
-    UiWalletAddressesRequest, UiWalletAddressesResponse,
+    UiSetConfigurationRequest, UiSetConfigurationResponse, UiWalletAddressesRequest,
+    UiWalletAddressesResponse,
 };
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{
@@ -28,21 +29,14 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::{Wallet, WalletError};
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
+use masq_lib::constants::{
+    ALREADY_INITIALIZED_ERROR, BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR,
+    CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR, EARLY_QUESTIONING_ABOUT_DATA,
+    ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
+    NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
+};
 use rustc_hex::ToHex;
 use std::str::FromStr;
-
-pub const CONFIGURATOR_PREFIX: u64 = 0x0001_0000_0000_0000;
-pub const CONFIGURATOR_READ_ERROR: u64 = CONFIGURATOR_PREFIX | 1;
-pub const CONFIGURATOR_WRITE_ERROR: u64 = CONFIGURATOR_PREFIX | 2;
-pub const UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR: u64 = CONFIGURATOR_PREFIX | 3;
-pub const ILLEGAL_MNEMONIC_WORD_COUNT_ERROR: u64 = CONFIGURATOR_PREFIX | 4;
-pub const KEY_PAIR_CONSTRUCTION_ERROR: u64 = CONFIGURATOR_PREFIX | 5;
-pub const BAD_PASSWORD_ERROR: u64 = CONFIGURATOR_PREFIX | 6;
-pub const ALREADY_INITIALIZED_ERROR: u64 = CONFIGURATOR_PREFIX | 7;
-pub const DERIVATION_PATH_ERROR: u64 = CONFIGURATOR_PREFIX | 8;
-pub const MNEMONIC_PHRASE_ERROR: u64 = CONFIGURATOR_PREFIX | 9;
-pub const VALUE_MISSING_ERROR: u64 = CONFIGURATOR_PREFIX | 10;
-pub const EARLY_QUESTIONING_ABOUT_DATA: u64 = CONFIGURATOR_PREFIX | 11;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -68,19 +62,21 @@ impl Handler<NodeFromUiMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
-            self.call_handler(msg, |c| c.handle_check_password(body, context_id));
-        } else if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
+        if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
             let client_id = msg.client_id;
             self.call_handler(msg, |c| {
                 c.handle_change_password(body, client_id, context_id)
             });
+        } else if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
+            self.call_handler(msg, |c| c.handle_check_password(body, context_id));
+        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.clone().body) {
+            self.call_handler(msg, |c| c.handle_configuration(body, context_id));
         } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.clone().body) {
             self.call_handler(msg, |c| c.handle_generate_wallets(body, context_id));
         } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.clone().body) {
             self.call_handler(msg, |c| c.handle_recover_wallets(body, context_id));
-        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.clone().body) {
-            self.call_handler(msg, |c| c.handle_configuration(body, context_id));
+        } else if let Ok((body, context_id)) = UiSetConfigurationRequest::fmb(msg.clone().body) {
+            self.call_handler(msg, |c| c.handle_set_configuration(body, context_id));
         } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.clone().body) {
             self.call_handler(msg, |c| c.handle_wallet_addresses(body, context_id));
         }
@@ -541,12 +537,11 @@ impl Configurator {
     }
 
     fn value_required<T>(
-        result: Result<Option<T>, PersistentConfigError>,
+        result: Result<T, PersistentConfigError>,
         field_name: &str,
     ) -> Result<T, MessageError> {
         match result {
-            Ok(Some(v)) => Ok(v),
-            Ok(None) => Err((VALUE_MISSING_ERROR, field_name.to_string())),
+            Ok(v) => Ok(v),
             Err(_) => Err((CONFIGURATOR_READ_ERROR, field_name.to_string())),
         }
     }
@@ -580,6 +575,81 @@ impl Configurator {
             ));
         }
         Ok(())
+    }
+
+    fn handle_set_configuration(
+        &mut self,
+        msg: UiSetConfigurationRequest,
+        context_id: u64,
+    ) -> MessageBody {
+        match Self::unfriendly_handle_set_configuration(
+            msg,
+            context_id,
+            &mut self.persistent_config,
+        ) {
+            Ok(message_body) => message_body,
+            Err((code, msg)) => MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(context_id),
+                payload: Err((code, msg)),
+            },
+        }
+    }
+
+    fn unfriendly_handle_set_configuration(
+        msg: UiSetConfigurationRequest,
+        context_id: u64,
+        persist_config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<MessageBody, MessageError> {
+        let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
+
+        let _ = match password {
+            None => {
+                if "gas-price" == &msg.name {
+                    Self::set_gas_price(msg.value, persist_config)?;
+                } else if "start-block" == &msg.name {
+                    Self::set_start_block(msg.value, persist_config)?;
+                } else {
+                    return Err((
+                        UNRECOGNIZED_PARAMETER,
+                        format!("This parameter name is not known: {}", &msg.name),
+                    ));
+                }
+            }
+            Some(_password) => {
+                unimplemented!();
+            }
+        };
+
+        Ok(UiSetConfigurationResponse {}.tmb(context_id))
+    }
+
+    fn set_gas_price(
+        string_price: String,
+        config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<(), (u64, String)> {
+        let price_number = match string_price.parse::<u64>() {
+            Ok(num) => num,
+            Err(e) => return Err((NON_PARSABLE_VALUE, format!("gas price: {:?}", e))),
+        };
+        match config.set_gas_price(price_number) {
+            Ok(_) => Ok(()),
+            Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("gas price: {:?}", e))),
+        }
+    }
+
+    fn set_start_block(
+        string_number: String,
+        config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<(), (u64, String)> {
+        let block_number = match string_number.parse::<u64>() {
+            Ok(num) => num,
+            Err(e) => return Err((NON_PARSABLE_VALUE, format!("start block: {:?}", e))),
+        };
+        match config.set_start_block(block_number) {
+            Ok(_) => Ok(()),
+            Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("start block: {:?}", e))),
+        }
     }
 
     fn send_to_ui_gateway(&self, target: MessageTarget, body: MessageBody) {
@@ -628,16 +698,14 @@ impl Configurator {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-
     use actix::System;
-
     use masq_lib::messages::{
         ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
         UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder, UiWalletAddressesRequest,
         UiWalletAddressesResponse,
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
+    use std::sync::{Arc, Mutex};
 
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
@@ -650,7 +718,6 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::Bip39;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::node_configurator::configurator::MNEMONIC_PHRASE_ERROR;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
@@ -995,7 +1062,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(
-            "WARN: Configurator: Failed to obtain wallet addresses: 281474976710667, Wallets \
+            "WARN: Configurator: Failed to obtain wallet addresses: 281474976710666, Wallets \
              must exist prior to demanding info on them (recover or generate wallets first)",
         );
     }
@@ -1587,6 +1654,201 @@ mod tests {
             }
         )
     }
+    #[test]
+    fn handle_set_configuration_works() {
+        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_start_block_params(&set_start_block_params_arc)
+            .set_start_block_result(Ok(()));
+        let subject = make_subject(Some(persistent_config));
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiSetConfigurationRequest {
+                    name: "start-block".to_string(),
+                    value: "166666".to_string(),
+                }
+                .tmb(4444),
+            })
+            .unwrap();
+
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        let (_, context_id) = UiSetConfigurationResponse::fmb(response.body.clone()).unwrap();
+        assert_eq!(context_id, 4444);
+
+        let check_start_block_params = set_start_block_params_arc.lock().unwrap();
+        assert_eq!(*check_start_block_params, vec![166666]);
+    }
+
+    #[test]
+    fn handle_set_configuration_works_for_gas_price() {
+        let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_gas_price_params(&set_gas_price_params_arc)
+            .set_gas_price_result(Ok(()));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "gas-price".to_string(),
+                value: "68".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Ok(r#"{}"#.to_string())
+            }
+        );
+        let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
+        assert_eq!(*set_gas_price_params, vec![68])
+    }
+
+    #[test]
+    fn handle_set_configuration_handles_failure_on_gas_price_database_issue() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_gas_price_result(Err(PersistentConfigError::TransactionError));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "gas-price".to_string(),
+                value: "55".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    CONFIGURATOR_WRITE_ERROR,
+                    "gas price: TransactionError".to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_handle_gas_price_non_parsable_value_issue() {
+        let persistent_config = PersistentConfigurationMock::new();
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "gas-price".to_string(),
+                value: "fiftyfive".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    NON_PARSABLE_VALUE,
+                    "gas price: ParseIntError { kind: InvalidDigit }".to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_terminates_after_failure_on_start_block() {
+        let persistent_config = PersistentConfigurationMock::new().set_start_block_result(Err(
+            PersistentConfigError::DatabaseError("dunno".to_string()),
+        ));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "start-block".to_string(),
+                value: "166666".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    CONFIGURATOR_WRITE_ERROR,
+                    r#"start block: DatabaseError("dunno")"#.to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_argue_decently_about_non_parsable_value_at_start_block() {
+        let persistent_config = PersistentConfigurationMock::new();
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "start-block".to_string(),
+                value: "hundred_and_half".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    NON_PARSABLE_VALUE,
+                    r#"start block: ParseIntError { kind: InvalidDigit }"#.to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_complains_about_unexpected_parameter() {
+        let persistent_config = PersistentConfigurationMock::new();
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "blabla".to_string(),
+                value: "166666".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    UNRECOGNIZED_PARAMETER,
+                    "This parameter name is not known: blabla".to_string()
+                ))
+            }
+        );
+    }
 
     #[test]
     fn parse_language_handles_expected_languages() {
@@ -1655,13 +1917,13 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .current_schema_version_result("1.2.3")
-            .clandestine_port_result(Ok(Some(1234)))
-            .gas_price_result(Ok(Some(2345)))
+            .clandestine_port_result(Ok(1234))
+            .gas_price_result(Ok(2345))
             .mnemonic_seed_result(Ok(None))
             .consuming_wallet_derivation_path_result(Ok(None))
             .past_neighbors_result(Ok(Some(vec![])))
             .earning_wallet_address_result(Ok(None))
-            .start_block_result(Ok(Some(3456)));
+            .start_block_result(Ok(3456));
         let mut subject = make_subject(Some(persistent_config));
 
         let (configuration, context_id) =
@@ -1713,10 +1975,18 @@ mod tests {
     }
 
     #[test]
-    fn value_required_handles_absent_value() {
-        let result: Result<String, MessageError> = Configurator::value_required(Ok(None), "Field");
+    fn value_required_plain_works() {
+        let result: Result<u64, MessageError> = Configurator::value_required(Ok(6), "Field");
 
-        assert_eq!(result, Err((VALUE_MISSING_ERROR, "Field".to_string())))
+        assert_eq!(result, Ok(6))
+    }
+
+    #[test]
+    fn value_required_plain_handles_error() {
+        let result: Result<u64, MessageError> =
+            Configurator::value_required(Err(PersistentConfigError::NotPresent), "Field");
+
+        assert_eq!(result, Err((CONFIGURATOR_READ_ERROR, "Field".to_string())))
     }
 
     #[test]

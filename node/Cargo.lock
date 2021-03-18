@@ -408,13 +408,29 @@ dependencies = [
 
 [[package]]
 name = "core-foundation"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25b9e03f145fd4f2bf705e07b900cd41fc636598fe5dc452fd0db1441c3f496d"
+dependencies = [
+ "core-foundation-sys 0.6.2",
+ "libc",
+]
+
+[[package]]
+name = "core-foundation"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57d24c7a13c43e870e37c1556b74555437870a04514f7685f5b354e090567171"
 dependencies = [
- "core-foundation-sys",
+ "core-foundation-sys 0.7.0",
  "libc",
 ]
+
+[[package]]
+name = "core-foundation-sys"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7ca8a5221364ef15ce201e8ed2f609fc312682a8f4e0e3d4aa5879764e0fa3b"
 
 [[package]]
 name = "core-foundation-sys"
@@ -1746,6 +1762,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "core-foundation 0.6.4",
  "crossbeam-channel 0.5.0",
  "daemonize",
  "dirs",
@@ -1758,9 +1775,11 @@ dependencies = [
  "heck",
  "http",
  "indoc",
+ "ipconfig 0.2.2",
  "itertools",
  "jsonrpc-core",
  "lazy_static",
+ "libc",
  "libsecp256k1",
  "log 0.4.11",
  "masq_lib",
@@ -1785,6 +1804,7 @@ dependencies = [
  "simple-server",
  "sodiumoxide",
  "sysinfo",
+ "system-configuration",
  "tiny-bip39",
  "tiny-hderive",
  "tokio",
@@ -1796,6 +1816,7 @@ dependencies = [
  "unindent",
  "web3",
  "websocket",
+ "winreg 0.7.0",
 ]
 
 [[package]]
@@ -2624,8 +2645,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64808902d7d99f78eaddd2b4e2509713babc3dc3c85ad6f4c447680f3c01e535"
 dependencies = [
  "bitflags",
- "core-foundation",
- "core-foundation-sys",
+ "core-foundation 0.7.0",
+ "core-foundation-sys 0.7.0",
  "libc",
  "security-framework-sys",
 ]
@@ -2636,7 +2657,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17bf11d99252f512695eb468de5516e5cf75455521e69dfe343f3b74e4748405"
 dependencies = [
- "core-foundation-sys",
+ "core-foundation-sys 0.7.0",
  "libc",
 ]
 
@@ -2934,6 +2955,26 @@ dependencies = [
  "once_cell 1.4.1",
  "rayon",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "system-configuration"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3dc3e701a89dd6764083d19f048b57ec01c26d0904ff8108a507059a6462e6"
+dependencies = [
+ "core-foundation 0.6.4",
+ "system-configuration-sys",
+]
+
+[[package]]
+name = "system-configuration-sys"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfd906a2882d54084bfdf517bf03892ac06820f1c0a3d37e48609f334798ad99"
+dependencies = [
+ "core-foundation-sys 0.6.2",
+ "libc",
 ]
 
 [[package]]
@@ -3741,6 +3782,15 @@ name = "winreg"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2986deb581c4fe11b621998a5e53361efe6b48a151178d0cd9eeffa4dc6acc9"
+dependencies = [
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "winreg"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0120db82e8a1e0b9fb3345a539c478767c0048d842860994d96113d5b667bd69"
 dependencies = [
  "winapi 0.3.9",
 ]

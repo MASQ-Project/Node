@@ -355,16 +355,7 @@ impl Accountant {
         );
         let future_report_new_payments_sub = self.report_new_payments_sub.clone();
         let start_block = match self.persistent_configuration.start_block() {
-            Ok(start_block_opt) => match start_block_opt {
-                Some(start_block) => start_block,
-                None => {
-                    warning!(
-                        self.logger,
-                        "Database contains no start block; aborting received-payment scan"
-                    );
-                    return;
-                }
-            },
+            Ok(start_block) => start_block,
             Err(pce) => {
                 error!(
                     self.logger,
@@ -1658,7 +1649,7 @@ pub mod tests {
             let receivable_dao = ReceivableDaoMock::new()
                 .new_delinquencies_result(vec![])
                 .paid_delinquencies_result(vec![]);
-            let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(Some(5)));
+            let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(5));
             let subject = make_subject(
                 Some(config),
                 Some(payable_dao),
@@ -1725,7 +1716,7 @@ pub mod tests {
             let receivable_dao = ReceivableDaoMock::new()
                 .new_delinquencies_result(vec![])
                 .paid_delinquencies_result(vec![]);
-            let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(Some(5)));
+            let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(5));
             let subject = make_subject(
                 Some(config),
                 Some(payable_dao),
@@ -1787,7 +1778,7 @@ pub mod tests {
             let receivable_dao = ReceivableDaoMock::new()
                 .new_delinquencies_result(vec![])
                 .paid_delinquencies_result(vec![]);
-            let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(Some(0)));
+            let config_mock = PersistentConfigurationMock::new().start_block_result(Ok(0));
             let subject = make_subject(
                 Some(config),
                 Some(payable_dao),
@@ -2138,20 +2129,6 @@ pub mod tests {
         assert_eq!(
             "0x00000000000000000077616c6c65743132333464",
             &format!("{:#x}", &ban_parameters[0].address())
-        );
-    }
-
-    #[test]
-    fn scan_for_received_payments_handles_absence_of_start_block() {
-        init_test_logging();
-        let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(None));
-        let mut subject = make_subject(None, None, None, None, Some(persistent_config));
-
-        subject.scan_for_received_payments();
-
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_matching(
-            "WARN: Accountant: Database contains no start block; aborting received-payment scan",
         );
     }
 

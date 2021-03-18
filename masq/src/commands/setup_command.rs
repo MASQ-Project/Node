@@ -1,15 +1,16 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{value_t, App, SubCommand};
+use masq_lib::constants::SETUP_ERROR;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
-    SETUP_ERROR,
 };
 use masq_lib::shared_schema::shared_app;
+use masq_lib::short_writeln;
 use masq_lib::utils::index_of_from;
 use std::fmt::Debug;
 use std::io::Write;
@@ -37,7 +38,7 @@ impl Command for SetupCommand {
                 Ok(())
             }
             Err(CommandError::Payload(err, msg)) if err == SETUP_ERROR => {
-                writeln!(context.stderr(), "{}", msg).expect("writeln! failed");
+                short_writeln!(context.stderr(), "{}", msg);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -73,7 +74,7 @@ impl SetupCommand {
     }
 
     pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write) {
-        writeln!(stdout, "\nDaemon setup has changed:\n").expect("writeln! failed");
+        short_writeln!(stdout, "\nDaemon setup has changed:\n");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");
         stdout.flush().expect("flush failed");
@@ -94,33 +95,32 @@ impl SetupCommand {
                 .partial_cmp(&b.name)
                 .expect("String comparison failed")
         });
-        writeln!(
+        short_writeln!(
             stdout,
             "NAME                   VALUE                                                            STATUS"
-        )
-            .expect("writeln! failed");
+        );
         inner.values.into_iter().for_each(|value| {
-            writeln!(
+            short_writeln!(
                 stdout,
                 "{:23}{:65}{:?}",
-                value.name, value.value, value.status
-            )
-            .expect("writeln! failed");
+                value.name,
+                value.value,
+                value.status
+            );
         });
-        writeln!(stdout).expect("writeln! failed");
+        short_writeln!(stdout);
         if !inner.errors.is_empty() {
-            writeln!(stdout, "ERRORS:").expect("writeln! failed");
+            short_writeln!(stdout, "ERRORS:");
             inner.errors.into_iter().for_each(|(parameter, reason)| {
-                writeln!(stdout, "{:23}{}", parameter, reason).expect("writeln! failed")
+                short_writeln!(stdout, "{:23}{}", parameter, reason)
             });
-            writeln!(stdout).expect("writeln! failed");
+            short_writeln!(stdout);
         }
         if inner.running {
-            writeln!(
+            short_writeln!(
                 stdout,
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
-            )
-            .expect("writeln! failed");
+            );
         }
     }
 }

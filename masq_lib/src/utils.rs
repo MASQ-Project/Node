@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use lazy_static::lazy_static;
 use std::io::ErrorKind;
@@ -109,9 +109,23 @@ pub fn exit_process(code: i32, message: &str) {
     }
 }
 
+#[macro_export]
+macro_rules! short_writeln {
+    ($dst:expr) => (
+         writeln!($dst).expect("writeln failed")
+    );
+    ( $form: expr, $($arg:tt)*) => {
+         writeln!($form, $($arg)*).expect("writeln failed")
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env::current_dir;
+    use std::fmt::Write;
+    use std::fs::{create_dir, File, OpenOptions};
+    use std::io::Write as FmtWrite;
 
     #[test]
     fn index_of_fails_to_find_nonexistent_needle_in_haystack() {
@@ -189,5 +203,40 @@ mod tests {
         let result = index_of_from(&haystack, &3, 0);
 
         assert_eq!(result, Some(3));
+    }
+
+    #[test]
+    fn short_writeln_write_text_properly() {
+        let mut buffer = Vec::new();
+        let mut string_buffer = String::new();
+        short_writeln!(buffer, "This is the first line");
+        short_writeln!(
+            string_buffer,
+            "{}\n{}",
+            "This is another line",
+            "Will this work?"
+        );
+        short_writeln!(string_buffer);
+
+        assert_eq!(buffer.as_slice(), "This is the first line\n".as_bytes());
+        assert_eq!(
+            string_buffer,
+            "This is another line\nWill this work?\n\n".to_string()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "writeln failed")]
+    fn short_writeln_panic_politely_with_a_message() {
+        let path = current_dir().unwrap();
+        let path = path.join("test").join("other_tests");
+        create_dir(&path).unwrap_or(()); //can be an error if already exists
+        let full_path = path.join("short-writeln.txt");
+        File::create(&full_path).unwrap();
+        let mut read_only_file_handle = OpenOptions::new().read(true).open(full_path).unwrap();
+        short_writeln!(
+            read_only_file_handle,
+            "This is the first line and others will come...maybe"
+        );
     }
 }

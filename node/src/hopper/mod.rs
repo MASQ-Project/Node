@@ -49,7 +49,7 @@ impl Handler<BindMessage> for Hopper {
             self.main_cryptde,
             self.alias_cryptde,
             RoutingServiceSubs {
-                proxy_client_subs: msg.peer_actors.proxy_client,
+                proxy_client_subs_opt: msg.peer_actors.proxy_client_opt,
                 proxy_server_subs: msg.peer_actors.proxy_server,
                 neighborhood_subs: msg.peer_actors.neighborhood,
                 hopper_subs: msg.peer_actors.hopper,

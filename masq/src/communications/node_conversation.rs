@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::communications::connection_manager::OutgoingMessageType;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};

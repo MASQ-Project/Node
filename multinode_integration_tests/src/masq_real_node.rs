@@ -1215,6 +1215,19 @@ mod tests {
     }
 
     #[test]
+    fn node_startup_config_builder_consume_only() {
+        let result = NodeStartupConfigBuilder::consume_only().build();
+
+        assert_eq!(result.ip_info, LocalIpInfo::DistributedUnknown);
+        assert_eq!(result.dns_servers_opt, None);
+        assert_eq!(result.neighbors, vec!());
+        assert_eq!(result.clandestine_port_opt, None);
+        assert_eq!(result.dns_target, localhost());
+        assert_eq!(result.dns_port, 53);
+        assert_eq!(result.neighborhood_mode, "consume-only".to_string());
+    }
+
+    #[test]
     fn node_startup_config_builder_settings() {
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let one_neighbor_key = PublicKey::new(&[1, 2, 3, 4]);

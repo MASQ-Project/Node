@@ -1,9 +1,12 @@
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse};
+use masq_lib::short_writeln;
 use std::any::Any;
 use std::io::Write;
 
@@ -62,7 +65,7 @@ impl Command for ChangePasswordCommand {
         };
         let _: UiChangePasswordResponse =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        writeln!(context.stdout(), "Database password has been changed").expect("writeln! failed");
+        short_writeln!(context.stdout(), "Database password has been changed");
         Ok(())
     }
 

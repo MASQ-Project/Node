@@ -1,6 +1,7 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
+use masq_lib::short_writeln;
 use masq_lib::utils::exit_process;
 use std::io::Write;
 
@@ -11,13 +12,12 @@ impl CrashNotifier {
         if response.crash_reason == CrashReason::DaemonCrashed {
             exit_process(1, "The Daemon is no longer running; masq is terminating.\n");
         }
-        writeln!(
+        short_writeln!(
             stdout,
             "\nThe Node running as process {} terminated{}\nThe Daemon is once more accepting setup changes.\n",
             response.process_id,
             Self::dress_message (response.crash_reason)
-        )
-            .expect("writeln! failed");
+        );
         write!(stdout, "masq> ").expect("write! failed");
         stdout.flush().expect("flush failed");
     }
