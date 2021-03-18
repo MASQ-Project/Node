@@ -43,7 +43,9 @@ Either PMP is not implemented on your router or we're not doing it right\n\
     }
 }
 
-pub fn test_igdp(test_port: Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
+pub fn test_igdp(
+    test_port: Option<u16>,
+) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
     let transactor = IgdpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor, " IGDP ");
     let status = seek_public_ip(status, router_ip, &transactor);
@@ -146,7 +148,11 @@ fn poke_firewall_hole(
     if status.fatal {
         return (0, status);
     }
-    let port = if let Some(port) = test_port{port} else {find_free_port()};
+    let port = if let Some(port) = test_port {
+        port
+    } else {
+        find_free_port()
+    };
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port);
     let _socket =
         match UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port)) {

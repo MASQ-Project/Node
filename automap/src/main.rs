@@ -5,10 +5,10 @@ use automap_lib::logger::initiate_logger;
 use automap_lib::probe_researcher::{
     close_exposed_port, prepare_router_or_report_failure, researcher_with_probe,
 };
-use std::{io, process};
 use std::io::Write;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::{io, process};
 
 const SERVER_SOCKET_ADDRESS: &str = "54.200.22.175:8081";
 
@@ -16,12 +16,18 @@ pub fn main() {
     let mut stdout = io::stdout();
     let mut stderr = io::stderr();
 
-    let test_port = if let Some(value) = std::env::args().skip(1).find(|piece|&*piece != "automap"){
-        match value.parse::<u16>(){
+    let test_port = if let Some(value) = std::env::args().skip(1).find(|piece| &*piece != "automap")
+    {
+        match value.parse::<u16>() {
             Ok(num) => Some(num),
-            Err(e) => {println!("invalid value for a port: {}",e); process::exit(1)}
+            Err(e) => {
+                println!("invalid value for a port: {}", e);
+                process::exit(1)
+            }
         }
-    } else {None};
+    } else {
+        None
+    };
 
     println!(
         "\nFor more detailed information of the course of this test, look inside the log.\n\
@@ -31,7 +37,7 @@ pub fn main() {
     initiate_logger();
 
     match prepare_router_or_report_failure(
-                test_port,
+        test_port,
         Box::new(test_pcp),
         Box::new(test_pmp),
         Box::new(test_igdp),
@@ -63,5 +69,3 @@ pub fn main() {
         }
     }
 }
-
-

@@ -47,10 +47,13 @@ impl Display for Method {
 
 //it was meant to be prepared for eventual collecting of errors but now it is ended with a merge and a single message
 #[allow(clippy::type_complexity)]
-pub fn prepare_router_or_report_failure(test_port: Option<u16>,
+pub fn prepare_router_or_report_failure(
+    test_port: Option<u16>,
     test_pcp: Box<dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
     test_pmp: Box<dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
-    test_igdp: Box<dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>,
+    test_igdp: Box<
+        dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>,
+    >,
 ) -> Result<FirstSectionData, Vec<String>> {
     let mut collector: Vec<String> = vec![];
     match test_pcp(test_port) {
@@ -548,7 +551,8 @@ pub mod mock_tools {
     use crate::comm_layer::pmp::PmpTransactor;
     use std::io::IoSlice;
 
-    pub fn mock_router_common_test_finding_ip_and_doing_mapping(_port:Option<u16>
+    pub fn mock_router_common_test_finding_ip_and_doing_mapping(
+        _port: Option<u16>,
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
         Ok((
             IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
@@ -557,12 +561,14 @@ pub mod mock_tools {
         ))
     }
 
-    pub fn mock_router_common_test_unsuccessful(_port:Option<u16>
+    pub fn mock_router_common_test_unsuccessful(
+        _port: Option<u16>,
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
 
-    pub fn mock_router_igdp_test_unsuccessful(_port:Option<u16>
+    pub fn mock_router_igdp_test_unsuccessful(
+        _port: Option<u16>,
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
