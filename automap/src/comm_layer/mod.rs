@@ -46,7 +46,6 @@ pub trait LocalIpFinder {
     fn find(&self) -> Result<IpAddr, AutomapError>;
 }
 
-#[derive(PartialEq)]
 pub struct LocalIpFinderReal {}
 
 impl LocalIpFinder for LocalIpFinderReal {

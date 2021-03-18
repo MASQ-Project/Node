@@ -6,3 +6,4 @@ pub mod integration_tests;
 pub mod logger;
 pub mod probe_researcher;
 pub mod protocols;
+pub mod test_configurator;

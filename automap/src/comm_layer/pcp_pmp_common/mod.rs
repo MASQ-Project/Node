@@ -58,7 +58,6 @@ pub trait UdpSocketFactory {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>>;
 }
 
-#[derive(PartialEq)]
 pub struct UdpSocketFactoryReal {}
 
 impl UdpSocketFactory for UdpSocketFactoryReal {
@@ -77,7 +76,6 @@ pub trait FreePortFactory {
     fn make(&self) -> u16;
 }
 
-#[derive(PartialEq)]
 pub struct FreePortFactoryReal {}
 
 impl FreePortFactory for FreePortFactoryReal {
