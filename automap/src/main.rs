@@ -102,8 +102,7 @@ fn test_igdp(test_config: TestConfig) {
                 status
             }
         }
-        (_, _, None) => status,
-        _ => unreachable!(),
+        _ => status,
     };
     if status.cumulative_success {
         println!(

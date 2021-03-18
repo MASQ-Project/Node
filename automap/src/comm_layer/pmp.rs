@@ -116,7 +116,7 @@ impl PmpTransactor {
                 ))
             }
         };
-        if let Err(e) = socket.set_read_timeout(Some(Duration::from_millis(250))) {
+        if let Err(e) = socket.set_read_timeout(Some(Duration::from_secs(3))) {
             return Err(AutomapError::SocketPrepError(format!("{:?}", e)));
         }
         if let Err(e) = socket.send_to(&buffer[0..len], SocketAddr::new(router_ip, 5351)) {
@@ -284,7 +284,7 @@ mod tests {
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
             *set_read_timeout_params,
-            vec![Some(Duration::from_millis(250))]
+            vec![Some(Duration::from_millis(3000))]
         );
         let send_to_params = send_to_params_arc.lock().unwrap();
         assert_eq!(
@@ -365,7 +365,7 @@ mod tests {
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
             *set_read_timeout_params,
-            vec![Some(Duration::from_millis(250))]
+            vec![Some(Duration::from_millis(3000))]
         );
         let send_to_params = send_to_params_arc.lock().unwrap();
         assert_eq!(
@@ -461,7 +461,7 @@ mod tests {
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
             *set_read_timeout_params,
-            vec![Some(Duration::from_millis(250))]
+            vec![Some(Duration::from_millis(3000))]
         );
         let send_to_params = send_to_params_arc.lock().unwrap();
         assert_eq!(
