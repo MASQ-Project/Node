@@ -189,11 +189,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     struct BufReadFactoryMock {
+        make_params: Arc<Mutex<Vec<Arc<Mutex<()>>>>>,
         interactive: RefCell<Option<ByteArrayReader>>,
     }
 
     impl BufReadFactory for BufReadFactoryMock {
-        fn make(&self) -> Box<dyn BufRead> {
+        fn make(&self, output_synchronizer: Arc<Mutex<()>>) -> Box<dyn BufRead> {
+            self.make_params.lock().unwrap().push(output_synchronizer);
             Box::new(self.interactive.borrow_mut().take().unwrap())
         }
     }
@@ -201,8 +203,14 @@ mod tests {
     impl BufReadFactoryMock {
         pub fn new() -> BufReadFactoryMock {
             BufReadFactoryMock {
+                make_params: Arc::new(Mutex::new(vec![])),
                 interactive: RefCell::new(None),
             }
+        }
+
+        pub fn make_params(mut self, params: &Arc<Mutex<Vec<Arc<Mutex<()>>>>>) -> Self {
+            self.make_params = params.clone();
+            self
         }
 
         pub fn make_interactive_result(self, input: &str) -> BufReadFactoryMock {

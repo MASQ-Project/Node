@@ -132,7 +132,7 @@ mod tests {
 
     impl Command for TameCommand {
         fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            writeln!(context.stdout, "Tame output");
+            writeln!(context.stdout(), "Tame output");
             Ok(())
         }
     }
@@ -140,14 +140,15 @@ mod tests {
     #[test]
     fn process_locks_output_synchronizer() {
         let port = find_free_port();
-        let broadcast_stream_factory = TestStreamFactory::new();
-        let mut command_context = CommandContextReal::new(port, Box::new(broadcast_stream_factory));
+        let (broadcast_stream_factory, broadcast_stream_factory_handle) = TestStreamFactory::new();
+        let mut command_context = CommandContextReal::new(port, Box::new(broadcast_stream_factory)).unwrap();
         let stdout = ByteArrayWriter::new();
         command_context.stdout = Box::new(stdout);
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
         let subject = CommandProcessorFactoryReal::new();
 
+        unimplemented! ()
         // Lock a clone of the output_synchronizer
         // Start background thread
         // On the background thread, execute TameCommand
