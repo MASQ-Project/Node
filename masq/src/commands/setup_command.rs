@@ -74,7 +74,7 @@ impl SetupCommand {
         Ok(Self { values })
     }
 
-    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write,synchronizer: Option<Arc<Mutex<()>>>) {
+    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write,synchronizer: Arc<Mutex<()>>) {
         short_writeln!(stdout, "\nDaemon setup has changed:\n");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");
@@ -285,8 +285,9 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, _) = stream_factory.make();
+        let synchronizer = Arc::new(Mutex::new(()));
 
-        SetupCommand::handle_broadcast(message, &mut stdout);
+        SetupCommand::handle_broadcast(message, &mut stdout,synchronizer);
 
         assert_eq! (handle.stdout_so_far(),
 "\n\

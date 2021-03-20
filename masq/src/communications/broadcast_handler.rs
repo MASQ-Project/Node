@@ -44,8 +44,9 @@ impl BroadcastHandler for BroadcastHandlerReal {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
             let (mut stdout, mut stderr) = stream_factory.make();
+            let synchronizer = self.output_synchronizer.take().unwrap();
             loop {
-                Self::thread_loop_guts(&message_rx, stdout.as_mut(), stderr.as_mut(),self.output_synchronizer.take())
+                Self::thread_loop_guts(&message_rx, stdout.as_mut(), stderr.as_mut(),synchronizer.clone())
             }
         });
         Box::new(BroadcastHandleGeneric { message_tx })
@@ -63,7 +64,7 @@ impl BroadcastHandlerReal {
         message_body_result: Result<MessageBody, RecvError>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        synchronizer: Option<Arc<Mutex<()>>>
+        synchronizer: Arc<Mutex<()>>
 
     ) {
         match message_body_result {
@@ -94,7 +95,7 @@ impl BroadcastHandlerReal {
         message_rx: &Receiver<MessageBody>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        synchronizer:Option<Arc<Mutex<()>>>
+        synchronizer:Arc<Mutex<()>>
     ) {
         select! {
             recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,synchronizer),
@@ -139,7 +140,7 @@ mod tests {
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(()))).start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
             values: vec![],
@@ -174,7 +175,7 @@ mod tests {
     fn broadcast_of_crashed_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(()))).start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -200,7 +201,7 @@ mod tests {
     fn broadcast_of_new_password_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(()))).start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
@@ -222,7 +223,7 @@ mod tests {
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(()))).start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
             original_payload: "This must be said to the Node immediately!".to_string(),
@@ -248,7 +249,7 @@ mod tests {
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Arc::new(Mutex::new(()))).start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,

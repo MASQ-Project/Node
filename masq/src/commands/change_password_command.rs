@@ -49,7 +49,7 @@ impl ChangePasswordCommand {
         }
     }
 
-    pub fn handle_broadcast(stdout: &mut dyn Write,synchronizer: Option<Arc<Mutex<()>>>) {
+    pub fn handle_broadcast(stdout: &mut dyn Write,synchronizer: Arc<Mutex<()>>) {
         write!(
             stdout,
             "\nThe Node's database password has changed.\n\nmasq> "

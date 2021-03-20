@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::StreamFactory;
 use crate::schema::app;
 use clap::value_t;
@@ -53,8 +53,11 @@ pub struct CommandProcessorReal {
 
 impl CommandProcessor for CommandProcessorReal {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
-        self.context.output_synchronizer.lock().unwrap();
-        command.execute(&mut self.context)
+        let synchronizer = self.context.output_synchronizer.clone();
+        let _lock = synchronizer.lock().unwrap();
+        command.execute(&mut self.context)?;
+        drop(_lock);
+        Ok(())
     }
 
     fn close(&mut self) {
@@ -66,17 +69,13 @@ impl CommandProcessor for CommandProcessorReal {
 mod tests {
     use super::*;
     use crate::command_context::CommandContext;
-    use crate::commands::commands_common::{transaction, STANDARD_COMMAND_TIMEOUT_MILLIS};
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::test_utils::mocks::{CommandFactoryMock, TestStreamFactory};
+    use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
-    use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::{find_free_port, running_test};
-    use std::io::Read;
-    use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
 
@@ -135,56 +134,56 @@ mod tests {
         assert_eq!(received, vec![Ok(UiShutdownRequest {}.tmb(1))]);
     }
 
-    #[test]
-    fn spike_process_locks_output_synchronizer() {
-        running_test();
-        let port = find_free_port();
-        let server = MockWebSocketsServer::new(port);
-        let stop_handle = server.start();
-        let mut command_context =
-            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
-        let stdout = ByteArrayWriter::new();
-
-        let stdout_arc = stdout.inner_arc();
-        let stdout_arc_clone = stdout_arc.clone();
-        command_context.stdout = Box::new(stdout);
-
-        let synchronizer_cloned = Arc::clone(&command_context.output_synchronizer);
-        let guard = synchronizer_cloned.lock().unwrap();
-
-        let thread_handle = thread::spawn(move || {
-            command_context.output_synchronizer.lock().unwrap();
-            TameCommand {
-                sender: unimplemented!(),
-            }
-            .execute(&mut command_context);
-            thread::sleep(Duration::from_millis(10)) //outer structure of stdout must not be dropped too early
-        });
-        thread::sleep(Duration::from_millis(50));
-        {
-            let read = stdout_arc_clone.lock().unwrap().get_string();
-            assert_eq!(read, "".to_string());
-        }
-        drop(guard); //dropping the guard in the foreground, allowing writing in the background to start
-
-        thread::sleep(Duration::from_millis(5));
-        assert_eq!(
-            stdout_arc_clone.lock().unwrap().get_string(),
-            "Tame output\n".to_string()
-        );
-
-        thread_handle.join().unwrap();
-
-        stop_handle.stop();
-        // Lock a clone of the output_synchronizer
-        // Start background thread
-        // On the background thread, execute TameCommand
-        // After starting the thread, wait for a few milliseconds
-        // Verify that nothing has been written to stdout
-        // Unlock the output_synchronizer clone
-        // Verify that the proper string has been written to stdout
-        // Done!
-    }
+    // #[test]
+    // fn spike_process_locks_output_synchronizer() {
+    //     running_test();
+    //     let port = find_free_port();
+    //     let server = MockWebSocketsServer::new(port);
+    //     let stop_handle = server.start();
+    //     let mut command_context =
+    //         CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+    //     let stdout = ByteArrayWriter::new();
+    //
+    //     let stdout_arc = stdout.inner_arc();
+    //     let stdout_arc_clone = stdout_arc.clone();
+    //     command_context.stdout = Box::new(stdout);
+    //
+    //     let synchronizer_cloned = Arc::clone(&command_context.output_synchronizer);
+    //     let guard = synchronizer_cloned.lock().unwrap();
+    //
+    //     let thread_handle = thread::spawn(move || {
+    //         command_context.output_synchronizer.lock().unwrap();
+    //         TameCommand {
+    //             sender: unimplemented!(),
+    //         }
+    //         .execute(&mut command_context);
+    //         thread::sleep(Duration::from_millis(10)) //outer structure of stdout must not be dropped too early
+    //     });
+    //     thread::sleep(Duration::from_millis(50));
+    //     {
+    //         let read = stdout_arc_clone.lock().unwrap().get_string();
+    //         assert_eq!(read, "".to_string());
+    //     }
+    //     drop(guard); //dropping the guard in the foreground, allowing writing in the background to start
+    //
+    //     thread::sleep(Duration::from_millis(5));
+    //     assert_eq!(
+    //         stdout_arc_clone.lock().unwrap().get_string(),
+    //         "Tame output\n".to_string()
+    //     );
+    //
+    //     thread_handle.join().unwrap();
+    //
+    //     stop_handle.stop();
+    //     // Lock a clone of the output_synchronizer
+    //     // Start background thread
+    //     // On the background thread, execute TameCommand
+    //     // After starting the thread, wait for a few milliseconds
+    //     // Verify that nothing has been written to stdout
+    //     // Unlock the output_synchronizer clone
+    //     // Verify that the proper string has been written to stdout
+    //     // Done!
+    // }
 
     #[derive(Debug)]
     struct TameCommand {
@@ -192,24 +191,22 @@ mod tests {
     }
 
     impl Command for TameCommand {
-        fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            self.sender.send("This is a message".to_string());
+        fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
+            self.sender.send("This is a message".to_string()).unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender
-                .send(" which must be delivered as one piece".to_string());
+                .send(" which must be delivered as one piece".to_string()).unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender
-                .send("; we'll do all being possible for that.".to_string());
+                .send("; we'll do all being possible for that.".to_string()).unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender
-                .send(" If only we have enough strength and spirit".to_string());
+                .send(" If only we have enough strength and spirit".to_string()).unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender
-                .send(" and determination and support and... snacks.".to_string());
+                .send(" and determination and support and... snacks.".to_string()).unwrap();
             thread::sleep(Duration::from_millis(10));
-            self.sender.send(" Roger.".to_string());
-
-            let message ="This is a message which must be delivered as one piece; we'll do all being possible for that. If only we have enough strength and spirit and determination and support and... snacks. Roger.";
+            self.sender.send(" Roger.".to_string()).unwrap();
             Ok(())
         }
     }
@@ -220,13 +217,13 @@ mod tests {
     impl Command for ToUiBroadcastTrigger {
         fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
             let input = UiBroadcastTrigger {}.tmb(0);
-            let output = context.send(input); //send instead of transact; using FFM.
+            context.send(input).unwrap(); //send instead of transact; using FFM.
             Ok(())
         }
     }
 
     #[test]
-    fn process_locks_output_synchronizer() {
+    fn process_locks_output_synchronizer_and_prevents_collisions_with_broadcast_messages() {
         running_test();
         let port = find_free_port();
         let broadcast = UiUndeliveredFireAndForget {
@@ -254,16 +251,26 @@ mod tests {
             .make(Box::new(broadcast_stream_factory), &args)
             .unwrap();
 
-        let result = subject.process(Box::new(ToUiBroadcastTrigger {}));
+        subject.process(Box::new(ToUiBroadcastTrigger {})).unwrap();
         thread::sleep(Duration::from_millis(50));
-        let result = subject.process(Box::new(TameCommand {
+        subject.process(Box::new(TameCommand {
             sender: cloned_stdout_sender,
-        }));
+        })).unwrap();
+
+        let tamed_message_as_a_whole = "This is a message which must be delivered as one piece; we'll do all being \
+             possible for that. If only we have enough strength and spirit and determination and support and... snacks. Roger.";
         let received_output = broadcast_stream_factory_handle.stdout_so_far();
         assert!(received_output
-            .contains("This is a message which must be delivered as one piece; we'll do all being \
-             possible for that. If only we have enough strength and spirit and determination and support and... snacks. Roger."),
+            .contains(tamed_message_as_a_whole),
                 "Message wasn't printed uninterrupted: {}",received_output);
+
+        let tamed_output_filtered_out = received_output.replace(tamed_message_as_a_whole,"");
+        let number_of_broadcast_received = tamed_output_filtered_out.clone().lines().filter(|line|line.contains("Cannot handle whateverTheOpcodeHereIs request: Node is not running")).count();
+        assert_eq!(number_of_broadcast_received,4);
+
+        //assertion that the rest of the broadcast is there too
+        let number_of_masq_prompts =  tamed_output_filtered_out.lines().filter(|line|line.contains("masq>")).count();
+        assert_eq!(number_of_masq_prompts,4);
 
         stop_handle.stop();
     }

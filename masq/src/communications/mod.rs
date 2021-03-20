@@ -8,14 +8,12 @@ use masq_lib::messages::UiUndeliveredFireAndForget;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-//must wait until the right time comes (GH-415?); no real ffm from UI to N so far;
-//there is an unresolved problem with synchronization of this print as nobody expects it to come;
-//can collide with work with other output such as in line_reader.rs
 fn handle_node_not_running_for_fire_and_forget(
     body: UiUndeliveredFireAndForget,
     stdout: &mut dyn Write,
-    synchronizer: Option<Arc<Mutex<()>>>
+    synchronizer: Arc<Mutex<()>>
 ) {
+    let _lock = synchronizer.lock().unwrap();
     write!(
         stdout,
         "\nCannot handle {} request: Node is not running\nmasq> ",
@@ -23,4 +21,5 @@ fn handle_node_not_running_for_fire_and_forget(
     )
     .expect("write! failed");
     stdout.flush().expect("flush failed");
+    drop(_lock);
 }
