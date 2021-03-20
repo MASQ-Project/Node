@@ -29,16 +29,15 @@ impl BufRead for LineReader {
     }
 
     fn read_line(&mut self, buf: &mut String) -> Result<usize, io::Error> {
-        // let _lock = self.output_synchronizer.lock().unwrap();
+        //this synchronization is left untested (an inner call of stdout in third-party code)
+        let _lock = self.output_synchronizer.lock().unwrap();
         let line = match self.delegate.readline(MASQ_PROMPT) {
-            Ok(line) =>
-            /*drop(_lock)*/
-            {
+            Ok(line) => {
+                drop(_lock);
                 line
             }
-            Err(e) =>
-            /*drop(_lock)*/
-            {
+            Err(e) => {
+                drop(_lock);
                 match e {
                     ReadlineError::Eof => {
                         return Err(io::Error::new(ErrorKind::UnexpectedEof, "End of file"))

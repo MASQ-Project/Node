@@ -26,7 +26,6 @@ impl CrashNotifier {
         );
         write!(stdout, "masq> ").expect("write! failed");
         stdout.flush().expect("flush failed");
-        drop(_lock)
     }
 
     fn interpret_reason(reason: CrashReason) -> String {

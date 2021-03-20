@@ -242,7 +242,6 @@ mod tests {
             BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
-            original_payload: "This must be said to the Node immediately!".to_string(),
         }
         .tmb(0);
 
@@ -251,7 +250,7 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\nCannot handle uninventedMessage request: Node is not running\nmasq> ".to_string()
+            "\nCannot handle uninventedMessage request: Node is not running.\n\nmasq> ".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),
@@ -366,11 +365,11 @@ masq> ";
     ) {
         let ffm_undelivered_body = UiUndeliveredFireAndForget {
             opcode: "crash".to_string(),
-            original_payload: "".to_string(),
         };
 
         let broadcast_output = "\
-Cannot handle crash request: Node is not running
+Cannot handle crash request: Node is not running.
+
 masq>";
 
         test_generic_for_handle_broadcast(
@@ -396,8 +395,10 @@ masq>";
             let reader_listener = TcpListener::bind(socket_address).unwrap();
             let mut buffer = [0u8; 512];
             let (mut reader, _) = reader_listener.accept().unwrap();
-            reader.set_read_timeout(Some(Duration::from_millis(200)));
-            reader.read_exact(&mut buffer);
+            reader
+                .set_read_timeout(Some(Duration::from_millis(200)))
+                .unwrap();
+            let _ = reader.read_exact(&mut buffer);
             shared_buffer_clone
                 .lock()
                 .unwrap()
@@ -433,7 +434,7 @@ masq>";
             "The message from the broadcast handle isn't correct or entire: {}",
             full_stdout_output
         );
-        //without synchronization it's just a segment of these ten asterisks
+        //without synchronization it's a cut segment of these ten asterisks
         assert!(
             full_stdout_output.starts_with("********** "),
             "Ten asterisks must keep together: {}",

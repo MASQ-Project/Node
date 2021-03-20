@@ -30,7 +30,9 @@ use masq_lib::messages::{
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
-use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::ui_gateway::{
+    MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
+};
 use std::collections::{HashMap, HashSet};
 
 pub struct Recipients {
@@ -268,7 +270,7 @@ impl Daemon {
                     ClientId(client_id),
                 );
             }
-            None => self.send_node_is_not_running_error(client_id, body),
+            None => self.send_node_is_not_running_error(client_id, body.opcode, body.path),
         }
     }
 
@@ -304,33 +306,24 @@ impl Daemon {
         }
     }
 
-    fn send_node_is_not_running_error(&self, client_id: u64, received: MessageBody) {
+    fn send_node_is_not_running_error(&self, client_id: u64, opcode: String, path: MessagePath) {
         error!(
             &self.logger,
             "Daemon is sending redirect error for {} message to UI {}: Node is not running",
-            &received.opcode,
+            &opcode,
             client_id
         );
-        let body = match received.path {
+        let body = match path {
             Conversation(_) => MessageBody {
-                opcode: received.opcode.clone(),
-                path: received.path,
+                opcode: opcode.clone(),
+                path,
                 payload: Err((
                     NODE_NOT_RUNNING_ERROR,
-                    format!(
-                        "Cannot handle {} request: Node is not running",
-                        received.opcode
-                    ),
+                    format!("Cannot handle {} request: Node is not running", opcode),
                 )),
             },
 
-            FireAndForget => UiUndeliveredFireAndForget {
-                opcode: received.opcode,
-                original_payload: received
-                    .payload
-                    .expect("fire-and-forget message has a payload of error"),
-            }
-            .tmb(0),
+            FireAndForget => UiUndeliveredFireAndForget { opcode }.tmb(0),
         };
         let target = ClientId(client_id);
         self.send_ui_message(body, target);
@@ -1526,8 +1519,7 @@ mod tests {
             UiUndeliveredFireAndForget::fmb(record.body).unwrap(),
             (
                 UiUndeliveredFireAndForget {
-                    opcode: "uninventedMessage".to_string(),
-                    original_payload: "Something very important".to_string()
+                    opcode: "uninventedMessage".to_string()
                 },
                 0
             )

@@ -16,10 +16,9 @@ fn handle_node_not_running_for_fire_and_forget_on_the_way(
     let _lock = synchronizer.lock().unwrap();
     write!(
         stdout,
-        "\nCannot handle {} request: Node is not running\nmasq> ",
+        "\nCannot handle {} request: Node is not running.\n\nmasq> ",
         body.opcode
     )
     .expect("write! failed");
     stdout.flush().expect("flush failed");
-    drop(_lock);
 }

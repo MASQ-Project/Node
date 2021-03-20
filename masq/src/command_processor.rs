@@ -6,7 +6,6 @@ use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::StreamFactory;
 use crate::schema::app;
 use clap::value_t;
-use masq_lib::messages::UiBroadcastTrigger;
 use std::sync::{Arc, Mutex};
 
 pub trait CommandProcessorFactory {
@@ -57,9 +56,7 @@ impl CommandProcessor for CommandProcessorReal {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
         let synchronizer = self.context.output_synchronizer.clone();
         let _lock = synchronizer.lock().unwrap();
-        command.execute(&mut self.context)?;
-        drop(_lock);
-        Ok(())
+        command.execute(&mut self.context)
     }
 
     fn close(&mut self) {
@@ -78,7 +75,7 @@ mod tests {
     use crate::communications::broadcast_handler::StreamFactoryReal;
     use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::Sender;
-    use masq_lib::messages::{ToMessageBody, UiUndeliveredFireAndForget};
+    use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::{find_free_port, running_test};
@@ -140,57 +137,6 @@ mod tests {
         assert_eq!(received, vec![Ok(UiShutdownRequest {}.tmb(1))]);
     }
 
-    // #[test]
-    // fn spike_process_locks_output_synchronizer() {
-    //     running_test();
-    //     let port = find_free_port();
-    //     let server = MockWebSocketsServer::new(port);
-    //     let stop_handle = server.start();
-    //     let mut command_context =
-    //         CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
-    //     let stdout = ByteArrayWriter::new();
-    //
-    //     let stdout_arc = stdout.inner_arc();
-    //     let stdout_arc_clone = stdout_arc.clone();
-    //     command_context.stdout = Box::new(stdout);
-    //
-    //     let synchronizer_cloned = Arc::clone(&command_context.output_synchronizer);
-    //     let guard = synchronizer_cloned.lock().unwrap();
-    //
-    //     let thread_handle = thread::spawn(move || {
-    //         command_context.output_synchronizer.lock().unwrap();
-    //         TameCommand {
-    //             sender: unimplemented!(),
-    //         }
-    //         .execute(&mut command_context);
-    //         thread::sleep(Duration::from_millis(10)) //outer structure of stdout must not be dropped too early
-    //     });
-    //     thread::sleep(Duration::from_millis(50));
-    //     {
-    //         let read = stdout_arc_clone.lock().unwrap().get_string();
-    //         assert_eq!(read, "".to_string());
-    //     }
-    //     drop(guard); //dropping the guard in the foreground, allowing writing in the background to start
-    //
-    //     thread::sleep(Duration::from_millis(5));
-    //     assert_eq!(
-    //         stdout_arc_clone.lock().unwrap().get_string(),
-    //         "Tame output\n".to_string()
-    //     );
-    //
-    //     thread_handle.join().unwrap();
-    //
-    //     stop_handle.stop();
-    //     // Lock a clone of the output_synchronizer
-    //     // Start background thread
-    //     // On the background thread, execute TameCommand
-    //     // After starting the thread, wait for a few milliseconds
-    //     // Verify that nothing has been written to stdout
-    //     // Unlock the output_synchronizer clone
-    //     // Verify that the proper string has been written to stdout
-    //     // Done!
-    // }
-
     #[derive(Debug)]
     struct TameCommand {
         sender: Sender<String>,
@@ -233,12 +179,12 @@ mod tests {
     }
 
     #[test]
-    fn process_locks_output_synchronizer_and_prevents_collisions_with_broadcast_messages() {
+    fn process_locks_output_synchronizer_and_prevents_interferences_in_it_from_broadcast_messages()
+    {
         running_test();
         let port = find_free_port();
         let broadcast = UiUndeliveredFireAndForget {
             opcode: "whateverTheOpcodeHereIs".to_string(),
-            original_payload: "++++++++++++++++".to_string(),
         }
         .tmb(0);
         let server = MockWebSocketsServer::new(port)

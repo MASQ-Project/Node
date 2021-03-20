@@ -15,8 +15,6 @@ use masq_lib::utils::index_of_from;
 use std::fmt::Debug;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")
@@ -86,7 +84,6 @@ impl SetupCommand {
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");
         stdout.flush().expect("flush failed");
-        drop(_lock)
     }
 
     fn has_value(pieces: &[String], piece: &str) -> bool {

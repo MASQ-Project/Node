@@ -181,7 +181,6 @@ mod tests {
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand,
     };
-    use masq_lib::gag;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiShutdownRequest;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, FakeStreamHolder};

@@ -63,7 +63,6 @@ impl ChangePasswordCommand {
         )
         .expect("write! failed");
         stdout.flush().expect("flush failed");
-        drop(_lock)
     }
 }
 
