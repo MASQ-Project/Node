@@ -15,6 +15,8 @@ use masq_lib::utils::index_of_from;
 use std::fmt::Debug;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")
@@ -74,11 +76,17 @@ impl SetupCommand {
         Ok(Self { values })
     }
 
-    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write,synchronizer: Arc<Mutex<()>>) {
+    pub fn handle_broadcast(
+        response: UiSetupBroadcast,
+        stdout: &mut dyn Write,
+        synchronizer: Arc<Mutex<()>>,
+    ) {
+        let _lock = synchronizer.lock().unwrap();
         short_writeln!(stdout, "\nDaemon setup has changed:\n");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");
         stdout.flush().expect("flush failed");
+        drop(_lock)
     }
 
     fn has_value(pieces: &[String], piece: &str) -> bool {
@@ -287,7 +295,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         let (mut stdout, _) = stream_factory.make();
         let synchronizer = Arc::new(Mutex::new(()));
 
-        SetupCommand::handle_broadcast(message, &mut stdout,synchronizer);
+        SetupCommand::handle_broadcast(message, &mut stdout, synchronizer);
 
         assert_eq! (handle.stdout_so_far(),
 "\n\

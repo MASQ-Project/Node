@@ -7,6 +7,7 @@ use crate::communications::broadcast_handler::StreamFactory;
 use crate::schema::app;
 use clap::value_t;
 use masq_lib::messages::UiBroadcastTrigger;
+use std::sync::{Arc, Mutex};
 
 pub trait CommandProcessorFactory {
     fn make(
@@ -44,6 +45,7 @@ impl CommandProcessorFactoryReal {
 pub trait CommandProcessor {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError>;
     fn close(&mut self);
+    fn clone_synchronizer(&self) -> Arc<Mutex<()>>;
 }
 
 pub struct CommandProcessorReal {
@@ -62,6 +64,10 @@ impl CommandProcessor for CommandProcessorReal {
 
     fn close(&mut self) {
         self.context.close();
+    }
+
+    fn clone_synchronizer(&self) -> Arc<Mutex<()>> {
+        self.context.output_synchronizer.clone()
     }
 }
 
@@ -195,16 +201,20 @@ mod tests {
             self.sender.send("This is a message".to_string()).unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender
-                .send(" which must be delivered as one piece".to_string()).unwrap();
+                .send(" which must be delivered as one piece".to_string())
+                .unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender
-                .send("; we'll do all being possible for that.".to_string()).unwrap();
+                .send("; we'll do all being possible for that.".to_string())
+                .unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender
-                .send(" If only we have enough strength and spirit".to_string()).unwrap();
+                .send(" If only we have enough strength and spirit".to_string())
+                .unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender
-                .send(" and determination and support and... snacks.".to_string()).unwrap();
+                .send(" and determination and support and... snacks.".to_string())
+                .unwrap();
             thread::sleep(Duration::from_millis(10));
             self.sender.send(" Roger.".to_string()).unwrap();
             Ok(())
@@ -253,24 +263,37 @@ mod tests {
 
         subject.process(Box::new(ToUiBroadcastTrigger {})).unwrap();
         thread::sleep(Duration::from_millis(50));
-        subject.process(Box::new(TameCommand {
-            sender: cloned_stdout_sender,
-        })).unwrap();
+        subject
+            .process(Box::new(TameCommand {
+                sender: cloned_stdout_sender,
+            }))
+            .unwrap();
 
         let tamed_message_as_a_whole = "This is a message which must be delivered as one piece; we'll do all being \
              possible for that. If only we have enough strength and spirit and determination and support and... snacks. Roger.";
         let received_output = broadcast_stream_factory_handle.stdout_so_far();
-        assert!(received_output
-            .contains(tamed_message_as_a_whole),
-                "Message wasn't printed uninterrupted: {}",received_output);
+        assert!(
+            received_output.contains(tamed_message_as_a_whole),
+            "Message wasn't printed uninterrupted: {}",
+            received_output
+        );
 
-        let tamed_output_filtered_out = received_output.replace(tamed_message_as_a_whole,"");
-        let number_of_broadcast_received = tamed_output_filtered_out.clone().lines().filter(|line|line.contains("Cannot handle whateverTheOpcodeHereIs request: Node is not running")).count();
-        assert_eq!(number_of_broadcast_received,4);
+        let tamed_output_filtered_out = received_output.replace(tamed_message_as_a_whole, "");
+        let number_of_broadcast_received = tamed_output_filtered_out
+            .clone()
+            .lines()
+            .filter(|line| {
+                line.contains("Cannot handle whateverTheOpcodeHereIs request: Node is not running")
+            })
+            .count();
+        assert_eq!(number_of_broadcast_received, 4);
 
         //assertion that the rest of the broadcast is there too
-        let number_of_masq_prompts =  tamed_output_filtered_out.lines().filter(|line|line.contains("masq>")).count();
-        assert_eq!(number_of_masq_prompts,4);
+        let number_of_masq_prompts = tamed_output_filtered_out
+            .lines()
+            .filter(|line| line.contains("masq>"))
+            .count();
+        assert_eq!(number_of_masq_prompts, 4);
 
         stop_handle.stop();
     }

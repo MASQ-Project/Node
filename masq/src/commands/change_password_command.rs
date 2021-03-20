@@ -5,7 +5,9 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse};
+use masq_lib::messages::{
+    UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
+};
 use masq_lib::short_writeln;
 use std::any::Any;
 use std::io::Write;
@@ -49,12 +51,19 @@ impl ChangePasswordCommand {
         }
     }
 
-    pub fn handle_broadcast(stdout: &mut dyn Write,synchronizer: Arc<Mutex<()>>) {
+    pub fn handle_broadcast(
+        _body: UiNewPasswordBroadcast,
+        stdout: &mut dyn Write,
+        synchronizer: Arc<Mutex<()>>,
+    ) {
+        let _lock = synchronizer.lock().unwrap();
         write!(
             stdout,
             "\nThe Node's database password has changed.\n\nmasq> "
         )
         .expect("write! failed");
+        stdout.flush().expect("flush failed");
+        drop(_lock)
     }
 }
 

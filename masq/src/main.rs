@@ -118,7 +118,7 @@ impl Main {
         processor: &mut dyn CommandProcessor,
         streams: &mut StdStreams<'_>,
     ) -> u8 {
-        let mut line_reader = self.buf_read_factory.make();
+        let mut line_reader = self.buf_read_factory.make(processor.clone_synchronizer());
         loop {
             let args = match Self::accept_subcommand(&mut line_reader) {
                 Ok(Some(args)) => args,
@@ -181,6 +181,7 @@ mod tests {
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand,
     };
+    use masq_lib::gag;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiShutdownRequest;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, FakeStreamHolder};

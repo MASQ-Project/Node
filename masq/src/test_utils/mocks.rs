@@ -173,6 +173,10 @@ impl CommandProcessor for CommandProcessorMock {
     fn close(&mut self) {
         self.close_params.lock().unwrap().push(());
     }
+
+    fn clone_synchronizer(&self) -> Arc<Mutex<()>> {
+        unimplemented!()
+    }
 }
 
 impl CommandProcessorMock {

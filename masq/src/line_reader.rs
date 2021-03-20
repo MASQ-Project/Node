@@ -29,17 +29,26 @@ impl BufRead for LineReader {
     }
 
     fn read_line(&mut self, buf: &mut String) -> Result<usize, io::Error> {
+        // let _lock = self.output_synchronizer.lock().unwrap();
         let line = match self.delegate.readline(MASQ_PROMPT) {
-            Ok(line) => line,
-            Err(e) => match e {
-                ReadlineError::Eof => {
-                    return Err(io::Error::new(ErrorKind::UnexpectedEof, "End of file"))
+            Ok(line) =>
+            /*drop(_lock)*/
+            {
+                line
+            }
+            Err(e) =>
+            /*drop(_lock)*/
+            {
+                match e {
+                    ReadlineError::Eof => {
+                        return Err(io::Error::new(ErrorKind::UnexpectedEof, "End of file"))
+                    }
+                    ReadlineError::Interrupted => {
+                        return Err(io::Error::new(ErrorKind::Interrupted, "Interrupted"))
+                    }
+                    other => return Err(io::Error::new(ErrorKind::Other, format!("{}", other))),
                 }
-                ReadlineError::Interrupted => {
-                    return Err(io::Error::new(ErrorKind::Interrupted, "Interrupted"))
-                }
-                other => return Err(io::Error::new(ErrorKind::Other, format!("{}", other))),
-            },
+            }
         };
         self.delegate.add_history_entry(&line);
         let len = line.len();

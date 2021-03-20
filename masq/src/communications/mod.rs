@@ -8,10 +8,10 @@ use masq_lib::messages::UiUndeliveredFireAndForget;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-fn handle_node_not_running_for_fire_and_forget(
+fn handle_node_not_running_for_fire_and_forget_on_the_way(
     body: UiUndeliveredFireAndForget,
     stdout: &mut dyn Write,
-    synchronizer: Arc<Mutex<()>>
+    synchronizer: Arc<Mutex<()>>,
 ) {
     let _lock = synchronizer.lock().unwrap();
     write!(
