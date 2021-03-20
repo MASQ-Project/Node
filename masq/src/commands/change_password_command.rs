@@ -9,6 +9,7 @@ use masq_lib::messages::{UiChangePasswordRequest, UiChangePasswordResponse};
 use masq_lib::short_writeln;
 use std::any::Any;
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq)]
 pub struct ChangePasswordCommand {
@@ -48,7 +49,7 @@ impl ChangePasswordCommand {
         }
     }
 
-    pub fn handle_broadcast(stdout: &mut dyn Write) {
+    pub fn handle_broadcast(stdout: &mut dyn Write,synchronizer: Option<Arc<Mutex<()>>>) {
         write!(
             stdout,
             "\nThe Node's database password has changed.\n\nmasq> "

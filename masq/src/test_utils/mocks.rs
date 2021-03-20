@@ -319,6 +319,24 @@ impl TestStreamFactory {
         };
         (factory, handle)
     }
+
+    pub fn clone_senders(&self) -> (Sender<String>, Sender<String>) {
+        let stdout = self
+            .stdout_opt
+            .borrow_mut()
+            .as_ref()
+            .unwrap()
+            .write_tx
+            .clone();
+        let stderr = self
+            .stderr_opt
+            .borrow_mut()
+            .as_ref()
+            .unwrap()
+            .write_tx
+            .clone();
+        (stdout, stderr)
+    }
 }
 
 #[derive(Clone, Debug)]

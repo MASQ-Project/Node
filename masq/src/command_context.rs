@@ -63,9 +63,9 @@ pub trait CommandContext {
 
 pub struct CommandContextReal {
     connection: ConnectionManager,
-    pub stdin: Box<dyn Read>,
-    pub stdout: Box<dyn Write>,
-    pub stderr: Box<dyn Write>,
+    pub stdin: Box<dyn Read + Send>,
+    pub stdout: Box<dyn Write + Send>,
+    pub stderr: Box<dyn Write + Send>,
     pub output_synchronizer: Arc<Mutex<()>>,
 }
 
@@ -128,9 +128,9 @@ impl CommandContextReal {
         broadcast_stream_factory: Box<dyn StreamFactory>,
     ) -> Result<Self, ContextError> {
         let foreground_output_synchronizer = Arc::new(Mutex::new(()));
-        let background_output_synchronizer = foreground_output_synchronizer.clone();
+        let background_output_synchronizer = Arc::clone(&foreground_output_synchronizer);
         let mut connection = ConnectionManager::new();
-        let broadcast_handler = BroadcastHandlerReal::new(background_output_synchronizer);
+        let broadcast_handler = BroadcastHandlerReal::new(Some(background_output_synchronizer));
         let broadcast_handle = broadcast_handler.start(broadcast_stream_factory);
         match connection.connect(daemon_ui_port, broadcast_handle, REDIRECT_TIMEOUT_MILLIS) {
             Ok(_) => Ok(Self {

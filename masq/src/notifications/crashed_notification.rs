@@ -4,11 +4,12 @@ use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::short_writeln;
 use masq_lib::utils::exit_process;
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 
 pub struct CrashNotifier {}
 
 impl CrashNotifier {
-    pub fn handle_broadcast(response: UiNodeCrashedBroadcast, stdout: &mut dyn Write) {
+    pub fn handle_broadcast(response: UiNodeCrashedBroadcast, stdout: &mut dyn Write,synchronizer: Option<Arc<Mutex<()>>>) {
         if response.crash_reason == CrashReason::DaemonCrashed {
             exit_process(1, "The Daemon is no longer running; masq is terminating.\n");
         }

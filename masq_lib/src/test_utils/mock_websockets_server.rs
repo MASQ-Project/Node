@@ -186,6 +186,24 @@ impl MockWebSocketsServer {
                                     client.send_message(&om).unwrap()
                                 }
                             },
+                            MessagePath::FireAndForget
+                                if message_body.opcode == "broadcastTrigger" =>
+                            {
+                                log(
+                                    do_log,
+                                    index,
+                                    "Responding to a request for FireAndForget message in dirrection to UI",
+                                );
+                                inner_responses_arc
+                                    .lock()
+                                    .unwrap()
+                                    .clone()
+                                    .into_iter()
+                                    .for_each(|message| {
+                                        client.send_message(&message).unwrap();
+                                        thread::sleep(Duration::from_millis(20))
+                                    })
+                            }
                             MessagePath::FireAndForget => {
                                 log(
                                     do_log,

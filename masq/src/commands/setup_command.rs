@@ -14,6 +14,7 @@ use masq_lib::short_writeln;
 use masq_lib::utils::index_of_from;
 use std::fmt::Debug;
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")
@@ -73,7 +74,7 @@ impl SetupCommand {
         Ok(Self { values })
     }
 
-    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write) {
+    pub fn handle_broadcast(response: UiSetupBroadcast, stdout: &mut dyn Write,synchronizer: Option<Arc<Mutex<()>>>) {
         short_writeln!(stdout, "\nDaemon setup has changed:\n");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         write!(stdout, "masq> ").expect("write! failed");

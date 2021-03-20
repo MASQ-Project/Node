@@ -36,16 +36,16 @@ pub trait BroadcastHandler {
 }
 
 pub struct BroadcastHandlerReal {
-    output_synchronizer: Arc<Mutex<()>>,
+    output_synchronizer: Option<Arc<Mutex<()>>>,
 }
 
 impl BroadcastHandler for BroadcastHandlerReal {
-    fn start(self, stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle> {
+    fn start(mut self, stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle> {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
             let (mut stdout, mut stderr) = stream_factory.make();
             loop {
-                Self::thread_loop_guts(&message_rx, stdout.as_mut(), stderr.as_mut())
+                Self::thread_loop_guts(&message_rx, stdout.as_mut(), stderr.as_mut(),self.output_synchronizer.take())
             }
         });
         Box::new(BroadcastHandleGeneric { message_tx })
@@ -53,9 +53,9 @@ impl BroadcastHandler for BroadcastHandlerReal {
 }
 
 impl BroadcastHandlerReal {
-    pub fn new(output_synchronizer: Arc<Mutex<()>>) -> Self {
+    pub fn new(output_synchronizer: Option<Arc<Mutex<()>>>) -> Self {
         Self {
-            output_synchronizer,
+           output_synchronizer,
         }
     }
 
@@ -63,19 +63,21 @@ impl BroadcastHandlerReal {
         message_body_result: Result<MessageBody, RecvError>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
+        synchronizer: Option<Arc<Mutex<()>>>
+
     ) {
         match message_body_result {
             Err(_) => (), // Receiver died; masq is going down
             Ok(message_body) => {
                 if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
-                    SetupCommand::handle_broadcast(body, stdout);
+                    SetupCommand::handle_broadcast(body, stdout,synchronizer);
                 } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
-                    CrashNotifier::handle_broadcast(body, stdout);
+                    CrashNotifier::handle_broadcast(body, stdout,synchronizer);
                 } else if let Ok((_, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
-                    ChangePasswordCommand::handle_broadcast(stdout);
+                    ChangePasswordCommand::handle_broadcast(stdout,synchronizer);
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
-                    handle_node_not_running_for_fire_and_forget(body, stdout);
+                    handle_node_not_running_for_fire_and_forget(body, stdout,synchronizer);
                 } else {
                     write!(
                         stderr,
@@ -92,9 +94,10 @@ impl BroadcastHandlerReal {
         message_rx: &Receiver<MessageBody>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
+        synchronizer:Option<Arc<Mutex<()>>>
     ) {
         select! {
-            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr),
+            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,synchronizer),
         }
     }
 }
