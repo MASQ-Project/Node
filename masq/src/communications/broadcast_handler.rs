@@ -443,7 +443,14 @@ masq>";
             "Ten asterisks must keep together: {}",
             full_stdout_output
         );
-        let asterisks_count = full_stdout_output.chars().filter(|char|*char=='*').count();
-        assert_eq!(asterisks_count,30,"The count of asterisks isn't 30 but: {}",asterisks_count)
+        let asterisks_count = full_stdout_output
+            .chars()
+            .filter(|char| *char == '*')
+            .count();
+        assert_eq!(
+            asterisks_count, 30,
+            "The count of asterisks isn't 30 but: {}",
+            asterisks_count
+        )
     }
 }
