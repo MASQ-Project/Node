@@ -146,9 +146,7 @@ mod tests {
     use masq_lib::utils::{find_free_port, localhost};
     use std::io::Read;
     use std::net::{SocketAddr, TcpListener, TcpStream};
-    use std::os::windows::io::AsRawSocket;
     use std::time::Duration;
-    use winapi::um::{handleapi, winbase, winnt};
 
     #[test]
     fn broadcast_of_setup_triggers_correct_handler() {
@@ -414,6 +412,8 @@ masq>";
 
         #[cfg(target_os = "windows")] //Windows doesn't like shared sockets
         unsafe {
+            use std::os::windows::io::AsRawSocket;
+            use winapi::um::{handleapi, winbase, winnt};
             handleapi::SetHandleInformation(
                 stdout_clone.as_raw_socket() as winnt::HANDLE,
                 winbase::HANDLE_FLAG_INHERIT,
