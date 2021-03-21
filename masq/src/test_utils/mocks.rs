@@ -162,6 +162,7 @@ pub struct CommandProcessorMock {
     process_params: Arc<Mutex<Vec<Box<dyn Command>>>>,
     process_results: RefCell<Vec<Result<(), CommandError>>>,
     close_params: Arc<Mutex<Vec<()>>>,
+    synchronizer: RefCell<Arc<Mutex<()>>>,
 }
 
 impl CommandProcessor for CommandProcessorMock {
@@ -175,13 +176,18 @@ impl CommandProcessor for CommandProcessorMock {
     }
 
     fn clone_synchronizer(&self) -> Arc<Mutex<()>> {
-        unimplemented!()
+        self.synchronizer.borrow().clone()
     }
 }
 
 impl CommandProcessorMock {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn insert_synchronizer(self, synchronizer: Arc<Mutex<()>>) -> Self {
+        self.synchronizer.replace(synchronizer);
+        self
     }
 
     pub fn process_params(mut self, params: &Arc<Mutex<Vec<Box<dyn Command>>>>) -> Self {

@@ -208,7 +208,7 @@ mod tests {
             }
         }
 
-        pub fn make_params(mut self, params: &Arc<Mutex<Vec<Arc<Mutex<()>>>>>) -> Self {
+        pub fn make_params(mut self, params: Arc<Mutex<Vec<Arc<Mutex<()>>>>>) -> Self {
             self.make_params = params.clone();
             self
         }
@@ -464,6 +464,54 @@ mod tests {
             vec![vec!["error".to_string(), "command".to_string()]]
         );
         assert_eq!(stream_holder.stderr.get_string(), "Booga!\n".to_string());
+    }
+
+    #[test]
+    fn copy_of_synchronizer_is_shared_along_properly() {
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let command_factory = CommandFactoryMock::new()
+            .make_params(&make_params_arc)
+            .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
+        let synchronizer = Arc::new(Mutex::new(()));
+        let synchronizer_clone = synchronizer.clone();
+        let processor = CommandProcessorMock::new()
+            .insert_synchronizer(synchronizer_clone)
+            .process_result(Ok(()));
+
+        assert_eq!(Arc::strong_count(&synchronizer), 2);
+
+        let processor_factory =
+            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
+        let buf_read_sync_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = Main {
+            command_factory: Box::new(command_factory),
+            processor_factory: Box::new(processor_factory),
+            buf_read_factory: Box::new(
+                BufReadFactoryMock::new()
+                    .make_interactive_result("setup\n\nexit\n")
+                    .make_params(buf_read_sync_params_arc.clone()),
+            ),
+        };
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = subject.go(
+            &mut stream_holder.streams(),
+            &[
+                "command".to_string(),
+                "--param1".to_string(),
+                "value1".to_string(),
+            ],
+        );
+
+        //even though Main is out of scope now, dropping synchronizer_clone,
+        //we still get two instances of synchronizer
+        //(which was inspected and recreated when BufReadFactoryMock.make() called.
+        //This test fails if clone_synchronizer() in go_interactive is removed)
+        assert_eq!(Arc::strong_count(&synchronizer), 2);
+
+        assert_eq!(result, 0);
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq!(*make_params, vec![vec!["setup".to_string()]]);
     }
 
     #[test]
