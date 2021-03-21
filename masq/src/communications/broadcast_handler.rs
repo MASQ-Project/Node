@@ -146,7 +146,9 @@ mod tests {
     use masq_lib::utils::{find_free_port, localhost};
     use std::io::Read;
     use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::os::windows::io::AsRawSocket;
     use std::time::Duration;
+    use winapi::um::{handleapi, winbase, winnt};
 
     #[test]
     fn broadcast_of_setup_triggers_correct_handler() {
@@ -410,6 +412,15 @@ masq>";
         let mut stdout = TcpStream::connect(socket_address).unwrap();
         let mut stdout_clone = stdout.try_clone().unwrap();
 
+        #[cfg(target_os = "windows")] //Windows doesn't like shared sockets
+        unsafe {
+            handleapi::SetHandleInformation(
+                stdout_clone.as_raw_socket() as winnt::HANDLE,
+                winbase::HANDLE_FLAG_INHERIT,
+                0,
+            )
+        };
+
         let synchronizer = Arc::new(Mutex::new(()));
         let synchronizer_clone = synchronizer.clone();
 
@@ -417,10 +428,10 @@ masq>";
             (0..3).into_iter().for_each(|_| {
                 let _lock = synchronizer_clone.lock().unwrap();
                 (0..10).into_iter().for_each(|_| {
-                    let _ = stdout_clone.write(b"*");
+                    stdout_clone.write(b"*").unwrap();
                     thread::sleep(Duration::from_millis(1))
                 });
-                let _ = stdout_clone.write(b" ");
+                stdout_clone.write(b" ").unwrap();
                 drop(_lock)
             })
         });

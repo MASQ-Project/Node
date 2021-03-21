@@ -1526,6 +1526,7 @@ dependencies = [
  "masq_lib",
  "rustyline",
  "websocket",
+ "winapi 0.3.9",
 ]
 
 [[package]]
