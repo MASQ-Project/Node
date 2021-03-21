@@ -417,10 +417,10 @@ masq>";
             (0..3).into_iter().for_each(|_| {
                 let _lock = synchronizer_clone.lock().unwrap();
                 (0..10).into_iter().for_each(|_| {
-                    stdout_clone.write_all(b"*").unwrap();
+                    let _ = stdout_clone.write(b"*");
                     thread::sleep(Duration::from_millis(1))
                 });
-                stdout_clone.write_all(b" ").unwrap();
+                let _ = stdout_clone.write(b" ");
                 drop(_lock)
             })
         });
@@ -443,5 +443,7 @@ masq>";
             "Ten asterisks must keep together: {}",
             full_stdout_output
         );
+        let asterisks_count = full_stdout_output.chars().filter(|char|*char=='*').count();
+        assert_eq!(asterisks_count,30,"The count of asterisks isn't 30 but: {}",asterisks_count)
     }
 }
