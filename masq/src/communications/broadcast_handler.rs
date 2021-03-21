@@ -391,9 +391,11 @@ masq>";
         let socket_address = SocketAddr::new(localhost(), port);
         let shared_buffer = Arc::new(Mutex::new(String::new()));
         let shared_buffer_clone = shared_buffer.clone();
+        let (tx, rv) = std::sync::mpsc::channel();
         let reader_thread_handle = thread::spawn(move || {
             let reader_listener = TcpListener::bind(socket_address).unwrap();
             let mut buffer = [0u8; 512];
+            tx.send(()).unwrap();
             let (mut reader, _) = reader_listener.accept().unwrap();
             reader
                 .set_read_timeout(Some(Duration::from_millis(200)))
@@ -404,6 +406,7 @@ masq>";
                 .unwrap()
                 .push_str(std::str::from_utf8(&buffer).unwrap())
         });
+        rv.recv().unwrap();
         let mut stdout = TcpStream::connect(socket_address).unwrap();
         let mut stdout_clone = stdout.try_clone().unwrap();
 
