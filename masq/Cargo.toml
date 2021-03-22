@@ -18,9 +18,6 @@ rustyline = "7.1.0"
 websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
 crossbeam-channel = "0.5.0"
 
-[target.'cfg(target_os = "windows")'.dev-dependencies]
-winapi = "0.3.8"
-
 [lib]
 name = "masq_cli_lib"
 path = "src/lib.rs"

@@ -374,7 +374,7 @@ pub struct UiStartResponse {
 }
 conversation_message!(UiStartResponse, "start");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum CrashReason {
     ChildWaitFailure(String),
     NoInformation,
@@ -382,7 +382,7 @@ pub enum CrashReason {
     DaemonCrashed,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiNodeCrashedBroadcast {
     #[serde(rename = "processId")]
     pub process_id: u32,

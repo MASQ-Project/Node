@@ -143,9 +143,7 @@ mod tests {
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
-    use masq_lib::utils::{find_free_port, localhost};
-    use std::io::Read;
-    use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::fmt::Arguments;
     use std::time::Duration;
 
     #[test]
@@ -379,96 +377,177 @@ masq>";
         )
     }
 
+    #[test]
+    fn mixing_stdout_works() {
+        let (tx, rv) = unbounded();
+        let mut stdout = MixingStdout::new(tx);
+        let mut stdout_clone = stdout.clone();
+        let mut whole_text_buffered = String::new();
+        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            sync_tx.send(()).unwrap();
+            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            thread::sleep(Duration::from_millis(1));
+            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            thread::sleep(Duration::from_millis(1));
+            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            thread::sleep(Duration::from_millis(1));
+            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            thread::sleep(Duration::from_millis(1));
+            writeln!(stdout_clone, "+++++++++++++").unwrap();
+        });
+        sync_rx.recv().unwrap();
+        thread::sleep(Duration::from_millis(1));
+        write!(stdout, "-------------").unwrap();
+        thread::sleep(Duration::from_millis(1));
+        write!(stdout, "-------------").unwrap();
+        thread::sleep(Duration::from_millis(1));
+        write!(stdout, "-------------").unwrap();
+
+        handle.join().unwrap();
+
+        (0..9).for_each(|_| whole_text_buffered.push_str(&rv.try_recv().unwrap_or(String::new())));
+
+        assert!(
+            !whole_text_buffered.contains("---------------------------------------"),
+            "{}",
+            whole_text_buffered
+        );
+        assert!(whole_text_buffered.contains("-------------"));
+        assert!(whole_text_buffered.contains("+++++++++++++"));
+    }
+
     fn test_generic_for_handle_broadcast<T, U>(
         broadcast_handle: T,
         broadcast_message_body: U,
         broadcast_desired_output: &str,
     ) where
-        T: FnOnce(U, &mut dyn Write, Arc<Mutex<()>>),
-        U: Debug + PartialEq,
+        T: FnOnce(U, &mut dyn Write, Arc<Mutex<()>>) + Copy,
+        U: Debug + PartialEq + Clone,
     {
-        let port = find_free_port();
-        let socket_address = SocketAddr::new(localhost(), port);
-        let shared_buffer = Arc::new(Mutex::new(String::new()));
-        let shared_buffer_clone = shared_buffer.clone();
-        let (tx, rv) = std::sync::mpsc::channel();
-        let reader_thread_handle = thread::spawn(move || {
-            let reader_listener = TcpListener::bind(socket_address).unwrap();
-            let mut buffer = [0u8; 512];
-            tx.send(()).unwrap();
-            let (mut reader, _) = reader_listener.accept().unwrap();
-            reader
-                .set_read_timeout(Some(Duration::from_millis(200)))
-                .unwrap();
-            let _ = reader.read_exact(&mut buffer);
-            shared_buffer_clone
-                .lock()
-                .unwrap()
-                .push_str(std::str::from_utf8(&buffer).unwrap())
-        });
-        rv.recv().unwrap();
-        let mut stdout = TcpStream::connect(socket_address).unwrap();
-        let mut stdout_clone = stdout.try_clone().unwrap();
-
-        #[cfg(target_os = "windows")] //Windows doesn't like shared sockets
-        unsafe {
-            use std::os::windows::io::AsRawSocket;
-            use winapi::shared::minwindef::DWORD;
-            use winapi::um::{handleapi, winbase, winnt};
-
-            let flags_set: DWORD = 0;
-            let mut flags_get = 0;
-
-            handleapi::GetHandleInformation(
-                stdout.as_raw_socket() as winnt::HANDLE,
-                &mut flags_get,
-            );
-            eprintln!("flag for socket 'stdout' before calling SET: {}", flags_get);
-
-            handleapi::SetHandleInformation(
-                stdout.as_raw_socket() as winnt::HANDLE,
-                winbase::HANDLE_FLAG_INHERIT,
-                flags_set,
-            );
-
-            handleapi::GetHandleInformation(
-                stdout.as_raw_socket() as winnt::HANDLE,
-                &mut flags_get,
-            );
-            eprintln!("flag for socket 'stdout' after calling SET: {}", flags_get);
-
-            handleapi::GetHandleInformation(
-                stdout_clone.as_raw_socket() as winnt::HANDLE,
-                &mut flags_get,
-            );
-            eprintln!(
-                "flag for socket 'stdout_clone' before calling SET: {}",
-                flags_get
-            );
-
-            handleapi::SetHandleInformation(
-                stdout_clone.as_raw_socket() as winnt::HANDLE,
-                winbase::HANDLE_FLAG_INHERIT,
-                flags_set,
-            );
-
-            handleapi::GetHandleInformation(
-                stdout_clone.as_raw_socket() as winnt::HANDLE,
-                &mut flags_get,
-            );
-            eprintln!(
-                "flag for socket 'stdout_clone' after calling SET: {}",
-                flags_get
-            );
-        };
+        let (tx, rx) = unbounded();
+        let mut stdout = MixingStdout::new(tx);
+        let stdout_clone = stdout.clone();
+        let stdout_second_clone = stdout.clone();
 
         let synchronizer = Arc::new(Mutex::new(()));
-        let synchronizer_clone = synchronizer.clone();
+        let synchronizer_clone_idle = synchronizer.clone();
 
+        //synchronized part proving that the broadcast print is synchronized
+
+        let full_stdout_output_sync = background_thread_making_interferences(
+            true,
+            &mut stdout,
+            Box::new(stdout_clone),
+            synchronizer,
+            broadcast_handle,
+            broadcast_message_body.clone(),
+            rx.clone(),
+        );
+
+        assert!(
+            full_stdout_output_sync.contains(broadcast_desired_output),
+            "The message from the broadcast handle isn't correct or entire: {}",
+            full_stdout_output_sync
+        );
+        //without synchronization it's a cut segment of these ten asterisks
+        assert!(
+            full_stdout_output_sync.starts_with("******************** "),
+            "Each group of twenty asterisks must keep together: {}",
+            full_stdout_output_sync
+        );
+        let asterisks_count = full_stdout_output_sync
+            .chars()
+            .filter(|char| *char == '*')
+            .count();
+        assert_eq!(
+            asterisks_count, 60,
+            "The count of asterisks isn't 60 but: {}",
+            asterisks_count
+        );
+
+        //the second part
+        //synchronized part proving that the broadcast print would be messed without synchronization
+        let full_stdout_output_without_sync = background_thread_making_interferences(
+            false,
+            &mut stdout,
+            Box::new(stdout_second_clone),
+            synchronizer_clone_idle,
+            broadcast_handle,
+            broadcast_message_body,
+            rx,
+        );
+
+        assert!(
+            !full_stdout_output_without_sync.starts_with("******************** "),
+            "There mustn't be 20 asterisks together: {}",
+            full_stdout_output_without_sync
+        );
+        let asterisks_count = full_stdout_output_without_sync
+            .chars()
+            .filter(|char| *char == '*')
+            .count();
+        assert_eq!(
+            asterisks_count, 60,
+            "The count of asterisks isn't 60 but: {}",
+            asterisks_count
+        );
+    }
+
+    #[derive(Clone)]
+    struct MixingStdout {
+        channel_half: Sender<String>,
+    }
+
+    impl MixingStdout {
+        fn new(sender: Sender<String>) -> Self {
+            MixingStdout {
+                channel_half: sender,
+            }
+        }
+    }
+
+    impl Write for MixingStdout {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.channel_half
+                .send(std::str::from_utf8(buf).unwrap().to_string())
+                .unwrap();
+            Ok(0)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
+            self.channel_half.send(fmt.to_string()).unwrap();
+            Ok(())
+        }
+    }
+
+    fn background_thread_making_interferences<U, T>(
+        sync: bool,
+        stdout: &mut dyn Write,
+        mut stdout_clone: Box<dyn Write + Send>,
+        synchronizer: Arc<Mutex<()>>,
+        broadcast_handle: T,
+        broadcast_message_body: U,
+        rx: Receiver<String>,
+    ) -> String
+    where
+        T: FnOnce(U, &mut dyn Write, Arc<Mutex<()>>) + Copy,
+        U: Debug + PartialEq + Clone,
+    {
+        let synchronizer_clone = synchronizer.clone();
+        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
         let interference_thread_handle = thread::spawn(move || {
+            sync_tx.send(()).unwrap();
             (0..3).into_iter().for_each(|_| {
-                let _lock = synchronizer_clone.lock().unwrap();
-                (0..10).into_iter().for_each(|_| {
+                let _lock = if sync {
+                    Some(synchronizer.lock().unwrap())
+                } else {
+                    None
+                };
+                (0..20).into_iter().for_each(|_| {
                     stdout_clone.write(b"*").unwrap();
                     thread::sleep(Duration::from_millis(1))
                 });
@@ -476,33 +555,19 @@ masq>";
                 drop(_lock)
             })
         });
-        thread::sleep(Duration::from_millis(40));
-        broadcast_handle(broadcast_message_body, &mut stdout, synchronizer);
+        sync_rx.recv().unwrap();
+        thread::sleep(Duration::from_millis(30));
+        broadcast_handle(broadcast_message_body.clone(), stdout, synchronizer_clone);
 
         interference_thread_handle.join().unwrap();
-        reader_thread_handle.join().unwrap();
 
-        let full_stdout_output = shared_buffer.lock().unwrap().clone();
-
-        assert!(
-            full_stdout_output.contains(broadcast_desired_output),
-            "The message from the broadcast handle isn't correct or entire: {}",
-            full_stdout_output
-        );
-        //without synchronization it's a cut segment of these ten asterisks
-        assert!(
-            full_stdout_output.starts_with("********** "),
-            "Ten asterisks must keep together: {}",
-            full_stdout_output
-        );
-        let asterisks_count = full_stdout_output
-            .chars()
-            .filter(|char| *char == '*')
-            .count();
-        assert_eq!(
-            asterisks_count, 30,
-            "The count of asterisks isn't 30 but: {}",
-            asterisks_count
-        )
+        let mut full_stdout_buffer = String::new();
+        let full_stdout_output = loop {
+            match rx.try_recv() {
+                Ok(string) => full_stdout_buffer.push_str(&string),
+                Err(_) => break full_stdout_buffer,
+            }
+        };
+        full_stdout_output
     }
 }
