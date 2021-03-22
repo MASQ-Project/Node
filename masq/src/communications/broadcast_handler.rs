@@ -413,12 +413,53 @@ masq>";
         #[cfg(target_os = "windows")] //Windows doesn't like shared sockets
         unsafe {
             use std::os::windows::io::AsRawSocket;
+            use winapi::shared::minwindef::DWORD;
             use winapi::um::{handleapi, winbase, winnt};
+
+            let flags_set: DWORD = 0;
+            let mut flags_get = 0;
+
+            handleapi::GetHandleInformation(
+                stdout.as_raw_socket() as winnt::HANDLE,
+                &mut flags_get,
+            );
+            eprintln!("flag for socket 'stdout' before calling SET: {}", flags_get);
+
+            handleapi::SetHandleInformation(
+                stdout.as_raw_socket() as winnt::HANDLE,
+                winbase::HANDLE_FLAG_INHERIT,
+                flags_set,
+            );
+
+            handleapi::GetHandleInformation(
+                stdout.as_raw_socket() as winnt::HANDLE,
+                &mut flags_get,
+            );
+            eprintln!("flag for socket 'stdout' after calling SET: {}", flags_get);
+
+            handleapi::GetHandleInformation(
+                stdout_clone.as_raw_socket() as winnt::HANDLE,
+                &mut flags_get,
+            );
+            eprintln!(
+                "flag for socket 'stdout_clone' before calling SET: {}",
+                flags_get
+            );
+
             handleapi::SetHandleInformation(
                 stdout_clone.as_raw_socket() as winnt::HANDLE,
                 winbase::HANDLE_FLAG_INHERIT,
-                0,
-            )
+                flags_set,
+            );
+
+            handleapi::GetHandleInformation(
+                stdout_clone.as_raw_socket() as winnt::HANDLE,
+                &mut flags_get,
+            );
+            eprintln!(
+                "flag for socket 'stdout_clone' after calling SET: {}",
+                flags_get
+            );
         };
 
         let synchronizer = Arc::new(Mutex::new(()));
