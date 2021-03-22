@@ -384,37 +384,41 @@ masq>";
         let mut stdout_clone = stdout.clone();
         let mut whole_text_buffered = String::new();
         let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+        let plus_own = "+".repeat(13);
+        let dash_own = "-".repeat(13);
+        let dashes = dash_own.as_str();
         let handle = thread::spawn(move || {
+            let pluses = plus_own.as_str();
             sync_tx.send(()).unwrap();
-            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            writeln!(stdout_clone, "{}", pluses).unwrap();
             thread::sleep(Duration::from_millis(1));
-            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            writeln!(stdout_clone, "{}", pluses).unwrap();
             thread::sleep(Duration::from_millis(1));
-            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            writeln!(stdout_clone, "{}", pluses).unwrap();
             thread::sleep(Duration::from_millis(1));
-            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            writeln!(stdout_clone, "{}", pluses).unwrap();
             thread::sleep(Duration::from_millis(1));
-            writeln!(stdout_clone, "+++++++++++++").unwrap();
+            writeln!(stdout_clone, "{}", pluses).unwrap();
         });
         sync_rx.recv().unwrap();
         thread::sleep(Duration::from_millis(1));
-        write!(stdout, "-------------").unwrap();
+        write!(stdout, "{}", dashes).unwrap();
         thread::sleep(Duration::from_millis(1));
-        write!(stdout, "-------------").unwrap();
+        write!(stdout, "{}", dashes).unwrap();
         thread::sleep(Duration::from_millis(1));
-        write!(stdout, "-------------").unwrap();
+        write!(stdout, "{}", dashes).unwrap();
 
         handle.join().unwrap();
 
         (0..9).for_each(|_| whole_text_buffered.push_str(&rv.try_recv().unwrap_or(String::new())));
 
         assert!(
-            !whole_text_buffered.contains("---------------------------------------"),
+            !whole_text_buffered.contains(&"-".repeat(39)),
             "{}",
             whole_text_buffered
         );
-        assert!(whole_text_buffered.contains("-------------"));
-        assert!(whole_text_buffered.contains("+++++++++++++"));
+        assert!(whole_text_buffered.contains(&"-".repeat(13)));
+        assert!(whole_text_buffered.contains(&"+".repeat(13)));
     }
 
     fn test_generic_for_handle_broadcast<T, U>(
@@ -434,7 +438,6 @@ masq>";
         let synchronizer_clone_idle = synchronizer.clone();
 
         //synchronized part proving that the broadcast print is synchronized
-
         let full_stdout_output_sync = background_thread_making_interferences(
             true,
             &mut stdout,
@@ -452,8 +455,8 @@ masq>";
         );
         //without synchronization it's a cut segment of these ten asterisks
         assert!(
-            full_stdout_output_sync.starts_with("******************** "),
-            "Each group of twenty asterisks must keep together: {}",
+            full_stdout_output_sync.starts_with(&format!("{} ", "*".repeat(30))),
+            "Each group of 30 asterisks must keep together: {}",
             full_stdout_output_sync
         );
         let asterisks_count = full_stdout_output_sync
@@ -461,12 +464,11 @@ masq>";
             .filter(|char| *char == '*')
             .count();
         assert_eq!(
-            asterisks_count, 60,
-            "The count of asterisks isn't 60 but: {}",
+            asterisks_count, 90,
+            "The count of asterisks isn't 90 but: {}",
             asterisks_count
         );
 
-        //the second part
         //synchronized part proving that the broadcast print would be messed without synchronization
         let full_stdout_output_without_sync = background_thread_making_interferences(
             false,
@@ -478,18 +480,26 @@ masq>";
             rx,
         );
 
+        let prefabricated_string = full_stdout_output_without_sync
+            .chars()
+            .filter(|char| *char == '*' || *char == ' ')
+            .collect::<String>();
+        let incomplete_row = prefabricated_string
+            .split(' ')
+            .find(|row| !row.contains(&"*".repeat(30)));
         assert!(
-            !full_stdout_output_without_sync.starts_with("******************** "),
-            "There mustn't be 20 asterisks together: {}",
+            incomplete_row.is_some(),
+            "There mustn't be 30 asterisks together at one of these: {}",
             full_stdout_output_without_sync
         );
+
         let asterisks_count = full_stdout_output_without_sync
             .chars()
             .filter(|char| *char == '*')
             .count();
         assert_eq!(
-            asterisks_count, 60,
-            "The count of asterisks isn't 60 but: {}",
+            asterisks_count, 90,
+            "The count of asterisks isn't 90 but: {}",
             asterisks_count
         );
     }
@@ -547,7 +557,7 @@ masq>";
                 } else {
                     None
                 };
-                (0..20).into_iter().for_each(|_| {
+                (0..30).into_iter().for_each(|_| {
                     stdout_clone.write(b"*").unwrap();
                     thread::sleep(Duration::from_millis(1))
                 });
