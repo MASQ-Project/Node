@@ -1,32 +1,32 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use automap_lib::automap_core_functions::{test_igdp, test_pcp, test_pmp};
-use automap_lib::logger::initiate_logger;
-use automap_lib::probe_researcher::{
-    close_exposed_port, prepare_router_or_report_failure, researcher_with_probe,
-};
+use std::{io, process};
 use std::io::Write;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::{io, process};
 
-const SERVER_SOCKET_ADDRESS: &str = "54.200.22.175:8081";
+use automap_lib::automap_core_functions::{test_igdp, test_pcp, test_pmp};
+use automap_lib::logger::initiate_logger;
+use automap_lib::probe_researcher::{close_exposed_port, prepare_router_or_report_failure, researcher_with_probe};
+use masq_lib::utils::find_free_port;
+
+const SERVER_SOCKET_ADDRESS: &str = "54.212.109.41:8081";
 
 pub fn main() {
     let mut stdout = io::stdout();
     let mut stderr = io::stderr();
 
-    let test_port = if let Some(value) = std::env::args().skip(1).find(|piece| &*piece != "automap")
+    let (test_port, manual_port) = if let Some(value) = std::env::args().skip(1).take(1).find(|_| true)
     {
         match value.parse::<u16>() {
-            Ok(num) => Some(num),
+            Ok(num) => (num, true),
             Err(e) => {
-                println!("invalid value for a port: {}", e);
+                println!("invalid value ({}) for a port: {}", value, e);
                 process::exit(1)
             }
         }
     } else {
-        None
+        (find_free_port(), false)
     };
 
     println!(
@@ -36,36 +36,42 @@ pub fn main() {
 
     initiate_logger();
 
-    match prepare_router_or_report_failure(
+    let cumulative_success = match prepare_router_or_report_failure(
         test_port,
-        Box::new(test_pcp),
-        Box::new(test_pmp),
-        Box::new(test_igdp),
+        manual_port,
+        vec![
+            Box::new(test_pcp),
+            Box::new(test_pmp),
+            Box::new(test_igdp),
+        ],
     ) {
-        Ok(mut first_level) => {
+        Ok(parameter_clusters) => {
             let server_address =
                 SocketAddr::from_str(SERVER_SOCKET_ADDRESS).expect("server address in bad format");
-            let success = researcher_with_probe(
-                &mut stdout,
-                &mut stderr,
-                server_address,
-                &mut first_level,
-                5000,
-            );
-            let closing_result = close_exposed_port(&mut stdout, &mut stderr, first_level);
-            match (success, closing_result) {
-                (true, Ok(_)) => std::process::exit(0),
-                (true, Err(_)) => std::process::exit(1),
-                (false, Ok(_)) => std::process::exit(1),
-                (false, Err(_)) => std::process::exit(1),
-            }
+            parameter_clusters.into_iter().map (|mut parameter_cluster| {
+                let success = researcher_with_probe(
+                    &mut stdout,
+                    &mut stderr,
+                    server_address,
+                    &mut parameter_cluster,
+                    5000,
+                );
+                let closing_result = close_exposed_port(&mut stdout, &mut stderr, parameter_cluster);
+                match (success, closing_result) {
+                    (true, Ok(_)) => true,
+                    _ => false,
+                }
+            })
+            .any (|flag| flag)
         }
 
         Err(e) => {
             e.into_iter()
                 .for_each(|s| stderr.write_all(s.as_bytes()).expect("write_all failed"));
             stderr.flush().expect("failed to flush stderr");
-            std::process::exit(1)
+            false
         }
-    }
+    };
+
+    std::process::exit (if cumulative_success {0} else {1})
 }

@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor, Method};
 use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
@@ -168,6 +168,9 @@ impl Transactor for IgdpTransactor {
             Err(e) => Err(AutomapError::DeleteMappingError(format!("{:?}", e))),
         }
     }
+
+    fn method(&self) -> Method {Method::Igdp}
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -208,6 +211,7 @@ mod tests {
     use std::net::Ipv6Addr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use crate::comm_layer::Method;
 
     struct GatewayFactoryMock {
         make_params: Arc<Mutex<Vec<SearchOptions>>>,
@@ -339,6 +343,15 @@ mod tests {
             self.remove_port_results.borrow_mut().push(result);
             self
         }
+    }
+
+    #[test]
+    fn knows_its_method() {
+        let subject = IgdpTransactor::new();
+
+        let method = subject.method();
+
+        assert_eq! (method, Method::Igdp);
     }
 
     #[test]

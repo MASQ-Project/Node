@@ -3,7 +3,7 @@
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
 };
-use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor, Method};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
@@ -76,6 +76,9 @@ impl Transactor for PcpTransactor {
             code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
         }
     }
+
+    fn method(&self) -> Method {Method::Pcp}
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -179,7 +182,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::mocks::{
         FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
     };
-    use crate::comm_layer::LocalIpFinder;
+    use crate::comm_layer::{LocalIpFinder, Method};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
@@ -213,6 +216,15 @@ mod tests {
             self.make_results.borrow_mut().push(result);
             self
         }
+    }
+
+    #[test]
+    fn knows_its_method() {
+        let subject = PcpTransactor::default();
+
+        let method = subject.method();
+
+        assert_eq! (method, Method::Pcp);
     }
 
     #[test]

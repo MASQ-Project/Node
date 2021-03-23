@@ -86,13 +86,6 @@ pub fn to_string_s(data: &[u8]) -> String {
     }
 }
 
-pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
-    let mut result = vec![];
-    result.append(&mut source);
-    result.push(item);
-    result
-}
-
 pub static NODE_DESCRIPTOR_DELIMITERS: [char; 4] = ['_', '@', ':', ':'];
 
 pub fn node_descriptor_delimiter(chain_id: u8) -> char {

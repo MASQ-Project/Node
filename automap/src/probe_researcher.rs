@@ -1,16 +1,19 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::automap_core_functions::{remove_firewall_hole, remove_permanent_firewall_hole};
-use crate::comm_layer::Transactor;
-use rand::{thread_rng, Rng};
+use std::{thread};
 use std::cell::Cell;
-use std::fmt::{Display, Formatter};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::ops::Add;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use std::{fmt, thread};
+
+use rand::{Rng, thread_rng};
+
+use masq_lib::utils::plus;
+
+use crate::automap_core_functions::{remove_firewall_hole, remove_permanent_firewall_hole};
+use crate::comm_layer::{Method, Transactor};
 
 //so far, println!() is safer for testing, with immediate feedback
 #[allow(clippy::result_unit_err)]
@@ -20,93 +23,57 @@ pub fn close_exposed_port(
     params: FirstSectionData,
 ) -> Result<(), ()> {
     println!("Preparation for closing the forwarded port");
-    match params.method {
-        Method::Pmp | Method::Pcp | Method::Igdp(false) => {
-            remove_firewall_hole(stdout, stderr, params)
-        }
-        Method::Igdp(true) => remove_permanent_firewall_hole(stdout, stderr, params),
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub enum Method {
-    Pmp,
-    Pcp,
-    Igdp(bool),
-}
-
-impl Display for Method {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Method::Pmp => write!(f, "PMP protocol"),
-            Method::Pcp => write!(f, "PCP protocol"),
-            Method::Igdp(_flag) => write!(f, "IGDP protocol"),
-        }
+    match params.permanent_only {
+        None => unimplemented!(),
+        Some (false) => remove_firewall_hole(stdout, stderr, params),
+        Some (true) => remove_permanent_firewall_hole(stdout, stderr, params),
     }
 }
 
 //it was meant to be prepared for eventual collecting of errors but now it is ended with a merge and a single message
 #[allow(clippy::type_complexity)]
 pub fn prepare_router_or_report_failure(
-    test_port: Option<u16>,
-    test_pcp: Box<dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
-    test_pmp: Box<dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>), String>>,
-    test_igdp: Box<
-        dyn FnOnce(Option<u16>) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>,
-    >,
-) -> Result<FirstSectionData, Vec<String>> {
-    let mut collector: Vec<String> = vec![];
-    match test_pcp(test_port) {
-        Ok((ip, port, transactor)) => {
-            return Ok(FirstSectionData {
-                method: Method::Pcp,
-                ip,
-                port,
-                transactor,
-            })
+    test_port: u16,
+    manual_port: bool,
+    testers: Vec<Box<dyn FnOnce(u16, bool) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>>,
+) -> Result<Vec<FirstSectionData>, Vec<String>> {
+    let results = testers.into_iter().map (|tester| {
+        match tester(test_port, manual_port) {
+            Ok((ip, port, transactor, permanent_only)) => {
+                Ok(FirstSectionData {
+                    method: transactor.method(),
+                    permanent_only: Some(permanent_only),
+                    ip,
+                    manual_port,
+                    port,
+                    transactor,
+                })
+            }
+            Err(e) => Err(e),
         }
-        Err(e) => collector.push(e),
-    };
-    match test_pmp(test_port) {
-        Ok((ip, port, transactor)) => {
-            return Ok(FirstSectionData {
-                method: Method::Pmp,
-                ip,
-                port,
-                transactor,
-            })
+    })
+    .collect::<Vec<Result<FirstSectionData, String>>>();
+    let (successes, _failures) = results.into_iter().fold ((vec![], vec![]), |so_far, result| {
+        match result {
+            Ok(success) => (plus(so_far.0, success), so_far.1),
+            Err(failure) => (so_far.0, plus (so_far.1, failure)),
         }
-        Err(e) => collector.push(e),
-    };
-    match test_igdp(test_port) {
-        Ok((ip, port, transactor, permanent)) => {
-            return Ok(FirstSectionData {
-                method: Method::Igdp(permanent),
-                ip,
-                port,
-                transactor,
-            })
-        }
-        Err(e) => collector.push(e),
-    };
-    if collector.len() == 3 {
+    });
+    if successes.is_empty() {
         //this should be reworked in the future, processing the errors with more care
-        collector.clear();
-        collector.push(
-            "\nNeither a PCP, PMP or IGDP protocol is being detected on your router \
-         or something is wrong. \n\n"
-                .to_string(),
-        );
-        Err(collector)
+        Err (vec!["\nNeither a PCP, PMP or IGDP protocol is being detected on your router \
+         or something is wrong. \n\n".to_string()])
     } else {
-        panic!("shouldn't happen")
+        Ok(successes)
     }
 }
 
 pub struct FirstSectionData {
     pub method: Method,
+    pub permanent_only: Option<bool>,
     pub ip: IpAddr,
     pub port: u16,
+    pub manual_port: bool,
     pub transactor: Box<dyn Transactor>,
 }
 
@@ -289,35 +256,41 @@ fn generate_nonce() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use crate::comm_layer::pmp::PmpTransactor;
-    use crate::probe_researcher::mock_tools::{
-        mock_router_common_test_finding_ip_and_doing_mapping, mock_router_common_test_unsuccessful,
-        mock_router_igdp_test_unsuccessful, test_stream_acceptor_and_probe,
-        test_stream_acceptor_and_probe_8875_imitator, u16_to_byte_array, MockStream,
-    };
-    use crate::probe_researcher::{
-        deploy_background_listener, generate_nonce, prepare_router_or_report_failure,
-        researcher_with_probe, FirstSectionData, Method,
-    };
-    use masq_lib::utils::{find_free_port, localhost};
     use std::io::{ErrorKind, Read};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
     use std::str::FromStr;
     use std::thread;
     use std::time::Duration;
 
+    use masq_lib::utils::{find_free_port, localhost};
+
+    use crate::comm_layer::Method;
+    use crate::comm_layer::pmp::PmpTransactor;
+    use crate::probe_researcher::{
+        deploy_background_listener, FirstSectionData, generate_nonce,
+        prepare_router_or_report_failure, researcher_with_probe,
+    };
+    use crate::probe_researcher::mock_tools::{
+        mock_router_common_test_finding_ip_and_doing_mapping, mock_router_common_test_unsuccessful,
+        mock_router_igdp_test_unsuccessful, MockStream,
+        test_stream_acceptor_and_probe, test_stream_acceptor_and_probe_8875_imitator, u16_to_byte_array,
+    };
+
     #[test]
     fn prepare_router_or_report_failure_retrieves_ip() {
         let result = prepare_router_or_report_failure(
-            None,
-            Box::new(mock_router_common_test_unsuccessful),
-            Box::new(mock_router_common_test_finding_ip_and_doing_mapping),
-            Box::new(mock_router_igdp_test_unsuccessful),
+            1234,
+            true,
+            vec![
+                Box::new(mock_router_common_test_unsuccessful),
+                Box::new(mock_router_common_test_finding_ip_and_doing_mapping),
+                Box::new(mock_router_igdp_test_unsuccessful),
+            ]
         );
 
         //sadly not all of those types implementing Transactor can implement PartialEq each
         assert!(result.is_ok());
-        let unwrapped_result = result.unwrap();
+        let unwrapped_result = result.unwrap().remove(0);
         assert_eq!(unwrapped_result.ip, IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)));
         assert_eq!(unwrapped_result.method, Method::Pmp);
         assert_eq!(unwrapped_result.port, 4444);
@@ -331,10 +304,12 @@ mod tests {
     #[test]
     fn prepare_router_or_report_failure_reports_of_accumulated_errors() {
         let result = prepare_router_or_report_failure(
-            None,
-            Box::new(mock_router_common_test_unsuccessful),
-            Box::new(mock_router_common_test_unsuccessful),
-            Box::new(mock_router_igdp_test_unsuccessful),
+            1234,
+            true, vec![
+                Box::new(mock_router_common_test_unsuccessful),
+                Box::new(mock_router_common_test_unsuccessful),
+                Box::new(mock_router_igdp_test_unsuccessful),
+            ]
         );
 
         assert_eq!(
@@ -459,8 +434,10 @@ mod tests {
         let port = find_free_port();
         let mut parameters = FirstSectionData {
             method: Method::Pmp,
+            permanent_only: None,
             ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
             port,
+            manual_port: false,
             transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = SocketAddr::from_str("0.0.0.0:7010").unwrap();
@@ -516,8 +493,10 @@ mod tests {
 
         let mut parameters = FirstSectionData {
             method: Method::Pmp,
+            permanent_only: None,
             ip: localhost(),
             port: find_free_port(),
+            manual_port: false,
             transactor: Box::new(PmpTransactor::default()),
         };
 
@@ -547,28 +526,34 @@ mod tests {
 }
 
 pub mod mock_tools {
-    use super::*;
-    use crate::comm_layer::pmp::PmpTransactor;
     use std::io::IoSlice;
 
+    use crate::comm_layer::pmp::PmpTransactor;
+
+    use super::*;
+
     pub fn mock_router_common_test_finding_ip_and_doing_mapping(
-        _port: Option<u16>,
-    ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
+        _port: u16,
+        _manual_port: bool,
+    ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Ok((
             IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
             4444,
             Box::new(PmpTransactor::new()),
+            false,
         ))
     }
 
     pub fn mock_router_common_test_unsuccessful(
-        _port: Option<u16>,
-    ) -> Result<(IpAddr, u16, Box<dyn Transactor>), String> {
+        _port: u16,
+        _manual_port: bool,
+    ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
 
     pub fn mock_router_igdp_test_unsuccessful(
-        _port: Option<u16>,
+        _port: u16,
+        _manual_port: bool,
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Err(String::from("Test ended unsuccessfully"))
     }

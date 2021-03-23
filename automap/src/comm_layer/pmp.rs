@@ -3,7 +3,7 @@
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
 };
-use crate::comm_layer::{AutomapError, Transactor};
+use crate::comm_layer::{AutomapError, Transactor, Method};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
 use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
@@ -84,6 +84,8 @@ impl Transactor for PmpTransactor {
         Ok(())
     }
 
+    fn method(&self) -> Method {Method::Pmp}
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -155,6 +157,16 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use crate::comm_layer::Method;
+
+    #[test]
+    fn knows_its_method() {
+        let subject = PmpTransactor::new();
+
+        let method = subject.method();
+
+        assert_eq! (method, Method::Pmp);
+    }
 
     #[test]
     fn transact_handles_socket_binding_error() {

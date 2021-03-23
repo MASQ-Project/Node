@@ -94,6 +94,13 @@ where
     }
 }
 
+pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
+    let mut result = vec![];
+    result.append(&mut source);
+    result.push(item);
+    result
+}
+
 pub fn running_test() {
     unsafe {
         RUNNING_TEST = true;

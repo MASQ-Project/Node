@@ -2,17 +2,19 @@
 
 #[cfg(test)]
 mod integration {
-
-    use crate::comm_layer::pmp::PmpTransactor;
-    use crate::probe_researcher::mock_tools::MockStream;
-    use crate::probe_researcher::{researcher_with_probe, FirstSectionData, Method};
-    use masq_lib::utils::find_free_port;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::thread;
     use std::time::Duration;
 
-    //each of these tests requires the real server to be running
+    use masq_lib::utils::find_free_port;
+
+    use crate::comm_layer::Method;
+    use crate::comm_layer::pmp::PmpTransactor;
+    use crate::probe_researcher::{FirstSectionData, researcher_with_probe};
+    use crate::probe_researcher::mock_tools::MockStream;
+
+//each of these tests requires the real server to be running
 
     #[test]
     #[ignore]
@@ -21,8 +23,10 @@ mod integration {
         let mut stderr = MockStream::new();
         let mut transferred_parameters = FirstSectionData {
             method: Method::Pmp,
+            permanent_only: None,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: find_free_port(),
+            manual_port: false,
             transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = SocketAddr::from_str("127.0.0.1:7005").unwrap();
@@ -48,13 +52,15 @@ mod integration {
 
     #[test]
     #[ignore]
-    fn researcher_recives_a_message_about_failure_from_the_server_integration() {
+    fn researcher_receives_a_message_about_failure_from_the_server_integration() {
         let mut stdout = MockStream::new();
         let mut stderr = MockStream::new();
         let mut transfered_parameters = FirstSectionData {
             method: Method::Pmp,
+            permanent_only: None,
             ip: IpAddr::V4(Ipv4Addr::from_str("100.0.0.50").unwrap()),
             port: 3545,
+            manual_port: true,
             transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = SocketAddr::from_str("127.0.0.1:7005").unwrap();
