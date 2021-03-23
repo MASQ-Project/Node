@@ -377,50 +377,6 @@ masq>";
         )
     }
 
-    #[test]
-    fn mixing_stdout_works() {
-        let (tx, rv) = unbounded();
-        let mut stdout = MixingStdout::new(tx);
-        let mut stdout_clone = stdout.clone();
-        let mut whole_text_buffered = String::new();
-        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
-        let plus_own = "+".repeat(13);
-        let dash_own = "-".repeat(13);
-        let dashes = dash_own.as_str();
-        let handle = thread::spawn(move || {
-            let pluses = plus_own.as_str();
-            sync_tx.send(()).unwrap();
-            writeln!(stdout_clone, "{}", pluses).unwrap();
-            thread::sleep(Duration::from_millis(1));
-            writeln!(stdout_clone, "{}", pluses).unwrap();
-            thread::sleep(Duration::from_millis(1));
-            writeln!(stdout_clone, "{}", pluses).unwrap();
-            thread::sleep(Duration::from_millis(1));
-            writeln!(stdout_clone, "{}", pluses).unwrap();
-            thread::sleep(Duration::from_millis(1));
-            writeln!(stdout_clone, "{}", pluses).unwrap();
-        });
-        sync_rx.recv().unwrap();
-        thread::sleep(Duration::from_millis(1));
-        write!(stdout, "{}", dashes).unwrap();
-        thread::sleep(Duration::from_millis(1));
-        write!(stdout, "{}", dashes).unwrap();
-        thread::sleep(Duration::from_millis(1));
-        write!(stdout, "{}", dashes).unwrap();
-
-        handle.join().unwrap();
-
-        (0..9).for_each(|_| whole_text_buffered.push_str(&rv.try_recv().unwrap_or(String::new())));
-
-        assert!(
-            !whole_text_buffered.contains(&"-".repeat(39)),
-            "{}",
-            whole_text_buffered
-        );
-        assert!(whole_text_buffered.contains(&"-".repeat(13)));
-        assert!(whole_text_buffered.contains(&"+".repeat(13)));
-    }
-
     fn test_generic_for_handle_broadcast<T, U>(
         broadcast_handle: T,
         broadcast_message_body: U,
@@ -469,7 +425,7 @@ masq>";
             asterisks_count
         );
 
-        //synchronized part proving that the broadcast print would be messed without synchronization
+        //unsynchronized part proving that the broadcast print would be messed without synchronization
         let full_stdout_output_without_sync = background_thread_making_interferences(
             false,
             &mut stdout,
@@ -486,13 +442,12 @@ masq>";
             .collect::<String>();
         let incomplete_row = prefabricated_string
             .split(' ')
-            .find(|row| !row.contains(&"*".repeat(30)));
+            .find(|row| !row.contains(&"*".repeat(30)) && row.contains("*"));
         assert!(
             incomplete_row.is_some(),
             "There mustn't be 30 asterisks together at one of these: {}",
             full_stdout_output_without_sync
         );
-
         let asterisks_count = full_stdout_output_without_sync
             .chars()
             .filter(|char| *char == '*')
