@@ -9,7 +9,7 @@ use std::str::FromStr;
 pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     let output = match command.execute() {
         Ok(stdout) => stdout,
-        Err(stderr) => return Err(AutomapError::OSCommandError(stderr)),
+        Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
     };
     let address_opt = output
         .split('\n')
@@ -90,7 +90,7 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
         assert_eq!(
             result,
-            Err(AutomapError::OSCommandError("Booga!".to_string()))
+            Err(AutomapError::ProtocolError("Booga!".to_string()))
         )
     }
 

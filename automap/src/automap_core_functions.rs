@@ -150,7 +150,7 @@ fn poke_firewall_hole(
     }
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), test_port);
     let _socket =
-        match UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), test_port)) {
+        match UdpSocket::bind(socket_addr) {
             Ok(s) => s,
             Err(e) => {
                 info!("Failed to open local port {}; giving up. ({:?})", test_port, e);
@@ -175,7 +175,18 @@ fn poke_firewall_hole(
                 timer.ms(),
                 delay
             );
-            (test_port, status.succeed())
+            (test_port, status.succeed().permanent_only(false))
+        }
+        Err(e) if e == AutomapError::PermanentLeasesOnly => {
+            let warning = format!(
+                "{} detected but this router doesn't like keeping track of holes and closing them on a schedule. We'll try a permanent one.",
+                transactor.method()
+            );
+            println!("{}", warning);
+            warn!("{}", warning);
+            let mut out_status = status.clone();
+            out_status.cumulative_success = true; // adjustment for retry
+            poke_permanent_firewall_hole(test_port, out_status, router_ip, transactor)
         }
         Err(e) => {
             info!("...failed after {}: {:?}", timer.ms(), e);
@@ -220,7 +231,7 @@ fn poke_permanent_firewall_hole(
                 timer.ms(),
                 delay
             );
-            (test_port, status.succeed())
+            (test_port, status.succeed().permanent_only(true))
         }
         Err(e) => {
             info!("...failed after {}: {:?}", timer.ms(), e);
@@ -236,45 +247,34 @@ pub fn remove_firewall_hole(
     params: FirstSectionData,
 ) -> Result<(), ()> {
     info!("Removing the port-{} hole in the firewall...", params.port);
+    let permanent_only = params.permanent_only.expect("permanent_only should be set by now");
     let timer = Timer::new();
     match params.transactor.delete_mapping(params.ip, params.port) {
         Ok(_) => {
-            info!("...success after {}!", timer.ms());
+            if permanent_only {
+                info!("...success after {}, but this protocol only works with permanent ports on this router. Argh.", timer.ms());
+            }
+            else {
+                info!("...success after {}!", timer.ms());
+            }
             short_writeln!(stdout, "Port was closed successfully");
             stdout.flush().expect("flush failed");
             Ok(())
         }
         Err(e) => {
-            info!("...failed after {}: {:?} (Note: the hole will disappear on its own in a few seconds.)", timer.ms(), e);
-            short_writeln!(stderr,"Operation failed, but don't worry, the hole will disappear on its own in a few seconds.");
-            stderr.flush().expect("flush failed");
-            Err(())
-        }
-    }
-}
-
-#[allow(clippy::result_unit_err)]
-pub fn remove_permanent_firewall_hole(
-    stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
-    params: FirstSectionData,
-) -> Result<(), ()> {
-    info!("Removing the port-{} hole in the firewall...", params.port);
-    let timer = Timer::new();
-    match params.transactor.delete_mapping(params.ip, params.port) {
-        Ok(_) => {
-            info!("...success after {}, but this protocol only works with permanent ports on this router. Argh.", timer.ms());
-            short_writeln!(stdout, "Port was closed successfully");
-            stdout.flush().expect("flush failed");
-            Ok(())
-        }
-        Err(e) => {
-            warn!("...failed after {}: {:?}", timer.ms(), e);
-            let warning =  format!("You'll need to close  port {} yourself in your router's administration pages. \
+            if permanent_only {
+                warn!("...failed after {}: {:?}", timer.ms(), e);
+                let warning =  format!("You'll need to close  port {} yourself in your router's administration pages. \
             .\nYou may also look into the log. \nSorry...I didn't do it on purpose...",params.port);
-            warn!("{}", warning);
-            short_writeln!(stderr, "{}", warning);
-            stderr.flush().expect("flush failed");
+                warn!("{}", warning);
+                short_writeln!(stderr, "{}", warning);
+                stderr.flush().expect("flush failed");
+            }
+            else {
+                info!("...failed after {}: {:?} (Note: the hole will disappear on its own in a few seconds.)", timer.ms(), e);
+                short_writeln!(stderr,"Operation failed, but don't worry, the hole will disappear on its own in a few seconds.");
+                stderr.flush().expect("flush failed");
+            }
             Err(())
         }
     }
@@ -302,12 +302,14 @@ impl Timer {
     }
 }
 
+#[derive (Clone)]
 struct TestStatus {
     step: usize,
     step_success: bool,
     step_error: Option<AutomapError>,
     cumulative_success: bool,
     fatal: bool,
+    permanent_only: Option<bool>,
 }
 
 impl TestStatus {
@@ -318,6 +320,7 @@ impl TestStatus {
             step_error: None,
             cumulative_success: true,
             fatal: false,
+            permanent_only: None,
         }
     }
 
@@ -328,6 +331,7 @@ impl TestStatus {
             step_error: None,
             cumulative_success: self.cumulative_success,
             fatal: false,
+            permanent_only: self.permanent_only,
         }
     }
 
@@ -338,6 +342,7 @@ impl TestStatus {
             step_error: Some(error),
             cumulative_success: false,
             fatal: false,
+            permanent_only: self.permanent_only,
         }
     }
 
@@ -348,6 +353,18 @@ impl TestStatus {
             step_error: Some(error),
             cumulative_success: false,
             fatal: true,
+            permanent_only: self.permanent_only,
+        }
+    }
+
+    fn permanent_only(self, permanent_only: bool) -> Self {
+        Self {
+            step: self.step + 1,
+            step_success: false,
+            step_error: self.step_error,
+            cumulative_success: false,
+            fatal: true,
+            permanent_only: Some(permanent_only),
         }
     }
 }

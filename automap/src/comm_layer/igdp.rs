@@ -150,6 +150,7 @@ impl Transactor for IgdpTransactor {
                 "",
             ) {
             Ok(_) => Ok(lifetime / 2),
+            Err(e) if &format!("{:?}", e) == "OnlyPermanentLeasesSupported" => Err (AutomapError::PermanentLeasesOnly),
             Err(e) => Err(AutomapError::AddMappingError(format!("{:?}", e))),
         }
     }
@@ -479,7 +480,25 @@ mod tests {
     }
 
     #[test]
-    fn add_mapping_handles_error() {
+    fn add_mapping_handles_only_permanent_lease_error() {
+        let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
+        let gateway = GatewayWrapperMock::new().add_port_result(Err(AddPortError::OnlyPermanentLeasesSupported));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
+        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
+        let mut subject = IgdpTransactor::new();
+        subject.gateway_factory = Box::new(gateway_factory);
+        subject.local_ip_finder = Box::new(local_ip_finder);
+
+        let result = subject.add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234);
+
+        assert_eq!(
+            result,
+            Err(AutomapError::PermanentLeasesOnly)
+        );
+    }
+
+    #[test]
+    fn add_mapping_handles_other_error() {
         let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
         let gateway = GatewayWrapperMock::new().add_port_result(Err(AddPortError::PortInUse));
         let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));

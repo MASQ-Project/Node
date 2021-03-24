@@ -12,7 +12,7 @@ use rand::{Rng, thread_rng};
 
 use masq_lib::utils::plus;
 
-use crate::automap_core_functions::{remove_firewall_hole, remove_permanent_firewall_hole};
+use crate::automap_core_functions::{remove_firewall_hole};
 use crate::comm_layer::{Method, Transactor};
 
 //so far, println!() is safer for testing, with immediate feedback
@@ -23,11 +23,7 @@ pub fn close_exposed_port(
     params: FirstSectionData,
 ) -> Result<(), ()> {
     println!("Preparation for closing the forwarded port");
-    match params.permanent_only {
-        None => unimplemented!(),
-        Some (false) => remove_firewall_hole(stdout, stderr, params),
-        Some (true) => remove_permanent_firewall_hole(stdout, stderr, params),
-    }
+    remove_firewall_hole(stdout, stderr, params)
 }
 
 //it was meant to be prepared for eventual collecting of errors but now it is ended with a merge and a single message
@@ -53,6 +49,7 @@ pub fn prepare_router_or_report_failure(
         }
     })
     .collect::<Vec<Result<FirstSectionData, String>>>();
+eprintln! ("Results: {:?}", results);
     let (successes, _failures) = results.into_iter().fold ((vec![], vec![]), |so_far, result| {
         match result {
             Ok(success) => (plus(so_far.0, success), so_far.1),
@@ -68,6 +65,7 @@ pub fn prepare_router_or_report_failure(
     }
 }
 
+#[derive (Debug)]
 pub struct FirstSectionData {
     pub method: Method,
     pub permanent_only: Option<bool>,

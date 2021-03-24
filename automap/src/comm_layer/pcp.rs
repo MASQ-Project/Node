@@ -3,7 +3,7 @@
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
 };
-use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor, Method};
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor, Method, AutomapErrorCause};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
@@ -137,18 +137,18 @@ impl PcpTransactor {
         };
         match socket.set_read_timeout(Some(Duration::from_secs(3))) {
             Ok(_) => (),
-            Err(e) => return Err(AutomapError::SocketPrepError(format!("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketPrepError(AutomapErrorCause::Unknown(format!("{:?}", e)))),
         };
         match socket.send_to(&buffer[0..request_len], SocketAddr::new(router_ip, 5351)) {
             Ok(_) => (),
-            Err(e) => return Err(AutomapError::SocketSendError(format!("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(format!("{:?}", e)))),
         };
         let response = match socket.recv_from(&mut buffer) {
             Ok((len, _peer_addr)) => match PcpPacket::try_from(&buffer[0..len]) {
                 Ok(pkt) => pkt,
                 Err(e) => return Err(AutomapError::PacketParseError(e)),
             },
-            Err(e) => return Err(AutomapError::SocketReceiveError(format!("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketReceiveError(AutomapErrorCause::Unknown(format!("{:?}", e)))),
         };
         if response.direction != Direction::Response {
             return Err(AutomapError::ProtocolError(
@@ -182,7 +182,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::mocks::{
         FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
     };
-    use crate::comm_layer::{LocalIpFinder, Method};
+    use crate::comm_layer::{LocalIpFinder, Method, AutomapErrorCause};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
@@ -288,7 +288,7 @@ mod tests {
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq!(result, Err(AutomapError::SocketPrepError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketPrepError(AutomapErrorCause::Unknown(io_error_str))));
     }
 
     #[test]
@@ -305,7 +305,7 @@ mod tests {
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq!(result, Err(AutomapError::SocketSendError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(io_error_str))));
     }
 
     #[test]
@@ -323,7 +323,7 @@ mod tests {
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq!(result, Err(AutomapError::SocketReceiveError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketReceiveError(AutomapErrorCause::Unknown(io_error_str))));
     }
 
     #[test]

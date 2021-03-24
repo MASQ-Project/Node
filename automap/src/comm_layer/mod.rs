@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::any::Any;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Debug};
 use std::fmt;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
@@ -18,7 +18,7 @@ pub enum AutomapErrorCause {
     NetworkConfiguration,
     ProtocolNotImplemented,
     ProtocolFailed,
-    Unknown,
+    Unknown(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -26,23 +26,39 @@ pub enum AutomapError {
     NoLocalIpAddress,
     CantFindDefaultGateway,
     IPv6Unsupported(Ipv6Addr),
-    FindRouterError(String),
+    FindRouterError(String, AutomapErrorCause),
     GetPublicIpError(String),
     SocketBindingError(String, SocketAddr),
-    SocketPrepError(String),
-    SocketSendError(String),
-    SocketReceiveError(String),
+    SocketPrepError(AutomapErrorCause),
+    SocketSendError(AutomapErrorCause),
+    SocketReceiveError(AutomapErrorCause),
     PacketParseError(ParseError),
     ProtocolError(String),
+    PermanentLeasesOnly,
     AddMappingError(String),
     DeleteMappingError(String),
     TransactionFailure(String),
-    OSCommandError(String),
 }
 
 impl AutomapError {
     pub fn cause(&self) -> AutomapErrorCause {
-        unimplemented!()
+        match self {
+            AutomapError::NoLocalIpAddress => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::CantFindDefaultGateway => AutomapErrorCause::ProtocolFailed,
+            AutomapError::IPv6Unsupported(_) => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::FindRouterError(_, aec) => aec.clone(),
+            AutomapError::GetPublicIpError(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::SocketBindingError(_, _) => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::SocketPrepError(aec) => aec.clone(),
+            AutomapError::SocketSendError(aec) => aec.clone(),
+            AutomapError::SocketReceiveError(aec) => aec.clone(),
+            AutomapError::PacketParseError(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::ProtocolError(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::PermanentLeasesOnly => AutomapErrorCause::Unknown("".to_string()),
+            AutomapError::AddMappingError(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::DeleteMappingError(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
+        }
     }
 }
 
@@ -58,6 +74,12 @@ pub trait Transactor {
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
     fn method(&self) -> Method;
     fn as_any(&self) -> &dyn Any;
+}
+
+impl Debug for dyn Transactor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} Transactor", self.method())
+    }
 }
 
 pub trait LocalIpFinder {
@@ -89,6 +111,23 @@ impl LocalIpFinderReal {
     }
 }
 
+#[derive(PartialEq, Debug)]
+pub enum Method {
+    Pmp,
+    Pcp,
+    Igdp,
+}
+
+impl Display for Method {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Method::Pmp => write!(f, "PMP protocol"),
+            Method::Pcp => write!(f, "PCP protocol"),
+            Method::Igdp => write!(f, "IGDP protocol"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -117,21 +156,32 @@ mod tests {
             self
         }
     }
-}
 
-#[derive(PartialEq, Debug)]
-pub enum Method {
-    Pmp,
-    Pcp,
-    Igdp,
-}
+    #[test]
+    fn causes_work() {
+        let errors_and_expectations = vec![
+            (AutomapError::NoLocalIpAddress, AutomapErrorCause::NetworkConfiguration),
+            (AutomapError::CantFindDefaultGateway, AutomapErrorCause::ProtocolFailed),
+            (AutomapError::IPv6Unsupported(Ipv6Addr::from_str("::").unwrap()), AutomapErrorCause::NetworkConfiguration),
+            (AutomapError::FindRouterError(String::new(), AutomapErrorCause::NetworkConfiguration), AutomapErrorCause::NetworkConfiguration),
+            (AutomapError::GetPublicIpError(String::new()), AutomapErrorCause::ProtocolFailed),
+            (AutomapError::SocketBindingError(String::new(), SocketAddr::from_str("1.2.3.4:1234").unwrap()), AutomapErrorCause::NetworkConfiguration),
+            (AutomapError::SocketPrepError(AutomapErrorCause::Unknown("Booga".to_string())), AutomapErrorCause::Unknown("Booga".to_string())),
+            (AutomapError::SocketSendError(AutomapErrorCause::Unknown("Booga".to_string())), AutomapErrorCause::Unknown("Booga".to_string())),
+            (AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("Booga".to_string())), AutomapErrorCause::Unknown("Booga".to_string())),
+            (AutomapError::PacketParseError(ParseError::WrongVersion(3)), AutomapErrorCause::ProtocolFailed),
+            (AutomapError::ProtocolError(String::new()), AutomapErrorCause::ProtocolFailed),
+            (AutomapError::PermanentLeasesOnly, AutomapErrorCause::Unknown("".to_string())),
+            (AutomapError::AddMappingError(String::new()), AutomapErrorCause::ProtocolFailed),
+            (AutomapError::DeleteMappingError(String::new()), AutomapErrorCause::ProtocolFailed),
+            (AutomapError::TransactionFailure(String::new()), AutomapErrorCause::ProtocolFailed),
+        ];
 
-impl Display for Method {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Method::Pmp => write!(f, "PMP protocol"),
-            Method::Pcp => write!(f, "PCP protocol"),
-            Method::Igdp => write!(f, "IGDP protocol"),
-        }
+        let errors_and_actuals = errors_and_expectations
+            .iter()
+            .map(|(error, _)| (error.clone(), error.cause()))
+            .collect::<Vec<(AutomapError, AutomapErrorCause)>>();
+
+        assert_eq! (errors_and_actuals, errors_and_expectations);
     }
 }

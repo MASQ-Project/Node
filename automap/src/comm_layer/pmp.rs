@@ -3,7 +3,7 @@
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
 };
-use crate::comm_layer::{AutomapError, Transactor, Method};
+use crate::comm_layer::{AutomapError, Transactor, Method, AutomapErrorCause};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
 use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
@@ -124,14 +124,14 @@ impl PmpTransactor {
             }
         };
         if let Err(e) = socket.set_read_timeout(Some(Duration::from_secs(3))) {
-            return Err(AutomapError::SocketPrepError(format!("{:?}", e)));
+            return Err(AutomapError::SocketPrepError(AutomapErrorCause::Unknown(format!("{:?}", e))));
         }
         if let Err(e) = socket.send_to(&buffer[0..len], SocketAddr::new(router_ip, 5351)) {
-            return Err(AutomapError::SocketSendError(format!("{:?}", e)));
+            return Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(format!("{:?}", e))));
         }
         let (len, _) = match socket.recv_from(&mut buffer) {
             Ok(len) => len,
-            Err(e) => return Err(AutomapError::SocketReceiveError(format!("{:?}", e))),
+            Err(e) => return Err(AutomapError::SocketReceiveError(AutomapErrorCause::Unknown(format!("{:?}", e)))),
         };
         let response = match PmpPacket::try_from(&buffer[0..len]) {
             Ok(pkt) => pkt,
@@ -157,7 +157,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use crate::comm_layer::Method;
+    use crate::comm_layer::{Method, AutomapErrorCause};
 
     #[test]
     fn knows_its_method() {
@@ -199,7 +199,7 @@ mod tests {
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
-        assert_eq!(result, Err(AutomapError::SocketPrepError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketPrepError(AutomapErrorCause::Unknown(io_error_str))));
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
-        assert_eq!(result, Err(AutomapError::SocketSendError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(io_error_str))));
     }
 
     #[test]
@@ -232,7 +232,7 @@ mod tests {
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
-        assert_eq!(result, Err(AutomapError::SocketReceiveError(io_error_str)));
+        assert_eq!(result, Err(AutomapError::SocketReceiveError(AutomapErrorCause::Unknown(io_error_str))));
     }
 
     #[test]
