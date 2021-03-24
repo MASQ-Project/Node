@@ -139,11 +139,10 @@ impl StreamFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::TestStreamFactory;
+    use crate::test_utils::mocks::{MixingStdout, TestStreamFactory};
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
-    use std::fmt::Arguments;
     use std::time::Duration;
 
     #[test]
@@ -457,36 +456,6 @@ masq>";
             "The count of asterisks isn't 90 but: {}",
             asterisks_count
         );
-    }
-
-    #[derive(Clone)]
-    struct MixingStdout {
-        channel_half: Sender<String>,
-    }
-
-    impl MixingStdout {
-        fn new(sender: Sender<String>) -> Self {
-            MixingStdout {
-                channel_half: sender,
-            }
-        }
-    }
-
-    impl Write for MixingStdout {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.channel_half
-                .send(std::str::from_utf8(buf).unwrap().to_string())
-                .unwrap();
-            Ok(0)
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
-            self.channel_half.send(fmt.to_string()).unwrap();
-            Ok(())
-        }
     }
 
     fn background_thread_making_interferences<U, T>(

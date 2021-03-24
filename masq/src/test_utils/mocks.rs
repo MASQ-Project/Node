@@ -10,6 +10,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
+use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -384,5 +385,35 @@ impl TestStreamFactoryHandle {
             }
         }
         accum
+    }
+}
+
+#[derive(Clone)]
+pub struct MixingStdout {
+    channel_half: Sender<String>,
+}
+
+impl MixingStdout {
+    pub fn new(sender: Sender<String>) -> Self {
+        MixingStdout {
+            channel_half: sender,
+        }
+    }
+}
+
+impl Write for MixingStdout {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.channel_half
+            .send(std::str::from_utf8(buf).unwrap().to_string())
+            .unwrap();
+        Ok(0)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
+        self.channel_half.send(fmt.to_string()).unwrap();
+        Ok(())
     }
 }

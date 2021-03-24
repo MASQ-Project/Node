@@ -185,7 +185,7 @@ mod tests {
     use masq_lib::messages::UiShutdownRequest;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, FakeStreamHolder};
     use std::cell::RefCell;
-    use std::io::ErrorKind;
+    use std::io::{ErrorKind};
     use std::sync::{Arc, Mutex};
 
     struct BufReadFactoryMock {
