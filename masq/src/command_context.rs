@@ -130,7 +130,7 @@ impl CommandContextReal {
         let foreground_output_synchronizer = Arc::new(Mutex::new(()));
         let background_output_synchronizer = Arc::clone(&foreground_output_synchronizer);
         let mut connection = ConnectionManager::new();
-        let broadcast_handler = BroadcastHandlerReal::new(Some(background_output_synchronizer));
+        let broadcast_handler = BroadcastHandlerReal::new(Some(background_output_synchronizer));  //redesign it so it is without the option
         let broadcast_handle = broadcast_handler.start(broadcast_stream_factory);
         match connection.connect(daemon_ui_port, broadcast_handle, REDIRECT_TIMEOUT_MILLIS) {
             Ok(_) => Ok(Self {
