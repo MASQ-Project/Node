@@ -26,7 +26,7 @@ mod integration {
             permanent_only: None,
             ip: IpAddr::V4(Ipv4Addr::from_str("127.0.0.1").unwrap()),
             port: find_free_port(),
-            manual_port: false,
+            port_is_manual: false,
             transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = SocketAddr::from_str("127.0.0.1:7005").unwrap();
@@ -60,7 +60,7 @@ mod integration {
             permanent_only: None,
             ip: IpAddr::V4(Ipv4Addr::from_str("100.0.0.50").unwrap()),
             port: 3545,
-            manual_port: true,
+            port_is_manual: true,
             transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = SocketAddr::from_str("127.0.0.1:7005").unwrap();

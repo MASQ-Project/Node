@@ -16,7 +16,10 @@ pub fn main() {
     let mut stdout = io::stdout();
     let mut stderr = io::stderr();
 
-    let (test_port, manual_port) = if let Some(value) = std::env::args().skip(1).take(1).find(|_| true)
+    let (test_port, port_is_manual) = if let Some(value) = std::env::args()
+        .skip(1)
+        .take(1)
+        .find(|_| true)
     {
         match value.parse::<u16>() {
             Ok(num) => (num, true),
@@ -30,7 +33,7 @@ pub fn main() {
     };
 
     println!(
-        "\nFor more detailed information of the course of this test, look inside the log.\n\
+        "\nFor more detailed information about the course of this test, look inside the log.\n\
      You can also find warnings or recommendations in it if something is wrong. \n"
     );
 
@@ -38,7 +41,7 @@ pub fn main() {
 
     let cumulative_success = match prepare_router_or_report_failure(
         test_port,
-        manual_port,
+        port_is_manual,
         vec![
             Box::new(test_pcp),
             Box::new(test_pmp),

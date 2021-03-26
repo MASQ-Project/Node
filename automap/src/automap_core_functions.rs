@@ -12,7 +12,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-pub fn test_pcp(test_port: u16, _manual_port: bool) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
+pub fn test_pcp(test_port: u16, _port_is_manual: bool) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
     let transactor = PcpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor, " PCP ");
     let (status, port) = test_common(test_port, status, router_ip, &transactor);
@@ -27,7 +27,7 @@ Either PCP is not implemented on your router or we're not doing it right\n\
     }
 }
 
-pub fn test_pmp(test_port: u16, _manual_port: bool) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
+pub fn test_pmp(test_port: u16, _port_is_manual: bool) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
     let transactor = PmpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor, " PMP ");
     let (status, port) = test_common(test_port, status, router_ip, &transactor);
@@ -44,7 +44,7 @@ Either PMP is not implemented on your router or we're not doing it right\n\
 
 pub fn test_igdp(
     test_port: u16,
-    _manual_port: bool,
+    _port_is_manual: bool,
 ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
     let transactor = IgdpTransactor::default();
     let (router_ip, status) = find_router(TestStatus::new(), &transactor, " IGDP ");
@@ -60,7 +60,6 @@ pub fn test_igdp(
         == &AutomapError::AddMappingError("OnlyPermanentLeasesSupported".to_string())
     {
         let warning = "IGDP detected but this router doesn't like keeping track of holes and closing them on a schedule. We'll try a permanent one.";
-        println!("{}", warning);
         warn!("{}", warning);
         status.cumulative_success = true; // adjustment for retry
         let (port_permanent, status) = poke_permanent_firewall_hole(test_port, status, router_ip, &transactor);
@@ -148,21 +147,23 @@ fn poke_firewall_hole(
     if status.fatal {
         return (0, status);
     }
-    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), test_port);
-    let _socket =
-        match UdpSocket::bind(socket_addr) {
-            Ok(s) => s,
-            Err(e) => {
-                info!("Failed to open local port {}; giving up. ({:?})", test_port, e);
-                return (
-                    test_port,
-                    status.abort(AutomapError::SocketBindingError(
-                        format!("{:?}", e),
-                        socket_addr,
-                    )),
-                );
-            }
-        };
+    {
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), test_port);
+        let _socket =
+            match UdpSocket::bind(socket_addr) {
+                Ok(s) => s,
+                Err(e) => {
+                    info!("Failed to open local port {}; giving up. ({:?})", test_port, e);
+                    return (
+                        test_port,
+                        status.abort(AutomapError::SocketBindingError(
+                            format!("{:?}", e),
+                            socket_addr,
+                        )),
+                    );
+                }
+            };
+    }
     info!(
         "{}. Poking a 3-second hole in the firewall for port {}...",
         status.step, test_port
@@ -185,6 +186,7 @@ fn poke_firewall_hole(
             println!("{}", warning);
             warn!("{}", warning);
             let mut out_status = status.clone();
+            out_status.step += 1;
             out_status.cumulative_success = true; // adjustment for retry
             poke_permanent_firewall_hole(test_port, out_status, router_ip, transactor)
         }
@@ -204,21 +206,6 @@ fn poke_permanent_firewall_hole(
     if status.fatal {
         return (0, status);
     }
-    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), test_port);
-    let _socket =
-        match UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), test_port)) {
-            Ok(s) => s,
-            Err(e) => {
-                info!("Failed to open local port {}; giving up. ({:?})", test_port, e);
-                return (
-                    test_port,
-                    status.abort(AutomapError::SocketBindingError(
-                        format!("{:?}", e),
-                        socket_addr,
-                    )),
-                );
-            }
-        };
     info!(
         "{}. Poking a permanent hole in the firewall for port {}...",
         status.step, test_port
@@ -359,11 +346,11 @@ impl TestStatus {
 
     fn permanent_only(self, permanent_only: bool) -> Self {
         Self {
-            step: self.step + 1,
-            step_success: false,
+            step: self.step,
+            step_success: self.step_success,
             step_error: self.step_error,
-            cumulative_success: false,
-            fatal: true,
+            cumulative_success: self.cumulative_success,
+            fatal: self.fatal,
             permanent_only: Some(permanent_only),
         }
     }

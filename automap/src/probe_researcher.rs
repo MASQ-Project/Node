@@ -30,17 +30,17 @@ pub fn close_exposed_port(
 #[allow(clippy::type_complexity)]
 pub fn prepare_router_or_report_failure(
     test_port: u16,
-    manual_port: bool,
+    port_is_manual: bool,
     testers: Vec<Box<dyn FnOnce(u16, bool) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>>,
 ) -> Result<Vec<FirstSectionData>, Vec<String>> {
     let results = testers.into_iter().map (|tester| {
-        match tester(test_port, manual_port) {
+        match tester(test_port, port_is_manual) {
             Ok((ip, port, transactor, permanent_only)) => {
                 Ok(FirstSectionData {
                     method: transactor.method(),
                     permanent_only: Some(permanent_only),
                     ip,
-                    manual_port,
+                    port_is_manual,
                     port,
                     transactor,
                 })
@@ -49,7 +49,6 @@ pub fn prepare_router_or_report_failure(
         }
     })
     .collect::<Vec<Result<FirstSectionData, String>>>();
-eprintln! ("Results: {:?}", results);
     let (successes, _failures) = results.into_iter().fold ((vec![], vec![]), |so_far, result| {
         match result {
             Ok(success) => (plus(so_far.0, success), so_far.1),
@@ -71,7 +70,7 @@ pub struct FirstSectionData {
     pub permanent_only: Option<bool>,
     pub ip: IpAddr,
     pub port: u16,
-    pub manual_port: bool,
+    pub port_is_manual: bool,
     pub transactor: Box<dyn Transactor>,
 }
 
@@ -144,7 +143,7 @@ pub fn researcher_with_probe(
     .expect("write failed");
 
     let success_sign = Cell::new(false);
-    evaluate_research(
+    request_probe(
         stdout,
         stderr,
         server_address,
@@ -159,7 +158,7 @@ pub fn researcher_with_probe(
     success_sign.take()
 }
 
-pub fn evaluate_research(
+pub fn request_probe(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
     server_address: SocketAddr,
@@ -435,7 +434,7 @@ mod tests {
             permanent_only: None,
             ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
             port,
-            manual_port: false,
+            port_is_manual: false,
             transactor: Box::new(PmpTransactor::default()),
         };
         let server_address = SocketAddr::from_str("0.0.0.0:7010").unwrap();
@@ -494,7 +493,7 @@ mod tests {
             permanent_only: None,
             ip: localhost(),
             port: find_free_port(),
-            manual_port: false,
+            port_is_manual: false,
             transactor: Box::new(PmpTransactor::default()),
         };
 
@@ -532,7 +531,7 @@ pub mod mock_tools {
 
     pub fn mock_router_common_test_finding_ip_and_doing_mapping(
         _port: u16,
-        _manual_port: bool,
+        _port_is_manual: bool,
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Ok((
             IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
@@ -544,14 +543,14 @@ pub mod mock_tools {
 
     pub fn mock_router_common_test_unsuccessful(
         _port: u16,
-        _manual_port: bool,
+        _port_is_manual: bool,
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
 
     pub fn mock_router_igdp_test_unsuccessful(
         _port: u16,
-        _manual_port: bool,
+        _port_is_manual: bool,
     ) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String> {
         Err(String::from("Test ended unsuccessfully"))
     }
