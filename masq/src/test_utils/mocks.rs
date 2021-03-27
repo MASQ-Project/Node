@@ -9,12 +9,14 @@ use crate::communications::broadcast_handler::StreamFactory;
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
-use std::cell::RefCell;
+use std::cell::{RefCell, Cell};
 use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
+use crate::terminal_interface::{TerminalWrapper, TerminalMock};
+use std::borrow::BorrowMut;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -163,7 +165,7 @@ pub struct CommandProcessorMock {
     process_params: Arc<Mutex<Vec<Box<dyn Command>>>>,
     process_results: RefCell<Vec<Result<(), CommandError>>>,
     close_params: Arc<Mutex<Vec<()>>>,
-    synchronizer: RefCell<Arc<Mutex<()>>>,
+    terminal_interface: Vec<TerminalWrapper>,
 }
 
 impl CommandProcessor for CommandProcessorMock {
@@ -176,8 +178,8 @@ impl CommandProcessor for CommandProcessorMock {
         self.close_params.lock().unwrap().push(());
     }
 
-    fn clone_synchronizer(&self) -> Arc<Mutex<()>> {
-        self.synchronizer.borrow().clone()
+    fn clone_terminal_interface(&mut self) -> TerminalWrapper {
+        self.terminal_interface.remove(0)
     }
 }
 
@@ -186,8 +188,8 @@ impl CommandProcessorMock {
         Self::default()
     }
 
-    pub fn insert_synchronizer(self, synchronizer: Arc<Mutex<()>>) -> Self {
-        self.synchronizer.replace(synchronizer);
+    pub fn insert_terminal_interface(mut self, terminal_interface_arc_clone: TerminalWrapper) -> Self {
+        self.terminal_interface.push(terminal_interface_arc_clone);
         self
     }
 

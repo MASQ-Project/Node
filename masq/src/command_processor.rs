@@ -7,6 +7,7 @@ use crate::communications::broadcast_handler::StreamFactory;
 use crate::schema::app;
 use clap::value_t;
 use std::sync::{Arc, Mutex};
+use crate::terminal_interface::{configure_interface, TerminalWrapper};
 
 pub trait CommandProcessorFactory {
     fn make(
@@ -27,7 +28,8 @@ impl CommandProcessorFactory for CommandProcessorFactoryReal {
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         let matches = app().get_matches_from(args);
         let ui_port = value_t!(matches, "ui-port", u16).expect("ui-port is not properly defaulted");
-        match CommandContextReal::new(ui_port, broadcast_stream_factory) {
+        let interface = configure_interface()?;
+        match CommandContextReal::new(interface,ui_port, broadcast_stream_factory) {
             Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
             Err(e) => panic!("Unexpected error: {:?}", e),
@@ -44,7 +46,7 @@ impl CommandProcessorFactoryReal {
 pub trait CommandProcessor {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError>;
     fn close(&mut self);
-    fn clone_synchronizer(&self) -> Arc<Mutex<()>>;
+    fn clone_terminal_interface(&mut self) -> TerminalWrapper;
 }
 
 pub struct CommandProcessorReal {
@@ -54,8 +56,8 @@ pub struct CommandProcessorReal {
 
 impl CommandProcessor for CommandProcessorReal {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
-        let synchronizer = self.context.output_synchronizer.clone();
-        let _lock = synchronizer.lock().unwrap();
+        let synchronizer = self.context.terminal_interface.clone();
+        let _lock = synchronizer.lock();
         command.execute(&mut self.context)
     }
 
@@ -63,8 +65,8 @@ impl CommandProcessor for CommandProcessorReal {
         self.context.close();
     }
 
-    fn clone_synchronizer(&self) -> Arc<Mutex<()>> {
-        self.context.output_synchronizer.clone()
+    fn clone_terminal_interface(&mut self) -> TerminalWrapper {
+        self.context.terminal_interface.clone()
     }
 }
 

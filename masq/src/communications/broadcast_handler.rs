@@ -14,6 +14,7 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use crate::terminal_interface::TerminalWrapper;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
@@ -36,7 +37,7 @@ pub trait BroadcastHandler {
 }
 
 pub struct BroadcastHandlerReal {
-    output_synchronizer: Option<Arc<Mutex<()>>>,
+    terminal_interface: Option<TerminalWrapper>,
 }
 
 impl BroadcastHandler for BroadcastHandlerReal {
@@ -44,13 +45,13 @@ impl BroadcastHandler for BroadcastHandlerReal {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
             let (mut stdout, mut stderr) = stream_factory.make();
-            let synchronizer = self.output_synchronizer.take().unwrap();
+            let terminal_interface = self.terminal_interface.take().unwrap();
             loop {
                 Self::thread_loop_guts(
                     &message_rx,
                     stdout.as_mut(),
                     stderr.as_mut(),
-                    synchronizer.clone(),
+                    terminal_interface.clone(),
                 )
             }
         });
@@ -59,9 +60,9 @@ impl BroadcastHandler for BroadcastHandlerReal {
 }
 
 impl BroadcastHandlerReal {
-    pub fn new(output_synchronizer: Option<Arc<Mutex<()>>>) -> Self {
+    pub fn new(terminal_interface: Option<TerminalWrapper>) -> Self {
         Self {
-            output_synchronizer,
+            terminal_interface,
         }
     }
 
@@ -69,8 +70,9 @@ impl BroadcastHandlerReal {
         message_body_result: Result<MessageBody, RecvError>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        synchronizer: Arc<Mutex<()>>,
+        _terminal_interface: TerminalWrapper, //fix later
     ) {
+        let synchronizer = unimplemented!("rejoin later");
         match message_body_result {
             Err(_) => (), // Receiver died; masq is going down
             Ok(message_body) => {
@@ -103,10 +105,10 @@ impl BroadcastHandlerReal {
         message_rx: &Receiver<MessageBody>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        synchronizer: Arc<Mutex<()>>,
+        terminal_interface: TerminalWrapper,
     ) {
         select! {
-            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,synchronizer),
+            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface),
         }
     }
 }
@@ -144,13 +146,14 @@ mod tests {
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
     use std::time::Duration;
+    use crate::terminal_interface::TerminalMock;
 
     #[test]
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
             values: vec![],
@@ -186,7 +189,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -213,7 +216,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
@@ -236,7 +239,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
         }
@@ -262,7 +265,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(Arc::new(Mutex::new(())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,

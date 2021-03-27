@@ -118,7 +118,7 @@ impl Main {
         processor: &mut dyn CommandProcessor,
         streams: &mut StdStreams<'_>,
     ) -> u8 {
-        let mut line_reader = self.buf_read_factory.make(processor.clone_synchronizer());
+        let mut line_reader = self.buf_read_factory.make(processor.clone_terminal_interface());
         loop {
             let args = match Self::accept_subcommand(&mut line_reader) {
                 Ok(Some(args)) => args,
@@ -475,7 +475,7 @@ mod tests {
         let synchronizer = Arc::new(Mutex::new(()));
         let synchronizer_clone = synchronizer.clone();
         let processor = CommandProcessorMock::new()
-            .insert_synchronizer(synchronizer_clone)
+            .insert_terminal_interface(synchronizer_clone)
             .process_result(Ok(()));
 
         assert_eq!(Arc::strong_count(&synchronizer), 2);

@@ -1,7 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::utils::MASQ_PROMPT;
-use linefeed::Interface;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::cell::RefCell;

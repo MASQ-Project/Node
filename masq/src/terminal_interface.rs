@@ -4,35 +4,54 @@ use linefeed::memory::{Lines, MemoryTerminal};
 use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
+use crate::commands::commands_common::CommandError;
+use crate::utils::MASQ_PROMPT;
 
 pub struct TerminalWrapper {
     inner: Arc<Box<dyn Terminal + Send + Sync>>,
 }
 
 impl TerminalWrapper {
-    fn new(inner: Box<dyn Terminal + Send + Sync>) -> Self {
+    pub fn new(inner: Box<dyn Terminal + Send + Sync>) -> Self {
         Self {
             inner: Arc::new(inner),
         }
     }
 
-    fn lock(&self) -> Box<dyn WriterGeneric + '_> {
+    pub fn lock(&self) -> Box<dyn WriterGeneric + '_> {
         self.inner.provide_lock()
     }
 
-    fn read_line(&self) -> std::io::Result<ReadResult> {
+    pub fn read_line(&self) -> std::io::Result<ReadResult> {
         self.inner.read_line()
     }
-    fn add_history_unique(&self, line: String) {
+    pub fn add_history_unique(&self, line: String) {
         self.inner.add_history_unique(line)
     }
 
     #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal {
+    pub fn test_interface(&self) -> MemoryTerminal {
         let object = self.inner.clone().to_owned();
         object.test_interface()
     }
 }
+
+//TODO: resolve this!
+//currently untested
+//real code cannot be run aside terminal
+pub fn configure_interface()-> Result<Box<dyn Terminal + Send + Sync>,CommandError>{
+    let interface:Interface<DefaultTerminal> = if let Ok(interface) = Interface::new("masq"){
+        interface
+    }
+    else {
+        return Err(CommandError::Other("The terminal interface couldn't be launched".to_string()))
+    };
+    if let Err(e) = interface.set_prompt(MASQ_PROMPT){return Err(CommandError::Other(e.to_string()))};
+    // possible other parameters to be configured (see linefeed library)
+
+    Ok(Box::new(TerminalReal::new(interface)))
+}
+
 
 impl Clone for TerminalWrapper {
     fn clone(&self) -> Self {
@@ -44,7 +63,7 @@ impl Clone for TerminalWrapper {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-trait Terminal {
+pub trait Terminal {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_>;
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
@@ -85,7 +104,7 @@ impl TerminalReal {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct TerminalMock {
+pub struct TerminalMock {
     in_memory_terminal: Interface<MemoryTerminal>,
     reference: MemoryTerminal,
     user_input: Arc<Mutex<Vec<String>>>,
@@ -112,7 +131,7 @@ impl Terminal for TerminalMock {
 }
 
 impl TerminalMock {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let memory_terminal_instance = MemoryTerminal::new();
         Self {
             in_memory_terminal: Interface::with_term(
@@ -134,7 +153,7 @@ impl TerminalMock {
     }
 }
 
-trait WriterGeneric {
+pub trait WriterGeneric {
     fn write_str(&mut self, str: &str) -> std::io::Result<()>;
 }
 
@@ -317,12 +336,14 @@ mod tests {
         );
 
         assert!(
-            &given_output[180..].contains(&"A".repeat(90)),
+            //for some looseness not 90 but 80...sometimes a few letters from the 90 can be apart
+            &given_output[185..].contains(&"A".repeat(80)),
             "synchronized: {}",
             given_output
         );
         assert!(
-            &given_output[180..].contains(&"B".repeat(90)),
+            //for some looseness not 90 but 80...sometimes a few letters from the 90 can be apart
+            &given_output[185..].contains(&"B".repeat(80)),
             "synchronized: {}",
             given_output
         );

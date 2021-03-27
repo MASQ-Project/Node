@@ -12,6 +12,7 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
+use crate::terminal_interface::{TerminalWrapper, Terminal};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContextError {
@@ -66,7 +67,7 @@ pub struct CommandContextReal {
     pub stdin: Box<dyn Read + Send>,
     pub stdout: Box<dyn Write + Send>,
     pub stderr: Box<dyn Write + Send>,
-    pub output_synchronizer: Arc<Mutex<()>>,
+    pub terminal_interface:TerminalWrapper,
 }
 
 impl Debug for CommandContextReal {
@@ -124,13 +125,14 @@ impl CommandContext for CommandContextReal {
 
 impl CommandContextReal {
     pub fn new(
+        interface: Box<dyn Terminal + Send + Sync>,
         daemon_ui_port: u16,
         broadcast_stream_factory: Box<dyn StreamFactory>,
     ) -> Result<Self, ContextError> {
-        let foreground_output_synchronizer = Arc::new(Mutex::new(()));
-        let background_output_synchronizer = Arc::clone(&foreground_output_synchronizer);
+        let foreground_terminal_interface = TerminalWrapper::new(interface);
+        let background_terminal_interface = foreground_terminal_interface.clone();
         let mut connection = ConnectionManager::new();
-        let broadcast_handler = BroadcastHandlerReal::new(Some(background_output_synchronizer)); //redesign it so it is without the option
+        let broadcast_handler = BroadcastHandlerReal::new(Some(background_terminal_interface)); //redesign it so it is without the option
         let broadcast_handle = broadcast_handler.start(broadcast_stream_factory);
         match connection.connect(daemon_ui_port, broadcast_handle, REDIRECT_TIMEOUT_MILLIS) {
             Ok(_) => Ok(Self {
@@ -138,7 +140,7 @@ impl CommandContextReal {
                 stdin: Box::new(io::stdin()),
                 stdout: Box::new(io::stdout()),
                 stderr: Box::new(io::stderr()),
-                output_synchronizer: foreground_output_synchronizer,
+                terminal_interface: foreground_terminal_interface,
             }),
             Err(e) => Err(ConnectionRefused(format!("{:?}", e))),
         }
@@ -160,6 +162,7 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
     use masq_lib::utils::{find_free_port, running_test};
+    use crate::terminal_interface::TerminalMock;
 
     #[test]
     fn error_conversion_happy_path() {
@@ -208,8 +211,9 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let handle = server.start();
+        let interface = Box::new(TerminalMock::new());
 
-        let subject = CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+        let subject = CommandContextReal::new(interface,port, Box::new(StreamFactoryReal::new())).unwrap();
 
         assert_eq!(subject.active_port(), Some(port));
         handle.stop();
@@ -226,8 +230,10 @@ mod tests {
         let stderr_arc = stderr.inner_arc();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
+        let interface = Box::new(TerminalMock::new());
+
         let mut subject =
-            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+            CommandContextReal::new(interface,port, Box::new(StreamFactoryReal::new())).unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);
         subject.stderr = Box::new(stderr);
@@ -258,8 +264,9 @@ mod tests {
     fn works_when_server_isnt_present() {
         running_test();
         let port = find_free_port();
+        let interface = Box::new(TerminalMock::new());
 
-        let result = CommandContextReal::new(port, Box::new(StreamFactoryReal::new()));
+        let result = CommandContextReal::new(interface,port, Box::new(StreamFactoryReal::new()));
 
         match result {
             Err(ConnectionRefused(_)) => (),
@@ -277,9 +284,10 @@ mod tests {
             path: Conversation(1),
             payload: Err((101, "booga".to_string())),
         });
+        let interface = Box::new(TerminalMock::new());
         let stop_handle = server.start();
         let mut subject =
-            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+            CommandContextReal::new(interface,port, Box::new(StreamFactoryReal::new())).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -291,10 +299,11 @@ mod tests {
     fn transact_works_when_server_sends_connection_error() {
         running_test();
         let port = find_free_port();
+        let interface = Box::new(TerminalMock::new());
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
         let stop_handle = server.start();
         let mut subject =
-            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+            CommandContextReal::new(interface,port, Box::new(StreamFactoryReal::new())).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -317,7 +326,8 @@ mod tests {
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
         let stream_factory = Box::new(StreamFactoryReal::new());
-        let subject_result = CommandContextReal::new(port, stream_factory);
+        let interface = Box::new(TerminalMock::new());
+        let subject_result = CommandContextReal::new(interface,port, stream_factory);
         let mut subject = subject_result.unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);
