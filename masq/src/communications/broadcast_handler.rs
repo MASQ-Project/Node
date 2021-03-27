@@ -4,6 +4,7 @@ use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::communications::handle_node_not_running_for_fire_and_forget_on_the_way;
 use crate::notifications::crashed_notification::CrashNotifier;
+use crate::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
@@ -14,7 +15,6 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use crate::terminal_interface::TerminalWrapper;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
@@ -61,9 +61,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
 
 impl BroadcastHandlerReal {
     pub fn new(terminal_interface: Option<TerminalWrapper>) -> Self {
-        Self {
-            terminal_interface,
-        }
+        Self { terminal_interface }
     }
 
     fn handle_message_body(
@@ -141,19 +139,20 @@ impl StreamFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal_interface::TerminalMock;
     use crate::test_utils::mocks::{MixingStdout, TestStreamFactory};
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
     use std::time::Duration;
-    use crate::terminal_interface::TerminalMock;
 
     #[test]
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
+                .start(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
             values: vec![],
@@ -189,7 +188,8 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
+                .start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -216,7 +216,8 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
+                .start(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
@@ -239,7 +240,8 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
+                .start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
         }
@@ -265,7 +267,8 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new())))).start(Box::new(factory));
+            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
+                .start(Box::new(factory));
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,

@@ -6,17 +6,17 @@ use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::StreamFactory;
+use crate::terminal_interface::{TerminalWrapper, Terminal};
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
-use std::cell::{RefCell, Cell};
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
-use crate::terminal_interface::{TerminalWrapper, TerminalMock};
-use std::borrow::BorrowMut;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -188,7 +188,10 @@ impl CommandProcessorMock {
         Self::default()
     }
 
-    pub fn insert_terminal_interface(mut self, terminal_interface_arc_clone: TerminalWrapper) -> Self {
+    pub fn insert_terminal_interface(
+        mut self,
+        terminal_interface_arc_clone: TerminalWrapper,
+    ) -> Self {
         self.terminal_interface.push(terminal_interface_arc_clone);
         self
     }
@@ -218,6 +221,7 @@ pub struct CommandProcessorFactoryMock {
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
+        _interface: Box<dyn Terminal + Send + Sync>,
         _broadcast_stream_factory: Box<dyn StreamFactory>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {

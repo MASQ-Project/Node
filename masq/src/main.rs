@@ -6,6 +6,7 @@ use masq_cli_lib::command_processor::{
     CommandProcessor, CommandProcessorFactory, CommandProcessorFactoryReal,
 };
 use masq_cli_lib::communications::broadcast_handler::StreamFactoryReal;
+use masq_cli_lib::terminal_interface::configure_interface;
 use masq_cli_lib::utils::{BufReadFactory, BufReadFactoryReal};
 use masq_lib::command;
 use masq_lib::command::{Command, StdStreams};
@@ -35,6 +36,11 @@ struct Main {
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let broadcast_stream_factory = StreamFactoryReal::new();
+        let interface = if Ok(interface) = configure_interface() {
+            unimplemented!()
+        } else {
+            unimplemented!()
+        };
         let mut command_processor = match self
             .processor_factory
             .make(Box::new(broadcast_stream_factory), args)
@@ -118,7 +124,9 @@ impl Main {
         processor: &mut dyn CommandProcessor,
         streams: &mut StdStreams<'_>,
     ) -> u8 {
-        let mut line_reader = self.buf_read_factory.make(processor.clone_terminal_interface());
+        let mut line_reader = self
+            .buf_read_factory
+            .make(processor.clone_terminal_interface());
         loop {
             let args = match Self::accept_subcommand(&mut line_reader) {
                 Ok(Some(args)) => args,

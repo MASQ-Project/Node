@@ -1,11 +1,11 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::utils::MASQ_PROMPT;
 use linefeed::memory::{Lines, MemoryTerminal};
 use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
-use std::borrow::BorrowMut;
+use std::borrow::{BorrowMut};
 use std::sync::{Arc, Mutex};
-use crate::commands::commands_common::CommandError;
-use crate::utils::MASQ_PROMPT;
+use std::any::Any;
 
 pub struct TerminalWrapper {
     inner: Arc<Box<dyn Terminal + Send + Sync>>,
@@ -37,21 +37,33 @@ impl TerminalWrapper {
 }
 
 //TODO: resolve this!
-//currently untested
-//real code cannot be run aside terminal
-pub fn configure_interface()-> Result<Box<dyn Terminal + Send + Sync>,CommandError>{
-    let interface:Interface<DefaultTerminal> = if let Ok(interface) = Interface::new("masq"){
-        interface
-    }
-    else {
-        return Err(CommandError::Other("The terminal interface couldn't be launched".to_string()))
+
+pub fn configure_interface<F, U,E>(
+    interface_raw: Box<F>,
+    terminal_type: Box<E>,
+) -> Result<Box<TerminalReal>, String>
+where
+    F: FnOnce(&'static str, U) -> std::io::Result<Interface<U>>,
+    E: FnOnce() -> std::io::Result<U>,
+    U: linefeed::Terminal + 'static,
+
+{
+    let terminal:U = match terminal_type(){
+        Ok(term) => term,
+        Err(e) => return Err(format!("Terminal interface error: {}",e))
     };
-    if let Err(e) = interface.set_prompt(MASQ_PROMPT){return Err(CommandError::Other(e.to_string()))};
-    // possible other parameters to be configured (see linefeed library)
+    let interface: Interface<U>= match interface_raw("masq", terminal) {
+        Ok(interface) => interface, //interface,
+        Err(e) => unimplemented!("{}", e), //Err("The terminal interface couldn't be launched".to_string())
+    };
+    //untested
+    if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
+        return Err(e.to_string());
+    };
+    //possibly other parameters to be configured (see linefeed library)
 
     Ok(Box::new(TerminalReal::new(interface)))
 }
-
 
 impl Clone for TerminalWrapper {
     fn clone(&self) -> Self {
@@ -70,17 +82,15 @@ pub trait Terminal {
     fn test_interface(&self) -> MemoryTerminal;
 }
 
-struct TerminalReal {
-    interface: Interface<DefaultTerminal>,
+pub struct TerminalReal {
+    interface: Box<dyn InterfaceRaw + Send +Sync >,
 }
 
 impl Terminal for TerminalReal {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
-        Box::new(
             self.interface
                 .lock_writer_append()
-                .expect("lock writer append failed"),
-        )
+                .expect("lock writer append failed")    //TODO  fix this so that it is propagated correctly
     }
 
     fn read_line(&self) -> std::io::Result<ReadResult> {
@@ -91,14 +101,15 @@ impl Terminal for TerminalReal {
         self.interface.add_history_unique(line)
     }
 
+    #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
-        panic!("this should never be called")
+       self.interface.downcast().downcast_ref::<Interface<MemoryTerminal>>().unwrap().clone()
     }
 }
 
 impl TerminalReal {
-    fn new(interface: Interface<DefaultTerminal>) -> Self {
-        Self { interface }
+    fn new<U:'static + linefeed::Terminal>(interface: Interface<U>) -> Self {
+        Self { interface:Box::new(interface) }
     }
 }
 
@@ -157,17 +168,47 @@ pub trait WriterGeneric {
     fn write_str(&mut self, str: &str) -> std::io::Result<()>;
 }
 
-impl WriterGeneric for Writer<'_, '_, DefaultTerminal> {
-    fn write_str(&mut self, str: &str) -> std::io::Result<()> {
-        self.write_str(str)
-    }
-}
-
-impl WriterGeneric for Writer<'_, '_, MemoryTerminal> {
+impl<U:linefeed::Terminal> WriterGeneric for Writer<'_, '_, U> {
     fn write_str(&mut self, str: &str) -> std::io::Result<()> {
         self.write_str(&format!("{}\n*/-", str))
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+pub trait InterfaceRaw {
+    fn read_line(&self) -> std::io::Result<ReadResult>;
+    fn add_history_unique(&self, line: String);
+    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>>;
+    fn set_prompt(&self,prompt:&str)-> std::io::Result<()>;
+    fn downcast(&self)->& dyn Any;
+}
+
+impl<U:linefeed::Terminal+'static> InterfaceRaw for Interface<U> {
+    fn read_line(&self) -> std::io::Result<ReadResult> {
+        self.read_line()
+    }
+
+    fn add_history_unique(&self, line: String) {
+        self.add_history_unique(line);
+    }
+
+    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>> {
+        match self.lock_writer_append(){
+            Ok(writer) => Ok(Box::new(writer)),
+            Err(error) => unimplemented!("{}",error)
+        }
+    }
+
+    fn set_prompt(&self,prompt:&str)-> std::io::Result<()> {
+        self.set_prompt(prompt)
+    }
+
+    fn downcast(&self) -> &dyn Any {
+        self
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 fn written_output_by_line_number(mut lines_from_memory: Lines, line_number: usize) -> String {
     //Lines aren't an iterator unfortunately
@@ -355,4 +396,39 @@ mod tests {
             thread::sleep(Duration::from_millis(1))
         })
     }
+
+    #[test]
+    fn configure_interface_complains_that_there_is_no_real_terminal() {
+        let subject=
+            configure_interface(Box::new(Interface::with_term ), Box::new(DefaultTerminal::new));
+        let result = match subject {
+            Ok(_) => panic!("should have been an error, got OK"),
+            Err(e) => e
+        };
+
+        assert_eq!(result,"Terminal interface error: The handle is invalid. (os error 6)")
+    }
+
+    #[test]
+    fn configure_interface_allows_us_starting_in_memory_terminal() {
+        let subject=
+            configure_interface(Box::new(Interface::with_term ), Box::new(falsely_wrapped_terminal));
+        let result = match subject {
+            Err(e) => panic!("should have been OK, got Err: {}",e),
+            Ok(val) => val
+        };
+
+        let wrapper = TerminalWrapper::new(Box::new(*result));
+        wrapper.lock().write_str("hallelujah").unwrap();
+
+        let written = written_output_all_lines(wrapper.test_interface().lines(),false);
+
+        assert_eq!(written,"blah")
+
+    }
+
+    fn falsely_wrapped_terminal() ->std::io::Result<MemoryTerminal>{
+        Ok(MemoryTerminal::new())
+    }
 }
+

@@ -5,13 +5,13 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::StreamFactory;
 use crate::schema::app;
+use crate::terminal_interface::{TerminalWrapper, Terminal};
 use clap::value_t;
-use std::sync::{Arc, Mutex};
-use crate::terminal_interface::{configure_interface, TerminalWrapper};
 
 pub trait CommandProcessorFactory {
     fn make(
         &self,
+        interface: Box<dyn Terminal + Send + Sync>,
         broadcast_stream_factory: Box<dyn StreamFactory>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
@@ -23,13 +23,13 @@ pub struct CommandProcessorFactoryReal {}
 impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
+        interface: Box<dyn Terminal + Send + Sync>,
         broadcast_stream_factory: Box<dyn StreamFactory>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         let matches = app().get_matches_from(args);
         let ui_port = value_t!(matches, "ui-port", u16).expect("ui-port is not properly defaulted");
-        let interface = configure_interface()?;
-        match CommandContextReal::new(interface,ui_port, broadcast_stream_factory) {
+        match CommandContextReal::new(interface, ui_port, broadcast_stream_factory) {
             Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
             Err(e) => panic!("Unexpected error: {:?}", e),
@@ -83,6 +83,7 @@ mod tests {
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
     use std::time::Duration;
+    use crate::terminal_interface::TerminalMock;
 
     #[derive(Debug)]
     struct TestCommand {}
@@ -105,8 +106,9 @@ mod tests {
             format!("{}", port),
         ];
         let subject = CommandProcessorFactoryReal::new();
+        let interface = Box::new(TerminalMock::new());
 
-        let result = subject.make(Box::new(StreamFactoryReal::new()), &args);
+        let result = subject.make(interface, Box::new(StreamFactoryReal::new()), &args);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -128,9 +130,10 @@ mod tests {
         let subject = CommandProcessorFactoryReal::new();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
+        let interface = Box::new(TerminalMock::new());
 
         let mut result = subject
-            .make(Box::new(StreamFactoryReal::new()), &args)
+            .make(interface,Box::new(StreamFactoryReal::new()), &args)
             .unwrap();
 
         let command = TestCommand {};
@@ -205,8 +208,9 @@ mod tests {
         ];
         let processor_factory = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
+        let interface = Box::new(TerminalMock::new());
         let mut subject = processor_factory
-            .make(Box::new(broadcast_stream_factory), &args)
+            .make(interface,Box::new(broadcast_stream_factory), &args)
             .unwrap();
 
         subject.process(Box::new(ToUiBroadcastTrigger {})).unwrap();
