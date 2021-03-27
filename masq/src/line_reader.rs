@@ -1,15 +1,15 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::utils::MASQ_PROMPT;
+use linefeed::Interface;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::cell::RefCell;
 use std::io;
 use std::io::{BufRead, Read};
 use std::io::{ErrorKind, Write};
-use std::sync::{Arc, Mutex};
 use std::rc::Rc;
-use std::cell::RefCell;
-use linefeed::Interface;
+use std::sync::{Arc, Mutex};
 
 pub struct LineReader {
     output_synchronizer: Arc<Mutex<()>>,
@@ -34,8 +34,7 @@ impl BufRead for LineReader {
     fn read_line(&mut self, buf: &mut String) -> Result<usize, io::Error> {
         self.print_prompt_synchronized();
         let line = match self.delegate.readline() {
-            Ok(line) =>
-                line,
+            Ok(line) => line,
             Err(e) => match e {
                 ReadlineError::Eof => {
                     return Err(io::Error::new(ErrorKind::UnexpectedEof, "End of file"))
@@ -67,11 +66,11 @@ impl LineReader {
             .lock()
             .expect("Output synchronizer mutex poisoned");
         let stdout = self.delegate.stdout();
-        let _ = stdout.borrow_mut()
+        let _ = stdout
+            .borrow_mut()
             .write(MASQ_PROMPT.as_bytes())
             .expect("writing to stdout failed");
         stdout.borrow_mut().flush().expect("flushing stdout failed");
-
     }
 }
 
@@ -83,7 +82,7 @@ trait EditorTrait {
 
 struct EditorReal {
     delegate: Editor<()>,
-    stdout: Rc<RefCell<Box<dyn Write>>>
+    stdout: Rc<RefCell<Box<dyn Write>>>,
 }
 
 impl EditorTrait for EditorReal {
@@ -282,7 +281,8 @@ mod tests {
         let thread_handle = thread::spawn(move || {
             let mut subject = LineReader::new(synchronizer_arc_clone);
             let buffer_arc = Box::new(MixingStdout::new(tx));
-            let editor = EditorMock::new().stdout_result(Rc::new(RefCell::new(Box::new(buffer_arc))));
+            let editor =
+                EditorMock::new().stdout_result(Rc::new(RefCell::new(Box::new(buffer_arc))));
             subject.delegate = Box::new(editor);
             subject.print_prompt_synchronized();
         });

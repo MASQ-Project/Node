@@ -185,7 +185,7 @@ mod tests {
     use masq_lib::messages::UiShutdownRequest;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, FakeStreamHolder};
     use std::cell::RefCell;
-    use std::io::{ErrorKind};
+    use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
 
     struct BufReadFactoryMock {
@@ -503,9 +503,9 @@ mod tests {
             ],
         );
 
-        //even though Main is out of scope now, dropping synchronizer_clone,
-        //we still get two instances of synchronizer
-        //(which was inspected and recreated when BufReadFactoryMock.make() called.
+        //even though Main is out of scope now, thus dropping one clone of the synchronizer,
+        //we're still getting two instances of synchronizer. That means that the handover in go_interactive happened.
+        //(when BufReadFactoryMock.make() is called)
         //This test fails if clone_synchronizer() in go_interactive is removed)
         assert_eq!(Arc::strong_count(&synchronizer), 2);
 

@@ -495,11 +495,11 @@ masq>";
 
         interference_thread_handle.join().unwrap();
 
-        let mut full_stdout_buffer = String::new();
+        let mut buffer = String::new();
         let full_stdout_output = loop {
             match rx.try_recv() {
-                Ok(string) => full_stdout_buffer.push_str(&string),
-                Err(_) => break full_stdout_buffer,
+                Ok(string) => buffer.push_str(&string),
+                Err(_) => break buffer,
             }
         };
         full_stdout_output

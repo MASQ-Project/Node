@@ -1,37 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use linefeed::{DefaultTerminal, Writer, ReadResult, Interface};
-use std::sync::{Arc, Mutex};
-use linefeed::memory::{MemoryTerminal, Lines};
+use linefeed::memory::{Lines, MemoryTerminal};
+use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
 use std::borrow::BorrowMut;
-
-
-
-trait WriterGeneric {
-    fn write_str(&mut self, str: &str) -> std::io::Result<()>;
-}
-
-impl WriterGeneric for Writer<'_, '_, DefaultTerminal> {
-    fn write_str(&mut self, str: &str) -> std::io::Result<()> {
-        self.write_str(str)
-    }
-}
-
-impl WriterGeneric for Writer<'_, '_, MemoryTerminal> {
-    fn write_str(&mut self, str: &str) -> std::io::Result<()> {
-        self.write_str(&format!("{}\n*/-", str))
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-impl Clone for TerminalWrapper {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
-    }
-}
+use std::sync::{Arc, Mutex};
 
 pub struct TerminalWrapper {
     inner: Arc<Box<dyn Terminal + Send + Sync>>,
@@ -59,6 +31,14 @@ impl TerminalWrapper {
     fn test_interface(&self) -> MemoryTerminal {
         let object = self.inner.clone().to_owned();
         object.test_interface()
+    }
+}
+
+impl Clone for TerminalWrapper {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
     }
 }
 
@@ -139,7 +119,7 @@ impl TerminalMock {
                 "test only terminal",
                 memory_terminal_instance.clone(),
             )
-                .unwrap(),
+            .unwrap(),
             reference: memory_terminal_instance,
             user_input: Arc::new(Mutex::new(vec![])),
         }
@@ -154,7 +134,23 @@ impl TerminalMock {
     }
 }
 
-fn written_input_by_line_number(mut lines_from_memory: Lines, line_number: usize) -> String {
+trait WriterGeneric {
+    fn write_str(&mut self, str: &str) -> std::io::Result<()>;
+}
+
+impl WriterGeneric for Writer<'_, '_, DefaultTerminal> {
+    fn write_str(&mut self, str: &str) -> std::io::Result<()> {
+        self.write_str(str)
+    }
+}
+
+impl WriterGeneric for Writer<'_, '_, MemoryTerminal> {
+    fn write_str(&mut self, str: &str) -> std::io::Result<()> {
+        self.write_str(&format!("{}\n*/-", str))
+    }
+}
+
+fn written_output_by_line_number(mut lines_from_memory: Lines, line_number: usize) -> String {
     //Lines aren't an iterator unfortunately
     if line_number < 1 || 24 < line_number {
         panic!("The number must be between 1 and 24")
@@ -165,7 +161,7 @@ fn written_input_by_line_number(mut lines_from_memory: Lines, line_number: usize
     one_line_collector(lines_from_memory.next().unwrap()).replace("*/-", "")
 }
 
-fn written_input_all_lines(mut lines_from_memory: Lines, separator: bool) -> String {
+fn written_output_all_lines(mut lines_from_memory: Lines, separator: bool) -> String {
     (0..24)
         .flat_map(|_| {
             lines_from_memory
@@ -201,10 +197,11 @@ fn one_line_collector(line_chars: &[char]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
     use crate::test_utils::mocks::MixingStdout;
     use crossbeam_channel::unbounded;
-    use std::sync::mpsc::channel;
+    use std::io::Write;
+    use std::sync::Barrier;
+    use std::thread;
     use std::time::Duration;
 
     #[test]
@@ -237,50 +234,104 @@ mod tests {
         assert_eq!(lines_remaining, 24);
 
         let written_output =
-            written_input_all_lines(terminal_reference.test_interface().lines(), true);
+            written_output_all_lines(terminal_reference.test_interface().lines(), true);
         assert_eq!(written_output, "first attempt | hello world | that's enough | Rocket, go to Mars, go, go | And once again...nothing |");
 
         let single_line =
-            written_input_by_line_number(terminal_reference.test_interface().lines(), 1);
+            written_output_by_line_number(terminal_reference.test_interface().lines(), 1);
         assert_eq!(single_line, "first attempt");
 
         let single_line =
-            written_input_by_line_number(terminal_reference.test_interface().lines(), 2);
+            written_output_by_line_number(terminal_reference.test_interface().lines(), 2);
         assert_eq!(single_line, "hello world")
     }
 
     #[test]
-    fn terminal_wrapper_s_lock_blocks_others_to_write() {
-        // let interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
-        // let interface_clone = interface.clone();
-        //
-        // let (sync_tx, sync_rx) = channel();
-        //
-        // let handle = thread::spawn(move || {
-        //     sync_tx.send(()).unwrap();
-        //     thread::park_timeout(Duration::from_millis(200));
-        //     sync_tx.send(()).unwrap()
-        // });
-        //
-        // sync_rx.recv().unwrap();
-        // (0..1000).for_each()
-        //
-        // handle.join().unwrap();
+    //Here I use the system stdout handles, which is the standard way in the project, but thanks to the lock from TerminalWrapper,
+    // it will be protected
+    //The core of the test consists of two halves where the first shows unprotected writing in the second locks are actively called in both concurrent threads
+    fn terminal_wrapper_s_lock_blocks_others_to_write_into_stdout() {
+        let interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
+
+        let barrier = Arc::new(Barrier::new(2));
+        let mut handles = Vec::new();
+
+        let (tx, rx) = unbounded();
+        let mut stdout_c1 = MixingStdout::new(tx);
+        let mut stdout_c2 = stdout_c1.clone();
+
+        let closure1: Box<dyn FnMut(TerminalWrapper) + Sync + Send> =
+            Box::new(move |interface: TerminalWrapper| {
+                //here without a lock in the first half -- printing in BOTH is unprotected
+                let mut stdout = &mut stdout_c1;
+                write_in_cycles("AAA", &mut stdout);
+                //printing whitespace, where the two halves part
+                write!(&mut stdout, "   ").unwrap();
+                let _lock = interface.lock();
+                write_in_cycles("AAA", &mut stdout)
+            });
+
+        let closure2: Box<dyn FnMut(TerminalWrapper) + Sync + Send> =
+            Box::new(move |interface: TerminalWrapper| {
+                // lock from the very beginning of this thread...still it can have no effect
+                let mut stdout = &mut stdout_c2;
+                let _lock = interface.lock();
+                write_in_cycles("BBB", &mut stdout);
+                write!(&mut stdout, "   ").unwrap();
+                write_in_cycles("BBB", &mut stdout)
+            });
+
+        vec![closure1, closure2].into_iter().for_each(
+            |mut closure: Box<dyn FnMut(TerminalWrapper) + Sync + Send>| {
+                let barrier_handle = Arc::clone(&barrier);
+                let thread_interface = interface.clone();
+
+                handles.push(thread::spawn(move || {
+                    barrier_handle.wait();
+                    closure(thread_interface)
+                }));
+            },
+        );
+
+        handles
+            .into_iter()
+            .for_each(|handle| handle.join().unwrap());
+
+        let mut buffer = String::new();
+        let given_output = loop {
+            match rx.try_recv() {
+                Ok(string) => buffer.push_str(&string),
+                Err(_) => break buffer,
+            }
+        };
+
+        assert!(
+            !&given_output[0..180].contains(&"A".repeat(50)),
+            "without synchronization: {}",
+            given_output
+        );
+        assert!(
+            !&given_output[0..180].contains(&"B".repeat(50)),
+            "without synchronization: {}",
+            given_output
+        );
+
+        assert!(
+            &given_output[180..].contains(&"A".repeat(90)),
+            "synchronized: {}",
+            given_output
+        );
+        assert!(
+            &given_output[180..].contains(&"B".repeat(90)),
+            "synchronized: {}",
+            given_output
+        );
     }
 
-
-    #[test]
-    fn test_of_locking_with_multiple_threads() {
-        //
-        // let (tx,rx) = unbounded();
-        //
-        // let shared_stdout =   MixingStdout::new(tx);
-        //
-        // let thread_one = thread::spawn(move||{
-        // });
-        //
-        // let thread_two;
-        //
-        // //barrier
+    fn write_in_cycles(written_signal: &str, stdout: &mut dyn Write) {
+        (0..30).for_each(|_| {
+            write!(stdout, "{}", written_signal).unwrap();
+            thread::sleep(Duration::from_millis(1))
+        })
     }
 }
