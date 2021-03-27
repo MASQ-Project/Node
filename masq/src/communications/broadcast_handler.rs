@@ -13,7 +13,6 @@ use masq_lib::messages::{
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub trait BroadcastHandle: Send {
@@ -68,24 +67,23 @@ impl BroadcastHandlerReal {
         message_body_result: Result<MessageBody, RecvError>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        _terminal_interface: TerminalWrapper, //fix later
+        terminal_interface: TerminalWrapper,
     ) {
-        let synchronizer = unimplemented!("rejoin later");
         match message_body_result {
             Err(_) => (), // Receiver died; masq is going down
             Ok(message_body) => {
                 if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
-                    SetupCommand::handle_broadcast(body, stdout, synchronizer);
+                    SetupCommand::handle_broadcast(body, stdout, terminal_interface);
                 } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
-                    CrashNotifier::handle_broadcast(body, stdout, synchronizer);
+                    CrashNotifier::handle_broadcast(body, stdout, terminal_interface);
                 } else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
-                    ChangePasswordCommand::handle_broadcast(body, stdout, synchronizer);
+                    ChangePasswordCommand::handle_broadcast(body, stdout, terminal_interface);
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
                     handle_node_not_running_for_fire_and_forget_on_the_way(
                         body,
                         stdout,
-                        synchronizer,
+                        terminal_interface,
                     );
                 } else {
                     write!(
@@ -387,7 +385,7 @@ masq>";
         broadcast_message_body: U,
         broadcast_desired_output: &str,
     ) where
-        T: FnOnce(U, &mut dyn Write, Arc<Mutex<()>>) + Copy,
+        T: FnOnce(U, &mut dyn Write, TerminalWrapper) + Copy,
         U: Debug + PartialEq + Clone,
     {
         let (tx, rx) = unbounded();
@@ -395,7 +393,7 @@ masq>";
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
 
-        let synchronizer = Arc::new(Mutex::new(()));
+        let synchronizer = TerminalWrapper::new(Box::new(TerminalMock::new()));
         let synchronizer_clone_idle = synchronizer.clone();
 
         //synchronized part proving that the broadcast print is synchronized
@@ -468,13 +466,13 @@ masq>";
         sync: bool,
         stdout: &mut dyn Write,
         mut stdout_clone: Box<dyn Write + Send>,
-        synchronizer: Arc<Mutex<()>>,
+        synchronizer: TerminalWrapper,
         broadcast_handle: T,
         broadcast_message_body: U,
         rx: Receiver<String>,
     ) -> String
     where
-        T: FnOnce(U, &mut dyn Write, Arc<Mutex<()>>) + Copy,
+        T: FnOnce(U, &mut dyn Write, TerminalWrapper) + Copy,
         U: Debug + PartialEq + Clone,
     {
         let synchronizer_clone = synchronizer.clone();
@@ -483,7 +481,7 @@ masq>";
             sync_tx.send(()).unwrap();
             (0..3).into_iter().for_each(|_| {
                 let _lock = if sync {
-                    Some(synchronizer.lock().unwrap())
+                    Some(synchronizer.lock())
                 } else {
                     None
                 };

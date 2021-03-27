@@ -4,16 +4,16 @@ mod client_listener_thread;
 pub mod connection_manager;
 pub mod node_conversation;
 
+use crate::terminal_interface::TerminalWrapper;
 use masq_lib::messages::UiUndeliveredFireAndForget;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
 
 fn handle_node_not_running_for_fire_and_forget_on_the_way(
     body: UiUndeliveredFireAndForget,
     stdout: &mut dyn Write,
-    synchronizer: Arc<Mutex<()>>,
+    term_interface: TerminalWrapper,
 ) {
-    let _lock = synchronizer.lock().unwrap();
+    let _lock = term_interface.lock();
     write!(
         stdout,
         "\nCannot handle {} request: Node is not running.\n\nmasq> ",

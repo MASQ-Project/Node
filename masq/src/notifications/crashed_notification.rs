@@ -1,10 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::terminal_interface::TerminalWrapper;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::short_writeln;
 use masq_lib::utils::exit_process;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
 
 pub struct CrashNotifier {}
 
@@ -12,12 +12,12 @@ impl CrashNotifier {
     pub fn handle_broadcast(
         response: UiNodeCrashedBroadcast,
         stdout: &mut dyn Write,
-        synchronizer: Arc<Mutex<()>>,
+        term_interface: TerminalWrapper,
     ) {
         if response.crash_reason == CrashReason::DaemonCrashed {
             exit_process(1, "The Daemon is no longer running; masq is terminating.\n");
         }
-        let _lock = synchronizer.lock().unwrap();
+        let _lock = term_interface.lock();
         short_writeln!(
             stdout,
             "\nThe Node running as process {} terminated{}\nThe Daemon is once more accepting setup changes.\n",
@@ -53,6 +53,7 @@ impl CrashNotifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal_interface::TerminalMock;
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::utils::running_test;
 
@@ -65,9 +66,9 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::ChildWaitFailure("Couldn't wait".to_string()),
         };
-        let synchronizer = Arc::new(Mutex::new(()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout, synchronizer);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
         assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
@@ -82,9 +83,9 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::Unrecognized("Just...failed!\n\n".to_string()),
         };
-        let synchronizer = Arc::new(Mutex::new(()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout, synchronizer);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
         assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
@@ -99,9 +100,9 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::NoInformation,
         };
-        let synchronizer = Arc::new(Mutex::new(()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout, synchronizer);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
         assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
@@ -116,8 +117,8 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::DaemonCrashed,
         };
-        let synchronizer = Arc::new(Mutex::new(()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout, synchronizer);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
     }
 }

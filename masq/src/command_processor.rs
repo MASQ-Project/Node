@@ -5,7 +5,7 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::StreamFactory;
 use crate::schema::app;
-use crate::terminal_interface::{TerminalWrapper, Terminal};
+use crate::terminal_interface::{Terminal, TerminalWrapper};
 use clap::value_t;
 
 pub trait CommandProcessorFactory {
@@ -75,6 +75,7 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
+    use crate::terminal_interface::TerminalMock;
     use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
@@ -83,7 +84,6 @@ mod tests {
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
     use std::time::Duration;
-    use crate::terminal_interface::TerminalMock;
 
     #[derive(Debug)]
     struct TestCommand {}
@@ -133,7 +133,7 @@ mod tests {
         let interface = Box::new(TerminalMock::new());
 
         let mut result = subject
-            .make(interface,Box::new(StreamFactoryReal::new()), &args)
+            .make(interface, Box::new(StreamFactoryReal::new()), &args)
             .unwrap();
 
         let command = TestCommand {};
@@ -184,8 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn process_locks_output_synchronizer_and_prevents_interferences_in_it_from_broadcast_messages()
-    {
+    fn process_locks_writing_and_prevents_interferences_from_broadcast_messages() {
         running_test();
         let port = find_free_port();
         let broadcast = UiUndeliveredFireAndForget {
@@ -210,7 +209,7 @@ mod tests {
         let stop_handle = server.start();
         let interface = Box::new(TerminalMock::new());
         let mut subject = processor_factory
-            .make(interface,Box::new(broadcast_stream_factory), &args)
+            .make(interface, Box::new(broadcast_stream_factory), &args)
             .unwrap();
 
         subject.process(Box::new(ToUiBroadcastTrigger {})).unwrap();

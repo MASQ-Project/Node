@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use linefeed::{DefaultTerminal, Interface};
 use masq_cli_lib::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use masq_cli_lib::command_factory::{CommandFactory, CommandFactoryReal};
 use masq_cli_lib::command_processor::{
@@ -36,7 +37,10 @@ struct Main {
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let broadcast_stream_factory = StreamFactoryReal::new();
-        let interface = if Ok(interface) = configure_interface() {
+        let interface = if Ok(interface) = configure_interface(
+            Box::new(Interface::with_term),
+            Box::new(DefaultTerminal::new),
+        ) {
             unimplemented!()
         } else {
             unimplemented!()
