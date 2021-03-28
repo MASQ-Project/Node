@@ -155,6 +155,10 @@ impl Transactor for IgdpTransactor {
         }
     }
 
+    fn add_permanent_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<u32, AutomapError> {
+        self.add_mapping (router_ip, hole_port, 0)
+    }
+
     fn delete_mapping(&self, _router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         self.ensure_gateway()?;
         match self
@@ -459,6 +463,38 @@ mod tests {
                 7777,
                 SocketAddrV4::new(local_ipv4, 7777),
                 1234,
+                "".to_string(),
+            )]
+        );
+    }
+
+    #[test]
+    fn add_permanent_mapping_works() {
+        let local_ipv4 = Ipv4Addr::from_str("192.168.0.101").unwrap();
+        let local_ip = IpAddr::V4(local_ipv4);
+        let add_port_params_arc = Arc::new(Mutex::new(vec![]));
+        let gateway = GatewayWrapperMock::new()
+            .add_port_params(&add_port_params_arc)
+            .add_port_result(Ok(()));
+        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
+        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
+        let mut subject = IgdpTransactor::new();
+        subject.gateway_factory = Box::new(gateway_factory);
+        subject.local_ip_finder = Box::new(local_ip_finder);
+
+        let result = subject
+            .add_permanent_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777)
+            .unwrap();
+
+        assert_eq!(result, 0);
+        let add_port_params = add_port_params_arc.lock().unwrap();
+        assert_eq!(
+            *add_port_params,
+            vec![(
+                PortMappingProtocol::TCP,
+                7777,
+                SocketAddrV4::new(local_ipv4, 7777),
+                0,
                 "".to_string(),
             )]
         );

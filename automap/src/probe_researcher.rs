@@ -1,68 +1,53 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::{thread};
-use std::cell::Cell;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::ops::Add;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use log::{info, error};
 
 use rand::{Rng, thread_rng};
 
-use masq_lib::utils::plus;
+use crate::automap_core_functions::{TestParameters, TestStatus};
+use crate::comm_layer::{Method, Transactor, AutomapError, AutomapErrorCause};
 
-use crate::automap_core_functions::{remove_firewall_hole};
-use crate::comm_layer::{Method, Transactor};
-
-//so far, println!() is safer for testing, with immediate feedback
-#[allow(clippy::result_unit_err)]
-pub fn close_exposed_port(
-    stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
-    params: FirstSectionData,
-) -> Result<(), ()> {
-    println!("Preparation for closing the forwarded port");
-    remove_firewall_hole(stdout, stderr, params)
-}
-
-//it was meant to be prepared for eventual collecting of errors but now it is ended with a merge and a single message
-#[allow(clippy::type_complexity)]
-pub fn prepare_router_or_report_failure(
-    test_port: u16,
-    port_is_manual: bool,
-    testers: Vec<Box<dyn FnOnce(u16, bool) -> Result<(IpAddr, u16, Box<dyn Transactor>, bool), String>>>,
-) -> Result<Vec<FirstSectionData>, Vec<String>> {
-    let results = testers.into_iter().map (|tester| {
-        match tester(test_port, port_is_manual) {
-            Ok((ip, port, transactor, permanent_only)) => {
-                Ok(FirstSectionData {
-                    method: transactor.method(),
-                    permanent_only: Some(permanent_only),
-                    ip,
-                    port_is_manual,
-                    port,
-                    transactor,
-                })
-            }
-            Err(e) => Err(e),
-        }
-    })
-    .collect::<Vec<Result<FirstSectionData, String>>>();
-    let (successes, _failures) = results.into_iter().fold ((vec![], vec![]), |so_far, result| {
-        match result {
-            Ok(success) => (plus(so_far.0, success), so_far.1),
-            Err(failure) => (so_far.0, plus (so_far.1, failure)),
-        }
-    });
-    if successes.is_empty() {
-        //this should be reworked in the future, processing the errors with more care
-        Err (vec!["\nNeither a PCP, PMP or IGDP protocol is being detected on your router \
-         or something is wrong. \n\n".to_string()])
-    } else {
-        Ok(successes)
-    }
-}
+// //it was meant to be prepared for eventual collecting of errors but now it is ended with a merge and a single message
+// #[allow(clippy::type_complexity)]
+// pub fn prepare_router_or_report_failure(
+//     protocol: &Method,
+//     tester: Tester,
+//     parameters: &mut TestParameters,
+// ) -> Result<Vec<FirstSectionData>, Vec<String>> {
+//     let result = match tester(test_port, port_is_manual) {
+//         Ok((ip, port, transactor, permanent_only)) => {
+//             Ok(FirstSectionData {
+//                 method: transactor.method(),
+//                 permanent_only: Some(permanent_only),
+//                 ip,
+//                 port_is_manual,
+//                 port,
+//                 transactor,
+//             })
+//         }
+//         Err(e) => Err(e),
+//     }
+//     .collect::<Vec<Result<FirstSectionData, String>>>();
+//     let (successes, _failures) = results.into_iter().fold ((vec![], vec![]), |so_far, result| {
+//         match result {
+//             Ok(success) => (plus(so_far.0, success), so_far.1),
+//             Err(failure) => (so_far.0, plus (so_far.1, failure)),
+//         }
+//     });
+//     if successes.is_empty() {
+//         //this should be reworked in the future, processing the errors with more care
+//         Err (vec!["\nNeither a PCP, PMP or IGDP protocol is being detected on your router \
+//          or something is wrong. \n\n".to_string()])
+//     } else {
+//         Ok(successes)
+//     }
+// }
 
 #[derive (Debug)]
 pub struct FirstSectionData {
@@ -128,122 +113,130 @@ fn deploy_background_listener(
     })
 }
 
-pub fn researcher_with_probe(
-    stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
-    server_address: SocketAddr,
-    params: &mut FirstSectionData,
-    server_response_timeout: u64,
-) -> bool {
-    write!(
-        stdout,
-        "\nTest of a port forwarded by using {} is starting. \n\n",
-        params.method
-    )
-    .expect("write failed");
-
-    let success_sign = Cell::new(false);
-    request_probe(
-        stdout,
-        stderr,
-        server_address,
-        params,
-        server_response_timeout,
-        &success_sign,
-    );
-
-    stderr.flush().expect("failed to flush stdout");
-    stdout.flush().expect("failed to flush stderr");
-
-    success_sign.take()
-}
+// pub fn researcher_with_probe(
+//     stdout: &mut dyn Write,
+//     stderr: &mut dyn Write,
+//     server_address: SocketAddr,
+//     params: &mut FirstSectionData,
+//     server_response_timeout: u64,
+// ) -> bool {
+//     write!(
+//         stdout,
+//         "\nTest of a port forwarded by using {} is starting. \n\n",
+//         params.method
+//     )
+//     .expect("write failed");
+//
+//     let success_sign = Cell::new(false);
+//     request_probe(
+//         stdout,
+//         stderr,
+//         server_address,
+//         params,
+//         server_response_timeout,
+//         &success_sign,
+//     );
+//
+//     stderr.flush().expect("failed to flush stdout");
+//     stdout.flush().expect("failed to flush stderr");
+//
+//     success_sign.take()
+// }
 
 pub fn request_probe(
-    stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
-    server_address: SocketAddr,
-    params: &mut FirstSectionData,
+    status: TestStatus,
+    parameters: &TestParameters,
+    public_ip: IpAddr,
     server_response_timeout: u64,
-    success_sign: &Cell<bool>,
-) {
+    probe_timeout: u64
+) -> TestStatus {
+    if status.fatal {
+        return status;
+    }
     let nonce = generate_nonce();
-    let thread_handle = deploy_background_listener(params.port, nonce, 3000);
+    info!(
+        "{}. Deploying the listener for the incoming probe to {}:{} with nonce {} to time out after {}ms",
+        status.step, public_ip, parameters.hole_port, nonce, probe_timeout
+    );
+    let thread_handle = deploy_background_listener(parameters.hole_port, nonce, probe_timeout);
+    let status = status.succeed();
     let http_request = format!(
         "GET /probe_request?ip={}&port={}&nonce={} HTTP/1.1\r\n\r\n",
-        params.ip, params.port, nonce
+        public_ip, parameters.hole_port, nonce
     );
-    let mut connection: TcpStream = match TcpStream::connect(server_address) {
+    info!(
+        "{}. Connecting to probe server at {}",
+        status.step, parameters.probe_server_address
+    );
+    let mut connection: TcpStream = match TcpStream::connect(parameters.probe_server_address) {
         Ok(conn) => conn,
         Err(e) => {
-            write!(
-                stderr,
-                "We couldn't connect to the \
-             http server: {:?}. Test is terminating. ",
-                e
-            )
-            .expect("writing failed");
-            return;
+            error!("...failed: {:?}", e);
+            return status.fail (AutomapError::ProbeServerConnectError(format!("{:?}", e)))
         }
     };
+    let status = status.succeed();
     match connection.write_all(http_request.as_bytes()) {
         Ok(_) => (),
-        Err(_) => {
-            stderr
-                .write_all(
-                    b"Sending an http request to \
-                 the server failed. Test is terminating. ",
-                )
-                .expect("writing failed");
-            return;
-        } // untested but safe
+        Err(e) => {
+            error!("...failed: {:?}", e);
+            return status.fail (AutomapError::ProbeRequestError(AutomapErrorCause::ProbeServerIssue, format!("{:?}", e)))
+        }
     }
+    let status = status.succeed();
     let mut buffer = [0u8; 1024];
     connection
         .set_read_timeout(Some(Duration::from_millis(server_response_timeout)))
         .expect("unsuccessful during setting nonblocking");
-    let mut server_responded = false;
+    info!(
+        "{}. Requesting probe with nonce {}",
+        status.step, nonce
+    );
     match connection.read(&mut buffer) {
+        Ok(length) if length == 0 => {
+            error!("...failed. Probe server closed the connection unexpectedly.");
+            return status.fail(AutomapError::ProbeRequestError(AutomapErrorCause::ProbeServerIssue, "Zero-length response".to_string()))
+        }
         Ok(length) => {
-            stdout
-                .write_all(&buffer[..length])
-                .expect("writing server response failed");
-            server_responded = true;
+            let response = String::from_utf8(buffer[0..length].to_vec()).expect("Bad UTF-8 from probe server");
+            if response.starts_with("200:") {
+                ()
+            }
+            else {
+                error!("...failed. Probe server could not probe: {}", response);
+                return status.fail(AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, response))
+            }
         }
         Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
-            stderr
-                .write_all(b"Request to the server was sent but no response came back. ")
-                .expect("writing to stderr failed")
+            error!("...timed out after {}ms waiting for response from probe server", server_response_timeout);
+            return status.fail(AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, format!("Timeout awaiting response: {}ms", server_response_timeout)))
         }
-        Err(e) => write!(
-            stderr,
-            "Request to the server was sent but reading the response failed: {:?} ",
-            e
-        )
-        .expect("write!ing to stderr failed"),
-    };
-    if !server_responded {
-        return;
-    }
-    match thread_handle.join() {
-        Ok(Ok(_)) => {
-            stdout
-                .write_all(b"\n\nThe received nonce was evaluated to be a match; test passed. ")
-                .expect("write_all failed");
-            success_sign.set(true);
-        }
-        Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => stdout
-            .write_all(b"\n\nThe probe detector detected no incoming probe. ")
-            .expect("write_all failed"),
-        Ok(Err(e)) => write!(
-            stdout,
-            "\n\nThe probe detector ran into a problem: {:?}. ",
-            e
-        )
-        .expect("write! failed"),
         Err(e) => {
-            write!(stderr, "\n\nThe probe detector panicked: {:?}", e).expect("write_all failed")
+            error!("...failed: {:?}", e);
+            return status.fail(AutomapError::ProbeRequestError(AutomapErrorCause::ProbeServerIssue, format!("Error receiving response: {:?}", e)))
+        },
+    };
+    let status = status.succeed();
+    info!(
+        "{}. Awaiting notification from listener that probe has arrived",
+        status.step
+    );
+    match thread_handle.join() {
+        Ok(Ok(_)) => (),
+        Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => {
+            error!("...but after {}ms probe had not yet arrived.", probe_timeout);
+            return status.fail(AutomapError::ProbeReceiveError(format!("Timeout {}ms", probe_timeout)))
+        },
+        Ok(Err(e)) => {
+            error!("...failure receiving probe: {:?}", e);
+            return status.fail(AutomapError::ProbeReceiveError(format!("{:?}", e)))
+        },
+        Err(e) => {
+            error!("...failure. The probe detector panicked: {:?}", e);
+            return status.fail(AutomapError::ProbeReceiveError(format!("{:?}", e)))
         }
     }
+    status.succeed()
 }
 
 fn generate_nonce() -> u16 {
@@ -253,69 +246,17 @@ fn generate_nonce() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{ErrorKind, Read};
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-    use std::str::FromStr;
-    use std::thread;
-    use std::time::Duration;
+    use std::io::{ErrorKind};
 
     use masq_lib::utils::{find_free_port, localhost};
 
-    use crate::comm_layer::Method;
-    use crate::comm_layer::pmp::PmpTransactor;
     use crate::probe_researcher::{
-        deploy_background_listener, FirstSectionData, generate_nonce,
-        prepare_router_or_report_failure, researcher_with_probe,
+        deploy_background_listener, generate_nonce,
     };
     use crate::probe_researcher::mock_tools::{
-        mock_router_common_test_finding_ip_and_doing_mapping, mock_router_common_test_unsuccessful,
-        mock_router_igdp_test_unsuccessful, MockStream,
         test_stream_acceptor_and_probe, test_stream_acceptor_and_probe_8875_imitator, u16_to_byte_array,
     };
-
-    #[test]
-    fn prepare_router_or_report_failure_retrieves_ip() {
-        let result = prepare_router_or_report_failure(
-            1234,
-            true,
-            vec![
-                Box::new(mock_router_common_test_unsuccessful),
-                Box::new(mock_router_common_test_finding_ip_and_doing_mapping),
-                Box::new(mock_router_igdp_test_unsuccessful),
-            ]
-        );
-
-        //sadly not all of those types implementing Transactor can implement PartialEq each
-        assert!(result.is_ok());
-        let unwrapped_result = result.unwrap().remove(0);
-        assert_eq!(unwrapped_result.ip, IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)));
-        assert_eq!(unwrapped_result.method, Method::Pmp);
-        assert_eq!(unwrapped_result.port, 4444);
-        //proof that I received an implementer of Transactor
-        let _downcast_value: &PmpTransactor =
-            unwrapped_result.transactor.as_any().downcast_ref().unwrap();
-    }
-
-    // TODO rework this test; it aged. We gather results from each module laboriously and then we provide a simple message as some kind of summary.
-    // Or make it clear that it should test something else ideally
-    #[test]
-    fn prepare_router_or_report_failure_reports_of_accumulated_errors() {
-        let result = prepare_router_or_report_failure(
-            1234,
-            true, vec![
-                Box::new(mock_router_common_test_unsuccessful),
-                Box::new(mock_router_common_test_unsuccessful),
-                Box::new(mock_router_igdp_test_unsuccessful),
-            ]
-        );
-
-        assert_eq!(
-            result.err().unwrap(),
-            vec![
-                "\nNeither a PCP, PMP or IGDP protocol is being detected on your router or something is wrong. \n\n"
-            ]
-        )
-    }
+    use std::net::SocketAddr;
 
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
@@ -422,103 +363,6 @@ mod tests {
             let nonce = generate_nonce();
             assert!(10000 > nonce && nonce > 999)
         });
-    }
-
-    #[test]
-    fn researcher_with_probe_returns_failure_if_cannot_connect_to_the_http_server() {
-        let mut stdout = MockStream::new();
-        let mut stderr = MockStream::new();
-        let port = find_free_port();
-        let mut parameters = FirstSectionData {
-            method: Method::Pmp,
-            permanent_only: None,
-            ip: IpAddr::V4(Ipv4Addr::from_str("0.0.0.0").unwrap()),
-            port,
-            port_is_manual: false,
-            transactor: Box::new(PmpTransactor::default()),
-        };
-        let server_address = SocketAddr::from_str("0.0.0.0:7010").unwrap();
-
-        let result = researcher_with_probe(
-            &mut stdout,
-            &mut stderr,
-            server_address,
-            &mut parameters,
-            1500,
-        );
-        assert_eq!(result, false);
-        assert!(
-            stderr
-                .stream
-                .starts_with("We couldn\'t connect to the http server: "),
-            "{}",
-            stderr.stream
-        );
-        assert!(
-            stderr.stream.ends_with(". Test is terminating. "),
-            "{}",
-            stderr.stream
-        );
-        assert_eq!(
-            stdout.stream,
-            "\nTest of a port forwarded by using PMP protocol is starting. \n\n"
-        );
-        assert_eq!(stdout.flush_count, 1);
-        assert_eq!(stderr.flush_count, 1);
-    }
-
-    #[test]
-    fn researcher_with_probe_sends_http_request_and_returns_failure_for_no_response_ever_coming_back(
-    ) {
-        let mut stdout = MockStream::new();
-        let mut stderr = MockStream::new();
-
-        let server_address = SocketAddr::new(localhost(), find_free_port());
-        //fake server
-        let (tx, rx) = std::sync::mpsc::channel();
-        thread::spawn(move || {
-            let listener = TcpListener::bind(server_address).unwrap();
-            tx.send(()).unwrap();
-            let (mut connection, _) = listener.accept().unwrap();
-            connection
-                .set_read_timeout(Some(Duration::from_millis(100)))
-                .unwrap();
-            let mut buf = [0u8; 1024];
-            connection.read(&mut buf).unwrap();
-            thread::sleep(Duration::from_millis(3000))
-        });
-
-        let mut parameters = FirstSectionData {
-            method: Method::Pmp,
-            permanent_only: None,
-            ip: localhost(),
-            port: find_free_port(),
-            port_is_manual: false,
-            transactor: Box::new(PmpTransactor::default()),
-        };
-
-        rx.recv().unwrap();
-        let result = researcher_with_probe(
-            &mut stdout,
-            &mut stderr,
-            server_address,
-            &mut parameters,
-            10,
-        );
-        assert_eq!(result, false);
-        assert_eq!(
-            stdout.stream,
-            "\nTest of a port forwarded by using PMP protocol is starting. \n\n"
-        );
-        assert!(
-            stderr
-                .stream
-                .starts_with("Request to the server was sent but no "),
-            "{}",
-            stderr.stream
-        );
-        assert_eq!(stdout.flush_count, 1);
-        assert_eq!(stderr.flush_count, 1);
     }
 }
 

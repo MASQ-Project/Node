@@ -15,9 +15,12 @@ pub mod pmp;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum AutomapErrorCause {
+    UserError,
     NetworkConfiguration,
     ProtocolNotImplemented,
     ProtocolFailed,
+    ProbeServerIssue,
+    ProbeFailed,
     Unknown(String),
 }
 
@@ -29,13 +32,15 @@ pub enum AutomapError {
     FindRouterError(String, AutomapErrorCause),
     GetPublicIpError(String),
     SocketBindingError(String, SocketAddr),
-    SocketPrepError(AutomapErrorCause),
     SocketSendError(AutomapErrorCause),
     SocketReceiveError(AutomapErrorCause),
     PacketParseError(ParseError),
     ProtocolError(String),
     PermanentLeasesOnly,
     AddMappingError(String),
+    ProbeServerConnectError(String),
+    ProbeRequestError(AutomapErrorCause, String),
+    ProbeReceiveError(String),
     DeleteMappingError(String),
     TransactionFailure(String),
 }
@@ -48,14 +53,16 @@ impl AutomapError {
             AutomapError::IPv6Unsupported(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::FindRouterError(_, aec) => aec.clone(),
             AutomapError::GetPublicIpError(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::SocketBindingError(_, _) => AutomapErrorCause::NetworkConfiguration,
-            AutomapError::SocketPrepError(aec) => aec.clone(),
+            AutomapError::SocketBindingError(_, _) => AutomapErrorCause::UserError,
             AutomapError::SocketSendError(aec) => aec.clone(),
             AutomapError::SocketReceiveError(aec) => aec.clone(),
             AutomapError::PacketParseError(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::ProtocolError(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::PermanentLeasesOnly => AutomapErrorCause::Unknown("".to_string()),
+            AutomapError::PermanentLeasesOnly => AutomapErrorCause::Unknown("Can't handle permanent-only leases".to_string()),
             AutomapError::AddMappingError(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::ProbeServerConnectError(_) => AutomapErrorCause::ProbeServerIssue,
+            AutomapError::ProbeRequestError(aec, _) => aec.clone(),
+            AutomapError::ProbeReceiveError(_) => AutomapErrorCause::ProbeFailed,
             AutomapError::DeleteMappingError(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
         }
@@ -71,6 +78,7 @@ pub trait Transactor {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError>;
+    fn add_permanent_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<u32, AutomapError>;
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
     fn method(&self) -> Method;
     fn as_any(&self) -> &dyn Any;
@@ -121,9 +129,9 @@ pub enum Method {
 impl Display for Method {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Method::Pmp => write!(f, "PMP protocol"),
-            Method::Pcp => write!(f, "PCP protocol"),
-            Method::Igdp => write!(f, "IGDP protocol"),
+            Method::Pmp => write!(f, "PMP"),
+            Method::Pcp => write!(f, "PCP"),
+            Method::Igdp => write!(f, "IGDP"),
         }
     }
 }
@@ -165,14 +173,16 @@ mod tests {
             (AutomapError::IPv6Unsupported(Ipv6Addr::from_str("::").unwrap()), AutomapErrorCause::NetworkConfiguration),
             (AutomapError::FindRouterError(String::new(), AutomapErrorCause::NetworkConfiguration), AutomapErrorCause::NetworkConfiguration),
             (AutomapError::GetPublicIpError(String::new()), AutomapErrorCause::ProtocolFailed),
-            (AutomapError::SocketBindingError(String::new(), SocketAddr::from_str("1.2.3.4:1234").unwrap()), AutomapErrorCause::NetworkConfiguration),
-            (AutomapError::SocketPrepError(AutomapErrorCause::Unknown("Booga".to_string())), AutomapErrorCause::Unknown("Booga".to_string())),
+            (AutomapError::SocketBindingError(String::new(), SocketAddr::from_str("1.2.3.4:1234").unwrap()), AutomapErrorCause::UserError),
             (AutomapError::SocketSendError(AutomapErrorCause::Unknown("Booga".to_string())), AutomapErrorCause::Unknown("Booga".to_string())),
             (AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("Booga".to_string())), AutomapErrorCause::Unknown("Booga".to_string())),
             (AutomapError::PacketParseError(ParseError::WrongVersion(3)), AutomapErrorCause::ProtocolFailed),
             (AutomapError::ProtocolError(String::new()), AutomapErrorCause::ProtocolFailed),
-            (AutomapError::PermanentLeasesOnly, AutomapErrorCause::Unknown("".to_string())),
+            (AutomapError::PermanentLeasesOnly, AutomapErrorCause::Unknown("Can't handle permanent-only leases".to_string())),
             (AutomapError::AddMappingError(String::new()), AutomapErrorCause::ProtocolFailed),
+            (AutomapError::ProbeServerConnectError(String::new()), AutomapErrorCause::ProbeServerIssue),
+            (AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, String::new()), AutomapErrorCause::ProbeFailed),
+            (AutomapError::ProbeReceiveError(String::new()), AutomapErrorCause::ProbeFailed),
             (AutomapError::DeleteMappingError(String::new()), AutomapErrorCause::ProtocolFailed),
             (AutomapError::TransactionFailure(String::new()), AutomapErrorCause::ProtocolFailed),
         ];

@@ -79,6 +79,10 @@ impl Transactor for PmpTransactor {
         }
     }
 
+    fn add_permanent_mapping(&self, _router_ip: IpAddr, _hole_port: u16) -> Result<u32, AutomapError> {
+        panic!("PMP cannot add permanent mappings")
+    }
+
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         self.add_mapping(router_ip, hole_port, 0)?;
         Ok(())
@@ -123,9 +127,7 @@ impl PmpTransactor {
                 ))
             }
         };
-        if let Err(e) = socket.set_read_timeout(Some(Duration::from_secs(3))) {
-            return Err(AutomapError::SocketPrepError(AutomapErrorCause::Unknown(format!("{:?}", e))));
-        }
+        socket.set_read_timeout(Some(Duration::from_secs(3))).expect("set_read_timeout failed");
         if let Err(e) = socket.send_to(&buffer[0..len], SocketAddr::new(router_ip, 5351)) {
             return Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(format!("{:?}", e))));
         }
@@ -186,20 +188,6 @@ mod tests {
             }
             e => panic!("Expected SocketBindingError, got {:?}", e),
         }
-    }
-
-    #[test]
-    fn transact_handles_set_read_timeout_error() {
-        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
-        let io_error = io::Error::from(ErrorKind::ConnectionReset);
-        let io_error_str = format!("{:?}", io_error);
-        let socket = UdpSocketMock::new().set_read_timeout_result(Err(io_error));
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject(socket_factory);
-
-        let result = subject.add_mapping(router_ip, 7777, 1234);
-
-        assert_eq!(result, Err(AutomapError::SocketPrepError(AutomapErrorCause::Unknown(io_error_str))));
     }
 
     #[test]
@@ -425,6 +413,14 @@ mod tests {
                 "OutOfResources".to_string()
             ))
         );
+    }
+
+    #[test]
+    #[should_panic (expected = "PMP cannot add permanent mappings")]
+    fn add_permanent_mapping_is_not_implemented() {
+        let subject = PmpTransactor::default();
+
+        let _ = subject.add_permanent_mapping(IpAddr::from_str("0.0.0.0").unwrap(), 0);
     }
 
     #[test]

@@ -68,6 +68,10 @@ impl Transactor for PcpTransactor {
         }
     }
 
+    fn add_permanent_mapping(&self, _router_ip: IpAddr, _hole_port: u16) -> Result<u32, AutomapError> {
+        panic!("PCP cannot add permanent mappings")
+    }
+
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         let (result_code, _epoch_time, _opcode_data) =
             self.mapping_transaction(router_ip, hole_port, 0)?;
@@ -135,10 +139,7 @@ impl PcpTransactor {
                 ))
             }
         };
-        match socket.set_read_timeout(Some(Duration::from_secs(3))) {
-            Ok(_) => (),
-            Err(e) => return Err(AutomapError::SocketPrepError(AutomapErrorCause::Unknown(format!("{:?}", e)))),
-        };
+        socket.set_read_timeout(Some(Duration::from_secs(3))).expect ("set_read_timeout failed");
         match socket.send_to(&buffer[0..request_len], SocketAddr::new(router_ip, 5351)) {
             Ok(_) => (),
             Err(e) => return Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(format!("{:?}", e)))),
@@ -274,21 +275,6 @@ mod tests {
             }
             e => panic!("Expected SocketBindingError, got {:?}", e),
         }
-    }
-
-    #[test]
-    fn mapping_transaction_handles_set_read_timeout_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
-        let io_error = io::Error::from(ErrorKind::ConnectionRefused);
-        let io_error_str = format!("{:?}", io_error);
-        let socket = UdpSocketMock::new().set_read_timeout_result(Err(io_error));
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-
-        let result = subject.mapping_transaction(router_ip, 6666, 4321);
-
-        assert_eq!(result, Err(AutomapError::SocketPrepError(AutomapErrorCause::Unknown(io_error_str))));
     }
 
     #[test]
@@ -592,6 +578,14 @@ mod tests {
                 "AddressMismatch".to_string()
             ))
         );
+    }
+
+    #[test]
+    #[should_panic (expected = "PCP cannot add permanent mappings")]
+    fn add_permanent_mapping_is_not_implemented() {
+        let subject = PcpTransactor::default();
+
+        let _ = subject.add_permanent_mapping(IpAddr::from_str("0.0.0.0").unwrap(), 0);
     }
 
     #[test]
