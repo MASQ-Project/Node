@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::utils::MASQ_PROMPT;
-use linefeed::memory::{Lines, MemoryTerminal};
-use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
+use crate::line_reader::{TerminalReal, MASQ_PROMPT};
+use linefeed::memory::MemoryTerminal;
+use linefeed::{Interface, ReadResult, Writer};
 use std::any::Any;
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,7 @@ impl TerminalWrapper {
     pub fn read_line(&self) -> std::io::Result<ReadResult> {
         self.inner.read_line()
     }
+
     pub fn add_history_unique(&self, line: String) {
         self.inner.add_history_unique(line)
     }
@@ -33,6 +34,11 @@ impl TerminalWrapper {
     pub fn test_interface(&self) -> MemoryTerminal {
         let object = self.inner.clone().to_owned();
         object.test_interface()
+    }
+
+    #[cfg(test)]
+    pub fn inner(&self) -> &Arc<Box<dyn Terminal + Send + Sync>> {
+        &self.inner
     }
 }
 
@@ -72,58 +78,66 @@ impl Clone for TerminalWrapper {
     }
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//TerminalReal is in line_reader.rs
 
 pub trait Terminal {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_>;
-    fn read_line(&self) -> std::io::Result<ReadResult>;
+    fn read_line(&self) -> std::io::Result<ReadResult>; //change result to String
     fn add_history_unique(&self, line: String);
+    #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal;
 }
 
-pub struct TerminalReal {
-    interface: Box<dyn InterfaceRaw + Send + Sync>,
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+pub struct TerminalPassiveMock {
+    read_line_result_line_or_eof: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
 }
 
-impl Terminal for TerminalReal {
-    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
-        self.interface
-            .lock_writer_append()
-            .expect("lock writer append failed") //TODO  fix this so that it is propagated correctly
+impl Terminal for TerminalPassiveMock {
+    fn provide_lock(&self) -> Box<dyn WriterGeneric> {
+        unimplemented!()
     }
 
     fn read_line(&self) -> std::io::Result<ReadResult> {
-        self.interface.read_line()
+        //return string
+        self.read_line_result_line_or_eof.lock().unwrap().remove(0)
     }
 
     fn add_history_unique(&self, line: String) {
-        self.interface.add_history_unique(line)
+        unimplemented!()
     }
-
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
-        unimplemented!();
-        // self.interface.downcast().downcast_ref::<Interface<MemoryTerminal>>().unwrap().clone()
+        unimplemented!()
     }
 }
 
-impl TerminalReal {
-    fn new<U: 'static + linefeed::Terminal>(interface: Interface<U>) -> Self {
+impl TerminalPassiveMock {
+    pub fn new() -> Self {
         Self {
-            interface: Box::new(interface),
+            read_line_result_line_or_eof: Arc::new(Mutex::new(vec![])),
         }
     }
+
+    pub fn read_line_result(self, result: std::io::Result<ReadResult>) -> Self {
+        self.read_line_result_line_or_eof
+            .lock()
+            .unwrap()
+            .push(result);
+        self
+    }
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-pub struct TerminalMock {
+pub struct TerminalActiveMock {
     in_memory_terminal: Interface<MemoryTerminal>,
     reference: MemoryTerminal,
     user_input: Arc<Mutex<Vec<String>>>,
 }
 
-impl Terminal for TerminalMock {
+impl Terminal for TerminalActiveMock {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
@@ -138,12 +152,13 @@ impl Terminal for TerminalMock {
         self.in_memory_terminal.add_history_unique(line)
     }
 
+    #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
         self.reference.clone()
     }
 }
 
-impl TerminalMock {
+impl TerminalActiveMock {
     pub fn new() -> Self {
         let memory_terminal_instance = MemoryTerminal::new();
         Self {
@@ -156,6 +171,7 @@ impl TerminalMock {
             user_input: Arc::new(Mutex::new(vec![])),
         }
     }
+    #[allow(dead_code)] //TODO: think about this
     fn read_line_result(self, line: String) -> Self {
         self.user_input
             .lock()
@@ -177,6 +193,7 @@ impl<U: linefeed::Terminal> WriterGeneric for Writer<'_, '_, U> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
 pub trait InterfaceRaw {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
@@ -212,63 +229,65 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-fn written_output_by_line_number(mut lines_from_memory: Lines, line_number: usize) -> String {
-    //Lines isn't an iterator unfortunately
-    if line_number < 1 || 24 < line_number {
-        panic!("The number must be between 1 and 24")
-    }
-    for _ in 0..line_number - 1 {
-        lines_from_memory.next();
-    }
-    one_line_collector(lines_from_memory.next().unwrap()).replace("*/-", "")
-}
-
-fn written_output_all_lines(mut lines_from_memory: Lines, separator: bool) -> String {
-    (0..24)
-        .flat_map(|_| {
-            lines_from_memory
-                .next()
-                .map(|chars| one_line_collector(chars))
-        })
-        .collect::<String>()
-        .replace("*/-", if separator { " | " } else { " " })
-        .trim_end()
-        .to_string()
-}
-
-fn one_line_collector(line_chars: &[char]) -> String {
-    let string_raw = line_chars
-        .iter()
-        .map(|char| char)
-        .collect::<String>()
-        .split(' ')
-        .map(|word| {
-            if word != "" {
-                format!("{} ", word)
-            } else {
-                "".to_string()
-            }
-        })
-        .collect::<String>();
-    (0..1)
-        .map(|_| string_raw.strip_suffix("*/- ").unwrap_or(&string_raw))
-        .map(|str| str.strip_suffix(" ").unwrap_or(&string_raw).to_string())
-        .collect::<String>()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::mocks::MixingStdout;
     use crossbeam_channel::unbounded;
+    use linefeed::memory::Lines;
+    use linefeed::DefaultTerminal;
     use std::io::Write;
     use std::sync::Barrier;
     use std::thread;
     use std::time::Duration;
 
+    fn written_output_by_line_number(mut lines_from_memory: Lines, line_number: usize) -> String {
+        //Lines isn't an iterator unfortunately
+        if line_number < 1 || 24 < line_number {
+            panic!("The number must be between 1 and 24")
+        }
+        for _ in 0..line_number - 1 {
+            lines_from_memory.next();
+        }
+        one_line_collector(lines_from_memory.next().unwrap()).replace("*/-", "")
+    }
+
+    fn written_output_all_lines(mut lines_from_memory: Lines, separator: bool) -> String {
+        (0..24)
+            .flat_map(|_| {
+                lines_from_memory
+                    .next()
+                    .map(|chars| one_line_collector(chars))
+            })
+            .collect::<String>()
+            .replace("*/-", if separator { " | " } else { " " })
+            .trim_end()
+            .to_string()
+    }
+
+    fn one_line_collector(line_chars: &[char]) -> String {
+        let string_raw = line_chars
+            .iter()
+            .map(|char| char)
+            .collect::<String>()
+            .split(' ')
+            .map(|word| {
+                if word != "" {
+                    format!("{} ", word)
+                } else {
+                    "".to_string()
+                }
+            })
+            .collect::<String>();
+        (0..1)
+            .map(|_| string_raw.strip_suffix("*/- ").unwrap_or(&string_raw))
+            .map(|str| str.strip_suffix(" ").unwrap_or(&string_raw).to_string())
+            .collect::<String>()
+    }
+
     #[test]
     fn terminal_mock_and_test_tools_write_and_read() {
-        let mock = TerminalMock::new()
+        let mock = TerminalActiveMock::new()
             .read_line_result("Rocket, go to Mars, go, go".to_string())
             .read_line_result("And once again...nothing".to_string());
 
@@ -313,7 +332,7 @@ mod tests {
     // it will be protected
     //The core of the test consists of two halves where the first shows unprotected writing in the second locks are actively called in both concurrent threads
     fn terminal_wrapper_s_lock_blocks_others_to_write_into_stdout() {
-        let interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
+        let interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         let barrier = Arc::new(Barrier::new(2));
         let mut handles = Vec::new();
@@ -420,9 +439,7 @@ mod tests {
     fn configure_interface_allows_us_starting_in_memory_terminal() {
         let term_mock = MemoryTerminal::new();
         let term_mock_clone = term_mock.clone();
-
         let terminal_type = move || -> std::io::Result<MemoryTerminal> { Ok(term_mock_clone) };
-
         let subject = configure_interface(Box::new(Interface::with_term), Box::new(terminal_type));
         let result = match subject {
             Err(e) => panic!("should have been OK, got Err: {}", e),

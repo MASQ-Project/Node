@@ -1,20 +1,20 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::LineReader;
+use crate::terminal_interface::TerminalWrapper;
 use std::io::BufRead;
 use std::sync::{Arc, Mutex};
 
-pub const MASQ_PROMPT: &str = "masq> ";
-
 pub trait BufReadFactory {
-    fn make(&self, output_synchronizer: Arc<Mutex<()>>) -> Box<dyn BufRead>;
+    fn make(&self, term_interface: TerminalWrapper) -> Box<()>;
 }
 
 pub struct BufReadFactoryReal {}
 
 impl BufReadFactory for BufReadFactoryReal {
-    fn make(&self, output_synchronizer: Arc<Mutex<()>>) -> Box<dyn BufRead> {
-        Box::new(LineReader::new(output_synchronizer))
+    fn make(&self, term_interface: TerminalWrapper) -> Box<()> {
+        // cut off
+        Box::new(())
     }
 }
 

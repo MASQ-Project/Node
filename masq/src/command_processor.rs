@@ -75,7 +75,7 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::terminal_interface::TerminalMock;
+    use crate::terminal_interface::TerminalActiveMock;
     use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
@@ -106,7 +106,7 @@ mod tests {
             format!("{}", port),
         ];
         let subject = CommandProcessorFactoryReal::new();
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
 
         let result = subject.make(interface, Box::new(StreamFactoryReal::new()), &args);
 
@@ -130,7 +130,7 @@ mod tests {
         let subject = CommandProcessorFactoryReal::new();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
 
         let mut result = subject
             .make(interface, Box::new(StreamFactoryReal::new()), &args)
@@ -207,7 +207,7 @@ mod tests {
         ];
         let processor_factory = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
         let mut subject = processor_factory
             .make(interface, Box::new(broadcast_stream_factory), &args)
             .unwrap();

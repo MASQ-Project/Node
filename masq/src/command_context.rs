@@ -153,7 +153,7 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::terminal_interface::TerminalMock;
+    use crate::terminal_interface::TerminalActiveMock;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
@@ -210,7 +210,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let handle = server.start();
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
 
         let subject =
             CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new())).unwrap();
@@ -230,7 +230,7 @@ mod tests {
         let stderr_arc = stderr.inner_arc();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
 
         let mut subject =
             CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new())).unwrap();
@@ -264,7 +264,7 @@ mod tests {
     fn works_when_server_isnt_present() {
         running_test();
         let port = find_free_port();
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
 
         let result = CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new()));
 
@@ -284,7 +284,7 @@ mod tests {
             path: Conversation(1),
             payload: Err((101, "booga".to_string())),
         });
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
         let stop_handle = server.start();
         let mut subject =
             CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new())).unwrap();
@@ -299,7 +299,7 @@ mod tests {
     fn transact_works_when_server_sends_connection_error() {
         running_test();
         let port = find_free_port();
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
         let stop_handle = server.start();
         let mut subject =
@@ -326,7 +326,7 @@ mod tests {
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
         let stream_factory = Box::new(StreamFactoryReal::new());
-        let interface = Box::new(TerminalMock::new());
+        let interface = Box::new(TerminalActiveMock::new());
         let subject_result = CommandContextReal::new(interface, port, stream_factory);
         let mut subject = subject_result.unwrap();
         subject.stdin = Box::new(stdin);

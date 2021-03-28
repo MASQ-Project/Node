@@ -137,7 +137,7 @@ impl StreamFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal_interface::TerminalMock;
+    use crate::terminal_interface::TerminalActiveMock;
     use crate::test_utils::mocks::{MixingStdout, TestStreamFactory};
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
@@ -148,9 +148,10 @@ mod tests {
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
-                .start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+            TerminalActiveMock::new(),
+        ))))
+        .start(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
             values: vec![],
@@ -185,9 +186,10 @@ mod tests {
     fn broadcast_of_crashed_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
-                .start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+            TerminalActiveMock::new(),
+        ))))
+        .start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -213,9 +215,10 @@ mod tests {
     fn broadcast_of_new_password_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
-                .start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+            TerminalActiveMock::new(),
+        ))))
+        .start(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
@@ -237,9 +240,10 @@ mod tests {
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
-                .start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+            TerminalActiveMock::new(),
+        ))))
+        .start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
         }
@@ -264,9 +268,10 @@ mod tests {
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject =
-            BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalMock::new()))))
-                .start(Box::new(factory));
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+            TerminalActiveMock::new(),
+        ))))
+        .start(Box::new(factory));
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,
@@ -393,7 +398,7 @@ masq>";
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
 
-        let synchronizer = TerminalWrapper::new(Box::new(TerminalMock::new()));
+        let synchronizer = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
         let synchronizer_clone_idle = synchronizer.clone();
 
         //synchronized part proving that the broadcast print is synchronized

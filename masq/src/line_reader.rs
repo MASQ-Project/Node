@@ -1,6 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::utils::MASQ_PROMPT;
+use crate::terminal_interface::{InterfaceRaw, Terminal, TerminalReal, WriterGeneric};
+use linefeed::memory::MemoryTerminal;
+use linefeed::{Interface, ReadResult};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::cell::RefCell;
@@ -9,6 +11,41 @@ use std::io::{BufRead, Read};
 use std::io::{ErrorKind, Write};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+
+pub const MASQ_PROMPT: &str = "masq> ";
+
+pub struct TerminalReal {
+    pub interface: Box<dyn InterfaceRaw + Send + Sync>,
+}
+
+impl Terminal for TerminalReal {
+    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
+        self.interface
+            .lock_writer_append()
+            .expect("lock writer append failed") //TODO  fix this so that it is propagated correctly
+    }
+
+    fn read_line(&self) -> std::io::Result<ReadResult> {
+        self.interface.read_line()
+    }
+
+    fn add_history_unique(&self, line: String) {
+        self.interface.add_history_unique(line)
+    }
+
+    #[cfg(test)]
+    fn test_interface(&self) -> MemoryTerminal {
+        unimplemented!();
+    }
+}
+
+impl TerminalReal {
+    pub(crate) fn new<U: 'static + linefeed::Terminal>(interface: Interface<U>) -> Self {
+        Self {
+            interface: Box::new(interface),
+        }
+    }
+}
 
 pub struct LineReader {
     output_synchronizer: Arc<Mutex<()>>,

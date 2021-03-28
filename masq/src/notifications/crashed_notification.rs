@@ -53,7 +53,7 @@ impl CrashNotifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal_interface::TerminalMock;
+    use crate::terminal_interface::TerminalActiveMock;
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::utils::running_test;
 
@@ -66,7 +66,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::ChildWaitFailure("Couldn't wait".to_string()),
         };
-        let term_interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
@@ -83,7 +83,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::Unrecognized("Just...failed!\n\n".to_string()),
         };
-        let term_interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
@@ -100,7 +100,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::NoInformation,
         };
-        let term_interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
@@ -117,7 +117,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::DaemonCrashed,
         };
-        let term_interface = TerminalWrapper::new(Box::new(TerminalMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
     }

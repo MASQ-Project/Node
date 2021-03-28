@@ -187,10 +187,7 @@ impl CommandProcessorMock {
         Self::default()
     }
 
-    pub fn insert_terminal_interface(
-        mut self,
-        terminal_interface_arc_clone: TerminalWrapper,
-    ) -> Self {
+    pub fn terminal_interface(mut self, terminal_interface_arc_clone: TerminalWrapper) -> Self {
         self.terminal_interface.push(terminal_interface_arc_clone);
         self
     }

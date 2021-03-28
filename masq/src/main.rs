@@ -1,19 +1,19 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use linefeed::{DefaultTerminal, Interface};
+use linefeed::{DefaultTerminal, Interface, ReadResult};
 use masq_cli_lib::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use masq_cli_lib::command_factory::{CommandFactory, CommandFactoryReal};
 use masq_cli_lib::command_processor::{
     CommandProcessor, CommandProcessorFactory, CommandProcessorFactoryReal,
 };
 use masq_cli_lib::communications::broadcast_handler::StreamFactoryReal;
-use masq_cli_lib::terminal_interface::configure_interface;
+use masq_cli_lib::terminal_interface::{configure_interface, TerminalWrapper};
 use masq_cli_lib::utils::{BufReadFactory, BufReadFactoryReal};
 use masq_lib::command;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
 use std::io;
-use std::io::BufRead;
+use std::io::{BufRead, Error};
 
 fn main() {
     let mut streams: StdStreams<'_> = StdStreams {
@@ -31,13 +31,13 @@ fn main() {
 struct Main {
     command_factory: Box<dyn CommandFactory>,
     processor_factory: Box<dyn CommandProcessorFactory>,
-    buf_read_factory: Box<dyn BufReadFactory>,
 }
 
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let broadcast_stream_factory = StreamFactoryReal::new();
-        let interface = if Ok(interface) = configure_interface(
+        #[allow(unreachable_code)]
+        let interface = if let Ok(interface) = configure_interface(
             Box::new(Interface::with_term),
             Box::new(DefaultTerminal::new),
         ) {
@@ -45,10 +45,11 @@ impl command::Command for Main {
         } else {
             unimplemented!()
         };
-        let mut command_processor = match self
-            .processor_factory
-            .make(Box::new(broadcast_stream_factory), args)
-        {
+        let mut command_processor = match self.processor_factory.make(
+            interface,
+            Box::new(broadcast_stream_factory),
+            args,
+        ) {
             Ok(processor) => processor,
             Err(e) => {
                 short_writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e);
@@ -74,7 +75,6 @@ impl Main {
         Self {
             command_factory: Box::new(CommandFactoryReal::new()),
             processor_factory: Box::new(CommandProcessorFactoryReal {}),
-            buf_read_factory: Box::new(BufReadFactoryReal::new()),
         }
     }
 
@@ -90,11 +90,14 @@ impl Main {
         None
     }
 
-    fn accept_subcommand(stdin: &mut dyn BufRead) -> Result<Option<Vec<String>>, std::io::Error> {
-        let mut line = String::new();
-        match stdin.read_line(&mut line) {
-            Ok(_) => Ok(Some(Self::split_quoted_line(line))),
+    fn accept_subcommand(
+        term_interface: TerminalWrapper,
+    ) -> Result<Option<Vec<String>>, std::io::Error> {
+        match term_interface.read_line() {
+            Ok(Some(line)) => Ok(Some(Self::split_quoted_line(line))),
+            Ok(None) => unimplemented!(),
             Err(e) => Err(e),
+            _ => unreachable!(),
         }
     }
 
@@ -128,11 +131,8 @@ impl Main {
         processor: &mut dyn CommandProcessor,
         streams: &mut StdStreams<'_>,
     ) -> u8 {
-        let mut line_reader = self
-            .buf_read_factory
-            .make(processor.clone_terminal_interface());
         loop {
-            let args = match Self::accept_subcommand(&mut line_reader) {
+            let args = match Self::accept_subcommand(processor.clone_terminal_interface()) {
                 Ok(Some(args)) => args,
                 Ok(None) => break, //EOF
                 Err(e) => {
@@ -189,6 +189,7 @@ mod tests {
     use masq_cli_lib::commands::commands_common;
     use masq_cli_lib::commands::commands_common::CommandError;
     use masq_cli_lib::commands::commands_common::CommandError::Transmission;
+    use masq_cli_lib::terminal_interface::TerminalPassiveMock;
     use masq_cli_lib::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand,
@@ -206,9 +207,9 @@ mod tests {
     }
 
     impl BufReadFactory for BufReadFactoryMock {
-        fn make(&self, output_synchronizer: Arc<Mutex<()>>) -> Box<dyn BufRead> {
+        fn make(&self, output_synchronizer: TerminalWrapper) -> Box<()> {
             self.make_params.lock().unwrap().push(output_synchronizer);
-            Box::new(self.interactive.borrow_mut().take().unwrap())
+            Box::new(())
         }
     }
 
@@ -253,7 +254,6 @@ mod tests {
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(BufReadFactoryMock::new()),
         };
 
         let result = subject.go(
@@ -353,17 +353,19 @@ mod tests {
             .make_params(&make_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
             .make_result(Ok(Box::new(FakeCommand::new("start command"))));
+        let terminal_mock = TerminalPassiveMock::new()
+            .read_line_result(Ok(ReadResult::Input("setup\n\nstart\nexit\n".to_string())));
         let processor = CommandProcessorMock::new()
             .process_result(Ok(()))
-            .process_result(Ok(()));
+            .process_result(Ok(()))
+            .terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(
-                BufReadFactoryMock::new().make_interactive_result("setup\n\nstart\nexit\n"),
-            ),
+            processor_factory: Box::new(processor_factory)
+            // buf_read_factory: Box::new(
+            //     BufReadFactoryMock::new().make_interactive_result("setup\n\nstart\nexit\n"),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -398,7 +400,6 @@ mod tests {
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(buf_read_factory),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -421,15 +422,19 @@ mod tests {
             .make_result(Err(CommandFactoryError::UnrecognizedSubcommand(
                 "Booga!".to_string(),
             )));
-        let processor = CommandProcessorMock::new();
+        let processor =
+            CommandProcessorMock::new().terminal_interface(TerminalWrapper::new(Box::new(
+                TerminalPassiveMock::new()
+                    .read_line_result(Ok(ReadResult::Input("error command\nexit\n".to_string()))),
+            )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(
-                BufReadFactoryMock::new().make_interactive_result("error command\nexit\n"),
-            ),
+            processor_factory: Box::new(processor_factory)
+            // buf_read_factory: Box::new(
+            //     BufReadFactoryMock::new().make_interactive_result("error command\nexit\n"),
+            // ),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -455,15 +460,19 @@ mod tests {
             .make_result(Err(CommandFactoryError::CommandSyntax(
                 "Booga!".to_string(),
             )));
-        let processor = CommandProcessorMock::new();
+        let processor =
+            CommandProcessorMock::new().terminal_interface(TerminalWrapper::new(Box::new(
+                TerminalPassiveMock::new()
+                    .read_line_result(Ok(ReadResult::Input("error command\nexit\n".to_string()))),
+            )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(
-                BufReadFactoryMock::new().make_interactive_result("error command\nexit\n"),
-            ),
+            processor_factory: Box::new(processor_factory)
+            // buf_read_factory: Box::new(
+            //     BufReadFactoryMock::new().make_interactive_result("error command\nexit\n"),
+            // ),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -484,25 +493,27 @@ mod tests {
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
-        let synchronizer = Arc::new(Mutex::new(()));
-        let synchronizer_clone = synchronizer.clone();
+        let term_interface = TerminalWrapper::new(Box::new(
+            TerminalPassiveMock::new()
+                .read_line_result(Ok(ReadResult::Input("setup\n\nexit\n".to_string()))),
+        ));
         let processor = CommandProcessorMock::new()
-            .insert_terminal_interface(synchronizer_clone)
+            .terminal_interface(term_interface.clone())
             .process_result(Ok(()));
 
-        assert_eq!(Arc::strong_count(&synchronizer), 2);
+        assert_eq!(Arc::strong_count(term_interface.inner()), 2);
 
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let buf_read_sync_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = Main {
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(
-                BufReadFactoryMock::new()
-                    .make_interactive_result("setup\n\nexit\n")
-                    .make_params(buf_read_sync_params_arc.clone()),
-            ),
+            processor_factory: Box::new(processor_factory)
+            // buf_read_factory: Box::new(
+            //     BufReadFactoryMock::new()
+            //         .make_interactive_result("setup\n\nexit\n")
+            //         .make_params(buf_read_sync_params_arc.clone()),
+            // ),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -519,7 +530,7 @@ mod tests {
         //we're still getting two instances of synchronizer. That means that the handover in go_interactive happened.
         //(when BufReadFactoryMock.make() is called)
         //This test fails if clone_synchronizer() in go_interactive is removed)
-        assert_eq!(Arc::strong_count(&synchronizer), 2);
+        assert_eq!(Arc::strong_count(term_interface.inner()), 2);
 
         assert_eq!(result, 0);
         let make_params = make_params_arc.lock().unwrap();
@@ -528,10 +539,13 @@ mod tests {
 
     #[test]
     fn accept_subcommand_handles_balanced_double_quotes() {
-        let result = Main::accept_subcommand(&mut ByteArrayReader::new(
-            b"  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth\" ",
-        ))
-        .unwrap();
+        let interface_mock = TerminalWrapper::new(Box::new(
+            TerminalPassiveMock::new().read_line_result(Ok(ReadResult::Input(
+                r#"  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth\" "#
+                    .to_string(),
+            ))),
+        ));
+        let result = Main::accept_subcommand(interface_mock).unwrap();
 
         assert_eq!(
             result,
@@ -548,10 +562,14 @@ mod tests {
 
     #[test]
     fn accept_subcommand_handles_unbalanced_double_quotes() {
-        let result = Main::accept_subcommand(&mut ByteArrayReader::new(
-            b"  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth  ",
-        ))
-        .unwrap();
+        let interface_mock = TerminalWrapper::new(Box::new(
+            TerminalPassiveMock::new().read_line_result(Ok(ReadResult::Input(
+                r#"  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth  "#
+                    .to_string(),
+            ))),
+        ));
+
+        let result = Main::accept_subcommand(interface_mock).unwrap();
 
         assert_eq!(
             result,
@@ -568,10 +586,14 @@ mod tests {
 
     #[test]
     fn accept_subcommand_handles_balanced_single_quotes() {
-        let result = Main::accept_subcommand(&mut ByteArrayReader::new(
-            b"  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth' ",
-        ))
-        .unwrap();
+        let interface_mock = TerminalWrapper::new(Box::new(
+            TerminalPassiveMock::new().read_line_result(Ok(ReadResult::Input(
+                r#"  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth' "#
+                    .to_string(),
+            ))),
+        ));
+
+        let result = Main::accept_subcommand(interface_mock).unwrap();
 
         assert_eq!(
             result,
@@ -588,10 +610,13 @@ mod tests {
 
     #[test]
     fn accept_subcommand_handles_unbalanced_single_quotes() {
-        let result = Main::accept_subcommand(&mut ByteArrayReader::new(
-            b"  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth  ",
-        ))
-        .unwrap();
+        let interface_mock = TerminalWrapper::new(Box::new(
+            TerminalPassiveMock::new().read_line_result(Ok(ReadResult::Input(
+                r#"  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth  "#
+                    .to_string(),
+            ))),
+        ));
+        let result = Main::accept_subcommand(interface_mock).unwrap();
 
         assert_eq!(
             result,
@@ -619,7 +644,6 @@ mod tests {
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(BufReadFactoryMock::new()),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -651,7 +675,6 @@ mod tests {
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(BufReadFactoryMock::new()),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -680,7 +703,6 @@ mod tests {
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(BufReadFactoryMock::new()),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -704,7 +726,6 @@ mod tests {
         let mut subject = Main {
             command_factory: Box::new(CommandFactoryMock::new()),
             processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(BufReadFactoryMock::new()),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
