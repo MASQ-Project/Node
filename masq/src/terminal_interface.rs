@@ -85,7 +85,7 @@ impl Clone for TerminalWrapper {
 pub trait Terminal {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_>;
     fn read_line(&self) -> std::io::Result<ReadResult>; //change result to String
-    fn add_history_unique(&self, line: String);
+    fn add_history_unique(&self, line: String) {}
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal;
 }
@@ -106,9 +106,6 @@ impl Terminal for TerminalPassiveMock {
         self.read_line_result_line_or_eof.lock().unwrap().remove(0)
     }
 
-    fn add_history_unique(&self, line: String) {
-        unimplemented!()
-    }
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
         unimplemented!()
@@ -198,8 +195,15 @@ pub trait InterfaceRaw {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>>;
-    fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
-    fn downcast(&self) -> &dyn Any;
+    fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
+        self.set_prompt(prompt)
+    }
+    fn downcast(&self) -> &dyn Any
+    where
+        Self: Sized + 'static,
+    {
+        self
+    }
 }
 
 impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
@@ -223,6 +227,40 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
     }
 
     fn downcast(&self) -> &dyn Any {
+        //TODO consider removing this method from the trait
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct InterfaceRawMock {
+    read_line_result: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
+    add_history_unique_params: Arc<Mutex<Vec<String>>>,
+}
+
+impl InterfaceRaw for InterfaceRawMock {
+    fn read_line(&self) -> std::io::Result<ReadResult> {
+        self.read_line_result.lock().unwrap().remove(0)
+    }
+
+    fn add_history_unique(&self, line: String) {
+        self.add_history_unique_params.lock().unwrap().push(line)
+    }
+
+    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>> {
+        unimplemented!()
+    }
+}
+
+impl InterfaceRawMock {
+    pub fn new() -> Self {
+        Self {
+            read_line_result: Arc::new(Mutex::new(vec![])),
+            add_history_unique_params: Arc::new(Mutex::new(vec![])),
+        }
+    }
+    pub fn read_line_result(self, result: std::io::Result<ReadResult>) -> Self {
+        self.read_line_result.lock().unwrap().push(result);
         self
     }
 }

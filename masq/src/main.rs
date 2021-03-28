@@ -8,7 +8,6 @@ use masq_cli_lib::command_processor::{
 };
 use masq_cli_lib::communications::broadcast_handler::StreamFactoryReal;
 use masq_cli_lib::terminal_interface::{configure_interface, TerminalWrapper};
-use masq_cli_lib::utils::{BufReadFactory, BufReadFactoryReal};
 use masq_lib::command;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;

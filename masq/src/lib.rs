@@ -9,7 +9,6 @@ pub mod line_reader;
 mod notifications;
 mod schema;
 pub mod terminal_interface;
-pub mod utils;
 
 #[macro_use]
 extern crate crossbeam_channel;
