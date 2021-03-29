@@ -566,11 +566,11 @@ pub struct UiRecoverWalletsRequest {
     #[serde(rename = "earningWallet")]
     pub earning_wallet: String, // either derivation path (default to "m/44'/60'/0'/0/1") or address
 }
-conversation_message!(UiRecoverWalletsRequest, "recoverWallet");
+conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiRecoverWalletsResponse {}
-conversation_message!(UiRecoverWalletsResponse, "recoverWallet");
+conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiSetConfigurationRequest {

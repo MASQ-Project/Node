@@ -43,7 +43,7 @@ use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
@@ -221,7 +221,7 @@ pub trait ActorFactory: Send {
     fn make_and_start_accountant(
         &self,
         config: &BootstrapperConfig,
-        data_directory: &PathBuf,
+        data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs;
@@ -293,7 +293,7 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_accountant(
         &self,
         config: &BootstrapperConfig,
-        data_directory: &PathBuf,
+        data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
@@ -604,7 +604,7 @@ mod tests {
         fn make_and_start_accountant(
             &self,
             config: &BootstrapperConfig,
-            data_directory: &PathBuf,
+            data_directory: &Path,
             _db_initializer: &dyn DbInitializer,
             _banned_cache_loader: &dyn BannedCacheLoader,
         ) -> AccountantSubs {
@@ -612,7 +612,7 @@ mod tests {
                 .accountant_params
                 .lock()
                 .unwrap()
-                .get_or_insert((config.clone(), data_directory.clone()));
+                .get_or_insert((config.clone(), data_directory.to_path_buf()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
             AccountantSubs {
                 bind: recipient!(addr, BindMessage),

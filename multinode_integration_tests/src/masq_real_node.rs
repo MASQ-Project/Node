@@ -213,7 +213,7 @@ impl NodeStartupConfig {
     fn make_establish_wallet_args(&self) -> Option<Vec<String>> {
         fn to_strings(strs: Vec<&str>) -> Vec<String> {
             strs.into_iter().map(|x| x.to_string()).collect()
-        };
+        }
         let args = match (&self.earning_wallet_info, &self.consuming_wallet_info) {
             (EarningWalletInfo::None, ConsumingWalletInfo::None) => return None,
             (EarningWalletInfo::None, ConsumingWalletInfo::PrivateKey(_)) => return None,

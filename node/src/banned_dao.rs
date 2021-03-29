@@ -116,10 +116,10 @@ impl BannedDao for BannedDaoReal {
                 Error::SqliteFailure(e, _) if e.code == ErrorCode::ConstraintViolation => {
                     BAN_CACHE.insert(wallet.clone())
                 }
-                _ => panic!(format!(
+                _ => panic!(
                     "Could not initiate delinquency ban for {} because of database corruption: {}",
                     wallet, e
-                )),
+                ),
             },
         }
     }
@@ -136,10 +136,10 @@ impl BannedDao for BannedDaoReal {
         let params: &[&dyn ToSql] = &[&wallet];
         match stmt.execute(params) {
             Ok(_) => BAN_CACHE.remove(&wallet),
-            Err(e) => panic!(format!(
+            Err(e) => panic!(
                 "Could not terminate delinquency ban for {} because of database corruption: {}",
                 wallet, e
-            )),
+            ),
         }
     }
 }

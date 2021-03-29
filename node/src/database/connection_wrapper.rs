@@ -18,7 +18,7 @@ impl ConnectionWrapper for ConnectionWrapperReal {
         self.conn.prepare(query)
     }
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, Error> {
-        Ok(self.conn.transaction()?)
+        self.conn.transaction()
     }
 }
 
