@@ -26,7 +26,7 @@ use masq_lib::shared_schema::{
 };
 use serde_json::json;
 use serde_json::{Map, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
@@ -108,7 +108,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
     }
 }
 
-fn make_config_dao(data_directory: &PathBuf, chain_id: u8) -> ConfigDaoReal {
+fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
     let conn = DbInitializerReal::new()
         .initialize(&data_directory, chain_id, true) // TODO: Probably should be false
         .unwrap_or_else(|e| {

@@ -138,9 +138,9 @@ pub struct Gossip_0v1 {
     pub node_records: Vec<GossipNodeRecord>,
 }
 
-impl Into<MessageType> for Gossip_0v1 {
-    fn into(self) -> MessageType {
-        MessageType::Gossip(self.into())
+impl From<Gossip_0v1> for MessageType {
+    fn from(gossip: Gossip_0v1) -> Self {
+        MessageType::Gossip(gossip.into())
     }
 }
 

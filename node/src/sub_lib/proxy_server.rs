@@ -18,6 +18,7 @@ use std::fmt::Debug;
 
 pub const DEFAULT_MINIMUM_HOP_COUNT: usize = 3;
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ProxyProtocol {
     HTTP,
@@ -38,11 +39,11 @@ pub struct ClientRequestPayload_0v1 {
     pub originator_public_key: PublicKey,
 }
 
-impl Into<MessageType> for ClientRequestPayload_0v1 {
-    fn into(self) -> MessageType {
+impl From<ClientRequestPayload_0v1> for MessageType {
+    fn from(payload: ClientRequestPayload_0v1) -> Self {
         MessageType::ClientRequest(VersionedData::new(
             &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
-            &self,
+            &payload,
         ))
     }
 }

@@ -315,7 +315,7 @@ pub mod test_utils {
     use crate::test_utils::logging::init_test_logging;
     use log::LevelFilter;
     use std::cell::RefCell;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
     pub struct PrivilegeDropperMock {
@@ -333,11 +333,11 @@ pub mod test_utils {
                 .push(real_user.clone());
         }
 
-        fn chown(&self, file: &PathBuf, real_user: &RealUser) {
+        fn chown(&self, file: &Path, real_user: &RealUser) {
             self.chown_params
                 .lock()
                 .unwrap()
-                .push((file.clone(), real_user.clone()));
+                .push((file.to_path_buf(), real_user.clone()));
         }
 
         fn expect_privilege(&self, privilege_expected: bool) -> bool {

@@ -555,7 +555,7 @@ impl<'a> PacketFacade<'a> {
         if rdata_end > self.buf.len() {
             return None;
         };
-        self.buf[rdata_begin..(rdata.len() + rdata_begin)].clone_from_slice(&rdata[..]);
+        self.buf[rdata_begin..(rdata.len() + rdata_begin)].clone_from_slice(rdata);
         self.establish_high_water(rdata_end);
         Some(rdata_end - start)
     }

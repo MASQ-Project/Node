@@ -45,20 +45,20 @@ impl DnsResolveFailure_0v1 {
     }
 }
 
-impl Into<MessageType> for ClientResponsePayload_0v1 {
-    fn into(self) -> MessageType {
+impl From<ClientResponsePayload_0v1> for MessageType {
+    fn from(data: ClientResponsePayload_0v1) -> Self {
         MessageType::ClientResponse(VersionedData::new(
             &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
-            &self,
+            &data,
         ))
     }
 }
 
-impl Into<MessageType> for DnsResolveFailure_0v1 {
-    fn into(self) -> MessageType {
+impl From<DnsResolveFailure_0v1> for MessageType {
+    fn from(data: DnsResolveFailure_0v1) -> Self {
         MessageType::DnsResolveFailed(VersionedData::new(
             &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
-            &self,
+            &data,
         ))
     }
 }
