@@ -119,6 +119,13 @@ macro_rules! short_writeln {
     };
 }
 
+#[macro_export]
+macro_rules! optional_member {
+    () => {
+        panic!()
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

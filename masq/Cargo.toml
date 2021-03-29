@@ -20,6 +20,7 @@ websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
 crossbeam-channel = "0.5.0"
 
 [lib]
+# proc-macro = true
 name = "masq_cli_lib"
 path = "src/lib.rs"
 

@@ -1,11 +1,53 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::line_reader::{TerminalReal, MASQ_PROMPT};
+use crate::line_reader::{TerminalEvent, TerminalReal, MASQ_PROMPT};
 use linefeed::memory::MemoryTerminal;
-use linefeed::{Interface, ReadResult, Writer};
+use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
+use masq_lib::optional_member;
 use std::any::Any;
 use std::borrow::BorrowMut;
 use std::sync::{Arc, Mutex};
+
+pub trait TerminalInterfaceFactory {
+    fn make(&self) -> Result<TerminalReal, String>;
+}
+
+pub struct InterfaceReal {}
+
+impl TerminalInterfaceFactory for InterfaceReal {
+    fn make(&self) -> Result<TerminalReal, String> {
+        configure_interface(
+            Box::new(Interface::with_term),
+            Box::new(DefaultTerminal::new),
+        )
+    }
+}
+
+pub struct InterfaceMock {
+    make_result: Arc<Mutex<Vec<Result<TerminalReal, String>>>>,
+}
+
+impl TerminalInterfaceFactory for InterfaceMock {
+    fn make(&self) -> Result<TerminalReal, String> {
+        self.make_result.lock().unwrap().remove(0)
+    }
+}
+
+impl InterfaceMock {
+    pub fn new() -> Self {
+        Self {
+            make_result: Arc::new(Mutex::new(vec![])),
+        }
+    }
+
+    pub fn make_result(self, result: Result<TerminalReal, String>) -> Self {
+        self.make_result.lock().unwrap().push(result);
+        self
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//this is the most general layer, an object which is intended for you to usually work with at other places in the code
 
 pub struct TerminalWrapper {
     inner: Arc<Box<dyn Terminal + Send + Sync>>,
@@ -22,7 +64,7 @@ impl TerminalWrapper {
         self.inner.provide_lock()
     }
 
-    pub fn read_line(&self) -> std::io::Result<ReadResult> {
+    pub fn read_line(&self) -> TerminalEvent {
         self.inner.read_line()
     }
 
@@ -45,7 +87,7 @@ impl TerminalWrapper {
 pub fn configure_interface<F, U, E>(
     interface_raw: Box<F>,
     terminal_type: Box<E>,
-) -> Result<Box<TerminalReal>, String>
+) -> Result<TerminalReal, String>
 where
     F: FnOnce(&'static str, U) -> std::io::Result<Interface<U>>,
     E: FnOnce() -> std::io::Result<U>,
@@ -67,7 +109,7 @@ where
     };
     //possibly other parameters to be configured such as "completer" (see linefeed library)
 
-    Ok(Box::new(TerminalReal::new(interface)))
+    Ok(TerminalReal::new(Box::new(interface)))
 }
 
 impl Clone for TerminalWrapper {
@@ -80,53 +122,48 @@ impl Clone for TerminalWrapper {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-//TerminalReal is in line_reader.rs
+//declaration of TerminalReal is in line_reader.rs
 
 pub trait Terminal {
-    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_>;
-    fn read_line(&self) -> std::io::Result<ReadResult>; //change result to String
-    fn add_history_unique(&self, line: String) {}
+    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
+        optional_member!()
+    }
+    fn read_line(&self) -> TerminalEvent;
+    fn add_history_unique(&self, line: String) {
+        self.add_history_unique(line)
+    }
     #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal;
+    fn test_interface(&self) -> MemoryTerminal {
+        optional_member!()
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct TerminalPassiveMock {
-    read_line_result_line_or_eof: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
+    read_line_result: Arc<Mutex<Vec<TerminalEvent>>>,
 }
 
 impl Terminal for TerminalPassiveMock {
-    fn provide_lock(&self) -> Box<dyn WriterGeneric> {
-        unimplemented!()
-    }
-
-    fn read_line(&self) -> std::io::Result<ReadResult> {
-        //return string
-        self.read_line_result_line_or_eof.lock().unwrap().remove(0)
-    }
-
-    #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal {
-        unimplemented!()
+    fn read_line(&self) -> TerminalEvent {
+        self.read_line_result.lock().unwrap().remove(0)
     }
 }
 
 impl TerminalPassiveMock {
     pub fn new() -> Self {
         Self {
-            read_line_result_line_or_eof: Arc::new(Mutex::new(vec![])),
+            read_line_result: Arc::new(Mutex::new(vec![])),
         }
     }
 
-    pub fn read_line_result(self, result: std::io::Result<ReadResult>) -> Self {
-        self.read_line_result_line_or_eof
-            .lock()
-            .unwrap()
-            .push(result);
+    pub fn read_line_result(self, result: TerminalEvent) -> Self {
+        self.read_line_result.lock().unwrap().push(result);
         self
     }
 }
+
+//mock incorporating a terminal very similar to the real one, which is run in-memory
 
 pub struct TerminalActiveMock {
     in_memory_terminal: Interface<MemoryTerminal>,
@@ -139,10 +176,11 @@ impl Terminal for TerminalActiveMock {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
 
-    fn read_line(&self) -> std::io::Result<ReadResult> {
-        let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
-        self.reference.write(&format!("{}*/-", line));
-        Ok(ReadResult::Input(line))
+    fn read_line(&self) -> TerminalEvent {
+        unimplemented!()
+        // let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
+        // self.reference.write(&format!("{}*/-", line));
+        // Ok(Some(line))
     }
 
     fn add_history_unique(&self, line: String) {
@@ -263,6 +301,11 @@ impl InterfaceRawMock {
         self.read_line_result.lock().unwrap().push(result);
         self
     }
+
+    pub fn add_history_unique_params(mut self, params: Arc<Mutex<Vec<String>>>) -> Self {
+        self.add_history_unique_params = params;
+        self
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -342,9 +385,9 @@ mod tests {
 
         handle.join().unwrap();
 
-        terminal.read_line().unwrap();
+        terminal.read_line();
 
-        terminal.read_line().unwrap();
+        terminal.read_line();
 
         let lines_remaining = terminal_reference
             .test_interface()
@@ -354,7 +397,11 @@ mod tests {
 
         let written_output =
             written_output_all_lines(terminal_reference.test_interface().lines(), true);
-        assert_eq!(written_output, "first attempt | hello world | that's enough | Rocket, go to Mars, go, go | And once again...nothing |");
+        assert_eq!(
+            written_output,
+            "first attempt | hello world | that's enough |\
+         Rocket, go to Mars, go, go | And once again...nothing |"
+        );
 
         let single_line =
             written_output_by_line_number(terminal_reference.test_interface().lines(), 1);
@@ -366,9 +413,10 @@ mod tests {
     }
 
     #[test]
-    //Here I use the system stdout handles, which is the standard way in the project, but thanks to the lock from TerminalWrapper,
-    // it will be protected
-    //The core of the test consists of two halves where the first shows unprotected writing in the second locks are actively called in both concurrent threads
+    //Here I use the system stdout handles, which is the standard way in the project, but thanks to
+    //the lock from TerminalWrapper, it will be protected.
+    //The core of the test consists of two halves where the first shows unprotected writing while
+    //in the second locks are actively being used in both concurrent threads
     fn terminal_wrapper_s_lock_blocks_others_to_write_into_stdout() {
         let interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
@@ -484,11 +532,11 @@ mod tests {
             Ok(val) => val,
         };
 
-        let wrapper = TerminalWrapper::new(Box::new(*result));
+        let wrapper = TerminalWrapper::new(Box::new(result));
         wrapper.lock().write_str("hallelujah").unwrap();
 
-        let written = written_output_all_lines(term_mock.lines(), false);
+        let checking_if_operational = written_output_all_lines(term_mock.lines(), false);
 
-        assert_eq!(written, "hallelujah");
+        assert_eq!(checking_if_operational, "hallelujah");
     }
 }
