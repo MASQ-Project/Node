@@ -127,7 +127,7 @@ pub fn request_probe(
     connection
         .set_read_timeout(Some(Duration::from_millis(server_response_timeout)))
         .expect("unsuccessful during setting nonblocking");
-    let status = status.begin_attempt(format!("Reading probe server's tale of woe"));
+    let status = status.begin_attempt("Reading probe server's tale of woe".to_string());
     match connection.read(&mut buffer) {
         Ok(length) if length == 0 => {
             return status.fail(AutomapError::ProbeRequestError(
@@ -138,9 +138,7 @@ pub fn request_probe(
         Ok(length) => {
             let response =
                 String::from_utf8(buffer[0..length].to_vec()).expect("Bad UTF-8 from probe server");
-            if response.contains("200 OK") {
-                ()
-            } else {
+            if !response.contains("200 OK") {
                 return status.fail(AutomapError::ProbeRequestError(
                     AutomapErrorCause::ProbeFailed,
                     response,

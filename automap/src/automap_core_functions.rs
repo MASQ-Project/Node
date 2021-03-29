@@ -46,7 +46,7 @@ impl AutomapParameters {
             arg => {
                 hole_port = arg
                     .parse::<u16>()
-                    .expect(&format!("Bad port number: {}", arg))
+                    .unwrap_or_else(|_| panic!("Bad port number: {}", arg))
             }
         });
         if protocols.is_empty() {
@@ -71,10 +71,10 @@ impl AutomapParameters {
 }
 
 pub fn tester_for(method: &Method) -> Tester {
-    match method {
-        &Method::Pcp => Box::new(test_pcp),
-        &Method::Pmp => Box::new(test_pmp),
-        &Method::Igdp => Box::new(test_igdp),
+    match *method {
+        Method::Pcp => Box::new(test_pcp),
+        Method::Pmp => Box::new(test_pmp),
+        Method::Igdp => Box::new(test_igdp),
     }
 }
 
@@ -151,7 +151,7 @@ fn find_router(status: TestStatus, transactor: &dyn Transactor) -> (IpAddr, Test
             status,
         );
     }
-    let status = status.begin_attempt(format!("Looking for routers on the subnet"));
+    let status = status.begin_attempt("Looking for routers on the subnet".to_string());
     match transactor.find_routers() {
         Ok(list) => {
             let found_router_ip = list[0];
@@ -173,7 +173,7 @@ fn seek_public_ip(
     if status.fatal {
         return (null_ip, status);
     }
-    let status = status.begin_attempt(format!("Seeking public IP address"));
+    let status = status.begin_attempt("Seeking public IP address".to_string());
     match transactor.get_public_ip(router_ip) {
         Ok(public_ip) => (public_ip, status.succeed()),
         Err(e) => (null_ip, status.abort(e)),
@@ -273,6 +273,12 @@ pub struct TestStatus {
     pub fatal: bool,
     pub permanent_only: bool,
     pub started_at: Instant,
+}
+
+impl Default for TestStatus {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TestStatus {
