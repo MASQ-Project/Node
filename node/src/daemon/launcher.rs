@@ -6,6 +6,7 @@ use crate::daemon::launch_verifier::LaunchVerification::{
 };
 use crate::daemon::launch_verifier::{LaunchVerifier, LaunchVerifierReal};
 use crate::daemon::{LaunchSuccess, Launcher};
+use crate::sub_lib::logger::Logger;
 use actix::Recipient;
 use crossbeam_channel::Sender;
 use itertools::Itertools;
@@ -80,6 +81,7 @@ pub trait Execer {
 }
 
 pub struct ExecerReal {
+    logger: Logger,
     spawn_wrapper: Box<dyn SpawnWrapper>,
 }
 
@@ -93,6 +95,12 @@ impl Execer for ExecerReal {
             Ok(path) => path,
             Err(e) => return Err(format!("Cannot find executable: {:?}", e)),
         };
+        info!(
+            self.logger,
+            "Starting Node with command: {} {}",
+            exe_path.to_string_lossy().to_string(),
+            params.join(" "),
+        );
         match self.spawn_wrapper.spawn(exe_path, params) {
             Ok(mut child) => {
                 let process_id = child.id();
@@ -133,6 +141,7 @@ impl Execer for ExecerReal {
 impl ExecerReal {
     pub fn new() -> Self {
         Self {
+            logger: Logger::new("Execer"),
             spawn_wrapper: Box::new(SpawnWrapperReal {}),
         }
     }
@@ -185,6 +194,7 @@ mod tests {
     use super::*;
     use crate::daemon::launch_verifier::LaunchVerification::Launched;
     use crate::daemon::mocks::LaunchVerifierMock;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
     use actix::System;
@@ -317,6 +327,7 @@ mod tests {
 
     #[test]
     fn execer_happy_path() {
+        init_test_logging();
         let (daemon, daemon_awaiter, daemon_recording_arc) = make_recorder();
         let child_wrapper = ChildWrapperMock::new(100)
             .id_result(1234)
@@ -370,6 +381,14 @@ mod tests {
         );
         let spawn_wrapper_params = spawn_wrapper_params_arc.lock().unwrap();
         assert_eq!(*spawn_wrapper_params, vec![(exe_path, params)]);
+        let exe_path = std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: Execer: Starting Node with command: {} paramOne paramTwo",
+            exe_path
+        ));
     }
 
     #[test]

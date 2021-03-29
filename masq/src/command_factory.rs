@@ -249,7 +249,11 @@ mod tests {
             CommandSyntax(msg) => msg,
             x => panic!("Expected syntax error, got {:?}", x),
         };
-        assert!(msg.contains("error: The following required arguments were not provided:"));
+        assert!(
+            msg.contains("The following required arguments were not provided:"),
+            "{}",
+            msg
+        );
     }
 
     #[test]

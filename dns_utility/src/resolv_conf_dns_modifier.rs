@@ -546,12 +546,14 @@ mod tests {
         let file = make_resolv_conf(&root, "");
         let mut permissions = file.metadata().unwrap().permissions();
         permissions.set_mode(0o333);
-        file.set_permissions(permissions).unwrap();
+        file.set_permissions(permissions.clone()).unwrap();
         let mut subject = ResolvConfDnsModifier::new();
         subject.root = root;
 
         let result = subject.subvert();
 
+        permissions.set_mode(0o777);
+        file.set_permissions(permissions).unwrap();
         assert_eq!(
             result.err().unwrap(),
             String::from("/etc/resolv.conf is not readable and writable and could not be modified")
@@ -772,12 +774,14 @@ mod tests {
         let file = make_resolv_conf(&root, "");
         let mut permissions = file.metadata().unwrap().permissions();
         permissions.set_mode(0o333);
-        file.set_permissions(permissions).unwrap();
+        file.set_permissions(permissions.clone()).unwrap();
         let mut subject = ResolvConfDnsModifier::new();
         subject.root = root;
 
         let result = subject.inspect(stream_holder.streams().stdout);
 
+        permissions.set_mode(0o777);
+        file.set_permissions(permissions).unwrap();
         assert_eq!(
             result.err().unwrap(),
             String::from("/etc/resolv.conf is not readable")

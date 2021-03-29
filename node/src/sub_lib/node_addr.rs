@@ -43,18 +43,19 @@ impl<'a> From<&'a SocketAddr> for NodeAddr {
     }
 }
 
-impl Into<SocketAddr> for NodeAddr {
-    fn into(self) -> SocketAddr {
-        let all: Vec<SocketAddr> = self.into();
+impl From<NodeAddr> for SocketAddr {
+    fn from(node_addr: NodeAddr) -> Self {
+        let all: Vec<SocketAddr> = node_addr.into();
         all[0]
     }
 }
 
-impl Into<Vec<SocketAddr>> for NodeAddr {
-    fn into(self) -> Vec<SocketAddr> {
-        self.ports()
+impl From<NodeAddr> for Vec<SocketAddr> {
+    fn from(node_addr: NodeAddr) -> Self {
+        node_addr
+            .ports()
             .iter()
-            .map(|port| SocketAddr::new(self.ip_addr(), *port))
+            .map(|port| SocketAddr::new(node_addr.ip_addr(), *port))
             .collect()
     }
 }

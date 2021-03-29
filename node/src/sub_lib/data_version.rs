@@ -1,3 +1,5 @@
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+
 use serde_derive::*;
 use std::fmt;
 use std::fmt::{Debug, Formatter};

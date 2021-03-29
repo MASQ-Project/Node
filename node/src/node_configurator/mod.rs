@@ -33,7 +33,7 @@ use std::fmt::Debug;
 use std::io;
 use std::io::Read;
 use std::net::{SocketAddr, TcpListener};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
 
@@ -197,7 +197,7 @@ pub fn create_wallet(
 }
 
 pub fn initialize_database(
-    data_directory: &PathBuf,
+    data_directory: &Path,
     chain_id: u8,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::new()

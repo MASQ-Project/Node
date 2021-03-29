@@ -44,7 +44,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn usize_to_crash_point() {
+    fn from_usize_to_crash_point() {
         assert_eq!(CrashPoint::from(NONE), CrashPoint::None);
         assert_eq!(CrashPoint::from(PANIC), CrashPoint::Panic);
         assert_eq!(CrashPoint::from(ERROR), CrashPoint::Error);
@@ -52,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    fn crash_point_to_usize() {
+    fn from_crash_point_to_usize() {
         let none = usize::from(CrashPoint::None);
         let panic = usize::from(CrashPoint::Panic);
         let error = usize::from(CrashPoint::Error);

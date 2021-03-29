@@ -62,7 +62,7 @@ impl StreamEstablisher {
             &payload.clone(),
             connection_info.reader,
             connection_info.peer_addr,
-        )?;
+        );
 
         let (tx_to_write, rx_to_write) = self.channel_factory.make(connection_info.peer_addr);
         let stream_writer = StreamWriter::new(
@@ -85,7 +85,7 @@ impl StreamEstablisher {
         payload: &ClientRequestPayload_0v1,
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
-    ) -> io::Result<()> {
+    ) {
         let stream_reader = StreamReader::new(
             payload.stream_key,
             self.proxy_client_sub.clone(),
@@ -95,7 +95,6 @@ impl StreamEstablisher {
         );
         debug!(self.logger, "Spawning StreamReader for {}", peer_addr);
         tokio::spawn(stream_reader);
-        Ok(())
     }
 }
 
@@ -152,7 +151,7 @@ mod tests {
             let system = System::new("spawn_stream_reader_handles_data");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             sub_tx
-                .send(peer_actors.proxy_client.inbound_server_data)
+                .send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Unable to send inbound_server_data sub from proxy_client to test");
             system.run();
         });
@@ -179,24 +178,22 @@ mod tests {
                 logger: Logger::new("ProxyClient"),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
             };
-            subject
-                .spawn_stream_reader(
-                    &ClientRequestPayload_0v1 {
-                        stream_key: make_meaningless_stream_key(),
-                        sequenced_packet: SequencedPacket {
-                            data: vec![],
-                            sequence_number: 0,
-                            last_data: false,
-                        },
-                        target_hostname: Some("blah".to_string()),
-                        target_port: 0,
-                        protocol: ProxyProtocol::HTTP,
-                        originator_public_key: subject.cryptde.public_key().clone(),
+            subject.spawn_stream_reader(
+                &ClientRequestPayload_0v1 {
+                    stream_key: make_meaningless_stream_key(),
+                    sequenced_packet: SequencedPacket {
+                        data: vec![],
+                        sequence_number: 0,
+                        last_data: false,
                     },
-                    read_stream,
-                    SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-                )
-                .expect("spawn_stream_reader () failed");
+                    target_hostname: Some("blah".to_string()),
+                    target_port: 0,
+                    protocol: ProxyProtocol::HTTP,
+                    originator_public_key: subject.cryptde.public_key().clone(),
+                },
+                read_stream,
+                SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            );
 
             proxy_client_awaiter.await_message_count(1);
             let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();

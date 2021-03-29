@@ -457,21 +457,11 @@ pub mod standard {
                         .into_iter()
                         .map(
                             |s| match NodeDescriptor::from_str(dummy_cryptde.as_ref(), &s) {
-                                Ok(nd) => if chain_name == DEFAULT_CHAIN_NAME {
-                                    if nd.mainnet {
-                                        Ok(nd)
-                                    }
-                                    else {
-                                        Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter"))
-                                    }
-                                }
-                                else {
-                                    if nd.mainnet {
-                                        Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name)))
-                                    }
-                                    else {
-                                        Ok(nd)
-                                    }
+                                Ok(nd) => match (chain_name.as_str(), nd.mainnet) {
+                                    (DEFAULT_CHAIN_NAME, true) => Ok(nd),
+                                    (DEFAULT_CHAIN_NAME, false) => Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter")),
+                                    (_, true) => Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name))),
+                                    (_, false) => Ok(nd),
                                 },
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
                             },
@@ -555,8 +545,15 @@ pub mod standard {
                 }
             }
             Some(ref s) if s == "consume-only" => {
+                let mut errors = ConfiguratorError::new(vec![]);
                 if neighbor_configs.is_empty() {
-                    Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified"))
+                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
+                }
+                if value_m!(multi_config, "dns-servers", String).is_some() {
+                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified");
+                }
+                if !errors.is_empty() {
+                    Err(errors)
                 } else {
                     Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
                 }
@@ -1317,13 +1314,15 @@ mod tests {
     }
 
     #[test]
-    fn make_neighborhood_config_consume_only_does_need_at_least_one_neighbor() {
+    fn make_neighborhood_config_consume_only_rejects_dns_servers_and_needs_at_least_one_neighbor() {
         running_test();
         let multi_config = make_new_test_multi_config(
             &app(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
                     .param("--neighborhood-mode", "consume-only")
+                    .param("--dns-servers", "1.1.1.1")
+                    .param("--fake-public-key", "booga")
                     .into(),
             ))],
         )
@@ -1332,7 +1331,7 @@ mod tests {
         let result = standard::make_neighborhood_config(
             &multi_config,
             &mut FakeStreamHolder::new().streams(),
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(&mut make_default_persistent_configuration()),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1341,6 +1340,10 @@ mod tests {
             Err(ConfiguratorError::required(
                 "neighborhood-mode",
                 "Node cannot run as --neighborhood-mode consume-only without --neighbors specified"
+            )
+            .another_required(
+                "neighborhood-mode",
+                "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified"
             ))
         )
     }

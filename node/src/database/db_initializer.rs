@@ -15,7 +15,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
+use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
@@ -31,7 +31,7 @@ pub enum InitializationError {
 pub trait DbInitializer {
     fn initialize(
         &self,
-        path: &PathBuf,
+        path: &Path,
         chain_id: u8,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
@@ -43,7 +43,7 @@ pub struct DbInitializerReal {}
 impl DbInitializer for DbInitializerReal {
     fn initialize(
         &self,
-        path: &PathBuf,
+        path: &Path,
         chain_id: u8,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
@@ -71,10 +71,8 @@ impl DbInitializer for DbInitializerReal {
                 match Connection::open_with_flags(database_file_path, flags) {
                     Ok(conn) => {
                         eprintln!("Created new database at {:?}", database_file_path);
-                        match self.create_database_tables(&conn, chain_id) {
-                            Ok(()) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                            Err(e) => Err(e),
-                        }
+                        self.create_database_tables(&conn, chain_id);
+                        Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
                     Err(e) => Err(InitializationError::SqliteError(e)),
                 }
@@ -88,14 +86,14 @@ impl DbInitializerReal {
         Self::default()
     }
 
-    fn is_creation_necessary(data_directory: &PathBuf) -> bool {
+    fn is_creation_necessary(data_directory: &Path) -> bool {
         match fs::read_dir(data_directory) {
             Ok(_) => !data_directory.join(DATABASE_FILE).exists(),
             Err(_) => true,
         }
     }
 
-    fn create_data_directory_if_necessary(data_directory: &PathBuf) {
+    fn create_data_directory_if_necessary(data_directory: &Path) {
         match fs::read_dir(data_directory) {
             Ok(_) => (),
             Err(ref e) if e.kind() == ErrorKind::NotFound => fs::create_dir_all(data_directory)
@@ -112,20 +110,15 @@ impl DbInitializerReal {
         }
     }
 
-    fn create_database_tables(
-        &self,
-        conn: &Connection,
-        chain_id: u8,
-    ) -> Result<(), InitializationError> {
-        self.create_config_table(conn)?;
-        self.initialize_config(conn, chain_id)?;
-        self.create_payable_table(conn)?;
-        self.create_receivable_table(conn)?;
-        self.create_banned_table(conn)
+    fn create_database_tables(&self, conn: &Connection, chain_id: u8) {
+        self.create_config_table(conn);
+        self.initialize_config(conn, chain_id);
+        self.create_payable_table(conn);
+        self.create_receivable_table(conn);
+        self.create_banned_table(conn);
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn create_config_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+    fn create_config_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists config (
                 name text not null,
@@ -140,15 +133,9 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create config name index");
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn initialize_config(
-        &self,
-        conn: &Connection,
-        chain_id: u8,
-    ) -> Result<(), InitializationError> {
+    fn initialize_config(&self, conn: &Connection, chain_id: u8) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
@@ -201,11 +188,9 @@ impl DbInitializerReal {
             "gas price",
         );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn create_payable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+    fn create_payable_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists payable (
                 wallet_address text primary key,
@@ -221,11 +206,9 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create payable wallet_address index");
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn create_receivable_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+    fn create_receivable_table(&self, conn: &Connection) {
         conn.execute(
             "create table if not exists receivable (
                 wallet_address text primary key,
@@ -240,11 +223,9 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create receivable wallet_address index");
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    fn create_banned_table(&self, conn: &Connection) -> Result<(), InitializationError> {
+    fn create_banned_table(&self, conn: &Connection) {
         conn.execute(
             "create table banned ( wallet_address text primary key )",
             NO_PARAMS,
@@ -255,7 +236,6 @@ impl DbInitializerReal {
             NO_PARAMS,
         )
         .expect("Can't create banned wallet_address index");
-        Ok(())
     }
 
     fn extract_configurations(&self, conn: &Connection) -> HashMap<String, Option<String>> {
@@ -337,7 +317,7 @@ impl DbInitializerReal {
 
 pub fn connection_or_panic(
     db_initializer: &dyn DbInitializer,
-    path: &PathBuf,
+    path: &Path,
     chain_id: u8,
     create_if_necessary: bool,
 ) -> Box<dyn ConnectionWrapper> {
@@ -358,7 +338,7 @@ pub mod test_utils {
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Default)]
@@ -406,12 +386,12 @@ pub mod test_utils {
     impl DbInitializer for DbInitializerMock {
         fn initialize(
             &self,
-            path: &PathBuf,
+            path: &Path,
             chain_id: u8,
             create_if_necessary: bool,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
             self.initialize_parameters.lock().unwrap().push((
-                path.clone(),
+                path.to_path_buf(),
                 chain_id,
                 create_if_necessary,
             ));
@@ -455,6 +435,7 @@ mod tests {
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+    use std::path::PathBuf;
     use tokio::net::TcpListener;
 
     #[test]

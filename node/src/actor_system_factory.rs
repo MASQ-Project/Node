@@ -43,7 +43,7 @@ use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
@@ -101,17 +101,24 @@ impl ActorSystemFactoryReal {
                 Some(0)
             },
         );
-        let proxy_client_subs = actor_factory.make_and_start_proxy_client(ProxyClientConfig {
-            cryptde: main_cryptde,
-            dns_servers: config.dns_servers.clone(),
-            exit_service_rate: config
-                .neighborhood_config
-                .mode
-                .rate_pack()
-                .clone()
-                .exit_service_rate,
-            exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
-        });
+        let proxy_client_subs = if !config.neighborhood_config.mode.is_consume_only() {
+            Some(
+                actor_factory.make_and_start_proxy_client(ProxyClientConfig {
+                    cryptde: main_cryptde,
+                    dns_servers: config.dns_servers.clone(),
+                    exit_service_rate: config
+                        .neighborhood_config
+                        .mode
+                        .rate_pack()
+                        .clone()
+                        .exit_service_rate,
+                    exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
+                }),
+            )
+        } else {
+            None
+        };
+
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
             main_cryptde,
             alias_cryptde,
@@ -148,7 +155,7 @@ impl ActorSystemFactoryReal {
         let peer_actors = PeerActors {
             dispatcher: dispatcher_subs.clone(),
             proxy_server: proxy_server_subs,
-            proxy_client: proxy_client_subs,
+            proxy_client_opt: proxy_client_subs.clone(),
             hopper: hopper_subs,
             neighborhood: neighborhood_subs.clone(),
             accountant: accountant_subs,
@@ -160,13 +167,15 @@ impl ActorSystemFactoryReal {
         //bind all the actors
         send_bind_message!(peer_actors.dispatcher, peer_actors);
         send_bind_message!(peer_actors.proxy_server, peer_actors);
-        send_bind_message!(peer_actors.proxy_client, peer_actors);
         send_bind_message!(peer_actors.hopper, peer_actors);
         send_bind_message!(peer_actors.neighborhood, peer_actors);
         send_bind_message!(peer_actors.accountant, peer_actors);
         send_bind_message!(peer_actors.ui_gateway, peer_actors);
         send_bind_message!(peer_actors.blockchain_bridge, peer_actors);
         send_bind_message!(peer_actors.configurator, peer_actors);
+        if let Some(subs) = proxy_client_subs {
+            send_bind_message!(subs, peer_actors);
+        }
         stream_handler_pool_subs
             .bind
             .try_send(PoolBindMessage {
@@ -212,7 +221,7 @@ pub trait ActorFactory: Send {
     fn make_and_start_accountant(
         &self,
         config: &BootstrapperConfig,
-        data_directory: &PathBuf,
+        data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs;
@@ -284,7 +293,7 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_accountant(
         &self,
         config: &BootstrapperConfig,
-        data_directory: &PathBuf,
+        data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
@@ -595,7 +604,7 @@ mod tests {
         fn make_and_start_accountant(
             &self,
             config: &BootstrapperConfig,
-            data_directory: &PathBuf,
+            data_directory: &Path,
             _db_initializer: &dyn DbInitializer,
             _banned_cache_loader: &dyn BannedCacheLoader,
         ) -> AccountantSubs {
@@ -603,7 +612,7 @@ mod tests {
                 .accountant_params
                 .lock()
                 .unwrap()
-                .get_or_insert((config.clone(), data_directory.clone()));
+                .get_or_insert((config.clone(), data_directory.to_path_buf()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.accountant);
             AccountantSubs {
                 bind: recipient!(addr, BindMessage),
@@ -930,13 +939,13 @@ mod tests {
 
         System::current().stop();
         system.run();
-        check_bind_message(&recordings.dispatcher);
-        check_bind_message(&recordings.hopper);
-        check_bind_message(&recordings.proxy_client);
-        check_bind_message(&recordings.proxy_server);
-        check_bind_message(&recordings.neighborhood);
-        check_bind_message(&recordings.ui_gateway);
-        check_bind_message(&recordings.accountant);
+        check_bind_message(&recordings.dispatcher, false);
+        check_bind_message(&recordings.hopper, false);
+        check_bind_message(&recordings.proxy_client, false);
+        check_bind_message(&recordings.proxy_server, false);
+        check_bind_message(&recordings.neighborhood, false);
+        check_bind_message(&recordings.ui_gateway, false);
+        check_bind_message(&recordings.accountant, false);
         check_start_message(&recordings.neighborhood);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.main_cryptde);
@@ -989,6 +998,65 @@ mod tests {
         );
         let _stream_handler_pool_subs = rx.recv().unwrap();
         // more...more...what? How to check contents of _stream_handler_pool_subs?
+    }
+
+    #[test]
+    fn prepare_initial_messages_doesnt_start_up_proxy_client_if_consume_only_mode() {
+        let actor_factory = ActorFactoryMock::new();
+        let recordings = actor_factory.get_recordings();
+        let config = BootstrapperConfig {
+            log_level: LevelFilter::Off,
+            crash_point: CrashPoint::None,
+            dns_servers: vec![],
+            accountant_config: AccountantConfig {
+                payable_scan_interval: Duration::from_secs(100),
+                payment_received_scan_interval: Duration::from_secs(100),
+            },
+            clandestine_discriminator_factories: Vec::new(),
+            ui_gateway_config: UiGatewayConfig {
+                ui_port: 5335,
+                node_descriptor: String::from("NODE-DESCRIPTOR"),
+            },
+            blockchain_bridge_config: BlockchainBridgeConfig {
+                blockchain_service_url: None,
+                chain_id: DEFAULT_CHAIN_ID,
+                gas_price: 1,
+            },
+            port_configurations: HashMap::new(),
+            db_password_opt: None,
+            clandestine_port_opt: None,
+            earning_wallet: make_wallet("earning"),
+            consuming_wallet: Some(make_wallet("consuming")),
+            data_directory: PathBuf::new(),
+            main_cryptde_null_opt: None,
+            alias_cryptde_null_opt: None,
+            real_user: RealUser::null(),
+            neighborhood_config: NeighborhoodConfig {
+                mode: NeighborhoodMode::ConsumeOnly(vec![]),
+            },
+        };
+        let system = System::new("MASQNode");
+
+        ActorSystemFactoryReal::prepare_initial_messages(
+            main_cryptde(),
+            alias_cryptde(),
+            config.clone(),
+            Box::new(actor_factory),
+            mpsc::channel().0,
+        );
+
+        System::current().stop();
+        system.run();
+
+        let messages = recordings.proxy_client.lock().unwrap();
+        assert!(messages.is_empty());
+        check_bind_message(&recordings.dispatcher, true);
+        check_bind_message(&recordings.hopper, true);
+        check_bind_message(&recordings.proxy_server, true);
+        check_bind_message(&recordings.neighborhood, true);
+        check_bind_message(&recordings.ui_gateway, true);
+        check_bind_message(&recordings.accountant, true);
+        check_start_message(&recordings.neighborhood);
     }
 
     #[test]
@@ -1048,7 +1116,7 @@ mod tests {
         assert_eq!(consuming_wallet_balance, None);
     }
 
-    fn check_bind_message(recording: &Arc<Mutex<Recording>>) {
+    fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
         let bind_message = Recording::get::<BindMessage>(recording, 0);
         assert_eq!(
             format!("{:?}", bind_message.peer_actors.neighborhood),
@@ -1074,14 +1142,20 @@ mod tests {
             format!("{:?}", bind_message.peer_actors.hopper),
             "HopperSubs"
         );
-        assert_eq!(
-            format!("{:?}", bind_message.peer_actors.proxy_client),
-            "ProxyClientSubs"
-        );
+
         assert_eq!(
             format!("{:?}", bind_message.peer_actors.proxy_server),
             "ProxyServerSubs"
         );
+
+        if consume_only_flag {
+            assert!(bind_message.peer_actors.proxy_client_opt.is_none())
+        } else {
+            assert_eq!(
+                format!("{:?}", bind_message.peer_actors.proxy_client_opt.unwrap()),
+                "ProxyClientSubs"
+            )
+        };
     }
 
     fn check_start_message(recording: &Arc<Mutex<Recording>>) {

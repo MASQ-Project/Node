@@ -29,9 +29,9 @@ lazy_static! {
     };
 }
 
-impl Into<VersionedData<NodeRecordInner_0v1>> for NodeRecordInner_0v1 {
-    fn into(self) -> VersionedData<NodeRecordInner_0v1> {
-        VersionedData::new(&MIGRATIONS, &self)
+impl From<NodeRecordInner_0v1> for VersionedData<NodeRecordInner_0v1> {
+    fn from(inner: NodeRecordInner_0v1) -> Self {
+        VersionedData::new(&MIGRATIONS, &inner)
     }
 }
 
