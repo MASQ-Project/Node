@@ -117,6 +117,9 @@ fn test_common(
     info!("=============={}===============", &transactor.method());
     let (router_ip, status) = find_router(status, transactor);
     let (public_ip, status) = seek_public_ip(status, router_ip, transactor);
+    if status.fatal {
+        return status;
+    }
     let status = if parameters.nopoke {
         let status = status.begin_attempt(format!(
             "Expecting that a hole will already have been poked in the firewall at port {}",
@@ -127,6 +130,9 @@ fn test_common(
         poke_firewall_hole(parameters.hole_port, status, router_ip, transactor)
     };
     let status = run_probe_test(status, parameters, public_ip);
+    if status.fatal {
+        return status;
+    }
     if parameters.noremove {
         let status = status.begin_attempt(format!(
             "Terminating without closing firewall hole at port {}, as requested",
@@ -183,20 +189,6 @@ fn poke_firewall_hole(
     if status.fatal {
         return status;
     }
-    // {
-    //     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), test_port);
-    //     let _socket =
-    //         match UdpSocket::bind(socket_addr) {
-    //             Ok(s) => s,
-    //             Err(e) => {
-    //                 info!("Failed to open local port {}; giving up. ({:?})", test_port, e);
-    //                 return status.abort(AutomapError::SocketBindingError(
-    //                     format!("{:?}", e),
-    //                     socket_addr,
-    //                 ))
-    //             }
-    //         };
-    // }
     let status = status.begin_attempt(format!(
         "Poking a 3-second hole in the firewall for port {}...",
         test_port
@@ -255,8 +247,7 @@ pub fn remove_firewall_hole(
         Ok(_) => status.succeed(),
         Err(e) => {
             warn!(
-                "You'll need to close port {} yourself in your router's administration pages. \
-                .\nYou may also look into the log. \nSorry...I didn't do it on purpose...",
+                "You'll need to close port {} yourself in your router's administration pages. Sorry...I didn't do it on purpose...",
                 test_port
             );
             status.fail(e)

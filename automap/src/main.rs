@@ -10,10 +10,7 @@ const SERVER_SOCKET_ADDRESS: &str = "54.212.109.41:8081";
 pub fn main() {
     let parameters = AutomapParameters::new(std::env::args(), SERVER_SOCKET_ADDRESS);
 
-    println!(
-        "\nFor more detailed information about the course of this test, look inside the log.\n\
-     You can also find warnings or recommendations in it if something is wrong. \n"
-    );
+    println!("\nDetailed information about this run will appear in the log.");
 
     initiate_logger();
 

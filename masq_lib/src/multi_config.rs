@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use toml::value::Table;
 use toml::Value;
 
@@ -403,13 +403,13 @@ impl Display for ConfigFileVclError {
 
 impl ConfigFileVcl {
     pub fn new(
-        file_path: &PathBuf,
+        file_path: &Path,
         user_specified: bool,
     ) -> Result<ConfigFileVcl, ConfigFileVclError> {
         let mut file: File = match File::open(file_path) {
             Err(e) => {
                 if user_specified {
-                    return Err(ConfigFileVclError::OpenError(file_path.clone(), e));
+                    return Err(ConfigFileVclError::OpenError(file_path.to_path_buf(), e));
                 } else {
                     return Ok(ConfigFileVcl { vcl_args: vec![] });
                 }
@@ -419,15 +419,15 @@ impl ConfigFileVcl {
         let mut contents = String::new();
         match file.read_to_string(&mut contents) {
             Err(ref e) if e.kind() == ErrorKind::InvalidData => {
-                return Err(ConfigFileVclError::CorruptUtf8(file_path.clone()))
+                return Err(ConfigFileVclError::CorruptUtf8(file_path.to_path_buf()))
             }
-            Err(e) => return Err(ConfigFileVclError::Unreadable(file_path.clone(), e)),
+            Err(e) => return Err(ConfigFileVclError::Unreadable(file_path.to_path_buf(), e)),
             Ok(_) => (),
         };
         let table: Table = match toml::de::from_str(&contents) {
             Err(e) => {
                 return Err(ConfigFileVclError::CorruptToml(
-                    file_path.clone(),
+                    file_path.to_path_buf(),
                     e.to_string(),
                 ))
             }
@@ -439,21 +439,21 @@ impl ConfigFileVcl {
                 let name = format!("--{}", key);
                 let value = match table.get(key).expect("value disappeared") {
                     Value::Table(_) => Err(ConfigFileVclError::InvalidConfig(
-                        file_path.clone(),
+                        file_path.to_path_buf(),
                         format!(
                             "parameter '{}' must have a scalar value, not a table value",
                             key
                         ),
                     )),
                     Value::Array(_) => Err(ConfigFileVclError::InvalidConfig(
-                        file_path.clone(),
+                        file_path.to_path_buf(),
                         format!(
                             "parameter '{}' must have a scalar value, not an array value",
                             key
                         ),
                     )),
                     Value::Datetime(_) => Err(ConfigFileVclError::InvalidConfig(
-                        file_path.clone(),
+                        file_path.to_path_buf(),
                         format!(
                             "parameter '{}' must have a string value, not a date or time value",
                             key
