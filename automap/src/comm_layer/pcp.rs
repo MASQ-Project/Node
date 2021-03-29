@@ -3,13 +3,16 @@
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
 };
-use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor, Method, AutomapErrorCause};
+use crate::comm_layer::{
+    AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Method, Transactor,
+};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
 use rand::RngCore;
 use std::any::Any;
 use std::convert::TryFrom;
+use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
@@ -68,7 +71,11 @@ impl Transactor for PcpTransactor {
         }
     }
 
-    fn add_permanent_mapping(&self, _router_ip: IpAddr, _hole_port: u16) -> Result<u32, AutomapError> {
+    fn add_permanent_mapping(
+        &self,
+        _router_ip: IpAddr,
+        _hole_port: u16,
+    ) -> Result<u32, AutomapError> {
         panic!("PCP cannot add permanent mappings")
     }
 
@@ -81,7 +88,9 @@ impl Transactor for PcpTransactor {
         }
     }
 
-    fn method(&self) -> Method {Method::Pcp}
+    fn method(&self) -> Method {
+        Method::Pcp
+    }
 
     fn as_any(&self) -> &dyn Any {
         self
@@ -139,17 +148,32 @@ impl PcpTransactor {
                 ))
             }
         };
-        socket.set_read_timeout(Some(Duration::from_secs(3))).expect ("set_read_timeout failed");
+        socket
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .expect("set_read_timeout failed");
         match socket.send_to(&buffer[0..request_len], SocketAddr::new(router_ip, 5351)) {
             Ok(_) => (),
-            Err(e) => return Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(format!("{:?}", e)))),
+            Err(e) => {
+                return Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(
+                    format!("{:?}", e),
+                )))
+            }
         };
         let response = match socket.recv_from(&mut buffer) {
             Ok((len, _peer_addr)) => match PcpPacket::try_from(&buffer[0..len]) {
                 Ok(pkt) => pkt,
                 Err(e) => return Err(AutomapError::PacketParseError(e)),
             },
-            Err(e) => return Err(AutomapError::SocketReceiveError(AutomapErrorCause::Unknown(format!("{:?}", e)))),
+            Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
+                return Err(AutomapError::ProtocolError(
+                    "Timed out after 3 seconds".to_string(),
+                ))
+            }
+            Err(e) => {
+                return Err(AutomapError::SocketReceiveError(
+                    AutomapErrorCause::Unknown(format!("{:?}", e)),
+                ))
+            }
         };
         if response.direction != Direction::Response {
             return Err(AutomapError::ProtocolError(
@@ -183,7 +207,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::mocks::{
         FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
     };
-    use crate::comm_layer::{LocalIpFinder, Method, AutomapErrorCause};
+    use crate::comm_layer::{AutomapErrorCause, LocalIpFinder, Method};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
@@ -225,7 +249,7 @@ mod tests {
 
         let method = subject.method();
 
-        assert_eq! (method, Method::Pcp);
+        assert_eq!(method, Method::Pcp);
     }
 
     #[test]
@@ -291,7 +315,12 @@ mod tests {
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq!(result, Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(io_error_str))));
+        assert_eq!(
+            result,
+            Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(
+                io_error_str
+            )))
+        );
     }
 
     #[test]
@@ -309,7 +338,12 @@ mod tests {
 
         let result = subject.mapping_transaction(router_ip, 6666, 4321);
 
-        assert_eq!(result, Err(AutomapError::SocketReceiveError(AutomapErrorCause::Unknown(io_error_str))));
+        assert_eq!(
+            result,
+            Err(AutomapError::SocketReceiveError(
+                AutomapErrorCause::Unknown(io_error_str)
+            ))
+        );
     }
 
     #[test]
@@ -581,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "PCP cannot add permanent mappings")]
+    #[should_panic(expected = "PCP cannot add permanent mappings")]
     fn add_permanent_mapping_is_not_implemented() {
         let subject = PcpTransactor::default();
 

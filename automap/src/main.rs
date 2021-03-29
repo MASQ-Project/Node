@@ -1,14 +1,14 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use automap_lib::automap_core_functions::{AutomapParameters, tester_for, TestStatus};
+use automap_lib::automap_core_functions::{tester_for, AutomapParameters, TestStatus};
+use automap_lib::comm_layer::{AutomapErrorCause, Method};
 use automap_lib::logger::initiate_logger;
-use automap_lib::comm_layer::{Method, AutomapErrorCause};
-use log::{info};
+use log::info;
 
 const SERVER_SOCKET_ADDRESS: &str = "54.212.109.41:8081";
 
 pub fn main() {
-    let parameters = AutomapParameters::new (std::env::args(), SERVER_SOCKET_ADDRESS);
+    let parameters = AutomapParameters::new(std::env::args(), SERVER_SOCKET_ADDRESS);
 
     println!(
         "\nFor more detailed information about the course of this test, look inside the log.\n\
@@ -17,25 +17,42 @@ pub fn main() {
 
     initiate_logger();
 
-    let results = parameters.protocols.iter().map (|method| {
-        let tester = tester_for(method);
-        tester (TestStatus::new(), &parameters.test_parameters)
-    })
-    .collect::<Vec<Result<(), AutomapErrorCause>>>();
+    let results = parameters
+        .protocols
+        .iter()
+        .map(|method| {
+            let tester = tester_for(method);
+            tester(TestStatus::new(), &parameters.test_parameters)
+        })
+        .collect::<Vec<Result<(), AutomapErrorCause>>>();
     let cumulative_success = results.iter().any(|r| r.is_ok());
 
-    info!("Verdict{}:\n", if results.len() == 1 {""} else {"s"});
-    parameters.protocols.iter().zip(results.into_iter()).for_each(|(method, result)| {
-        report_on_method (method, result)
-    });
+    info!("");
+    info!("Verdict{}:", if results.len() == 1 { "" } else { "s" });
+    parameters
+        .protocols
+        .iter()
+        .zip(results.into_iter())
+        .for_each(|(method, result)| report_on_method(method, result, &parameters));
 
-    std::process::exit (if cumulative_success {0} else {1})
+    std::process::exit(if cumulative_success { 0 } else { 1 })
 }
 
-fn report_on_method(method: &Method, result: Result<(), AutomapErrorCause>) {
+fn report_on_method(
+    method: &Method,
+    result: Result<(), AutomapErrorCause>,
+    parameters: &AutomapParameters,
+) {
+    let tps = &parameters.test_parameters;
     let msg = match result {
-        Ok(_) => "Fully operational".to_string(),
-        Err(e) => format! ("{:?}", e),
+        Ok(_) => {
+            if tps.nopoke || tps.noremove || tps.user_specified_hole_port {
+                "Operational within specified limits".to_string()
+            } else {
+                "Fully operational".to_string()
+            }
+        }
+        Err(e) => format!("{:?}", e),
     };
     info!("{}: {}", method, msg);
 }

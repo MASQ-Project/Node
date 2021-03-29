@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor, Method};
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Method, Transactor};
 use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
@@ -150,13 +150,19 @@ impl Transactor for IgdpTransactor {
                 "",
             ) {
             Ok(_) => Ok(lifetime / 2),
-            Err(e) if &format!("{:?}", e) == "OnlyPermanentLeasesSupported" => Err (AutomapError::PermanentLeasesOnly),
+            Err(e) if &format!("{:?}", e) == "OnlyPermanentLeasesSupported" => {
+                Err(AutomapError::PermanentLeasesOnly)
+            }
             Err(e) => Err(AutomapError::AddMappingError(format!("{:?}", e))),
         }
     }
 
-    fn add_permanent_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<u32, AutomapError> {
-        self.add_mapping (router_ip, hole_port, 0)
+    fn add_permanent_mapping(
+        &self,
+        router_ip: IpAddr,
+        hole_port: u16,
+    ) -> Result<u32, AutomapError> {
+        self.add_mapping(router_ip, hole_port, 0)
     }
 
     fn delete_mapping(&self, _router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
@@ -174,7 +180,9 @@ impl Transactor for IgdpTransactor {
         }
     }
 
-    fn method(&self) -> Method {Method::Igdp}
+    fn method(&self) -> Method {
+        Method::Igdp
+    }
 
     fn as_any(&self) -> &dyn Any {
         self
@@ -213,10 +221,10 @@ impl IgdpTransactor {
 mod tests {
     use super::*;
     use crate::comm_layer::tests::LocalIpFinderMock;
+    use crate::comm_layer::Method;
     use std::net::Ipv6Addr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crate::comm_layer::Method;
 
     struct GatewayFactoryMock {
         make_params: Arc<Mutex<Vec<SearchOptions>>>,
@@ -356,7 +364,7 @@ mod tests {
 
         let method = subject.method();
 
-        assert_eq! (method, Method::Igdp);
+        assert_eq!(method, Method::Igdp);
     }
 
     #[test]
@@ -518,7 +526,8 @@ mod tests {
     #[test]
     fn add_mapping_handles_only_permanent_lease_error() {
         let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
-        let gateway = GatewayWrapperMock::new().add_port_result(Err(AddPortError::OnlyPermanentLeasesSupported));
+        let gateway = GatewayWrapperMock::new()
+            .add_port_result(Err(AddPortError::OnlyPermanentLeasesSupported));
         let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
         let mut subject = IgdpTransactor::new();
@@ -527,10 +536,7 @@ mod tests {
 
         let result = subject.add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234);
 
-        assert_eq!(
-            result,
-            Err(AutomapError::PermanentLeasesOnly)
-        );
+        assert_eq!(result, Err(AutomapError::PermanentLeasesOnly));
     }
 
     #[test]

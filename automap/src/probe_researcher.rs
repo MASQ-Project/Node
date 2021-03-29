@@ -1,55 +1,18 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::{thread};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::ops::Add;
+use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use log::{info, error};
 
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
 
 use crate::automap_core_functions::{TestParameters, TestStatus};
-use crate::comm_layer::{Method, Transactor, AutomapError, AutomapErrorCause};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, Method, Transactor};
 
-// //it was meant to be prepared for eventual collecting of errors but now it is ended with a merge and a single message
-// #[allow(clippy::type_complexity)]
-// pub fn prepare_router_or_report_failure(
-//     protocol: &Method,
-//     tester: Tester,
-//     parameters: &mut TestParameters,
-// ) -> Result<Vec<FirstSectionData>, Vec<String>> {
-//     let result = match tester(test_port, port_is_manual) {
-//         Ok((ip, port, transactor, permanent_only)) => {
-//             Ok(FirstSectionData {
-//                 method: transactor.method(),
-//                 permanent_only: Some(permanent_only),
-//                 ip,
-//                 port_is_manual,
-//                 port,
-//                 transactor,
-//             })
-//         }
-//         Err(e) => Err(e),
-//     }
-//     .collect::<Vec<Result<FirstSectionData, String>>>();
-//     let (successes, _failures) = results.into_iter().fold ((vec![], vec![]), |so_far, result| {
-//         match result {
-//             Ok(success) => (plus(so_far.0, success), so_far.1),
-//             Err(failure) => (so_far.0, plus (so_far.1, failure)),
-//         }
-//     });
-//     if successes.is_empty() {
-//         //this should be reworked in the future, processing the errors with more care
-//         Err (vec!["\nNeither a PCP, PMP or IGDP protocol is being detected on your router \
-//          or something is wrong. \n\n".to_string()])
-//     } else {
-//         Ok(successes)
-//     }
-// }
-
-#[derive (Debug)]
+#[derive(Debug)]
 pub struct FirstSectionData {
     pub method: Method,
     pub permanent_only: Option<bool>,
@@ -60,14 +23,20 @@ pub struct FirstSectionData {
 }
 
 fn deploy_background_listener(
+    status: TestStatus,
     port: u16,
     expected_nonce: u16,
     timeout_millis: u64,
-) -> JoinHandle<Result<(), std::io::Error>> {
+) -> (JoinHandle<Result<(), std::io::Error>>, TestStatus) {
+    if status.fatal {
+        return (thread::spawn(move || Ok(())), status);
+    }
+    let status = status.begin_attempt(format! ("Deploying the listener for the incoming probe to port {} with nonce {} to time out after {}ms",
+        port, expected_nonce, timeout_millis));
     let listener =
         TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port)).unwrap();
     listener.set_nonblocking(true).unwrap();
-    thread::spawn(move || {
+    let join_handle = thread::spawn(move || {
         let deadline = Instant::now().add(Duration::from_millis(timeout_millis));
         let mut stream = loop {
             if Instant::now() >= deadline {
@@ -110,77 +79,47 @@ fn deploy_background_listener(
                 Err(e) => break Err(e),
             }
         }
-    })
+    });
+    (join_handle, status.succeed())
 }
-
-// pub fn researcher_with_probe(
-//     stdout: &mut dyn Write,
-//     stderr: &mut dyn Write,
-//     server_address: SocketAddr,
-//     params: &mut FirstSectionData,
-//     server_response_timeout: u64,
-// ) -> bool {
-//     write!(
-//         stdout,
-//         "\nTest of a port forwarded by using {} is starting. \n\n",
-//         params.method
-//     )
-//     .expect("write failed");
-//
-//     let success_sign = Cell::new(false);
-//     request_probe(
-//         stdout,
-//         stderr,
-//         server_address,
-//         params,
-//         server_response_timeout,
-//         &success_sign,
-//     );
-//
-//     stderr.flush().expect("failed to flush stdout");
-//     stdout.flush().expect("failed to flush stderr");
-//
-//     success_sign.take()
-// }
 
 pub fn request_probe(
     status: TestStatus,
     parameters: &TestParameters,
     public_ip: IpAddr,
     server_response_timeout: u64,
-    probe_timeout: u64
+    probe_timeout: u64,
 ) -> TestStatus {
     if status.fatal {
         return status;
     }
     let nonce = generate_nonce();
-    info!(
-        "{}. Deploying the listener for the incoming probe to {}:{} with nonce {} to time out after {}ms",
-        status.step, public_ip, parameters.hole_port, nonce, probe_timeout
-    );
-    let thread_handle = deploy_background_listener(parameters.hole_port, nonce, probe_timeout);
+    let (thread_handle, status) =
+        deploy_background_listener(status, parameters.hole_port, nonce, probe_timeout);
+    let status = status.begin_attempt(format!(
+        "Connecting to probe server at {}",
+        parameters.probe_server_address
+    ));
+    let mut connection: TcpStream = match TcpStream::connect(parameters.probe_server_address) {
+        Ok(conn) => conn,
+        Err(e) => return status.fail(AutomapError::ProbeServerConnectError(format!("{:?}", e))),
+    };
     let status = status.succeed();
+    let status = status.begin_attempt(format!(
+        "Requesting probe with nonce {} from probe server",
+        nonce
+    ));
     let http_request = format!(
         "GET /probe_request?ip={}&port={}&nonce={} HTTP/1.1\r\n\r\n",
         public_ip, parameters.hole_port, nonce
     );
-    info!(
-        "{}. Connecting to probe server at {}",
-        status.step, parameters.probe_server_address
-    );
-    let mut connection: TcpStream = match TcpStream::connect(parameters.probe_server_address) {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("...failed: {:?}", e);
-            return status.fail (AutomapError::ProbeServerConnectError(format!("{:?}", e)))
-        }
-    };
-    let status = status.succeed();
     match connection.write_all(http_request.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
-            error!("...failed: {:?}", e);
-            return status.fail (AutomapError::ProbeRequestError(AutomapErrorCause::ProbeServerIssue, format!("{:?}", e)))
+            return status.fail(AutomapError::ProbeRequestError(
+                AutomapErrorCause::ProbeServerIssue,
+                format!("{:?}", e),
+            ))
         }
     }
     let status = status.succeed();
@@ -188,53 +127,52 @@ pub fn request_probe(
     connection
         .set_read_timeout(Some(Duration::from_millis(server_response_timeout)))
         .expect("unsuccessful during setting nonblocking");
-    info!(
-        "{}. Requesting probe with nonce {}",
-        status.step, nonce
-    );
+    let status = status.begin_attempt(format!("Reading probe server's tale of woe"));
     match connection.read(&mut buffer) {
         Ok(length) if length == 0 => {
-            error!("...failed. Probe server closed the connection unexpectedly.");
-            return status.fail(AutomapError::ProbeRequestError(AutomapErrorCause::ProbeServerIssue, "Zero-length response".to_string()))
+            return status.fail(AutomapError::ProbeRequestError(
+                AutomapErrorCause::ProbeServerIssue,
+                "Zero-length response".to_string(),
+            ))
         }
         Ok(length) => {
-            let response = String::from_utf8(buffer[0..length].to_vec()).expect("Bad UTF-8 from probe server");
-            if response.starts_with("200:") {
+            let response =
+                String::from_utf8(buffer[0..length].to_vec()).expect("Bad UTF-8 from probe server");
+            if response.contains("200 OK") {
                 ()
-            }
-            else {
-                error!("...failed. Probe server could not probe: {}", response);
-                return status.fail(AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, response))
+            } else {
+                return status.fail(AutomapError::ProbeRequestError(
+                    AutomapErrorCause::ProbeFailed,
+                    response,
+                ));
             }
         }
         Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
-            error!("...timed out after {}ms waiting for response from probe server", server_response_timeout);
-            return status.fail(AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, format!("Timeout awaiting response: {}ms", server_response_timeout)))
+            return status.fail(AutomapError::ProbeRequestError(
+                AutomapErrorCause::ProbeFailed,
+                format!("Timeout awaiting response: {}ms", server_response_timeout),
+            ))
         }
         Err(e) => {
-            error!("...failed: {:?}", e);
-            return status.fail(AutomapError::ProbeRequestError(AutomapErrorCause::ProbeServerIssue, format!("Error receiving response: {:?}", e)))
-        },
+            return status.fail(AutomapError::ProbeRequestError(
+                AutomapErrorCause::ProbeServerIssue,
+                format!("Error receiving response: {:?}", e),
+            ))
+        }
     };
     let status = status.succeed();
-    info!(
-        "{}. Awaiting notification from listener that probe has arrived",
-        status.step
-    );
+    let status = status
+        .begin_attempt("Awaiting notification from listener that probe has arrived".to_string());
     match thread_handle.join() {
         Ok(Ok(_)) => (),
         Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => {
-            error!("...but after {}ms probe had not yet arrived.", probe_timeout);
-            return status.fail(AutomapError::ProbeReceiveError(format!("Timeout {}ms", probe_timeout)))
-        },
-        Ok(Err(e)) => {
-            error!("...failure receiving probe: {:?}", e);
-            return status.fail(AutomapError::ProbeReceiveError(format!("{:?}", e)))
-        },
-        Err(e) => {
-            error!("...failure. The probe detector panicked: {:?}", e);
-            return status.fail(AutomapError::ProbeReceiveError(format!("{:?}", e)))
+            return status.fail(AutomapError::ProbeReceiveError(format!(
+                "Timeout {}ms",
+                probe_timeout
+            )))
         }
+        Ok(Err(e)) => return status.fail(AutomapError::ProbeReceiveError(format!("{:?}", e))),
+        Err(e) => return status.fail(AutomapError::ProbeReceiveError(format!("{:?}", e))),
     }
     status.succeed()
 }
@@ -246,23 +184,23 @@ fn generate_nonce() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{ErrorKind};
+    use std::io::ErrorKind;
 
     use masq_lib::utils::{find_free_port, localhost};
 
-    use crate::probe_researcher::{
-        deploy_background_listener, generate_nonce,
-    };
+    use crate::automap_core_functions::TestStatus;
     use crate::probe_researcher::mock_tools::{
-        test_stream_acceptor_and_probe, test_stream_acceptor_and_probe_8875_imitator, u16_to_byte_array,
+        test_stream_acceptor_and_probe, test_stream_acceptor_and_probe_8875_imitator,
+        u16_to_byte_array,
     };
+    use crate::probe_researcher::{deploy_background_listener, generate_nonce};
     use std::net::SocketAddr;
 
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
         let port = find_free_port();
 
-        let handle = deploy_background_listener(port, 8875, 500);
+        let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
 
         let send_probe_addr = SocketAddr::new(localhost(), port);
 
@@ -278,7 +216,7 @@ mod tests {
     #[test]
     fn deploy_background_listener_complains_about_probe_of_insufficient_length() {
         let port = find_free_port();
-        let handle = deploy_background_listener(port, 8875, 500);
+        let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
         let mut probe = Vec::from(u16_to_byte_array(8875));
         probe.remove(1); // One byte too few
@@ -295,7 +233,7 @@ mod tests {
     #[test]
     fn deploy_background_listener_complains_about_probe_of_excessive_length() {
         let port = find_free_port();
-        let handle = deploy_background_listener(port, 8875, 500);
+        let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
         let mut probe = Vec::from(u16_to_byte_array(8875));
         probe.push(0xFF); // one byte too long
@@ -313,7 +251,7 @@ mod tests {
     fn deploy_background_listener_without_getting_probe_propagates_that_fact_correctly_after_connection_interrupted(
     ) {
         let port = find_free_port();
-        let handle = deploy_background_listener(port, 8875, 500);
+        let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
         let send_probe_addr = SocketAddr::new(localhost(), port);
 
         test_stream_acceptor_and_probe(&[], 0, send_probe_addr);
@@ -333,7 +271,7 @@ mod tests {
     fn deploy_background_listener_without_getting_probe_terminates_alone_after_connection_lasts_too_long(
     ) {
         let port = find_free_port();
-        let handle = deploy_background_listener(port, 8875, 200);
+        let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 200);
         let send_probe_addr = SocketAddr::new(localhost(), port);
         test_stream_acceptor_and_probe(&[], 500, send_probe_addr);
 
@@ -348,8 +286,9 @@ mod tests {
     #[test]
     fn deploy_background_listener_ends_its_job_after_waiting_period_for_any_connection_but_none_was_sensed(
     ) {
-        let handle = deploy_background_listener(7004, 1234, 10);
+        let (handle, status) = deploy_background_listener(TestStatus::new(), 7004, 1234, 10);
 
+        assert_eq!(status.step_success, true);
         let result = handle.join();
         match result {
             Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => (),
