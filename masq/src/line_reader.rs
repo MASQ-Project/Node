@@ -1,46 +1,19 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal_interface::{InterfaceRaw, InterfaceRawMock, Terminal, WriterGeneric};
+use crate::terminal_interface::{InterfaceRaw, Terminal, WriterGeneric};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{ReadResult, Signal};
 use std::fmt::{Debug, Formatter};
 
 pub const MASQ_PROMPT: &str = "masq> ";
 
+#[derive(Debug, PartialEq)]
 pub enum TerminalEvent {
     CommandLine(String),
     Break,
     Continue, //as ignore
-    DoSpecificAction((Box<dyn FnOnce()>, String)),
     Error(String),
 }
-
-impl PartialEq for TerminalEvent {
-    fn eq(&self, other: &Self) -> bool {
-        format!("{:?}", self) == format!("{:?}", other)
-    }
-}
-
-impl Debug for TerminalEvent {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TerminalEvent::Break => write!(f, "TerminalEvent::Break"),
-            TerminalEvent::CommandLine(line) => write!(f, "TerminalEvent::CommandLine({})", line),
-            TerminalEvent::DoSpecificAction((_, expression)) => write!(f, "{:?}", expression),
-            TerminalEvent::Continue => write!(f, "TerminalEvent::Break"),
-            TerminalEvent::Error(error) => write!(f, "TerminalEvent::Error({})", error),
-        }
-    }
-}
-
-//////////////////////////////////////////////////////////////
-
-//create this for proper debugging of DoSpecificAction
-// #[proc_macro]
-// fn debug_closure(declaration:TokenStream)->TokenStream {
-//     let declaration = parse_macro_input!(tokens as Literal);
-// }
-//
 
 pub struct TerminalReal {
     pub interface: Box<dyn InterfaceRaw + Send + Sync>,
@@ -59,34 +32,16 @@ impl Terminal for TerminalReal {
                 self.add_history_unique(line.clone());
                 TerminalEvent::CommandLine(line)
             }
-            Ok(ReadResult::Eof) => TerminalEvent::Break,
-            Ok(ReadResult::Signal(Signal::Break)) | Ok(ReadResult::Signal(Signal::Interrupt)) => {
-                TerminalEvent::Break
-            }
-            Ok(ReadResult::Signal(Signal::Quit)) => TerminalEvent::DoSpecificAction({
-                unimplemented!();
-                // here, there would be a procedural macro
-                // let expression_fingerprint = "fn mut";
-                // let closure = || {};
-                // (Box::new(closure), expression_fingerprint.to_string())
-            }),
-            Ok(ReadResult::Signal(Signal::Suspend)) => {
-                TerminalEvent::DoSpecificAction(unimplemented!())
-            }
+            Err(e) => TerminalEvent::Error(format!("Reading from the terminal: {}", e)),
             Ok(ReadResult::Signal(Signal::Resize)) | Ok(ReadResult::Signal(Signal::Continue)) => {
                 TerminalEvent::Continue
             }
-            Err(e) => TerminalEvent::Error(format!("{:?}", e.kind())),
+            _ => TerminalEvent::Break,
         }
     }
 
     fn add_history_unique(&self, line: String) {
         self.interface.add_history_unique(line)
-    }
-
-    #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal {
-        unimplemented!();
     }
 }
 
@@ -99,6 +54,7 @@ impl TerminalReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal_interface::InterfaceRawMock;
     use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
 
@@ -158,29 +114,27 @@ mod tests {
         )
     }
 
-    // #[test]
-    // fn read_line_works_when_signal_quit_is_hit() {
-    //     let subject = TerminalReal::new(Box::new(
-    //         InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Quit))),
-    //     ));
-    //
-    //     let result = subject.read_line();
-    //
-    //     assert_eq!(result, TerminalEvent::DoSpecificAction((Box::new(||{print!("some job to do")}),"blah".to_string())));
-    // }
-    //
-    //
-    //
-    // #[test]
-    // fn read_line_works_when_signal_suspend_is_hit() {
-    //     let subject = TerminalReal::new(Box::new(
-    //         InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Suspend))),
-    //     ));
-    //
-    //     let result = subject.read_line();
-    //
-    //     assert_eq!(result,TerminalEvent::DoSpecificAction((Box::new(||{print!("Again, some job to do")}),"something".to_string())));
-    // }
+    #[test]
+    fn read_line_works_when_signal_quit_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Quit))),
+        ));
+
+        let result = subject.read_line();
+
+        assert_eq!(result, TerminalEvent::Break)
+    }
+
+    #[test]
+    fn read_line_works_when_signal_suspend_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Suspend))),
+        ));
+
+        let result = subject.read_line();
+
+        assert_eq!(result, TerminalEvent::Break)
+    }
 
     #[test]
     fn read_line_works_when_signal_continue_is_hit() {
@@ -213,7 +167,10 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::Error("InvalidInput".to_string()));
+        assert_eq!(
+            result,
+            TerminalEvent::Error("Reading from the terminal: invalid input parameter".to_string())
+        );
     }
 
     //     #[test]

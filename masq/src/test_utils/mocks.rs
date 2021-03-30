@@ -10,7 +10,7 @@ use crate::terminal_interface::{Terminal, TerminalWrapper};
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -165,6 +165,7 @@ pub struct CommandProcessorMock {
     process_results: RefCell<Vec<Result<(), CommandError>>>,
     close_params: Arc<Mutex<Vec<()>>>,
     terminal_interface: Vec<TerminalWrapper>,
+    terminal_interface_clone_count: Arc<Mutex<usize>>,
 }
 
 impl CommandProcessor for CommandProcessorMock {
@@ -178,7 +179,8 @@ impl CommandProcessor for CommandProcessorMock {
     }
 
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
-        self.terminal_interface.remove(0)
+        *self.terminal_interface_clone_count.lock().unwrap() += 1;
+        self.terminal_interface[0].clone()
     }
 }
 
@@ -187,8 +189,15 @@ impl CommandProcessorMock {
         Self::default()
     }
 
-    pub fn terminal_interface(mut self, terminal_interface_arc_clone: TerminalWrapper) -> Self {
+    pub fn insert_terminal_interface(
+        mut self,
+        terminal_interface_arc_clone: TerminalWrapper,
+    ) -> Self {
         self.terminal_interface.push(terminal_interface_arc_clone);
+        self
+    }
+    pub fn insert_terminal_wrapper_shared_counter(mut self, reference: Arc<Mutex<usize>>) -> Self {
+        self.terminal_interface_clone_count = reference;
         self
     }
 

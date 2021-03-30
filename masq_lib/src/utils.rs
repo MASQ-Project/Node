@@ -120,9 +120,9 @@ macro_rules! short_writeln {
 }
 
 #[macro_export]
-macro_rules! optional_member {
+macro_rules! intentionally_blank {
     () => {
-        panic!()
+        panic!("optional member implemented as its default")
     };
 }
 

@@ -1,11 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::{TerminalEvent, TerminalReal, MASQ_PROMPT};
+use core::mem;
 use linefeed::memory::MemoryTerminal;
 use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
-use masq_lib::optional_member;
+use masq_lib::intentionally_blank;
 use std::any::Any;
 use std::borrow::BorrowMut;
+use std::ptr::replace;
 use std::sync::{Arc, Mutex};
 
 pub trait TerminalInterfaceFactory {
@@ -78,7 +80,6 @@ impl TerminalWrapper {
         object.test_interface()
     }
 
-    #[cfg(test)]
     pub fn inner(&self) -> &Arc<Box<dyn Terminal + Send + Sync>> {
         &self.inner
     }
@@ -126,20 +127,19 @@ impl Clone for TerminalWrapper {
 
 pub trait Terminal {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
-        optional_member!()
+        intentionally_blank!()
     }
     fn read_line(&self) -> TerminalEvent;
-    fn add_history_unique(&self, line: String) {
-        self.add_history_unique(line)
-    }
+    fn add_history_unique(&self, line: String) {}
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
-        optional_member!()
+        intentionally_blank!()
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Clone)]
 pub struct TerminalPassiveMock {
     read_line_result: Arc<Mutex<Vec<TerminalEvent>>>,
 }
@@ -158,12 +158,20 @@ impl TerminalPassiveMock {
     }
 
     pub fn read_line_result(self, result: TerminalEvent) -> Self {
+        // let mut locked = self.read_line_result.lock().unwrap();
+        // // let adjusted = results.replace(r#"\n"#,"@").replace(r#"\t"#,"@");
+        // // eprintln!("pre split: {}",adjusted);
+        // // adjusted.split('@').for_each(|command| locked.push(TerminalEvent::CommandLine(command.to_string())));
+        // //
+        // // drop(locked);
+        // eprintln!("mock: {:?}",*self.read_line_result.lock().unwrap());
+        eprintln!("{:?}", &result);
         self.read_line_result.lock().unwrap().push(result);
         self
     }
 }
 
-//mock incorporating a terminal very similar to the real one, which is run in-memory
+//mock incorporating a terminal very similar to the real one, which is run as in-memory though
 
 pub struct TerminalActiveMock {
     in_memory_terminal: Interface<MemoryTerminal>,
@@ -177,10 +185,9 @@ impl Terminal for TerminalActiveMock {
     }
 
     fn read_line(&self) -> TerminalEvent {
-        unimplemented!()
-        // let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
-        // self.reference.write(&format!("{}*/-", line));
-        // Ok(Some(line))
+        let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
+        self.reference.write(&format!("{}*/-", line));
+        TerminalEvent::CommandLine(line)
     }
 
     fn add_history_unique(&self, line: String) {
@@ -234,13 +241,7 @@ pub trait InterfaceRaw {
     fn add_history_unique(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>>;
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
-        self.set_prompt(prompt)
-    }
-    fn downcast(&self) -> &dyn Any
-    where
-        Self: Sized + 'static,
-    {
-        self
+        intentionally_blank!()
     }
 }
 
@@ -256,17 +257,13 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>> {
         match self.lock_writer_append() {
             Ok(writer) => Ok(Box::new(writer)),
-            Err(error) => unimplemented!("{}", error),
+            //untested ...dunno how to trigger any error here
+            Err(error) => Err(error),
         }
     }
 
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
         self.set_prompt(prompt)
-    }
-
-    fn downcast(&self) -> &dyn Any {
-        //TODO consider removing this method from the trait
-        self
     }
 }
 
@@ -317,7 +314,8 @@ mod tests {
     use crossbeam_channel::unbounded;
     use linefeed::memory::Lines;
     use linefeed::DefaultTerminal;
-    use std::io::Write;
+    use std::io::{Error, Write};
+    use std::sync::mpsc::channel;
     use std::sync::Barrier;
     use std::thread;
     use std::time::Duration;
@@ -399,7 +397,7 @@ mod tests {
             written_output_all_lines(terminal_reference.test_interface().lines(), true);
         assert_eq!(
             written_output,
-            "first attempt | hello world | that's enough |\
+            "first attempt | hello world | that's enough | \
          Rocket, go to Mars, go, go | And once again...nothing |"
         );
 
@@ -531,7 +529,6 @@ mod tests {
             Err(e) => panic!("should have been OK, got Err: {}", e),
             Ok(val) => val,
         };
-
         let wrapper = TerminalWrapper::new(Box::new(result));
         wrapper.lock().write_str("hallelujah").unwrap();
 
