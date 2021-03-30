@@ -36,7 +36,7 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                     let ip_addr_maybe_with_scope_id = first_elements[2];
                     let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
                     match IpAddr::from_str(ip_addr_str) {
-                        Err(_) => Err(AutomapError::OSCommandError(format!(
+                        Err(_) => Err(AutomapError::ProtocolError(format!(
                             "ipconfig output shows invalid Default Gateway:\n{}",
                             stdout
                         ))),
@@ -45,7 +45,7 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                 }
             }
         }
-        Err(stderr) => Err(AutomapError::OSCommandError(stderr)),
+        Err(stderr) => Err(AutomapError::ProtocolError(stderr)),
     }
 }
 
@@ -310,7 +310,7 @@ Ethernet adapter Ethernet:
         let result = windows_find_routers(&find_routers_command);
 
         match result {
-            Err(AutomapError::OSCommandError(msg)) => {
+            Err(AutomapError::ProtocolError(msg)) => {
                 assert_eq!(
                     msg.starts_with("ipconfig output shows invalid Default Gateway:"),
                     true,
@@ -319,7 +319,7 @@ Ethernet adapter Ethernet:
                 );
                 assert_eq!(msg.contains(route_n_output), true, "{}", msg);
             }
-            x => panic!("Expected OSCommandError with message; got '{:?}'", x),
+            x => panic!("Expected ProtocolError with message; got '{:?}'", x),
         }
     }
 
@@ -331,7 +331,7 @@ Ethernet adapter Ethernet:
 
         assert_eq!(
             result,
-            Err(AutomapError::OSCommandError("Booga!".to_string()))
+            Err(AutomapError::ProtocolError("Booga!".to_string()))
         )
     }
 
