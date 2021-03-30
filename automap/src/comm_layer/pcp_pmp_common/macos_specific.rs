@@ -92,7 +92,7 @@ destination: default
 
         assert_eq!(
             result,
-            Err(AutomapError::OSCommandError("Booga!".to_string()))
+            Err(AutomapError::ProtocolError("Booga!".to_string()))
         )
     }
 
