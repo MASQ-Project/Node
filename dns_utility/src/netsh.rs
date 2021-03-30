@@ -10,6 +10,7 @@ pub trait Netsh {
 #[derive(Default)]
 pub struct NetshCommand {}
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub enum NetshError {
     NonZeroExit(i32),
