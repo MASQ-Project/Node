@@ -9,7 +9,7 @@ use std::str::FromStr;
 pub fn macos_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     let output = match command.execute() {
         Ok(stdout) => stdout,
-        Err(stderr) => return Err(AutomapError::OSCommandError(stderr)),
+        Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
     };
     let gateway_line_opt = output
         .split('\n')
