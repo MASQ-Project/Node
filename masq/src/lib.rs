@@ -5,6 +5,7 @@ pub mod command_factory;
 pub mod command_processor;
 pub mod commands;
 pub mod communications;
+pub mod interactive_mode;
 pub mod line_reader;
 mod notifications;
 mod schema;

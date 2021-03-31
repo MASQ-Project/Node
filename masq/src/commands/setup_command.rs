@@ -82,7 +82,6 @@ impl SetupCommand {
         let _lock = term_interface.lock();
         short_writeln!(stdout, "\nDaemon setup has changed:\n");
         Self::dump_setup(UiSetupInner::from(response), stdout);
-        write!(stdout, "masq> ").expect("write! failed");
         stdout.flush().expect("flush failed");
     }
 

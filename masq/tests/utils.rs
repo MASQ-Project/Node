@@ -55,6 +55,18 @@ impl MasqProcess {
         }
     }
 
+    pub fn start_noninteractive_within_terminal(self, _params: Vec<&str>) -> StopHandle {
+        let mut command = Command::new("cmd");
+        let path = executable_path(executable_name("masq")).into_os_string();
+        eprintln!("{:?}", path);
+        let command = command.arg(path);
+        let child = child_from_command(command);
+        StopHandle {
+            name: "cmd".to_string(),
+            child,
+        }
+    }
+
     pub fn start_interactive(self) -> ControlHandle {
         let mut command = Command::new(executable_path(executable_name("masq")));
         let child = child_from_command(&mut command);

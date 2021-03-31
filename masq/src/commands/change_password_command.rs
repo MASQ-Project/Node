@@ -57,11 +57,7 @@ impl ChangePasswordCommand {
         term_interface: TerminalWrapper,
     ) {
         let _lock = term_interface.lock();
-        write!(
-            stdout,
-            "\nThe Node's database password has changed.\n\nmasq> "
-        )
-        .expect("write! failed");
+        write!(stdout, "\nThe Node's database password has changed.\n\n").expect("write! failed");
         stdout.flush().expect("flush failed");
     }
 }

@@ -24,7 +24,6 @@ impl CrashNotifier {
             response.process_id,
             Self::dress_message (response.crash_reason)
         );
-        write!(stdout, "masq> ").expect("write! failed");
         stdout.flush().expect("flush failed");
     }
 

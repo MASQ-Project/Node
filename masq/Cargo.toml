@@ -14,7 +14,6 @@ workspace = "../node"
 clap = "2.33.1"
 lazy_static = "1.4.0"
 masq_lib = { path = "../masq_lib" }
-rustyline = "7.1.0"
 linefeed = "0.6.0"
 websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
 crossbeam-channel = "0.5.0"

@@ -16,7 +16,7 @@ fn handle_node_not_running_for_fire_and_forget_on_the_way(
     let _lock = term_interface.lock();
     write!(
         stdout,
-        "\nCannot handle {} request: Node is not running.\n\nmasq> ",
+        "\nCannot handle {} request: Node is not running.\n\n",
         body.opcode
     )
     .expect("write! failed");

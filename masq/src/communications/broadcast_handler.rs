@@ -168,12 +168,12 @@ mod tests {
             "stdout: '{}' doesn't contain 'the Node is currently running'",
             stdout
         );
-        assert_eq!(
-            stdout.contains("masq> "),
-            true,
-            "stdout: '{}' doesn't contain 'masq> '",
-            stdout
-        );
+        // assert_eq!(
+        //     stdout.contains("masq> "),
+        //     true,
+        //     "stdout: '{}' doesn't contain 'masq> '",
+        //     stdout
+        // );
         assert_eq!(
             handle.stderr_so_far(),
             "".to_string(),
@@ -201,7 +201,7 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string()
+            "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),
@@ -226,7 +226,7 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\nThe Node's database password has changed.\n\nmasq> ".to_string()
+            "\nThe Node's database password has changed.\n\n".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),
@@ -254,7 +254,7 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\nCannot handle uninventedMessage request: Node is not running.\n\nmasq> ".to_string()
+            "\nCannot handle uninventedMessage request: Node is not running.\n\n".to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),
@@ -321,7 +321,7 @@ mod tests {
 NAME                   VALUE                                                            STATUS
 ip                     4.4.4.4                                                          Set
 
-masq> ";
+";
 
         test_generic_for_handle_broadcast(
             SetupCommand::handle_broadcast,
@@ -341,7 +341,7 @@ masq> ";
 The Node running as process 100 terminated.
 The Daemon is once more accepting setup changes.
 
-masq> ";
+";
 
         test_generic_for_handle_broadcast(
             CrashNotifier::handle_broadcast,
@@ -357,7 +357,7 @@ masq> ";
         let broadcast_output = "\
 The Node's database password has changed.
 
-masq> ";
+";
 
         test_generic_for_handle_broadcast(
             ChangePasswordCommand::handle_broadcast,
@@ -376,7 +376,7 @@ masq> ";
         let broadcast_output = "\
 Cannot handle crash request: Node is not running.
 
-masq>";
+";
 
         test_generic_for_handle_broadcast(
             handle_node_not_running_for_fire_and_forget_on_the_way,

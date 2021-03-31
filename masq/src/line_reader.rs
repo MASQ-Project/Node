@@ -1,18 +1,15 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal_interface::{InterfaceRaw, Terminal, WriterGeneric};
-use linefeed::memory::MemoryTerminal;
 use linefeed::{ReadResult, Signal};
-use std::fmt::{Debug, Formatter};
-
-pub const MASQ_PROMPT: &str = "masq> ";
+use std::fmt::Debug;
 
 #[derive(Debug, PartialEq)]
 pub enum TerminalEvent {
     CommandLine(String),
-    Break,
-    Continue, //as ignore
     Error(String),
+    Continue, //as ignore
+    Break,
 }
 
 pub struct TerminalReal {

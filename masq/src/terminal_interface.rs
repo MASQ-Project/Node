@@ -1,14 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::line_reader::{TerminalEvent, TerminalReal, MASQ_PROMPT};
-use core::mem;
-use linefeed::memory::MemoryTerminal;
+use crate::line_reader::{TerminalEvent, TerminalReal};
 use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
+use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
-use std::any::Any;
-use std::borrow::BorrowMut;
-use std::ptr::replace;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub trait TerminalInterfaceFactory {
     fn make(&self) -> Result<TerminalReal, String>;
@@ -25,31 +21,9 @@ impl TerminalInterfaceFactory for InterfaceReal {
     }
 }
 
-pub struct InterfaceMock {
-    make_result: Arc<Mutex<Vec<Result<TerminalReal, String>>>>,
-}
-
-impl TerminalInterfaceFactory for InterfaceMock {
-    fn make(&self) -> Result<TerminalReal, String> {
-        self.make_result.lock().unwrap().remove(0)
-    }
-}
-
-impl InterfaceMock {
-    pub fn new() -> Self {
-        Self {
-            make_result: Arc::new(Mutex::new(vec![])),
-        }
-    }
-
-    pub fn make_result(self, result: Result<TerminalReal, String>) -> Self {
-        self.make_result.lock().unwrap().push(result);
-        self
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//this is the most general layer, an object which is intended for you to usually work with at other places in the code
+//this is the most general layer, an object which is intended for you to usually work with at other
+//places in the code
 
 pub struct TerminalWrapper {
     inner: Arc<Box<dyn Terminal + Send + Sync>>,
@@ -130,7 +104,7 @@ pub trait Terminal {
         intentionally_blank!()
     }
     fn read_line(&self) -> TerminalEvent;
-    fn add_history_unique(&self, line: String) {}
+    fn add_history_unique(&self, _line: String) {}
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
         intentionally_blank!()
@@ -138,91 +112,6 @@ pub trait Terminal {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Clone)]
-pub struct TerminalPassiveMock {
-    read_line_result: Arc<Mutex<Vec<TerminalEvent>>>,
-}
-
-impl Terminal for TerminalPassiveMock {
-    fn read_line(&self) -> TerminalEvent {
-        self.read_line_result.lock().unwrap().remove(0)
-    }
-}
-
-impl TerminalPassiveMock {
-    pub fn new() -> Self {
-        Self {
-            read_line_result: Arc::new(Mutex::new(vec![])),
-        }
-    }
-
-    pub fn read_line_result(self, result: TerminalEvent) -> Self {
-        // let mut locked = self.read_line_result.lock().unwrap();
-        // // let adjusted = results.replace(r#"\n"#,"@").replace(r#"\t"#,"@");
-        // // eprintln!("pre split: {}",adjusted);
-        // // adjusted.split('@').for_each(|command| locked.push(TerminalEvent::CommandLine(command.to_string())));
-        // //
-        // // drop(locked);
-        // eprintln!("mock: {:?}",*self.read_line_result.lock().unwrap());
-        eprintln!("{:?}", &result);
-        self.read_line_result.lock().unwrap().push(result);
-        self
-    }
-}
-
-//mock incorporating a terminal very similar to the real one, which is run as in-memory though
-
-pub struct TerminalActiveMock {
-    in_memory_terminal: Interface<MemoryTerminal>,
-    reference: MemoryTerminal,
-    user_input: Arc<Mutex<Vec<String>>>,
-}
-
-impl Terminal for TerminalActiveMock {
-    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
-        Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
-    }
-
-    fn read_line(&self) -> TerminalEvent {
-        let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
-        self.reference.write(&format!("{}*/-", line));
-        TerminalEvent::CommandLine(line)
-    }
-
-    fn add_history_unique(&self, line: String) {
-        self.in_memory_terminal.add_history_unique(line)
-    }
-
-    #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal {
-        self.reference.clone()
-    }
-}
-
-impl TerminalActiveMock {
-    pub fn new() -> Self {
-        let memory_terminal_instance = MemoryTerminal::new();
-        Self {
-            in_memory_terminal: Interface::with_term(
-                "test only terminal",
-                memory_terminal_instance.clone(),
-            )
-            .unwrap(),
-            reference: memory_terminal_instance,
-            user_input: Arc::new(Mutex::new(vec![])),
-        }
-    }
-    #[allow(dead_code)] //TODO: think about this
-    fn read_line_result(self, line: String) -> Self {
-        self.user_input
-            .lock()
-            .unwrap()
-            .borrow_mut()
-            .push(format!("{}\n", line));
-        self
-    }
-}
 
 pub trait WriterGeneric {
     fn write_str(&mut self, str: &str) -> std::io::Result<()>;
@@ -240,7 +129,7 @@ pub trait InterfaceRaw {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>>;
-    fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
+    fn set_prompt(&self, _prompt: &str) -> std::io::Result<()> {
         intentionally_blank!()
     }
 }
@@ -267,55 +156,16 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
     }
 }
 
-#[derive(Default)]
-pub struct InterfaceRawMock {
-    read_line_result: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
-    add_history_unique_params: Arc<Mutex<Vec<String>>>,
-}
-
-impl InterfaceRaw for InterfaceRawMock {
-    fn read_line(&self) -> std::io::Result<ReadResult> {
-        self.read_line_result.lock().unwrap().remove(0)
-    }
-
-    fn add_history_unique(&self, line: String) {
-        self.add_history_unique_params.lock().unwrap().push(line)
-    }
-
-    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>> {
-        unimplemented!()
-    }
-}
-
-impl InterfaceRawMock {
-    pub fn new() -> Self {
-        Self {
-            read_line_result: Arc::new(Mutex::new(vec![])),
-            add_history_unique_params: Arc::new(Mutex::new(vec![])),
-        }
-    }
-    pub fn read_line_result(self, result: std::io::Result<ReadResult>) -> Self {
-        self.read_line_result.lock().unwrap().push(result);
-        self
-    }
-
-    pub fn add_history_unique_params(mut self, params: Arc<Mutex<Vec<String>>>) -> Self {
-        self.add_history_unique_params = params;
-        self
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::MixingStdout;
+    use crate::test_utils::mocks::{MixingStdout, TerminalActiveMock};
     use crossbeam_channel::unbounded;
     use linefeed::memory::Lines;
     use linefeed::DefaultTerminal;
-    use std::io::{Error, Write};
-    use std::sync::mpsc::channel;
+    use std::io::Write;
     use std::sync::Barrier;
     use std::thread;
     use std::time::Duration;
