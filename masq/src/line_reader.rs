@@ -51,7 +51,7 @@ impl TerminalReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal_interface::InterfaceRawMock;
+    use crate::test_utils::mocks::InterfaceRawMock;
     use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
 

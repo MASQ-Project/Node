@@ -25,24 +25,6 @@ fn masq_without_daemon_integration() {
 }
 
 #[test]
-fn masq_without_daemon_within_terminal_integration() {
-    let masq_handle = MasqProcess::new().start_noninteractive_within_terminal(vec!["setup"]);
-
-    let (stdout, stderr, exit_code) = masq_handle.stop();
-
-    eprintln!("{}", stdout);
-    eprintln!("stdr  {}", stderr);
-    // assert_eq!(&stdout, "", "{}", stdout);
-    //  assert_eq!(
-    //       stderr.contains("Can't connect to Daemon or Node"),
-    //       true,
-    //       "{}",
-    //       stderr
-    //   );
-    assert_eq!(exit_code, 1);
-}
-
-#[test]
 #[ignore]
 fn handles_startup_and_shutdown_integration() {
     let port = find_free_port();

@@ -75,8 +75,7 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::terminal_interface::TerminalActiveMock;
-    use crate::test_utils::mocks::TestStreamFactory;
+    use crate::test_utils::mocks::{TerminalActiveMock, TestStreamFactory};
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -238,13 +237,6 @@ mod tests {
             })
             .count();
         assert_eq!(number_of_broadcast_received, 4);
-
-        //assertion that the rest of the broadcast is there too
-        let number_of_masq_prompts = tamed_output_filtered_out
-            .lines()
-            .filter(|line| line.contains("masq>"))
-            .count();
-        assert_eq!(number_of_masq_prompts, 4);
 
         stop_handle.stop();
     }

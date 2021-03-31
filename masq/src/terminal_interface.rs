@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
+use linefeed::memory::MemoryTerminal;
 use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
@@ -13,12 +14,25 @@ pub trait TerminalInterfaceFactory {
 pub struct InterfaceReal {}
 
 impl TerminalInterfaceFactory for InterfaceReal {
+    #[cfg(not(test))]
     fn make(&self) -> Result<TerminalReal, String> {
         configure_interface(
             Box::new(Interface::with_term),
             Box::new(DefaultTerminal::new),
         )
     }
+
+    #[cfg(test)]
+    fn make(&self) -> Result<TerminalReal, String> {
+        configure_interface(
+            Box::new(Interface::with_term),
+            Box::new(result_wrapper_for_in_memory_terminal),
+        )
+    }
+}
+#[cfg(test)]
+fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
+    Ok(MemoryTerminal::new())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -59,7 +73,7 @@ impl TerminalWrapper {
     }
 }
 
-pub fn configure_interface<F, U, E>(
+pub fn configure_interface<F, U, E: ?Sized>(
     interface_raw: Box<F>,
     terminal_type: Box<E>,
 ) -> Result<TerminalReal, String>

@@ -137,8 +137,7 @@ impl StreamFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal_interface::TerminalActiveMock;
-    use crate::test_utils::mocks::{MixingStdout, TestStreamFactory};
+    use crate::test_utils::mocks::{MixingStdout, TerminalActiveMock, TestStreamFactory};
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;

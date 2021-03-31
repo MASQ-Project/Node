@@ -135,8 +135,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::communications::broadcast_handler::StreamFactory;
-    use crate::terminal_interface::TerminalActiveMock;
-    use crate::test_utils::mocks::{CommandContextMock, TestStreamFactory};
+    use crate::test_utils::mocks::{CommandContextMock, TerminalActiveMock, TestStreamFactory};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
@@ -305,7 +304,6 @@ neighborhood-mode      zero-hop                                                 
 \n\
 ERRORS:
 ip                     No sir, I don't like it.\n\
-\n\
-masq> ");
+\n");
     }
 }

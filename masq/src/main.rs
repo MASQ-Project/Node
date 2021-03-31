@@ -133,12 +133,10 @@ mod tests {
     use masq_cli_lib::commands::commands_common::CommandError;
     use masq_cli_lib::commands::commands_common::CommandError::Transmission;
     use masq_cli_lib::line_reader::{TerminalEvent, TerminalReal};
-    use masq_cli_lib::terminal_interface::{
-        InterfaceMock, InterfaceRawMock, TerminalPassiveMock, TerminalWrapper,
-    };
+    use masq_cli_lib::terminal_interface::TerminalWrapper;
     use masq_cli_lib::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        MockCommand,
+        InterfaceMock, InterfaceRawMock, MockCommand, TerminalPassiveMock,
     };
     use masq_lib::intentionally_blank;
     use masq_lib::messages::ToMessageBody;

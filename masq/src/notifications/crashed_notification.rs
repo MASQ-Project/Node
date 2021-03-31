@@ -52,7 +52,7 @@ impl CrashNotifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal_interface::TerminalActiveMock;
+    use crate::test_utils::mocks::{TerminalActiveMock, TerminalPassiveMock};
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::utils::running_test;
 
@@ -69,7 +69,7 @@ mod tests {
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
@@ -86,7 +86,7 @@ mod tests {
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
@@ -103,7 +103,7 @@ mod tests {
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
