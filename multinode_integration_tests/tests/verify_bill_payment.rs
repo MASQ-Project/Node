@@ -22,7 +22,7 @@ use node_lib::test_utils;
 use rusqlite::NO_PARAMS;
 use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use tiny_hderive::bip32::ExtendedPrivKey;
