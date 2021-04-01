@@ -43,7 +43,7 @@ fn report_on_method(
     let tps = &parameters.test_parameters;
     let msg = match result {
         Ok(_) => {
-            if tps.nopoke || tps.noremove || tps.user_specified_hole_port {
+            if tps.nopoke || tps.noremove || tps.user_specified_hole_port || tps.permanent {
                 "Operational within specified limits".to_string()
             } else {
                 "Fully operational".to_string()

@@ -19,6 +19,7 @@ pub struct TestParameters {
     pub user_specified_hole_port: bool,
     pub nopoke: bool,
     pub noremove: bool,
+    pub permanent: bool,
 }
 
 pub type Tester = Box<dyn FnOnce(TestStatus, &TestParameters) -> Result<(), AutomapErrorCause>>;
@@ -37,12 +38,14 @@ impl AutomapParameters {
         let mut user_specified_hole_port = true;
         let mut nopoke = false;
         let mut noremove = false;
+        let mut permanent = false;
         args.into_iter().skip(1).for_each(|arg| match arg.as_str() {
             "pcp" => protocols.push(Method::Pcp),
             "pmp" => protocols.push(Method::Pmp),
             "igdp" => protocols.push(Method::Igdp),
             "nopoke" => nopoke = true,
             "noremove" => noremove = true,
+            "permanent" => permanent = true,
             arg => {
                 hole_port = arg
                     .parse::<u16>()
@@ -62,6 +65,7 @@ impl AutomapParameters {
             user_specified_hole_port,
             nopoke,
             noremove,
+            permanent,
         };
         Self {
             protocols,
@@ -126,7 +130,10 @@ fn test_common(
             parameters.hole_port
         ));
         status.succeed()
-    } else {
+    } else if parameters.permanent {
+        poke_permanent_firewall_hole(parameters.hole_port, status, router_ip, transactor)
+    }
+    else {
         poke_firewall_hole(parameters.hole_port, status, router_ip, transactor)
     };
     let status = run_probe_test(status, parameters, public_ip);
