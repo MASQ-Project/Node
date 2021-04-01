@@ -2,10 +2,12 @@
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
 use linefeed::memory::MemoryTerminal;
-use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
+use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::Arc;
+#[cfg(not(test))]
+use linefeed::DefaultTerminal;
 
 pub trait TerminalInterfaceFactory {
     fn make(&self) -> Result<TerminalReal, String>;

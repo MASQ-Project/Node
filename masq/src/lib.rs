@@ -7,6 +7,7 @@ pub mod commands;
 pub mod communications;
 pub mod interactive_mode;
 pub mod line_reader;
+pub mod non_interactive_mode;
 mod notifications;
 mod schema;
 pub mod terminal_interface;
@@ -14,5 +15,5 @@ pub mod terminal_interface;
 #[macro_use]
 extern crate crossbeam_channel;
 
-//#[cfg(test)] // Don't understand why this has to be commented out
+#[cfg(test)]
 pub mod test_utils;

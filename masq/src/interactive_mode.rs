@@ -34,15 +34,14 @@ fn split_quoted_line(input: String) -> Vec<String> {
 
 pub fn go_interactive<A, B, FN>(
     handle_command: Box<FN>,
-    command_factory: &Box<A>,
-    processor: &mut Box<B>,
+    command_factory: &A,
+    processor: &mut B,
     streams: &mut StdStreams<'_>,
 ) -> u8
 where
-    //TODO examine why the compiler took my "&mut Box and &Box" but nothing else and test if that is necessary
-    FN: Fn(&Box<A>, &mut Box<B>, Vec<String>, &mut (dyn Write + Send)) -> Result<(), ()>,
-    A: CommandFactory + ?Sized,
-    B: CommandProcessor + ?Sized,
+    FN: Fn(&A, &mut B, Vec<String>, &mut (dyn Write + Send)) -> Result<(), ()>,
+    A: CommandFactory + ?Sized + 'static,
+    B: CommandProcessor + ?Sized + 'static,
 {
     loop {
         let args = match processor.clone_terminal_interface().read_line() {

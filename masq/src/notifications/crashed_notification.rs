@@ -52,7 +52,7 @@ impl CrashNotifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{TerminalActiveMock, TerminalPassiveMock};
+    use crate::test_utils::mocks::TerminalActiveMock;
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::utils::running_test;
 
