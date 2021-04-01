@@ -1,8 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
-};
+use crate::comm_layer::pcp_pmp_common::{find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, make_local_socket_address};
 use crate::comm_layer::{AutomapError, AutomapErrorCause, Method, Transactor};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
@@ -11,7 +9,7 @@ use crate::protocols::utils::{Direction, Packet};
 use std::any::Any;
 use std::convert::TryFrom;
 use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 pub struct PmpTransactor {
@@ -121,10 +119,7 @@ impl PmpTransactor {
         let len = request
             .marshal(&mut buffer)
             .expect("Bad packet construction");
-        let address = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            self.free_port_factory.make(),
-        );
+        let address = make_local_socket_address(router_ip, self.free_port_factory.make());
         let socket = match self.socket_factory.make(address) {
             Ok(s) => s,
             Err(e) => {

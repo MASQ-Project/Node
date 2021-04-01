@@ -1,8 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal,
-};
+use crate::comm_layer::pcp_pmp_common::{find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, make_local_socket_address};
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Method, Transactor,
 };
@@ -135,10 +133,7 @@ impl PcpTransactor {
         let request_len = packet
             .marshal(&mut buffer)
             .expect("Bad packet construction");
-        let socket_addr = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            self.free_port_factory.make(),
-        );
+        let socket_addr = make_local_socket_address(router_ip, self.free_port_factory.make());
         let socket = match self.socket_factory.make(socket_addr) {
             Ok(s) => s,
             Err(e) => {
