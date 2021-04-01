@@ -20,7 +20,7 @@ use crate::comm_layer::AutomapError;
 use masq_lib::utils::find_free_port;
 use std::io;
 pub use std::net::UdpSocket;
-use std::net::{IpAddr, SocketAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
 
@@ -137,14 +137,10 @@ pub fn find_routers() -> Result<Vec<IpAddr>, AutomapError> {
 
 pub fn make_local_socket_address(router_ip: IpAddr, free_port: u16) -> SocketAddr {
     match router_ip {
-        IpAddr::V4(_) => SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            free_port,
-        ),
-        IpAddr::V6(_) => SocketAddr::new(
-            IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)),
-            free_port,
-        ),
+        IpAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), free_port),
+        IpAddr::V6(_) => {
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)), free_port)
+        }
     }
 }
 

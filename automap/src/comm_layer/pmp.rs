@@ -1,6 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, make_local_socket_address};
+use crate::comm_layer::pcp_pmp_common::{
+    find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal,
+    UdpSocketFactory, UdpSocketFactoryReal,
+};
 use crate::comm_layer::{AutomapError, AutomapErrorCause, Method, Transactor};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;

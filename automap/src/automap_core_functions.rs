@@ -173,7 +173,10 @@ fn seek_public_ip(
     if status.fatal {
         return (null_ip, status);
     }
-    let status = status.begin_attempt(format!("Seeking public IP address from router at {}", router_ip));
+    let status = status.begin_attempt(format!(
+        "Seeking public IP address from router at {}",
+        router_ip
+    ));
     match transactor.get_public_ip(router_ip) {
         Ok(public_ip) => (public_ip, status.succeed()),
         Err(e) => (null_ip, status.abort(e)),
