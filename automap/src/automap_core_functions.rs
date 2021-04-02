@@ -132,8 +132,7 @@ fn test_common(
         status.succeed()
     } else if parameters.permanent {
         poke_permanent_firewall_hole(parameters.hole_port, status, router_ip, transactor)
-    }
-    else {
+    } else {
         poke_firewall_hole(parameters.hole_port, status, router_ip, transactor)
     };
     let status = run_probe_test(status, parameters, public_ip);

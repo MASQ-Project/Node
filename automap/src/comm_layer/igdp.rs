@@ -150,8 +150,11 @@ impl Transactor for IgdpTransactor {
                 "",
             ) {
             Ok(_) => Ok(lifetime / 2),
-            Err(e) if (&format!("{:?}", e) == "OnlyPermanentLeasesSupported") ||
-                (&format!("{:?}", e) == "RequestError(ErrorCode(402, \"Invalid Args\"))") => {
+            Err(e)
+                if (&format!("{:?}", e) == "OnlyPermanentLeasesSupported")
+                    || (&format!("{:?}", e)
+                        == "RequestError(ErrorCode(402, \"Invalid Args\"))") =>
+            {
                 Err(AutomapError::PermanentLeasesOnly)
             }
             Err(e) => Err(AutomapError::AddMappingError(format!("{:?}", e))),
