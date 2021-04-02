@@ -1,13 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
+use crate::test_utils::result_wrapper_for_in_memory_terminal;
 use linefeed::memory::MemoryTerminal;
+use linefeed::DefaultTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
-use std::sync::Arc;
-#[cfg(not(test))]
-use linefeed::DefaultTerminal;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub trait TerminalInterfaceFactory {
     fn make(&self) -> Result<TerminalReal, String>;
@@ -16,25 +16,12 @@ pub trait TerminalInterfaceFactory {
 pub struct InterfaceReal {}
 
 impl TerminalInterfaceFactory for InterfaceReal {
-    #[cfg(not(test))]
     fn make(&self) -> Result<TerminalReal, String> {
         configure_interface(
             Box::new(Interface::with_term),
             Box::new(DefaultTerminal::new),
         )
     }
-
-    #[cfg(test)]
-    fn make(&self) -> Result<TerminalReal, String> {
-        configure_interface(
-            Box::new(Interface::with_term),
-            Box::new(result_wrapper_for_in_memory_terminal),
-        )
-    }
-}
-#[cfg(test)]
-fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
-    Ok(MemoryTerminal::new())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -64,14 +51,28 @@ impl TerminalWrapper {
         self.inner.add_history_unique(line)
     }
 
-    #[cfg(test)]
-    pub fn test_interface(&self) -> MemoryTerminal {
-        let object = self.inner.clone().to_owned();
-        object.test_interface()
+    pub fn upgrade(&self) {
+        let upgraded_terminal = if cfg!(test) {
+            configure_interface(
+                Box::new(Interface::with_term),
+                Box::new(result_wrapper_for_in_memory_terminal),
+            )
+        } else {
+            unimplemented!()
+
+            // #[cfg(not(test))]
+            //     configure_interface(
+            //             Box::new(Interface::with_term),
+            //             Box::new(DefaultTerminal::new),
+            //         )
+        };
+
+        unimplemented!()
     }
 
-    pub fn inner(&self) -> &Arc<Box<dyn Terminal + Send + Sync>> {
-        &self.inner
+    #[cfg(test)]
+    pub fn test_interface(&self) -> MemoryTerminal {
+        self.inner.clone().to_owned().test_interface()
     }
 }
 
@@ -98,7 +99,8 @@ where
     if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
         return Err(format!("Setting prompt: {}", e));
     };
-    //possibly other parameters to be configured such as "completer" (see linefeed library)
+
+    //possibly other parameters to be configured here, such as "completer" (see linefeed library)
 
     Ok(TerminalReal::new(Box::new(interface)))
 }
@@ -119,7 +121,9 @@ pub trait Terminal {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
         intentionally_blank!()
     }
-    fn read_line(&self) -> TerminalEvent;
+    fn read_line(&self) -> TerminalEvent {
+        intentionally_blank!()
+    }
     fn add_history_unique(&self, _line: String) {}
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
@@ -129,13 +133,43 @@ pub trait Terminal {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+pub struct TerminalIdle {}
+
+impl Terminal for TerminalIdle {
+    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
+        Box::new(WriterIdle {})
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 pub trait WriterGeneric {
-    fn write_str(&mut self, str: &str) -> std::io::Result<()>;
+    fn write_str(&mut self, _str: &str) -> std::io::Result<()> {
+        intentionally_blank!()
+    }
+
+    //I failed in attempts to use Any and dynamical casting from Box<dyn WriterGeneric>
+    //because: Writer doesn't implement Clone and many if not all methods of Any require
+    //'static, that is, it must be an owned object and I cannot get anything else but reference
+    //of Writer.
+    //For delivering at least some test I decided to use this unusual hack
+    fn tell_me_who_you_are(&self) -> &str {
+        intentionally_blank!()
+    }
 }
 
 impl<U: linefeed::Terminal> WriterGeneric for Writer<'_, '_, U> {
     fn write_str(&mut self, str: &str) -> std::io::Result<()> {
         self.write_str(&format!("{}\n*/-", str))
+    }
+}
+
+#[derive(Clone)]
+pub struct WriterIdle {}
+
+impl WriterGeneric for WriterIdle {
+    fn tell_me_who_you_are(&self) -> &str {
+        "WriterIdle"
     }
 }
 
@@ -401,5 +435,21 @@ mod tests {
         let checking_if_operational = written_output_all_lines(term_mock.lines(), false);
 
         assert_eq!(checking_if_operational, "hallelujah");
+    }
+
+    #[test]
+    fn terminal_wrapper_equipped_with_terminal_idle_produces_writer_idle() {
+        let subject = TerminalWrapper::new(Box::new(TerminalIdle {}));
+        let lock = subject.lock();
+
+        assert_eq!(lock.tell_me_who_you_are(), "WriterIdle")
+    }
+
+    #[test]
+    fn upgrade_works_fine() {
+        // let subject = TerminalWrapper::new(Box::new(TerminalIdle{}));
+        // let lock = subject.lock();
+        //
+        // assert_eq!(lock.tell_me_who_you_are(),"WriterIdle")
     }
 }

@@ -122,7 +122,7 @@ macro_rules! short_writeln {
 #[macro_export]
 macro_rules! intentionally_blank {
     () => {
-        panic!("an unrequired method in the default look")
+        panic!("unrequired method of a trait; left blank here")
     };
 }
 

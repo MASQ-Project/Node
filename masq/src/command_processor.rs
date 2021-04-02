@@ -46,6 +46,7 @@ impl CommandProcessorFactoryReal {
 pub trait CommandProcessor {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError>;
     fn close(&mut self);
+    fn upgrade_terminal_interface(&mut self);
     fn clone_terminal_interface(&mut self) -> TerminalWrapper;
 }
 
@@ -65,6 +66,10 @@ impl CommandProcessor for CommandProcessorReal {
         self.context.close();
     }
 
+    fn upgrade_terminal_interface(&mut self) {
+        self.context.terminal_interface.upgrade()
+    }
+
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
         self.context.terminal_interface.clone()
     }
@@ -75,6 +80,7 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
+    use crate::terminal_interface::TerminalIdle;
     use crate::test_utils::mocks::{TerminalActiveMock, TestStreamFactory};
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
@@ -239,5 +245,32 @@ mod tests {
         assert_eq!(number_of_broadcast_received, 4);
 
         stop_handle.stop();
+    }
+    #[test]
+    fn upgrade_terminal_interface_works() {
+        let port = find_free_port();
+        let args = [
+            "masq".to_string(),
+            "--ui-port".to_string(),
+            format!("{}", port),
+        ];
+        let processor_factory = CommandProcessorFactoryReal::new();
+        let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
+        let stop_handle = server.start();
+        let interface = Box::new(TerminalIdle {});
+
+        let mut processor = processor_factory
+            .make(interface, Box::new(StreamFactoryReal::new()), &args)
+            .unwrap();
+
+        processor.upgrade_terminal_interface();
+
+        let terminal_wrapper_cloned = processor.clone_terminal_interface();
+        //Now there should be MemoryTerminal inside TerminalWrapper instead of TerminalIdle
+        //In production code it'd be DefaultTerminal at the place, thanks to conditional compilation done by attributes
+        let reference_to_the_guts = terminal_wrapper_cloned.test_interface();
+
+        let received = stop_handle.stop();
+        assert_eq!(received, vec![Ok(UiShutdownRequest {}.tmb(1))]);
     }
 }

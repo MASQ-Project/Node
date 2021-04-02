@@ -1,3 +1,5 @@
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::command_factory::{CommandFactory, CommandFactoryReal};
 use crate::command_processor::{
@@ -24,6 +26,7 @@ impl Main {
             terminal_interface_factory: Box::new(InterfaceReal {}),
         }
     }
+
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
         let args_vec: Vec<String> = args.to_vec();
         for idx in 1..args_vec.len() {
@@ -35,6 +38,19 @@ impl Main {
         }
         None
     }
+
+    #[cfg(test)]
+    pub fn test_only_new(
+        command_factory: Box<dyn CommandFactory>,
+        processor_factory: Box<dyn CommandProcessorFactory>,
+        terminal_interface_factory: Box<dyn TerminalInterfaceFactory>,
+    ) -> Self {
+        Self {
+            command_factory,
+            processor_factory,
+            terminal_interface_factory,
+        }
+    }
 }
 
 impl command::Command for Main {
@@ -43,7 +59,7 @@ impl command::Command for Main {
         let interface = match self.terminal_interface_factory.make() {
             Ok(interface) => interface,
             Err(error) => {
-                short_writeln!(streams.stderr, "Terminal interface: {}", error);
+                short_writeln!(streams.stderr, "{}", error);
                 return 1;
             }
         };
@@ -110,20 +126,15 @@ fn handle_command_common(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_context::CommandContext;
     use crate::command_context::ContextError::Other;
-    use crate::command_factory::CommandFactoryError;
-    use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
-    use crate::line_reader::{TerminalEvent, TerminalReal};
-    use crate::terminal_interface::TerminalWrapper;
+    use crate::line_reader::TerminalReal;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        InterfaceMock, InterfaceRawMock, MockCommand, TerminalPassiveMock,
+        InterfaceMock, InterfaceRawMock, MockCommand,
     };
     use masq_lib::command::Command;
-    use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::sync::{Arc, Mutex};
@@ -222,222 +233,6 @@ mod tests {
         );
     }
 
-    #[derive(Debug)]
-    struct FakeCommand {
-        output: String,
-    }
-
-    impl commands_common::Command for FakeCommand {
-        fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            intentionally_blank!()
-        }
-    }
-
-    impl FakeCommand {
-        pub fn new(output: &str) -> Self {
-            Self {
-                output: output.to_string(),
-            }
-        }
-    }
-
-    #[test]
-    fn interactive_mode_works_when_everything_is_copacetic() {
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_factory = CommandFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
-            .make_result(Ok(Box::new(FakeCommand::new("start command"))));
-        let terminal_mock = TerminalPassiveMock::new()
-            .read_line_result(TerminalEvent::CommandLine("setup".to_string()))
-            .read_line_result(TerminalEvent::CommandLine("start".to_string()))
-            .read_line_result(TerminalEvent::CommandLine("exit".to_string()));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let processor = CommandProcessorMock::new()
-            .process_result(Ok(()))
-            .process_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main {
-            command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
-        };
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(
-            &mut stream_holder.streams(),
-            &[
-                "command".to_string(),
-                "--param1".to_string(),
-                "value1".to_string(),
-            ],
-        );
-
-        assert_eq!(result, 0);
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(
-            *make_params,
-            vec![vec!["setup".to_string()], vec!["start".to_string()]]
-        );
-    }
-
-    #[test]
-    fn interactive_mode_works_for_stdin_read_error() {
-        let command_factory = CommandFactoryMock::new();
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let processor = CommandProcessorMock::new()
-            .close_params(&close_params_arc)
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
-            )));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let mut subject = Main {
-            command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
-        };
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-
-        assert_eq!(result, 1);
-        assert_eq!(
-            stream_holder.stderr.get_string(),
-            "ConnectionRefused\n".to_string()
-        );
-        let close_params = close_params_arc.lock().unwrap();
-        assert_eq!(close_params.len(), 1);
-    }
-
-    #[test]
-    fn interactive_mode_works_for_unrecognized_command() {
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_factory = CommandFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(Err(CommandFactoryError::UnrecognizedSubcommand(
-                "Booga!".to_string(),
-            )));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let processor =
-            CommandProcessorMock::new().insert_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
-                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-            )));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main {
-            command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
-        };
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-
-        assert_eq!(result, 0);
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(
-            *make_params,
-            vec![vec!["error".to_string(), "command".to_string()]]
-        );
-        assert_eq!(
-            stream_holder.stderr.get_string(),
-            "Unrecognized command: 'Booga!'\n".to_string()
-        );
-    }
-
-    #[test]
-    fn interactive_mode_works_for_command_with_bad_syntax() {
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_factory = CommandFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(Err(CommandFactoryError::CommandSyntax(
-                "Booga!".to_string(),
-            )));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let processor =
-            CommandProcessorMock::new().insert_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
-                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-            )));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main {
-            command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
-        };
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-
-        assert_eq!(result, 0);
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(
-            *make_params,
-            vec![vec!["error".to_string(), "command".to_string()]]
-        );
-        assert_eq!(stream_holder.stderr.get_string(), "Booga!\n".to_string());
-    }
-
-    #[test]
-    fn clone_of_synchronizer_is_shared_along_and_passed_on_properly() {
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_factory = CommandFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let terminal_interface_reference_for_inner = TerminalWrapper::new(Box::new(
-            TerminalPassiveMock::new()
-                .read_line_result(TerminalEvent::CommandLine("setup\n".to_string()))
-                .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-        ));
-        let reference_for_counting = Arc::new(Mutex::new(0));
-        let processor = CommandProcessorMock::new()
-            .insert_terminal_interface(terminal_interface_reference_for_inner.clone())
-            .insert_terminal_wrapper_shared_counter(reference_for_counting.clone())
-            .process_result(Ok(()));
-
-        assert_eq!(*reference_for_counting.lock().unwrap(), 0);
-
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main {
-            command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
-        };
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(
-            &mut stream_holder.streams(),
-            &[
-                "command".to_string(),
-                "--param1".to_string(),
-                "value1".to_string(),
-            ],
-        );
-
-        //cloned once for each command, so twice in total
-        assert_eq!(*reference_for_counting.lock().unwrap(), 2);
-
-        assert_eq!(result, 0);
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(*make_params, vec![vec!["setup".to_string()]]);
-    }
-
     #[test]
     fn go_works_when_error_turns_up_in_interface_factory() {
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
@@ -460,7 +255,7 @@ mod tests {
         assert!(c_make_params.is_empty());
         assert_eq!(
             stream_holder.stderr.get_string(),
-            "Terminal interface: Invalid handle\n".to_string()
+            "Invalid handle\n".to_string()
         );
     }
 

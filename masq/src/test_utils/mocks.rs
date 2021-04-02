@@ -185,6 +185,10 @@ impl CommandProcessor for CommandProcessorMock {
         self.close_params.lock().unwrap().push(());
     }
 
+    fn upgrade_terminal_interface(&mut self) {
+        unimplemented!()
+    }
+
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
         *self.terminal_interface_clone_count.lock().unwrap() += 1;
         self.terminal_interface[0].clone()
@@ -551,7 +555,7 @@ impl InterfaceRaw for InterfaceRawMock {
         self.add_history_unique_params.lock().unwrap().push(line)
     }
 
-    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>> {
+    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + 'static>> {
         intentionally_blank!()
     }
 }
