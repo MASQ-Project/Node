@@ -121,10 +121,10 @@ impl BroadcastHandlerReal {
         message_rx: &Receiver<MessageBody>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        mut terminal_interface: TerminalWrapper,
+        terminal_interface: TerminalWrapper,
     ) {
         select! {
-            recv(message_rx) -> message_body_result => { eprintln!("BroadcastHandle: thread_loop_guts: share point: {}",terminal_interface.inspect_share_point().lock().unwrap().is_some()); eprintln!("BroadcastHandle: thread_loop_guts: interactive_flag: {}", terminal_interface.inspect_interactive_flag().load(Ordering::Relaxed));  eprintln!("guts-cloned {}",Arc::strong_count(&terminal_interface.inspect_share_point())); Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)}
+            recv(message_rx) -> message_body_result => { /*eprintln!("BroadcastHandle: thread_loop_guts: share point: {}",terminal_interface.inspect_share_point().lock().unwrap().is_some()); eprintln!("BroadcastHandle: thread_loop_guts: interactive_flag: {}", terminal_interface.inspect_interactive_flag().load(Ordering::Relaxed));  eprintln!("guts-cloned {}",Arc::strong_count(&terminal_interface.inspect_share_point())); */Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)}
         }
     }
 }
@@ -188,12 +188,7 @@ mod tests {
             "stdout: '{}' doesn't contain 'the Node is currently running'",
             stdout
         );
-        // assert_eq!(
-        //     stdout.contains("masq> "),
-        //     true,
-        //     "stdout: '{}' doesn't contain 'masq> '",
-        //     stdout
-        // );
+
         assert_eq!(
             handle.stderr_so_far(),
             "".to_string(),

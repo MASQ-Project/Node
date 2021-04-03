@@ -56,13 +56,13 @@ impl Main {
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let broadcast_stream_factory = StreamFactoryReal::new();
-        let interface = match self.terminal_interface_factory.make() {
-            Ok(interface) => interface,
-            Err(error) => {
-                short_writeln!(streams.stderr, "{}", error);
-                return 1;
-            }
-        };
+        // let interface = match self.terminal_interface_factory.make() {
+        //     Ok(interface) => interface,
+        //     Err(error) => {
+        //         short_writeln!(streams.stderr, "{}", error);
+        //         return 1;
+        //     }
+        // };
         let mut command_processor = match self
             .processor_factory
             .make(Box::new(broadcast_stream_factory), args)

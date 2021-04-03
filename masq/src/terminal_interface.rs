@@ -9,8 +9,6 @@ use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 pub trait TerminalInterfaceFactory {
     fn make(&self) -> Result<TerminalReal, String>;
@@ -97,7 +95,7 @@ impl TerminalWrapper {
 
     pub fn check_update(&mut self) -> bool {
         match self.inner_active.is_some() {
-            true => unimplemented!(),
+            true => true,
             false => match self.interactive_flag.load(Ordering::Relaxed) {
                 true => {
                     // while (*self.share_point.lock().expect("share point in TW poisoned")).is_none() {};
@@ -106,7 +104,7 @@ impl TerminalWrapper {
                         (*self.share_point.lock().expect("share point in TW poisoned")).take();
                     true
                 }
-                false => unimplemented!(),
+                false => false,
             },
         }
     }
@@ -220,6 +218,10 @@ impl Terminal for TerminalIdle {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
         Box::new(WriterIdle {})
     }
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
+        "TerminalIdle".to_string()
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -306,7 +308,7 @@ mod tests {
     use std::io::Write;
     use std::sync::Barrier;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     fn written_output_by_line_number(mut lines_from_memory: Lines, line_number: usize) -> String {
         //Lines isn't an iterator unfortunately
@@ -537,15 +539,17 @@ mod tests {
 
     #[test]
     fn terminal_wrapper_new_provides_correctly_set_values() {
-        let mut subject = TerminalWrapper::new();
+        let subject = TerminalWrapper::new();
 
-        let lock = subject.lock();
-        unimplemented!()
+        assert_eq!(subject.interactive_flag.load(Ordering::Relaxed), false);
+        assert!((*subject.share_point.lock().unwrap()).is_none());
+        assert!(subject.inner_active.is_none());
+        assert_eq!(subject.inner_idle.tell_me_who_you_are(), "TerminalIdle")
     }
 
     #[test]
-    fn share_point_is_shared_between_threads_properly() {
-        let mut terminal = TerminalWrapper::new();
+    fn share_point_is_shared_between_threads_properly_when_its_clone_is_created_before() {
+        let terminal = TerminalWrapper::new();
         assert!(terminal.share_point.lock().unwrap().is_none());
         let mut terminal_background = terminal.clone();
 
@@ -556,5 +560,57 @@ mod tests {
         handle.join().unwrap();
 
         assert!(terminal.share_point.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn share_point_is_shared_between_threads_properly_even_along_clones_created_afterwards() {
+        let mut terminal = TerminalWrapper::new();
+        assert!(terminal.share_point.lock().unwrap().is_none());
+
+        terminal.upgrade().unwrap();
+
+        assert!(terminal.share_point.lock().unwrap().is_some());
+        let terminal_new_clone = terminal.clone();
+
+        assert!(terminal_new_clone.share_point.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn share_point_is_shared_between_threads_properly_with_continuous_updates_for_its_instance_left_behind_in_upgrade(
+    ) {
+        let mut terminal = TerminalWrapper::new();
+        let terminal_background = terminal.clone();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            assert!(terminal_background.share_point.lock().unwrap().is_none());
+            assert_eq!(
+                terminal_background.interactive_flag.load(Ordering::Relaxed),
+                false
+            );
+            let local_main_instance = terminal_background;
+            tx.send(0usize).unwrap();
+            thread::sleep(Duration::from_millis(300));
+            let now = Instant::now();
+            loop {
+                let temporary_clone = local_main_instance.clone();
+                match temporary_clone.share_point.lock().unwrap().is_some() {
+                    true => {
+                        assert_eq!(
+                            temporary_clone.interactive_flag.load(Ordering::Relaxed),
+                            true
+                        );
+                        break;
+                    }
+                    false => match now.elapsed() > Duration::from_millis(400) {
+                        true => panic!("we are out of patience"),
+                        false => continue,
+                    },
+                };
+            }
+        });
+        rx.recv().unwrap();
+        terminal.upgrade().unwrap();
+        handle.join().unwrap(); //would panic if something wrong
     }
 }

@@ -8,7 +8,6 @@ use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
 use clap::value_t;
 use masq_lib::intentionally_blank;
-use std::sync::atomic::Ordering;
 
 pub trait CommandProcessorFactory {
     fn make(
@@ -224,7 +223,7 @@ mod tests {
             .make(Box::new(broadcast_stream_factory), &args)
             .unwrap();
 
-        processor.upgrade_terminal_interface();
+        processor.upgrade_terminal_interface().unwrap();
 
         processor
             .process(Box::new(ToUiBroadcastTrigger {}))
@@ -288,7 +287,7 @@ mod tests {
             false
         ); //means as if we haven't entered go_interactive() yet
 
-        processor.upgrade_terminal_interface();
+        processor.upgrade_terminal_interface().unwrap();
 
         let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
         //Now there should be MemoryTerminal inside TerminalWrapper instead of TerminalIdle
@@ -312,7 +311,7 @@ mod tests {
             "TerminalReal<linefeed::Writer<_>>"
         );
 
-        let received = stop_handle.stop();
+        stop_handle.stop();
     }
 
     #[test]
@@ -332,7 +331,7 @@ mod tests {
             .make(Box::new(StreamFactoryReal::new()), &args)
             .unwrap();
 
-        processor.upgrade_terminal_interface();
+        processor.upgrade_terminal_interface().unwrap();
 
         let mut terminal_first_check = processor.clone_terminal_from_processor_test_only();
 
@@ -372,6 +371,6 @@ mod tests {
             true
         );
 
-        let received = stop_handle.stop();
+        stop_handle.stop();
     }
 }
