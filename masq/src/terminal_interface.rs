@@ -9,6 +9,8 @@ use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 pub trait TerminalInterfaceFactory {
     fn make(&self) -> Result<TerminalReal, String>;
@@ -86,9 +88,12 @@ impl TerminalWrapper {
             //             Box::new(DefaultTerminal::new),
             //         )
         }?;
-        *self.share_point.lock().unwrap() = Some(Arc::new(Box::new(upgraded_terminal)));
+        *self
+            .share_point
+            .lock()
+            .expect("TerminalWrapper: Upgrade: share-point: poisoned Mutex") =
+            Some(Arc::new(Box::new(upgraded_terminal)));
         self.interactive_flag.store(true, Ordering::Relaxed);
-        assert!(self.share_point.lock().unwrap().is_some());
 
         Ok(())
     }
@@ -98,10 +103,14 @@ impl TerminalWrapper {
             true => true,
             false => match self.interactive_flag.load(Ordering::Relaxed) {
                 true => {
-                    // while (*self.share_point.lock().expect("share point in TW poisoned")).is_none() {};
-
-                    self.inner_active =
-                        (*self.share_point.lock().expect("share point in TW poisoned")).take();
+                    self.inner_active = Some(Arc::clone(
+                        &*self
+                            .share_point
+                            .lock()
+                            .expect("TerminalWrapper: CheckUpdate: share-point: poisoned Mutex")
+                            .as_ref()
+                            .expect("share point: some wasn't at its place"),
+                    ));
                     true
                 }
                 false => false,
@@ -302,6 +311,7 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::{MixingStdout, TerminalActiveMock};
+    use crate::test_utils::{written_output_all_lines, written_output_by_line_number};
     use crossbeam_channel::unbounded;
     use linefeed::memory::Lines;
     use linefeed::DefaultTerminal;
@@ -309,50 +319,6 @@ mod tests {
     use std::sync::Barrier;
     use std::thread;
     use std::time::{Duration, Instant};
-
-    fn written_output_by_line_number(mut lines_from_memory: Lines, line_number: usize) -> String {
-        //Lines isn't an iterator unfortunately
-        if line_number < 1 || 24 < line_number {
-            panic!("The number must be between 1 and 24")
-        }
-        for _ in 0..line_number - 1 {
-            lines_from_memory.next();
-        }
-        one_line_collector(lines_from_memory.next().unwrap()).replace("*/-", "")
-    }
-
-    fn written_output_all_lines(mut lines_from_memory: Lines, separator: bool) -> String {
-        (0..24)
-            .flat_map(|_| {
-                lines_from_memory
-                    .next()
-                    .map(|chars| one_line_collector(chars))
-            })
-            .collect::<String>()
-            .replace("*/-", if separator { " | " } else { " " })
-            .trim_end()
-            .to_string()
-    }
-
-    fn one_line_collector(line_chars: &[char]) -> String {
-        let string_raw = line_chars
-            .iter()
-            .map(|char| char)
-            .collect::<String>()
-            .split(' ')
-            .map(|word| {
-                if word != "" {
-                    format!("{} ", word)
-                } else {
-                    "".to_string()
-                }
-            })
-            .collect::<String>();
-        (0..1)
-            .map(|_| string_raw.strip_suffix("*/- ").unwrap_or(&string_raw))
-            .map(|str| str.strip_suffix(" ").unwrap_or(&string_raw).to_string())
-            .collect::<String>()
-    }
 
     #[test]
     fn terminal_mock_and_test_tools_write_and_read() {
@@ -548,7 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn share_point_is_shared_between_threads_properly_when_its_clone_is_created_before() {
+    fn share_point_is_shared_between_threads_properly_when_its_clone_was_created_before() {
         let terminal = TerminalWrapper::new();
         assert!(terminal.share_point.lock().unwrap().is_none());
         let mut terminal_background = terminal.clone();
@@ -563,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn share_point_is_shared_between_threads_properly_even_along_clones_created_afterwards() {
+    fn share_point_is_shared_between_threads_properly_even_along_those_clones_created_afterwards() {
         let mut terminal = TerminalWrapper::new();
         assert!(terminal.share_point.lock().unwrap().is_none());
 
@@ -576,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn share_point_is_shared_between_threads_properly_with_continuous_updates_for_its_instance_left_behind_in_upgrade(
+    fn share_point_is_shared_between_threads_properly_cloning_new_instances_from_an_instance_left_behind_in_upgrade(
     ) {
         let mut terminal = TerminalWrapper::new();
         let terminal_background = terminal.clone();

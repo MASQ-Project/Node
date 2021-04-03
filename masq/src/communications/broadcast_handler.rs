@@ -46,25 +46,37 @@ impl BroadcastHandler for BroadcastHandlerReal {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
             let (mut stdout, mut stderr) = stream_factory.make();
-            let mut terminal_interface = self.terminal_interface.take().unwrap();
-            eprintln!(
-                "BroadcastHandlerReal: strong arc count: {}",
-                Arc::strong_count(&terminal_interface.inspect_share_point())
-            );
-            eprintln!(
-                "BroadcastHandlerReal: left in another thread: interactive_flag: {}",
-                terminal_interface
-                    .inspect_interactive_flag()
-                    .load(Ordering::Relaxed)
-            );
-            eprintln!(
-                "BroadcastHandlerReal: left in another thread: share point: {}",
-                terminal_interface
-                    .inspect_share_point()
-                    .lock()
-                    .unwrap()
-                    .is_some()
-            );
+            let mut terminal_interface = self
+                .terminal_interface
+                .take()
+                .expect("BroadcastHandlerReal: start: Some was expected");
+
+            /***********************************************************************************/
+            // //TODO remove!
+            // eprintln!(
+            //     "BroadcastHandlerReal: strong arc count: share point: {}",
+            //     Arc::strong_count(&terminal_interface.inspect_share_point())
+            // );
+            // eprintln!(
+            //     "BroadcastHandlerReal: strong arc count: interactive_flag: {}",
+            //     Arc::strong_count(&terminal_interface.inspect_interactive_flag())
+            // );
+            // eprintln!(
+            //     "BroadcastHandlerReal: left in another thread: interactive_flag: {}",
+            //     terminal_interface
+            //         .inspect_interactive_flag()
+            //         .load(Ordering::Relaxed)
+            // );
+            // eprintln!(
+            //     "BroadcastHandlerReal: left in another thread: share point: {}",
+            //     terminal_interface
+            //         .inspect_share_point()
+            //         .lock()
+            //         .unwrap()
+            //         .is_some()
+            // );
+            /********************************************************************************/
+
             loop {
                 Self::thread_loop_guts(
                     &message_rx,
@@ -121,10 +133,11 @@ impl BroadcastHandlerReal {
         message_rx: &Receiver<MessageBody>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        terminal_interface: TerminalWrapper,
+        mut terminal_interface: TerminalWrapper,
     ) {
         select! {
-            recv(message_rx) -> message_body_result => { /*eprintln!("BroadcastHandle: thread_loop_guts: share point: {}",terminal_interface.inspect_share_point().lock().unwrap().is_some()); eprintln!("BroadcastHandle: thread_loop_guts: interactive_flag: {}", terminal_interface.inspect_interactive_flag().load(Ordering::Relaxed));  eprintln!("guts-cloned {}",Arc::strong_count(&terminal_interface.inspect_share_point())); */Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)}
+            recv(message_rx) -> message_body_result => { /*eprintln!("BroadcastHandle: thread_loop_guts: share point: {}",terminal_interface.inspect_share_point().lock().unwrap().is_some()); eprintln!("BroadcastHandle: thread_loop_guts: interactive_flag: {}", terminal_interface.inspect_interactive_flag().load(Ordering::Relaxed));  eprintln!("share point strong count {}",Arc::strong_count(&terminal_interface.inspect_share_point()));
+            eprintln!("thread_loop_guts strong arc count: interactive_flag: {}", Arc::strong_count(&terminal_interface.inspect_interactive_flag())); */Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)}
         }
     }
 }
@@ -217,7 +230,9 @@ mod tests {
         let stdout = handle.stdout_so_far();
         assert_eq!(
             stdout,
-            "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string()
+            "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n\
+            ------\nThe Daemon is once more accepting setup changes.\n\n"
+                .to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),

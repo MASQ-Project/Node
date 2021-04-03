@@ -74,7 +74,7 @@ impl CommandProcessor for CommandProcessorReal {
     }
 
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
-        self.context.terminal_interface.check_update();
+        self.context.terminal_interface.check_update(); //happens after upgrade
         self.context.terminal_interface.clone()
     }
 
@@ -90,6 +90,7 @@ mod tests {
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
     use crate::test_utils::mocks::TestStreamFactory;
+    use crate::test_utils::written_output_all_lines;
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -315,6 +316,9 @@ mod tests {
     }
 
     #[test]
+
+    //TODO review, correct, reduce or clean up this test
+
     fn clone_terminal_interface_works() {
         let port = find_free_port();
         let args = [
@@ -322,11 +326,9 @@ mod tests {
             "--ui-port".to_string(),
             format!("{}", port),
         ];
-
         let processor_factory = CommandProcessorFactoryReal::new();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
-
         let mut processor = processor_factory
             .make(Box::new(StreamFactoryReal::new()), &args)
             .unwrap();
@@ -334,7 +336,6 @@ mod tests {
         processor.upgrade_terminal_interface().unwrap();
 
         let mut terminal_first_check = processor.clone_terminal_from_processor_test_only();
-
         assert_eq!(
             terminal_first_check
                 .inspect_interactive_flag()
@@ -353,7 +354,7 @@ mod tests {
             "TerminalReal<linefeed::Writer<_>>"
         );
 
-        processor.clone_terminal_interface();
+        let processors_brother = processor.clone_terminal_interface();
 
         let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
         let inner_active = (*terminal_second_check.inspect_inner_active())
@@ -363,14 +364,44 @@ mod tests {
             inner_active.tell_me_who_you_are(),
             "TerminalReal<linefeed::Writer<_>>"
         );
-        assert!((*terminal_second_check.inspect_share_point().lock().unwrap()).is_none());
+        assert!((*terminal_second_check.inspect_share_point().lock().unwrap()).is_some());
         assert_eq!(
             terminal_second_check
                 .inspect_interactive_flag()
                 .load(Ordering::Relaxed),
             true
         );
-
         stop_handle.stop();
+
+        //now an important step...let's go backwards and check older references if they keep updated
+        assert_eq!(
+            terminal_first_check
+                .inspect_interactive_flag()
+                .load(Ordering::Relaxed),
+            true
+        );
+        assert!((*terminal_first_check.inspect_share_point().lock().unwrap()).is_some());
+
+        let inner_active = (*terminal_second_check.inspect_inner_active())
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            inner_active.tell_me_who_you_are(),
+            "TerminalReal<linefeed::Writer<_>>"
+        );
+
+        terminal_first_check.check_update();
+
+        let inner_active_from_older_reference = (*terminal_first_check.inspect_inner_active())
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            inner_active_from_older_reference.tell_me_who_you_are(),
+            "TerminalReal<linefeed::Writer<_>>"
+        );
+
+        terminal_first_check.lock();
+
+        assert!((*terminal_first_check.inspect_share_point().lock().unwrap()).is_some());
     }
 }
