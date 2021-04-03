@@ -5,13 +5,14 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::StreamFactory;
 use crate::schema::app;
-use crate::terminal_interface::{Terminal, TerminalWrapper};
+use crate::terminal_interface::TerminalWrapper;
 use clap::value_t;
+use masq_lib::intentionally_blank;
+use std::sync::atomic::Ordering;
 
 pub trait CommandProcessorFactory {
     fn make(
         &self,
-        interface: Box<dyn Terminal + Send + Sync>,
         broadcast_stream_factory: Box<dyn StreamFactory>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
@@ -23,13 +24,12 @@ pub struct CommandProcessorFactoryReal {}
 impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
-        interface: Box<dyn Terminal + Send + Sync>,
         broadcast_stream_factory: Box<dyn StreamFactory>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         let matches = app().get_matches_from(args);
         let ui_port = value_t!(matches, "ui-port", u16).expect("ui-port is not properly defaulted");
-        match CommandContextReal::new(interface, ui_port, broadcast_stream_factory) {
+        match CommandContextReal::new(ui_port, broadcast_stream_factory) {
             Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
             Err(e) => panic!("Unexpected error: {:?}", e),
@@ -46,8 +46,12 @@ impl CommandProcessorFactoryReal {
 pub trait CommandProcessor {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError>;
     fn close(&mut self);
-    fn upgrade_terminal_interface(&mut self);
+    fn upgrade_terminal_interface(&mut self) -> Result<(), String>;
     fn clone_terminal_interface(&mut self) -> TerminalWrapper;
+    #[cfg(test)]
+    fn clone_terminal_from_processor_test_only(&self) -> TerminalWrapper {
+        intentionally_blank!()
+    }
 }
 
 pub struct CommandProcessorReal {
@@ -57,7 +61,7 @@ pub struct CommandProcessorReal {
 
 impl CommandProcessor for CommandProcessorReal {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
-        let synchronizer = self.context.terminal_interface.clone();
+        let mut synchronizer = self.context.terminal_interface.clone();
         let _lock = synchronizer.lock();
         command.execute(&mut self.context)
     }
@@ -66,11 +70,17 @@ impl CommandProcessor for CommandProcessorReal {
         self.context.close();
     }
 
-    fn upgrade_terminal_interface(&mut self) {
+    fn upgrade_terminal_interface(&mut self) -> Result<(), String> {
         self.context.terminal_interface.upgrade()
     }
 
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
+        self.context.terminal_interface.check_update();
+        self.context.terminal_interface.clone()
+    }
+
+    #[cfg(test)]
+    fn clone_terminal_from_processor_test_only(&self) -> TerminalWrapper {
         self.context.terminal_interface.clone()
     }
 }
@@ -80,13 +90,13 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::terminal_interface::TerminalIdle;
-    use crate::test_utils::mocks::{TerminalActiveMock, TestStreamFactory};
+    use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::{find_free_port, running_test};
+    use std::sync::atomic::Ordering;
     use std::thread;
     use std::time::Duration;
 
@@ -111,9 +121,8 @@ mod tests {
             format!("{}", port),
         ];
         let subject = CommandProcessorFactoryReal::new();
-        let interface = Box::new(TerminalActiveMock::new());
 
-        let result = subject.make(interface, Box::new(StreamFactoryReal::new()), &args);
+        let result = subject.make(Box::new(StreamFactoryReal::new()), &args);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -135,10 +144,9 @@ mod tests {
         let subject = CommandProcessorFactoryReal::new();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
-        let interface = Box::new(TerminalActiveMock::new());
 
         let mut result = subject
-            .make(interface, Box::new(StreamFactoryReal::new()), &args)
+            .make(Box::new(StreamFactoryReal::new()), &args)
             .unwrap();
 
         let command = TestCommand {};
@@ -212,14 +220,17 @@ mod tests {
         ];
         let processor_factory = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
-        let interface = Box::new(TerminalActiveMock::new());
-        let mut subject = processor_factory
-            .make(interface, Box::new(broadcast_stream_factory), &args)
+        let mut processor = processor_factory
+            .make(Box::new(broadcast_stream_factory), &args)
             .unwrap();
 
-        subject.process(Box::new(ToUiBroadcastTrigger {})).unwrap();
+        processor.upgrade_terminal_interface();
+
+        processor
+            .process(Box::new(ToUiBroadcastTrigger {}))
+            .unwrap();
         thread::sleep(Duration::from_millis(50));
-        subject
+        processor
             .process(Box::new(TameCommand {
                 sender: cloned_stdout_sender,
             }))
@@ -255,22 +266,112 @@ mod tests {
             format!("{}", port),
         ];
         let processor_factory = CommandProcessorFactoryReal::new();
-        let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
+        let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
-        let interface = Box::new(TerminalIdle {});
 
         let mut processor = processor_factory
-            .make(interface, Box::new(StreamFactoryReal::new()), &args)
+            .make(Box::new(StreamFactoryReal::new()), &args)
+            .unwrap();
+
+        //in reality we don't use this function so early, now I just want to check the setting of TerminalWrapper
+        let mut terminal_first_check = processor.clone_terminal_from_processor_test_only();
+        assert!((*terminal_first_check.inspect_inner_active()).is_none());
+        assert!(terminal_first_check
+            .inspect_share_point()
+            .lock()
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            terminal_first_check
+                .inspect_interactive_flag()
+                .load(Ordering::Relaxed),
+            false
+        ); //means as if we haven't entered go_interactive() yet
+
+        processor.upgrade_terminal_interface();
+
+        let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
+        //Now there should be MemoryTerminal inside TerminalWrapper instead of TerminalIdle
+        //In production code it'd be DefaultTerminal at the place, thanks to conditional compilation done by attributes
+        assert_eq!(
+            terminal_second_check
+                .inspect_interactive_flag()
+                .load(Ordering::Relaxed),
+            true
+        );
+        assert!((*terminal_second_check.inspect_inner_active()).is_none());
+        //This means that it must be linefeed::Writer<'_,'_,MemoryTerminal> because DefaultTerminal would have made the test fail.
+        assert_eq!(
+            (*terminal_second_check
+                .inspect_share_point()
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap())
+            .tell_me_who_you_are(),
+            "TerminalReal<linefeed::Writer<_>>"
+        );
+
+        let received = stop_handle.stop();
+    }
+
+    #[test]
+    fn clone_terminal_interface_works() {
+        let port = find_free_port();
+        let args = [
+            "masq".to_string(),
+            "--ui-port".to_string(),
+            format!("{}", port),
+        ];
+
+        let processor_factory = CommandProcessorFactoryReal::new();
+        let server = MockWebSocketsServer::new(port);
+        let stop_handle = server.start();
+
+        let mut processor = processor_factory
+            .make(Box::new(StreamFactoryReal::new()), &args)
             .unwrap();
 
         processor.upgrade_terminal_interface();
 
-        let terminal_wrapper_cloned = processor.clone_terminal_interface();
-        //Now there should be MemoryTerminal inside TerminalWrapper instead of TerminalIdle
-        //In production code it'd be DefaultTerminal at the place, thanks to conditional compilation done by attributes
-        let reference_to_the_guts = terminal_wrapper_cloned.test_interface();
+        let mut terminal_first_check = processor.clone_terminal_from_processor_test_only();
+
+        assert_eq!(
+            terminal_first_check
+                .inspect_interactive_flag()
+                .load(Ordering::Relaxed),
+            true
+        );
+        assert!((*terminal_first_check.inspect_inner_active()).is_none());
+        assert_eq!(
+            (*terminal_first_check
+                .inspect_share_point()
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap())
+            .tell_me_who_you_are(),
+            "TerminalReal<linefeed::Writer<_>>"
+        );
+
+        processor.clone_terminal_interface();
+
+        let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
+        let inner_active = (*terminal_second_check.inspect_inner_active())
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            inner_active.tell_me_who_you_are(),
+            "TerminalReal<linefeed::Writer<_>>"
+        );
+        assert!((*terminal_second_check.inspect_share_point().lock().unwrap()).is_none());
+        assert_eq!(
+            terminal_second_check
+                .inspect_interactive_flag()
+                .load(Ordering::Relaxed),
+            true
+        );
 
         let received = stop_handle.stop();
-        assert_eq!(received, vec![Ok(UiShutdownRequest {}.tmb(1))]);
     }
 }

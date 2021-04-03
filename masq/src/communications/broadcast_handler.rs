@@ -13,6 +13,8 @@ use masq_lib::messages::{
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::thread;
 
 pub trait BroadcastHandle: Send {
@@ -44,7 +46,25 @@ impl BroadcastHandler for BroadcastHandlerReal {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
             let (mut stdout, mut stderr) = stream_factory.make();
-            let terminal_interface = self.terminal_interface.take().unwrap();
+            let mut terminal_interface = self.terminal_interface.take().unwrap();
+            eprintln!(
+                "BroadcastHandlerReal: strong arc count: {}",
+                Arc::strong_count(&terminal_interface.inspect_share_point())
+            );
+            eprintln!(
+                "BroadcastHandlerReal: left in another thread: interactive_flag: {}",
+                terminal_interface
+                    .inspect_interactive_flag()
+                    .load(Ordering::Relaxed)
+            );
+            eprintln!(
+                "BroadcastHandlerReal: left in another thread: share point: {}",
+                terminal_interface
+                    .inspect_share_point()
+                    .lock()
+                    .unwrap()
+                    .is_some()
+            );
             loop {
                 Self::thread_loop_guts(
                     &message_rx,
@@ -101,10 +121,10 @@ impl BroadcastHandlerReal {
         message_rx: &Receiver<MessageBody>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        terminal_interface: TerminalWrapper,
+        mut terminal_interface: TerminalWrapper,
     ) {
         select! {
-            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface),
+            recv(message_rx) -> message_body_result => { eprintln!("BroadcastHandle: thread_loop_guts: share point: {}",terminal_interface.inspect_share_point().lock().unwrap().is_some()); eprintln!("BroadcastHandle: thread_loop_guts: interactive_flag: {}", terminal_interface.inspect_interactive_flag().load(Ordering::Relaxed));  eprintln!("guts-cloned {}",Arc::strong_count(&terminal_interface.inspect_share_point())); Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)}
         }
     }
 }
@@ -147,9 +167,10 @@ mod tests {
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
-        ))))
+        let subject = BroadcastHandlerReal::new(Some(
+            TerminalWrapper::new()
+                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+        ))
         .start(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
@@ -185,9 +206,10 @@ mod tests {
     fn broadcast_of_crashed_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
-        ))))
+        let subject = BroadcastHandlerReal::new(Some(
+            TerminalWrapper::new()
+                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+        ))
         .start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
@@ -214,9 +236,10 @@ mod tests {
     fn broadcast_of_new_password_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
-        ))))
+        let subject = BroadcastHandlerReal::new(Some(
+            TerminalWrapper::new()
+                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+        ))
         .start(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
@@ -239,9 +262,10 @@ mod tests {
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
-        ))))
+        let subject = BroadcastHandlerReal::new(Some(
+            TerminalWrapper::new()
+                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+        ))
         .start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
@@ -267,9 +291,10 @@ mod tests {
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
-        ))))
+        let subject = BroadcastHandlerReal::new(Some(
+            TerminalWrapper::new()
+                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+        ))
         .start(Box::new(factory));
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
@@ -397,7 +422,8 @@ Cannot handle crash request: Node is not running.
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
 
-        let synchronizer = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let synchronizer = TerminalWrapper::new()
+            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
         let synchronizer_clone_idle = synchronizer.clone();
 
         //synchronized part proving that the broadcast print is synchronized
@@ -470,7 +496,7 @@ Cannot handle crash request: Node is not running.
         sync: bool,
         stdout: &mut dyn Write,
         mut stdout_clone: Box<dyn Write + Send>,
-        synchronizer: TerminalWrapper,
+        mut synchronizer: TerminalWrapper,
         broadcast_handle: T,
         broadcast_message_body: U,
         rx: Receiver<String>,

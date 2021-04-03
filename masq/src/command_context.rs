@@ -6,7 +6,7 @@ use crate::communications::broadcast_handler::{
 };
 use crate::communications::connection_manager::{ConnectionManager, REDIRECT_TIMEOUT_MILLIS};
 use crate::communications::node_conversation::ClientError;
-use crate::terminal_interface::{Terminal, TerminalWrapper};
+use crate::terminal_interface::TerminalWrapper;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
@@ -124,11 +124,10 @@ impl CommandContext for CommandContextReal {
 
 impl CommandContextReal {
     pub fn new(
-        interface: Box<dyn Terminal + Send + Sync>,
         daemon_ui_port: u16,
         broadcast_stream_factory: Box<dyn StreamFactory>,
     ) -> Result<Self, ContextError> {
-        let foreground_terminal_interface = TerminalWrapper::new(interface);
+        let foreground_terminal_interface = TerminalWrapper::new();
         let background_terminal_interface = foreground_terminal_interface.clone();
         let mut connection = ConnectionManager::new();
         let broadcast_handler = BroadcastHandlerReal::new(Some(background_terminal_interface));
@@ -153,7 +152,6 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::test_utils::mocks::TerminalActiveMock;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
@@ -210,10 +208,8 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let handle = server.start();
-        let interface = Box::new(TerminalActiveMock::new());
 
-        let subject =
-            CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new())).unwrap();
+        let subject = CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
 
         assert_eq!(subject.active_port(), Some(port));
         handle.stop();
@@ -230,10 +226,9 @@ mod tests {
         let stderr_arc = stderr.inner_arc();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
-        let interface = Box::new(TerminalActiveMock::new());
 
         let mut subject =
-            CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new())).unwrap();
+            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);
         subject.stderr = Box::new(stderr);
@@ -264,9 +259,8 @@ mod tests {
     fn works_when_server_isnt_present() {
         running_test();
         let port = find_free_port();
-        let interface = Box::new(TerminalActiveMock::new());
 
-        let result = CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new()));
+        let result = CommandContextReal::new(port, Box::new(StreamFactoryReal::new()));
 
         match result {
             Err(ConnectionRefused(_)) => (),
@@ -284,10 +278,9 @@ mod tests {
             path: Conversation(1),
             payload: Err((101, "booga".to_string())),
         });
-        let interface = Box::new(TerminalActiveMock::new());
         let stop_handle = server.start();
         let mut subject =
-            CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new())).unwrap();
+            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -299,11 +292,10 @@ mod tests {
     fn transact_works_when_server_sends_connection_error() {
         running_test();
         let port = find_free_port();
-        let interface = Box::new(TerminalActiveMock::new());
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
         let stop_handle = server.start();
         let mut subject =
-            CommandContextReal::new(interface, port, Box::new(StreamFactoryReal::new())).unwrap();
+            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -326,8 +318,7 @@ mod tests {
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
         let stream_factory = Box::new(StreamFactoryReal::new());
-        let interface = Box::new(TerminalActiveMock::new());
-        let subject_result = CommandContextReal::new(interface, port, stream_factory);
+        let subject_result = CommandContextReal::new(port, stream_factory);
         let mut subject = subject_result.unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);

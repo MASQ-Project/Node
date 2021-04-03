@@ -77,7 +77,7 @@ impl SetupCommand {
     pub fn handle_broadcast(
         response: UiSetupBroadcast,
         stdout: &mut dyn Write,
-        term_interface: TerminalWrapper,
+        mut term_interface: TerminalWrapper,
     ) {
         let _lock = term_interface.lock();
         short_writeln!(stdout, "\nDaemon setup has changed:\n");
@@ -289,7 +289,8 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, _) = stream_factory.make();
-        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let term_interface = TerminalWrapper::new()
+            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
 
         SetupCommand::handle_broadcast(message, &mut stdout, term_interface);
 

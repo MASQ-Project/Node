@@ -63,11 +63,10 @@ impl command::Command for Main {
                 return 1;
             }
         };
-        let mut command_processor = match self.processor_factory.make(
-            Box::new(interface),
-            Box::new(broadcast_stream_factory),
-            args,
-        ) {
+        let mut command_processor = match self
+            .processor_factory
+            .make(Box::new(broadcast_stream_factory), args)
+        {
             Ok(processor) => processor,
             Err(e) => {
                 short_writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e);

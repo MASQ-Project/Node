@@ -205,7 +205,9 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .process_result(Ok(()))
             .process_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
+            .insert_terminal_interface(
+                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(terminal_mock)),
+            );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main::test_only_new(
@@ -238,10 +240,12 @@ mod tests {
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
-            )));
+            .insert_terminal_interface(
+                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
+                    TerminalPassiveMock::new()
+                        .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
+                )),
+            );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let interface = InterfaceMock::new()
@@ -274,12 +278,13 @@ mod tests {
             )));
         let interface = InterfaceMock::new()
             .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let processor =
-            CommandProcessorMock::new().insert_terminal_interface(TerminalWrapper::new(Box::new(
+        let processor = CommandProcessorMock::new().insert_terminal_interface(
+            TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
                 TerminalPassiveMock::new()
                     .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
                     .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-            )));
+            )),
+        );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main::test_only_new(
@@ -313,12 +318,13 @@ mod tests {
             )));
         let interface = InterfaceMock::new()
             .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let processor =
-            CommandProcessorMock::new().insert_terminal_interface(TerminalWrapper::new(Box::new(
+        let processor = CommandProcessorMock::new().insert_terminal_interface(
+            TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
                 TerminalPassiveMock::new()
                     .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
                     .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-            )));
+            )),
+        );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main::test_only_new(
@@ -340,18 +346,19 @@ mod tests {
     }
 
     #[test]
-    fn clone_of_synchronizer_is_shared_along_and_passed_on_properly() {
+    fn clone_of_terminal_is_shared_along_and_passed_on_properly() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
         let interface = InterfaceMock::new()
             .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let terminal_interface_reference_for_inner = TerminalWrapper::new(Box::new(
-            TerminalPassiveMock::new()
-                .read_line_result(TerminalEvent::CommandLine("setup\n".to_string()))
-                .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-        ));
+        let terminal_interface_reference_for_inner = TerminalWrapper::new()
+            .set_interactive_for_test_purposes(Box::new(
+                TerminalPassiveMock::new()
+                    .read_line_result(TerminalEvent::CommandLine("setup\n".to_string()))
+                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+            ));
         let reference_for_counting = Arc::new(Mutex::new(0));
         let processor = CommandProcessorMock::new()
             .insert_terminal_interface(terminal_interface_reference_for_inner.clone())

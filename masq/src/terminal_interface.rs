@@ -7,7 +7,10 @@ use linefeed::DefaultTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 pub trait TerminalInterfaceFactory {
     fn make(&self) -> Result<TerminalReal, String>;
@@ -29,29 +32,48 @@ impl TerminalInterfaceFactory for InterfaceReal {
 //places in the code
 
 pub struct TerminalWrapper {
-    inner: Arc<Box<dyn Terminal + Send + Sync>>,
+    inner_idle: TerminalIdle,
+    inner_active: Option<Arc<Box<dyn Terminal + Send + Sync>>>,
+    share_point: Arc<Mutex<Option<Arc<Box<dyn Terminal + Send + Sync>>>>>,
+    interactive_flag: Arc<AtomicBool>,
 }
 
 impl TerminalWrapper {
-    pub fn new(inner: Box<dyn Terminal + Send + Sync>) -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: Arc::new(inner),
+            inner_idle: TerminalIdle {},
+            inner_active: None,
+            share_point: Arc::new(Mutex::new(None)),
+            interactive_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    pub fn lock(&self) -> Box<dyn WriterGeneric + '_> {
-        self.inner.provide_lock()
+    pub fn lock(&mut self) -> Box<dyn WriterGeneric + '_> {
+        match self.check_update() {
+            true => self
+                .inner_active
+                .as_ref()
+                .expect("some was expected")
+                .provide_lock(),
+            false => self.inner_idle.provide_lock(),
+        }
     }
 
     pub fn read_line(&self) -> TerminalEvent {
-        self.inner.read_line()
+        self.inner_active
+            .as_ref()
+            .expect("some was expected")
+            .read_line()
     }
 
     pub fn add_history_unique(&self, line: String) {
-        self.inner.add_history_unique(line)
+        self.inner_active
+            .as_ref()
+            .expect("some was expected")
+            .add_history_unique(line)
     }
 
-    pub fn upgrade(&self) {
+    pub fn upgrade(&mut self) -> Result<(), String> {
         let upgraded_terminal = if cfg!(test) {
             configure_interface(
                 Box::new(Interface::with_term),
@@ -65,14 +87,76 @@ impl TerminalWrapper {
             //             Box::new(Interface::with_term),
             //             Box::new(DefaultTerminal::new),
             //         )
-        };
+        }?;
+        *self.share_point.lock().unwrap() = Some(Arc::new(Box::new(upgraded_terminal)));
+        self.interactive_flag.store(true, Ordering::Relaxed);
+        assert!(self.share_point.lock().unwrap().is_some());
 
-        unimplemented!()
+        Ok(())
+    }
+
+    pub fn check_update(&mut self) -> bool {
+        match self.inner_active.is_some() {
+            true => unimplemented!(),
+            false => match self.interactive_flag.load(Ordering::Relaxed) {
+                true => {
+                    // while (*self.share_point.lock().expect("share point in TW poisoned")).is_none() {};
+
+                    self.inner_active =
+                        (*self.share_point.lock().expect("share point in TW poisoned")).take();
+                    true
+                }
+                false => unimplemented!(),
+            },
+        }
+    }
+
+    #[cfg(test)]
+    pub fn inspect_inner_active(&mut self) -> &mut Option<Arc<Box<dyn Terminal + Send + Sync>>> {
+        &mut self.inner_active
+    }
+
+    #[cfg(test)]
+    pub fn inspect_share_point(
+        &mut self,
+    ) -> &mut Arc<Mutex<Option<Arc<Box<dyn Terminal + Send + Sync>>>>> {
+        &mut self.share_point
+    }
+
+    #[cfg(test)]
+    pub fn inspect_interactive_flag(&self) -> &Arc<AtomicBool> {
+        &self.interactive_flag
     }
 
     #[cfg(test)]
     pub fn test_interface(&self) -> MemoryTerminal {
-        self.inner.clone().to_owned().test_interface()
+        self.inner_active
+            .as_ref()
+            .expect("some was expected")
+            .clone()
+            .to_owned()
+            .test_interface()
+    }
+
+    #[cfg(test)]
+    pub fn set_interactive_for_test_purposes(
+        mut self,
+        active_interface: Box<dyn Terminal + Send + Sync>,
+    ) -> Self {
+        self.inner_active = Some(Arc::new(active_interface));
+        self.interactive_flag.store(true, Ordering::Relaxed); //should I change Relaxed in the future?
+        self
+    }
+}
+
+impl Clone for TerminalWrapper {
+    fn clone(&self) -> Self {
+        Self {
+            inner_idle: TerminalIdle {},
+            inner_active: self.inner_active.as_ref().map(|val| Arc::clone(&val)),
+            share_point: Arc::clone(&self.share_point),
+            interactive_flag: Arc::clone(&self.interactive_flag),
+        }
     }
 }
 
@@ -105,14 +189,6 @@ where
     Ok(TerminalReal::new(Box::new(interface)))
 }
 
-impl Clone for TerminalWrapper {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //declaration of TerminalReal is in line_reader.rs
@@ -125,8 +201,13 @@ pub trait Terminal {
         intentionally_blank!()
     }
     fn add_history_unique(&self, _line: String) {}
+
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
+        intentionally_blank!()
+    }
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
         intentionally_blank!()
     }
 }
@@ -153,7 +234,8 @@ pub trait WriterGeneric {
     //'static, that is, it must be an owned object and I cannot get anything else but reference
     //of Writer.
     //For delivering at least some test I decided to use this unusual hack
-    fn tell_me_who_you_are(&self) -> &str {
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
         intentionally_blank!()
     }
 }
@@ -162,14 +244,20 @@ impl<U: linefeed::Terminal> WriterGeneric for Writer<'_, '_, U> {
     fn write_str(&mut self, str: &str) -> std::io::Result<()> {
         self.write_str(&format!("{}\n*/-", str))
     }
+
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
+        "linefeed::Writer<_>".to_string()
+    }
 }
 
 #[derive(Clone)]
 pub struct WriterIdle {}
 
 impl WriterGeneric for WriterIdle {
-    fn tell_me_who_you_are(&self) -> &str {
-        "WriterIdle"
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
+        "WriterIdle".to_string()
     }
 }
 
@@ -270,8 +358,8 @@ mod tests {
             .read_line_result("Rocket, go to Mars, go, go".to_string())
             .read_line_result("And once again...nothing".to_string());
 
-        let terminal = TerminalWrapper::new(Box::new(mock));
-        let terminal_clone = terminal.clone();
+        let mut terminal = TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(mock));
+        let mut terminal_clone = terminal.clone();
         let terminal_reference = terminal.clone();
 
         terminal.lock().write_str("first attempt").unwrap();
@@ -316,7 +404,8 @@ mod tests {
     //The core of the test consists of two halves where the first shows unprotected writing while
     //in the second locks are actively being used in both concurrent threads
     fn terminal_wrapper_s_lock_blocks_others_to_write_into_stdout() {
-        let interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let interface = TerminalWrapper::new()
+            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
 
         let barrier = Arc::new(Barrier::new(2));
         let mut handles = Vec::new();
@@ -326,7 +415,7 @@ mod tests {
         let mut stdout_c2 = stdout_c1.clone();
 
         let closure1: Box<dyn FnMut(TerminalWrapper) + Sync + Send> =
-            Box::new(move |interface: TerminalWrapper| {
+            Box::new(move |mut interface: TerminalWrapper| {
                 //here without a lock in the first half -- printing in BOTH is unprotected
                 let mut stdout = &mut stdout_c1;
                 write_in_cycles("AAA", &mut stdout);
@@ -337,7 +426,7 @@ mod tests {
             });
 
         let closure2: Box<dyn FnMut(TerminalWrapper) + Sync + Send> =
-            Box::new(move |interface: TerminalWrapper| {
+            Box::new(move |mut interface: TerminalWrapper| {
                 // lock from the very beginning of this thread...still it can have no effect
                 let mut stdout = &mut stdout_c2;
                 let _lock = interface.lock();
@@ -429,7 +518,8 @@ mod tests {
             Err(e) => panic!("should have been OK, got Err: {}", e),
             Ok(val) => val,
         };
-        let wrapper = TerminalWrapper::new(Box::new(result));
+        let mut wrapper =
+            TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(result));
         wrapper.lock().write_str("hallelujah").unwrap();
 
         let checking_if_operational = written_output_all_lines(term_mock.lines(), false);
@@ -438,18 +528,33 @@ mod tests {
     }
 
     #[test]
-    fn terminal_wrapper_equipped_with_terminal_idle_produces_writer_idle() {
-        let subject = TerminalWrapper::new(Box::new(TerminalIdle {}));
+    fn terminal_wrapper_new_produces_writer_idle() {
+        let mut subject = TerminalWrapper::new();
         let lock = subject.lock();
 
         assert_eq!(lock.tell_me_who_you_are(), "WriterIdle")
     }
 
     #[test]
-    fn upgrade_works_fine() {
-        // let subject = TerminalWrapper::new(Box::new(TerminalIdle{}));
-        // let lock = subject.lock();
-        //
-        // assert_eq!(lock.tell_me_who_you_are(),"WriterIdle")
+    fn terminal_wrapper_new_provides_correctly_set_values() {
+        let mut subject = TerminalWrapper::new();
+
+        let lock = subject.lock();
+        unimplemented!()
+    }
+
+    #[test]
+    fn share_point_is_shared_between_threads_properly() {
+        let mut terminal = TerminalWrapper::new();
+        assert!(terminal.share_point.lock().unwrap().is_none());
+        let mut terminal_background = terminal.clone();
+
+        let handle = thread::spawn(move || {
+            assert!(terminal_background.share_point.lock().unwrap().is_none());
+            terminal_background.upgrade().unwrap()
+        });
+        handle.join().unwrap();
+
+        assert!(terminal.share_point.lock().unwrap().is_some());
     }
 }

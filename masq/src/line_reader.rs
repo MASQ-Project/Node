@@ -25,6 +25,7 @@ impl Terminal for TerminalReal {
 
     fn read_line(&self) -> TerminalEvent {
         match self.interface.read_line() {
+            //TODO redirect this to inner_active
             Ok(ReadResult::Input(line)) => {
                 self.add_history_unique(line.clone());
                 TerminalEvent::CommandLine(line)
@@ -39,6 +40,16 @@ impl Terminal for TerminalReal {
 
     fn add_history_unique(&self, line: String) {
         self.interface.add_history_unique(line)
+    }
+
+    fn tell_me_who_you_are(&self) -> String {
+        format!(
+            "TerminalReal<{}>",
+            self.interface
+                .lock_writer_append()
+                .unwrap()
+                .tell_me_who_you_are()
+        )
     }
 }
 

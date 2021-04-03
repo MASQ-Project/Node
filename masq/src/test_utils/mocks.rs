@@ -185,7 +185,7 @@ impl CommandProcessor for CommandProcessorMock {
         self.close_params.lock().unwrap().push(());
     }
 
-    fn upgrade_terminal_interface(&mut self) {
+    fn upgrade_terminal_interface(&mut self) -> Result<(), String> {
         unimplemented!()
     }
 
@@ -237,7 +237,6 @@ pub struct CommandProcessorFactoryMock {
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
-        _interface: Box<dyn Terminal + Send + Sync>,
         _broadcast_stream_factory: Box<dyn StreamFactory>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
