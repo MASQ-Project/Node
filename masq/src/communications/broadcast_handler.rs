@@ -107,9 +107,8 @@ impl BroadcastHandlerReal {
         terminal_interface: TerminalWrapper,
     ) {
         select! {
-            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)
-            }
-
+        recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)
+        }
     }
 }
 

@@ -6,10 +6,8 @@ use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::StreamFactory;
-use crate::line_reader::{TerminalEvent};
-use crate::terminal_interface::{
-    InterfaceRaw, Terminal, TerminalWrapper, WriterGeneric,
-};
+use crate::line_reader::TerminalEvent;
+use crate::terminal_interface::{InterfaceRaw, Terminal, TerminalWrapper, WriterGeneric};
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult};
@@ -17,7 +15,7 @@ use masq_lib::intentionally_blank;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
 use std::borrow::BorrowMut;
-use std::cell::{RefCell};
+use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};

@@ -91,7 +91,7 @@ mod tests {
     use crate::command_factory::CommandFactoryError;
     use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
-    use crate::interactive_mode::{split_quoted_line};
+    use crate::interactive_mode::split_quoted_line;
     use crate::line_reader::TerminalEvent;
     use crate::non_interactive_mode::Main;
     use crate::terminal_interface::TerminalWrapper;
