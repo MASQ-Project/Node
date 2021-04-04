@@ -13,8 +13,6 @@ use masq_lib::messages::{
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::Debug;
 use std::io::Write;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::thread;
 
 pub trait BroadcastHandle: Send {
@@ -46,12 +44,13 @@ impl BroadcastHandler for BroadcastHandlerReal {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
             let (mut stdout, mut stderr) = stream_factory.make();
-            let mut terminal_interface = self
+            let terminal_interface = self
                 .terminal_interface
                 .take()
                 .expect("BroadcastHandlerReal: start: Some was expected");
 
             /***********************************************************************************/
+
             // //TODO remove!
             // eprintln!(
             //     "BroadcastHandlerReal: strong arc count: share point: {}",
@@ -75,6 +74,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
             //         .unwrap()
             //         .is_some()
             // );
+
             /********************************************************************************/
 
             loop {
@@ -133,11 +133,11 @@ impl BroadcastHandlerReal {
         message_rx: &Receiver<MessageBody>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        mut terminal_interface: TerminalWrapper,
+        terminal_interface: TerminalWrapper,
     ) {
         select! {
             recv(message_rx) -> message_body_result => { /*eprintln!("BroadcastHandle: thread_loop_guts: share point: {}",terminal_interface.inspect_share_point().lock().unwrap().is_some()); eprintln!("BroadcastHandle: thread_loop_guts: interactive_flag: {}", terminal_interface.inspect_interactive_flag().load(Ordering::Relaxed));  eprintln!("share point strong count {}",Arc::strong_count(&terminal_interface.inspect_share_point()));
-            eprintln!("thread_loop_guts strong arc count: interactive_flag: {}", Arc::strong_count(&terminal_interface.inspect_interactive_flag())); */Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)}
+            eprintln!("thread_loop_guts strong arc count: interactive_flag: {}", Arc::strong_count(&terminal_interface.inspect_interactive_flag()));*/ Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)}
         }
     }
 }
@@ -432,9 +432,11 @@ Cannot handle crash request: Node is not running.
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
 
-        let synchronizer = TerminalWrapper::new()
-            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
+        let mut synchronizer = TerminalWrapper::new();
+
         let synchronizer_clone_idle = synchronizer.clone();
+
+        synchronizer.upgrade().unwrap(); //testing proper functioning of upgrading
 
         //synchronized part proving that the broadcast print is synchronized
         let full_stdout_output_sync = background_thread_making_interferences(

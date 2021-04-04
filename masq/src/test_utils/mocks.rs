@@ -17,7 +17,7 @@ use masq_lib::intentionally_blank;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
 use std::borrow::BorrowMut;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -173,6 +173,7 @@ pub struct CommandProcessorMock {
     close_params: Arc<Mutex<Vec<()>>>,
     terminal_interface: Vec<TerminalWrapper>,
     terminal_interface_clone_count: Arc<Mutex<usize>>,
+    upgrade_terminal_interface_results: Vec<Result<(), String>>,
 }
 
 impl CommandProcessor for CommandProcessorMock {
@@ -186,7 +187,7 @@ impl CommandProcessor for CommandProcessorMock {
     }
 
     fn upgrade_terminal_interface(&mut self) -> Result<(), String> {
-        unimplemented!()
+        self.upgrade_terminal_interface_results.remove(0)
     }
 
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
@@ -219,6 +220,11 @@ impl CommandProcessorMock {
 
     pub fn process_result(self, result: Result<(), CommandError>) -> Self {
         self.process_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn upgrade_terminal_interface_result(mut self, result: Result<(), String>) -> Self {
+        self.upgrade_terminal_interface_results.push(result);
         self
     }
 

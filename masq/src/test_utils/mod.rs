@@ -1,13 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use linefeed::memory::{Lines, MemoryTerminal};
+use linefeed::memory::Lines;
 
 pub mod client_utils;
 pub mod mocks;
-
-pub fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
-    Ok(MemoryTerminal::new())
-}
 
 pub fn written_output_by_line_number(mut lines_from_memory: Lines, line_number: usize) -> String {
     //Lines isn't an iterator unfortunately

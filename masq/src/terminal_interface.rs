@@ -1,16 +1,12 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
-use crate::test_utils::result_wrapper_for_in_memory_terminal;
 use linefeed::memory::MemoryTerminal;
-use linefeed::DefaultTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 pub trait TerminalInterfaceFactory {
     fn make(&self) -> Result<TerminalReal, String>;
@@ -18,14 +14,14 @@ pub trait TerminalInterfaceFactory {
 
 pub struct InterfaceReal {}
 
-impl TerminalInterfaceFactory for InterfaceReal {
-    fn make(&self) -> Result<TerminalReal, String> {
-        configure_interface(
-            Box::new(Interface::with_term),
-            Box::new(DefaultTerminal::new),
-        )
-    }
-}
+// impl TerminalInterfaceFactory for InterfaceReal {
+//     fn make(&self) -> Result<TerminalReal, String> {
+//         configure_interface(
+//             Box::new(Interface::with_term),
+//             Box::new(DefaultTerminal::new),
+//         )
+//     }
+// }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //this is the most general layer, an object which is intended for you to usually work with at other
@@ -77,7 +73,7 @@ impl TerminalWrapper {
         let upgraded_terminal = if cfg!(test) {
             configure_interface(
                 Box::new(Interface::with_term),
-                Box::new(result_wrapper_for_in_memory_terminal),
+                Box::new(Self::result_wrapper_for_in_memory_terminal),
             )
         } else {
             unimplemented!()
@@ -96,6 +92,10 @@ impl TerminalWrapper {
         self.interactive_flag.store(true, Ordering::Relaxed);
 
         Ok(())
+    }
+
+    fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
+        Ok(MemoryTerminal::new())
     }
 
     pub fn check_update(&mut self) -> bool {
@@ -313,7 +313,6 @@ mod tests {
     use crate::test_utils::mocks::{MixingStdout, TerminalActiveMock};
     use crate::test_utils::{written_output_all_lines, written_output_by_line_number};
     use crossbeam_channel::unbounded;
-    use linefeed::memory::Lines;
     use linefeed::DefaultTerminal;
     use std::io::Write;
     use std::sync::Barrier;

@@ -45,11 +45,27 @@ where
     A: CommandFactory + ?Sized + 'static,
     B: CommandProcessor + ?Sized + 'static,
 {
+    if let Err(e) = processor.upgrade_terminal_interface() {
+        short_writeln!(streams.stderr, "Terminal interface error: {}", e);
+        return 1;
+    };
     loop {
         let args = match processor.clone_terminal_interface().read_line() {
             CommandLine(line) => split_quoted_line(line),
-            Break => unimplemented!(),    //Break
-            Continue => unimplemented!(), //Continue
+            Break => {
+                short_writeln!(
+                    streams.stdout,
+                    "Terminated on the basis of a user's specific signal"
+                );
+                break;
+            }
+            Continue => {
+                short_writeln!(
+                    streams.stdout,
+                    "Received a specific signal interpretable as continue"
+                );
+                continue;
+            }
             TerminalEventError(msg) => {
                 short_writeln!(streams.stderr, "{}", msg);
                 return 1;
@@ -75,13 +91,12 @@ mod tests {
     use crate::command_factory::CommandFactoryError;
     use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
-    use crate::interactive_mode::split_quoted_line;
-    use crate::line_reader::{TerminalEvent, TerminalReal};
+    use crate::interactive_mode::{go_interactive, split_quoted_line};
+    use crate::line_reader::TerminalEvent;
     use crate::non_interactive_mode::Main;
     use crate::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{
-        CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock, InterfaceMock,
-        InterfaceRawMock, TerminalPassiveMock,
+        CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock, TerminalPassiveMock,
     };
     use masq_lib::command::Command;
     use masq_lib::intentionally_blank;
@@ -200,21 +215,17 @@ mod tests {
             .read_line_result(TerminalEvent::CommandLine("setup".to_string()))
             .read_line_result(TerminalEvent::CommandLine("start".to_string()))
             .read_line_result(TerminalEvent::CommandLine("exit".to_string()));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
         let processor = CommandProcessorMock::new()
             .process_result(Ok(()))
             .process_result(Ok(()))
+            .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(
                 TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(terminal_mock)),
             );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main::test_only_new(
-            Box::new(command_factory),
-            Box::new(processor_factory),
-            Box::new(interface),
-        );
+        let mut subject =
+            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(
@@ -240,6 +251,7 @@ mod tests {
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
+            .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(
                 TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
                     TerminalPassiveMock::new()
@@ -248,13 +260,8 @@ mod tests {
             );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let mut subject = Main::test_only_new(
-            Box::new(command_factory),
-            Box::new(processor_factory),
-            Box::new(interface),
-        );
+        let mut subject =
+            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
@@ -276,22 +283,19 @@ mod tests {
             .make_result(Err(CommandFactoryError::UnrecognizedSubcommand(
                 "Booga!".to_string(),
             )));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let processor = CommandProcessorMock::new().insert_terminal_interface(
-            TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
-                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-            )),
-        );
+        let processor = CommandProcessorMock::new()
+            .upgrade_terminal_interface_result(Ok(()))
+            .insert_terminal_interface(
+                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
+                    TerminalPassiveMock::new()
+                        .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
+                        .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+                )),
+            );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main::test_only_new(
-            Box::new(command_factory),
-            Box::new(processor_factory),
-            Box::new(interface),
-        );
+        let mut subject =
+            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
@@ -316,22 +320,19 @@ mod tests {
             .make_result(Err(CommandFactoryError::CommandSyntax(
                 "Booga!".to_string(),
             )));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
-        let processor = CommandProcessorMock::new().insert_terminal_interface(
-            TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
-                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-            )),
-        );
+        let processor = CommandProcessorMock::new()
+            .upgrade_terminal_interface_result(Ok(()))
+            .insert_terminal_interface(
+                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
+                    TerminalPassiveMock::new()
+                        .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
+                        .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+                )),
+            );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main::test_only_new(
-            Box::new(command_factory),
-            Box::new(processor_factory),
-            Box::new(interface),
-        );
+        let mut subject =
+            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
@@ -351,8 +352,6 @@ mod tests {
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
         let terminal_interface_reference_for_inner = TerminalWrapper::new()
             .set_interactive_for_test_purposes(Box::new(
                 TerminalPassiveMock::new()
@@ -363,17 +362,15 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .insert_terminal_interface(terminal_interface_reference_for_inner.clone())
             .insert_terminal_wrapper_shared_counter(reference_for_counting.clone())
-            .process_result(Ok(()));
+            .process_result(Ok(()))
+            .upgrade_terminal_interface_result(Ok(()));
 
         assert_eq!(*reference_for_counting.lock().unwrap(), 0);
 
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main::test_only_new(
-            Box::new(command_factory),
-            Box::new(processor_factory),
-            Box::new(interface),
-        );
+        let mut subject =
+            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(
@@ -391,5 +388,94 @@ mod tests {
         assert_eq!(result, 0);
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(*make_params, vec![vec!["setup".to_string()]]);
+    }
+
+    #[test]
+    fn interactive_mode_handles_error_caused_during_terminal_interface_upgrade() {
+        let command_factory = CommandFactoryMock::new();
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
+        let processor = CommandProcessorMock::new()
+            .close_params(&close_params_arc)
+            .upgrade_terminal_interface_result(Err("Invalid process handle".to_string()))
+            .insert_terminal_interface(
+                TerminalWrapper::new()
+                    .set_interactive_for_test_purposes(Box::new(TerminalPassiveMock::new())),
+            );
+        let processor_factory =
+            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
+        let mut subject =
+            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+
+        assert_eq!(result, 1);
+        assert_eq!(
+            stream_holder.stderr.get_string(),
+            "Terminal interface error: Invalid process handle\n"
+        );
+        assert_eq!(stream_holder.stdout.get_string(), "");
+        let close_params = close_params_arc.lock().unwrap();
+        assert_eq!(close_params.len(), 1);
+    }
+
+    #[test]
+    fn interactive_mode_handles_break_signal_from_line_reader() {
+        let command_factory = CommandFactoryMock::new();
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
+        let processor = CommandProcessorMock::new()
+            .close_params(&close_params_arc)
+            .upgrade_terminal_interface_result(Ok(()))
+            .insert_terminal_interface(TerminalWrapper::new().set_interactive_for_test_purposes(
+                Box::new(TerminalPassiveMock::new().read_line_result(TerminalEvent::Break)),
+            ));
+        let processor_factory =
+            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
+        let mut subject =
+            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+
+        assert_eq!(result, 0);
+        assert_eq!(stream_holder.stderr.get_string(), "");
+        assert_eq!(
+            stream_holder.stdout.get_string(),
+            "Terminated on the basis of a user\'s specific signal\n"
+        );
+        let close_params = close_params_arc.lock().unwrap();
+        assert_eq!(close_params.len(), 1);
+    }
+
+    #[test]
+    fn interactive_mode_handles_signals_interpreted_as_continue_which_are_sent_from_line_reader() {
+        let command_factory = CommandFactoryMock::new();
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
+        let processor = CommandProcessorMock::new()
+            .close_params(&close_params_arc)
+            .upgrade_terminal_interface_result(Ok(()))
+            .insert_terminal_interface(
+                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
+                    TerminalPassiveMock::new()
+                        .read_line_result(TerminalEvent::Continue)
+                        .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+                )),
+            );
+        let processor_factory =
+            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
+        let mut subject =
+            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+
+        assert_eq!(result, 0);
+        assert_eq!(stream_holder.stderr.get_string(), "");
+        assert_eq!(
+            stream_holder.stdout.get_string(),
+            "Received a specific signal interpretable as continue\n"
+        );
+        let close_params = close_params_arc.lock().unwrap();
+        assert_eq!(close_params.len(), 1);
     }
 }

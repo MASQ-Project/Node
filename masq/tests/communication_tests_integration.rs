@@ -14,8 +14,8 @@ fn setup_results_are_broadcast_to_all_uis() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(1000));
-    let mut setupper_handle = MasqProcess::new().start_interactive();
-    let mut receiver_handle = MasqProcess::new().start_interactive();
+    let mut setupper_handle = MasqProcess::new().start_interactive(port);
+    let mut receiver_handle = MasqProcess::new().start_interactive(port);
     let pair = (setupper_handle.get_stdout(), setupper_handle.get_stderr());
     assert_eq!(pair, ("masq> ".to_string(), "".to_string()));
     let pair = (receiver_handle.get_stdout(), receiver_handle.get_stderr());

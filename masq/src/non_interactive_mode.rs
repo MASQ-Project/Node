@@ -7,7 +7,6 @@ use crate::command_processor::{
 };
 use crate::communications::broadcast_handler::StreamFactoryReal;
 use crate::interactive_mode::go_interactive;
-use crate::terminal_interface::{InterfaceReal, TerminalInterfaceFactory};
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
@@ -15,7 +14,6 @@ use masq_lib::short_writeln;
 pub struct Main {
     command_factory: Box<dyn CommandFactory>,
     processor_factory: Box<dyn CommandProcessorFactory>,
-    terminal_interface_factory: Box<dyn TerminalInterfaceFactory>,
 }
 
 impl Main {
@@ -23,7 +21,6 @@ impl Main {
         Self {
             command_factory: Box::new(CommandFactoryReal::new()),
             processor_factory: Box::new(CommandProcessorFactoryReal {}),
-            terminal_interface_factory: Box::new(InterfaceReal {}),
         }
     }
 
@@ -43,12 +40,10 @@ impl Main {
     pub fn test_only_new(
         command_factory: Box<dyn CommandFactory>,
         processor_factory: Box<dyn CommandProcessorFactory>,
-        terminal_interface_factory: Box<dyn TerminalInterfaceFactory>,
     ) -> Self {
         Self {
             command_factory,
             processor_factory,
-            terminal_interface_factory,
         }
     }
 }
@@ -56,13 +51,6 @@ impl Main {
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let broadcast_stream_factory = StreamFactoryReal::new();
-        // let interface = match self.terminal_interface_factory.make() {
-        //     Ok(interface) => interface,
-        //     Err(error) => {
-        //         short_writeln!(streams.stderr, "{}", error);
-        //         return 1;
-        //     }
-        // };
         let mut command_processor = match self
             .processor_factory
             .make(Box::new(broadcast_stream_factory), args)
@@ -128,10 +116,9 @@ mod tests {
     use crate::command_context::ContextError::Other;
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
-    use crate::line_reader::TerminalReal;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        InterfaceMock, InterfaceRawMock, MockCommand,
+        MockCommand,
     };
     use masq_lib::command::Command;
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest};
@@ -145,8 +132,6 @@ mod tests {
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
             .make_result(Ok(Box::new(command)));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
         let process_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
             .process_params(&process_params_arc)
@@ -158,7 +143,6 @@ mod tests {
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
         };
 
         let result = subject.go(
@@ -233,47 +217,18 @@ mod tests {
     }
 
     #[test]
-    fn go_works_when_error_turns_up_in_interface_factory() {
-        let c_make_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_factory = CommandFactoryMock::new().make_params(&c_make_params_arc);
-        let interface = InterfaceMock::new().make_result(Err("Invalid handle".to_string()));
-        let mut subject = Main {
-            command_factory: Box::new(command_factory),
-            processor_factory: Box::new(CommandProcessorFactoryMock::new()),
-            terminal_interface_factory: Box::new(interface),
-        };
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(
-            &mut stream_holder.streams(),
-            &["command".to_string(), "subcommand".to_string()],
-        );
-
-        assert_eq!(result, 1);
-        let c_make_params = c_make_params_arc.lock().unwrap();
-        assert!(c_make_params.is_empty());
-        assert_eq!(
-            stream_holder.stderr.get_string(),
-            "Invalid handle\n".to_string()
-        );
-    }
-
-    #[test]
     fn go_works_when_command_is_unrecognized() {
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
             .make_result(Err(UnrecognizedSubcommand("booga".to_string())));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
         let processor = CommandProcessorMock::new().close_params(&close_params_arc);
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -299,15 +254,12 @@ mod tests {
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
             .make_result(Err(CommandSyntax("booga".to_string())));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
         let processor = CommandProcessorMock::new();
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -328,8 +280,6 @@ mod tests {
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1)).execute_result(Ok(())); // irrelevant
         let command_factory = CommandFactoryMock::new().make_result(Ok(Box::new(command)));
         let process_params_arc = Arc::new(Mutex::new(vec![]));
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
         let processor = CommandProcessorMock::new()
             .process_params(&process_params_arc)
             .process_result(Err(Transmission("Booga!".to_string())));
@@ -338,7 +288,6 @@ mod tests {
         let mut subject = Main {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
@@ -357,14 +306,11 @@ mod tests {
 
     #[test]
     fn go_works_when_daemon_is_not_running() {
-        let interface = InterfaceMock::new()
-            .make_result(Ok(TerminalReal::new(Box::new(InterfaceRawMock::new()))));
         let processor_factory = CommandProcessorFactoryMock::new()
             .make_result(Err(CommandError::ConnectionProblem("booga".to_string())));
         let mut subject = Main {
             command_factory: Box::new(CommandFactoryMock::new()),
             processor_factory: Box::new(processor_factory),
-            terminal_interface_factory: Box::new(interface),
         };
         let mut stream_holder = FakeStreamHolder::new();
 

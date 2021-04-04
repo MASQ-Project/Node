@@ -55,9 +55,10 @@ impl MasqProcess {
         }
     }
 
-    pub fn start_interactive(self) -> ControlHandle {
+    pub fn start_interactive(self, port: u16) -> ControlHandle {
         let mut command = Command::new(executable_path(executable_name("masq")));
-        let child = child_from_command(&mut command);
+        let command = command.arg("--ui-port").arg(port.to_string());
+        let child = child_from_command(command);
         ControlHandle::new(
             child.stdin.unwrap(),
             child.stdout.unwrap(),

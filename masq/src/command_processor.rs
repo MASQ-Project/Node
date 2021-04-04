@@ -7,6 +7,8 @@ use crate::communications::broadcast_handler::StreamFactory;
 use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
 use clap::value_t;
+
+#[cfg(test)]
 use masq_lib::intentionally_blank;
 
 pub trait CommandProcessorFactory {
@@ -90,7 +92,6 @@ mod tests {
     use crate::command_context::CommandContext;
     use crate::communications::broadcast_handler::StreamFactoryReal;
     use crate::test_utils::mocks::TestStreamFactory;
-    use crate::test_utils::written_output_all_lines;
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -316,9 +317,6 @@ mod tests {
     }
 
     #[test]
-
-    //TODO review, correct, reduce or clean up this test
-
     fn clone_terminal_interface_works() {
         let port = find_free_port();
         let args = [
@@ -354,7 +352,7 @@ mod tests {
             "TerminalReal<linefeed::Writer<_>>"
         );
 
-        let processors_brother = processor.clone_terminal_interface();
+        let _ = processor.clone_terminal_interface();
 
         let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
         let inner_active = (*terminal_second_check.inspect_inner_active())
@@ -364,6 +362,9 @@ mod tests {
             inner_active.tell_me_who_you_are(),
             "TerminalReal<linefeed::Writer<_>>"
         );
+        //conlusion: by cloning the upgrade was completed -> inner_active is truly active now
+
+        //share point remains full, since it is "point" which will use all future clones to upgrade themselves
         assert!((*terminal_second_check.inspect_share_point().lock().unwrap()).is_some());
         assert_eq!(
             terminal_second_check
@@ -373,7 +374,7 @@ mod tests {
         );
         stop_handle.stop();
 
-        //now an important step...let's go backwards and check older references if they keep updated
+        //now let's go backwards and check the older references if they are updated too
         assert_eq!(
             terminal_first_check
                 .inspect_interactive_flag()
@@ -382,15 +383,12 @@ mod tests {
         );
         assert!((*terminal_first_check.inspect_share_point().lock().unwrap()).is_some());
 
-        let inner_active = (*terminal_second_check.inspect_inner_active())
-            .as_ref()
-            .unwrap();
-        assert_eq!(
-            inner_active.tell_me_who_you_are(),
-            "TerminalReal<linefeed::Writer<_>>"
-        );
+        //not fully yet...it has what it needs...correct value inside its share point, but it needs to be updated still
+        //because inner_active is None at the moment
+        assert!((*terminal_first_check.inspect_inner_active()).is_none());
 
-        terminal_first_check.check_update();
+        //an update can be done by acquiring a lock too
+        terminal_first_check.lock();
 
         let inner_active_from_older_reference = (*terminal_first_check.inspect_inner_active())
             .as_ref()
@@ -399,9 +397,5 @@ mod tests {
             inner_active_from_older_reference.tell_me_who_you_are(),
             "TerminalReal<linefeed::Writer<_>>"
         );
-
-        terminal_first_check.lock();
-
-        assert!((*terminal_first_check.inspect_share_point().lock().unwrap()).is_some());
     }
 }
