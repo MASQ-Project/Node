@@ -17,6 +17,7 @@ pub struct Main {
 }
 
 impl Main {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             command_factory: Box::new(CommandFactoryReal::new()),

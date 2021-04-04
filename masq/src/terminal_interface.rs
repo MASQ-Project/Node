@@ -2,36 +2,27 @@
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
 use linefeed::memory::MemoryTerminal;
-use linefeed::{Interface, ReadResult, Writer};
+use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub trait TerminalInterfaceFactory {
-    fn make(&self) -> Result<TerminalReal, String>;
-}
-
-pub struct InterfaceReal {}
-
-// impl TerminalInterfaceFactory for InterfaceReal {
-//     fn make(&self) -> Result<TerminalReal, String> {
-//         configure_interface(
-//             Box::new(Interface::with_term),
-//             Box::new(DefaultTerminal::new),
-//         )
-//     }
-// }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 //this is the most general layer, an object which is intended for you to usually work with at other
 //places in the code
 
+#[allow(clippy::type_complexity)]
 pub struct TerminalWrapper {
     inner_idle: TerminalIdle,
     inner_active: Option<Arc<Box<dyn Terminal + Send + Sync>>>,
     share_point: Arc<Mutex<Option<Arc<Box<dyn Terminal + Send + Sync>>>>>,
     interactive_flag: Arc<AtomicBool>,
+}
+
+impl Default for TerminalWrapper {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TerminalWrapper {
@@ -76,13 +67,11 @@ impl TerminalWrapper {
                 Box::new(Self::result_wrapper_for_in_memory_terminal),
             )
         } else {
-            unimplemented!()
-
-            // #[cfg(not(test))]
-            //     configure_interface(
-            //             Box::new(Interface::with_term),
-            //             Box::new(DefaultTerminal::new),
-            //         )
+            //no automatic test for this; tested with the fact that people are able to run masq in interactive mode
+            configure_interface(
+                Box::new(Interface::with_term),
+                Box::new(DefaultTerminal::new),
+            )
         }?;
         *self
             .share_point
@@ -94,6 +83,7 @@ impl TerminalWrapper {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
         Ok(MemoryTerminal::new())
     }
@@ -151,7 +141,7 @@ impl TerminalWrapper {
         active_interface: Box<dyn Terminal + Send + Sync>,
     ) -> Self {
         self.inner_active = Some(Arc::new(active_interface));
-        self.interactive_flag.store(true, Ordering::Relaxed); //should I change Relaxed in the future?
+        self.interactive_flag.store(true, Ordering::Relaxed);
         self
     }
 }

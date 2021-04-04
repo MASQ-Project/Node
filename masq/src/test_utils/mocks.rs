@@ -6,9 +6,9 @@ use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::StreamFactory;
-use crate::line_reader::{TerminalEvent, TerminalReal};
+use crate::line_reader::{TerminalEvent};
 use crate::terminal_interface::{
-    InterfaceRaw, Terminal, TerminalInterfaceFactory, TerminalWrapper, WriterGeneric,
+    InterfaceRaw, Terminal, TerminalWrapper, WriterGeneric,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
@@ -17,7 +17,7 @@ use masq_lib::intentionally_blank;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
 use std::borrow::BorrowMut;
-use std::cell::{Ref, RefCell};
+use std::cell::{RefCell};
 use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -442,29 +442,6 @@ impl Write for MixingStdout {
     fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
         self.channel_half.send(fmt.to_string()).unwrap();
         Ok(())
-    }
-}
-
-pub struct InterfaceMock {
-    make_result: Arc<Mutex<Vec<Result<TerminalReal, String>>>>,
-}
-
-impl TerminalInterfaceFactory for InterfaceMock {
-    fn make(&self) -> Result<TerminalReal, String> {
-        self.make_result.lock().unwrap().remove(0)
-    }
-}
-
-impl InterfaceMock {
-    pub fn new() -> Self {
-        Self {
-            make_result: Arc::new(Mutex::new(vec![])),
-        }
-    }
-
-    pub fn make_result(self, result: Result<TerminalReal, String>) -> Self {
-        self.make_result.lock().unwrap().push(result);
-        self
     }
 }
 
