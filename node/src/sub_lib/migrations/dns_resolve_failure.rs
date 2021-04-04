@@ -26,9 +26,9 @@ lazy_static! {
     };
 }
 
-impl Into<VersionedData<DnsResolveFailure_0v1>> for DnsResolveFailure_0v1 {
-    fn into(self) -> VersionedData<DnsResolveFailure_0v1> {
-        VersionedData::new(&MIGRATIONS, &self)
+impl From<DnsResolveFailure_0v1> for VersionedData<DnsResolveFailure_0v1> {
+    fn from(data: DnsResolveFailure_0v1) -> Self {
+        VersionedData::new(&MIGRATIONS, &data)
     }
 }
 

@@ -15,7 +15,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
+use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
@@ -31,7 +31,7 @@ pub enum InitializationError {
 pub trait DbInitializer {
     fn initialize(
         &self,
-        path: &PathBuf,
+        path: &Path,
         chain_id: u8,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
@@ -43,7 +43,7 @@ pub struct DbInitializerReal {}
 impl DbInitializer for DbInitializerReal {
     fn initialize(
         &self,
-        path: &PathBuf,
+        path: &Path,
         chain_id: u8,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
@@ -86,14 +86,14 @@ impl DbInitializerReal {
         Self::default()
     }
 
-    fn is_creation_necessary(data_directory: &PathBuf) -> bool {
+    fn is_creation_necessary(data_directory: &Path) -> bool {
         match fs::read_dir(data_directory) {
             Ok(_) => !data_directory.join(DATABASE_FILE).exists(),
             Err(_) => true,
         }
     }
 
-    fn create_data_directory_if_necessary(data_directory: &PathBuf) {
+    fn create_data_directory_if_necessary(data_directory: &Path) {
         match fs::read_dir(data_directory) {
             Ok(_) => (),
             Err(ref e) if e.kind() == ErrorKind::NotFound => fs::create_dir_all(data_directory)
@@ -317,7 +317,7 @@ impl DbInitializerReal {
 
 pub fn connection_or_panic(
     db_initializer: &dyn DbInitializer,
-    path: &PathBuf,
+    path: &Path,
     chain_id: u8,
     create_if_necessary: bool,
 ) -> Box<dyn ConnectionWrapper> {
@@ -338,7 +338,7 @@ pub mod test_utils {
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Default)]
@@ -386,12 +386,12 @@ pub mod test_utils {
     impl DbInitializer for DbInitializerMock {
         fn initialize(
             &self,
-            path: &PathBuf,
+            path: &Path,
             chain_id: u8,
             create_if_necessary: bool,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
             self.initialize_parameters.lock().unwrap().push((
-                path.clone(),
+                path.to_path_buf(),
                 chain_id,
                 create_if_necessary,
             ));
@@ -435,6 +435,7 @@ mod tests {
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+    use std::path::PathBuf;
     use tokio::net::TcpListener;
 
     #[test]

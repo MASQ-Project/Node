@@ -457,21 +457,11 @@ pub mod standard {
                         .into_iter()
                         .map(
                             |s| match NodeDescriptor::from_str(dummy_cryptde.as_ref(), &s) {
-                                Ok(nd) => if chain_name == DEFAULT_CHAIN_NAME {
-                                    if nd.mainnet {
-                                        Ok(nd)
-                                    }
-                                    else {
-                                        Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter"))
-                                    }
-                                }
-                                else {
-                                    if nd.mainnet {
-                                        Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name)))
-                                    }
-                                    else {
-                                        Ok(nd)
-                                    }
+                                Ok(nd) => match (chain_name.as_str(), nd.mainnet) {
+                                    (DEFAULT_CHAIN_NAME, true) => Ok(nd),
+                                    (DEFAULT_CHAIN_NAME, false) => Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter")),
+                                    (_, true) => Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name))),
+                                    (_, false) => Ok(nd),
                                 },
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
                             },

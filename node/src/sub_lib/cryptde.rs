@@ -48,9 +48,9 @@ impl From<Vec<u8>> for PrivateKey {
     }
 }
 
-impl Into<Vec<u8>> for PrivateKey {
-    fn into(self) -> Vec<u8> {
-        self.data
+impl From<PrivateKey> for Vec<u8> {
+    fn from(key: PrivateKey) -> Self {
+        key.data
     }
 }
 
@@ -131,9 +131,9 @@ impl From<Vec<u8>> for PublicKey {
     }
 }
 
-impl Into<Vec<u8>> for PublicKey {
-    fn into(self) -> Vec<u8> {
-        self.data
+impl From<PublicKey> for Vec<u8> {
+    fn from(key: PublicKey) -> Self {
+        key.data
     }
 }
 
@@ -235,9 +235,9 @@ impl From<Vec<u8>> for SymmetricKey {
     }
 }
 
-impl Into<Vec<u8>> for SymmetricKey {
-    fn into(self) -> Vec<u8> {
-        self.data
+impl From<SymmetricKey> for Vec<u8> {
+    fn from(key: SymmetricKey) -> Self {
+        key.data
     }
 }
 
@@ -319,9 +319,9 @@ impl From<Vec<u8>> for CryptData {
     }
 }
 
-impl Into<Vec<u8>> for CryptData {
-    fn into(self) -> Vec<u8> {
-        self.data
+impl From<CryptData> for Vec<u8> {
+    fn from(crypt_data: CryptData) -> Self {
+        crypt_data.data
     }
 }
 
@@ -426,9 +426,9 @@ impl FromStr for PlainData {
     }
 }
 
-impl Into<Vec<u8>> for PlainData {
-    fn into(self) -> Vec<u8> {
-        self.data
+impl From<PlainData> for Vec<u8> {
+    fn from(plain_data: PlainData) -> Self {
+        plain_data.data
     }
 }
 
@@ -528,6 +528,7 @@ pub enum CryptdecError {
     OtherError(String),
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub trait CryptDE: Send + Sync {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError>;
@@ -801,7 +802,7 @@ mod tests {
 
         match actual_result {
             Ok(actual_crypt_data) => assert_eq!(actual_crypt_data, subject.data),
-            Err(e) => panic!(format!("crypt_data_to_hex failed {}", e)),
+            Err(e) => panic!("crypt_data_to_hex failed {}", e),
         }
     }
 

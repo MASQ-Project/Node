@@ -27,9 +27,9 @@ lazy_static! {
     };
 }
 
-impl Into<VersionedData<ClientResponsePayload_0v1>> for ClientResponsePayload_0v1 {
-    fn into(self) -> VersionedData<ClientResponsePayload_0v1> {
-        VersionedData::new(&MIGRATIONS, &self)
+impl From<ClientResponsePayload_0v1> for VersionedData<ClientResponsePayload_0v1> {
+    fn from(data: ClientResponsePayload_0v1) -> Self {
+        VersionedData::new(&MIGRATIONS, &data)
     }
 }
 

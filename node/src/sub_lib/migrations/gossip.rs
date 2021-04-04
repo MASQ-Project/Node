@@ -24,9 +24,9 @@ lazy_static! {
     };
 }
 
-impl Into<VersionedData<Gossip_0v1>> for Gossip_0v1 {
-    fn into(self) -> VersionedData<Gossip_0v1> {
-        VersionedData::new(&MIGRATIONS, &self)
+impl From<Gossip_0v1> for VersionedData<Gossip_0v1> {
+    fn from(data: Gossip_0v1) -> Self {
+        VersionedData::new(&MIGRATIONS, &data)
     }
 }
 

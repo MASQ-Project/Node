@@ -423,6 +423,7 @@ macro_rules! migrate_item {
 macro_rules! migrate_value {
     ($tv:expr, $tt:ty, $mt:ident, $b:block) => {
         #[allow(non_camel_case_types)]
+        #[allow(clippy::upper_case_acronyms)]
         struct $mt {}
         impl crate::sub_lib::versioned_data::MigrationStep for $mt {
             fn migrate(

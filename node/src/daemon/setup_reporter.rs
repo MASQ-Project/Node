@@ -31,7 +31,7 @@ use masq_lib::multi_config::{
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
@@ -268,7 +268,7 @@ impl SetupReporterReal {
     fn calculate_configured_setup(
         dirs_wrapper: &dyn DirsWrapper,
         combined_setup: &SetupCluster,
-        data_directory: &PathBuf,
+        data_directory: &Path,
         chain_name: &str,
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
@@ -397,7 +397,7 @@ impl SetupReporterReal {
     fn run_configuration(
         dirs_wrapper: &dyn DirsWrapper,
         multi_config: &MultiConfig,
-        data_directory: &PathBuf,
+        data_directory: &Path,
         chain_id: u8,
     ) -> (
         (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
@@ -410,7 +410,7 @@ impl SetupReporterReal {
             stderr: &mut ByteArrayWriter::new(),
         };
         let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.data_directory = data_directory.clone();
+        bootstrapper_config.data_directory = data_directory.to_path_buf();
         match privileged_parse_args(
             dirs_wrapper,
             multi_config,
