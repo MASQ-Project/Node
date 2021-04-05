@@ -176,8 +176,8 @@ where
         Err(e) => return Err(format!("Getting terminal parameters: {}", e)),
     };
 
-    //untested
     if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
+        //untested
         return Err(format!("Setting prompt: {}", e));
     };
 
@@ -309,6 +309,7 @@ mod tests {
     use std::sync::Barrier;
     use std::thread;
     use std::time::{Duration, Instant};
+    use std::thread::JoinHandle;
 
     #[test]
     fn terminal_mock_and_test_tools_write_and_read() {
@@ -356,87 +357,104 @@ mod tests {
         assert_eq!(single_line, "hello world")
     }
 
+    fn test_terminal_collision<C>(closure1: Box<C>, closure2: Box<C>) -> String
+        where C: FnMut(TerminalWrapper, MixingStdout) -> () + Sync + Send + 'static {
+        let interface = TerminalWrapper::new()
+            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
+
+        let barrier = Arc::new(Barrier::new(2));
+
+        let (tx, rx) = unbounded();
+        let stdout_c1 = MixingStdout::new(tx);
+        let stdout_c2 = stdout_c1.clone();
+
+        let handles: Vec<_> = vec![(closure1, stdout_c1), (closure2, stdout_c2)].into_iter().map(|pair| {
+            let (mut closure, stdout): (Box<C>, MixingStdout) = pair;
+                let barrier_handle = Arc::clone(&barrier);
+                let thread_interface = interface.clone();
+
+                thread::spawn(move || {
+                    barrier_handle.wait();
+                    closure(thread_interface, stdout)
+                })
+            }
+        )
+            .collect();
+
+        handles.into_iter().for_each (|handle| handle.join().unwrap());
+
+        let mut buffer = String::new();
+        loop {
+            match rx.try_recv() {
+                Ok(string) => buffer.push_str(&string),
+                Err(_) => break buffer,
+            }
+        }
+    }
+
+    #[test]
+    //Here I use the system stdout handles, which is the standard way in the project, but thanks to
+    //the lock from TerminalWrapper, it will be protected.
+    //The core of the test consists of two halves where the first shows unprotected writing while
+    //in the second locks are actively being used in both concurrent threads
+    fn terminal_wrapper_s_without_lock_does_not_block_others_from_writing_into_stdout() {
+        let closure1: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
+            Box::new(move |_interface: TerminalWrapper, mut stdout_c| {
+                //here without a lock in the first half -- printing in BOTH is unprotected
+                write_in_cycles("AAA", &mut stdout_c);
+            });
+
+        let closure2: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
+            Box::new(move |_interface: TerminalWrapper, mut stdout_c| {
+                // lock from the very beginning of this thread...still it can have no effect
+                write_in_cycles("BBB", &mut stdout_c);
+            });
+
+        let given_output = test_terminal_collision(Box::new (closure1), Box::new (closure2));
+
+        assert!(
+            !given_output.contains(&"A".repeat(50)),
+            "without synchronization: {}",
+            given_output
+        );
+        assert!(
+            !given_output.contains(&"B".repeat(50)),
+            "without synchronization: {}",
+            given_output
+        );
+    }
+
     #[test]
     //Here I use the system stdout handles, which is the standard way in the project, but thanks to
     //the lock from TerminalWrapper, it will be protected.
     //The core of the test consists of two halves where the first shows unprotected writing while
     //in the second locks are actively being used in both concurrent threads
     fn terminal_wrapper_s_lock_blocks_others_to_write_into_stdout() {
-        let interface = TerminalWrapper::new()
-            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
-
-        let barrier = Arc::new(Barrier::new(2));
-        let mut handles = Vec::new();
-
-        let (tx, rx) = unbounded();
-        let mut stdout_c1 = MixingStdout::new(tx);
-        let mut stdout_c2 = stdout_c1.clone();
-
-        let closure1: Box<dyn FnMut(TerminalWrapper) + Sync + Send> =
-            Box::new(move |mut interface: TerminalWrapper| {
+        let closure1: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
+            Box::new(move |mut interface: TerminalWrapper, mut stdout_c: MixingStdout| {
                 //here without a lock in the first half -- printing in BOTH is unprotected
-                let mut stdout = &mut stdout_c1;
-                write_in_cycles("AAA", &mut stdout);
-                //printing whitespace, where the two halves part
-                write!(&mut stdout, "   ").unwrap();
                 let _lock = interface.lock();
-                write_in_cycles("AAA", &mut stdout)
+                write_in_cycles("AAA", &mut stdout_c);
             });
 
-        let closure2: Box<dyn FnMut(TerminalWrapper) + Sync + Send> =
-            Box::new(move |mut interface: TerminalWrapper| {
+        let closure2: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
+            Box::new(move |mut interface: TerminalWrapper, mut stdout_c: MixingStdout| {
                 // lock from the very beginning of this thread...still it can have no effect
-                let mut stdout = &mut stdout_c2;
                 let _lock = interface.lock();
-                write_in_cycles("BBB", &mut stdout);
-                write!(&mut stdout, "   ").unwrap();
-                write_in_cycles("BBB", &mut stdout)
+                write_in_cycles("BBB", &mut stdout_c);
             });
 
-        vec![closure1, closure2].into_iter().for_each(
-            |mut closure: Box<dyn FnMut(TerminalWrapper) + Sync + Send>| {
-                let barrier_handle = Arc::clone(&barrier);
-                let thread_interface = interface.clone();
-
-                handles.push(thread::spawn(move || {
-                    barrier_handle.wait();
-                    closure(thread_interface)
-                }));
-            },
-        );
-
-        handles
-            .into_iter()
-            .for_each(|handle| handle.join().unwrap());
-
-        let mut buffer = String::new();
-        let given_output = loop {
-            match rx.try_recv() {
-                Ok(string) => buffer.push_str(&string),
-                Err(_) => break buffer,
-            }
-        };
-
-        assert!(
-            !&given_output[0..180].contains(&"A".repeat(50)),
-            "without synchronization: {}",
-            given_output
-        );
-        assert!(
-            !&given_output[0..180].contains(&"B".repeat(50)),
-            "without synchronization: {}",
-            given_output
-        );
+        let given_output = test_terminal_collision(Box::new (closure1), Box::new (closure2));
 
         assert!(
             //for some looseness not 90 but 80...sometimes a few letters from the 90 can be apart
-            &given_output[185..].contains(&"A".repeat(80)),
+            given_output.contains(&"A".repeat(80)),
             "synchronized: {}",
             given_output
         );
         assert!(
             //for some looseness not 90 but 80...sometimes a few letters from the 90 can be apart
-            &given_output[185..].contains(&"B".repeat(80)),
+            given_output.contains(&"B".repeat(80)),
             "synchronized: {}",
             given_output
         );
@@ -464,6 +482,7 @@ mod tests {
             result,
             "Terminal interface error: The handle is invalid. (os error 6)"
         )
+        // TODO From Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
     }
 
     #[test]
