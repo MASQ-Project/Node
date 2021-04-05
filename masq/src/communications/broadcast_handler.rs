@@ -44,11 +44,12 @@ impl BroadcastHandler for BroadcastHandlerReal {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
             let (mut stdout, mut stderr) = stream_factory.make();
-            let terminal_interface = self
+            let mut terminal_interface = self
                 .terminal_interface
                 .take()
                 .expect("BroadcastHandlerReal: start: Some was expected");
             loop {
+                //  terminal_interface.check_update();  TODO: consider optimization here -- it could avoid looking into mutex lock in multi-calls
                 Self::thread_loop_guts(
                     &message_rx,
                     stdout.as_mut(),

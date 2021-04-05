@@ -8,7 +8,7 @@ use masq_lib::intentionally_blank;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-//this is the most general layer, an object which is intended for you to usually work with at other
+//this is the most functional layer, an object which is intended for you to usually work with at other
 //places in the code
 
 #[allow(clippy::type_complexity)]
@@ -181,7 +181,8 @@ where
         return Err(format!("Setting prompt: {}", e));
     };
 
-    //possibly other parameters to be configured here, such as "completer" (see linefeed library)
+    //here we can add some other parameter to be configured,
+    //such as "completer" (see linefeed library)
 
     Ok(TerminalReal::new(Box::new(interface)))
 }
