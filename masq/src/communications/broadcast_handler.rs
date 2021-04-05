@@ -44,7 +44,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
             let (mut stdout, mut stderr) = stream_factory.make();
-            let mut terminal_interface = self
+            let terminal_interface = self
                 .terminal_interface
                 .take()
                 .expect("BroadcastHandlerReal: start: Some was expected");
