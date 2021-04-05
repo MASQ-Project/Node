@@ -268,10 +268,10 @@ impl WinDnsModifier {
         if let Some(friendly_name) = self.find_adapter_friendly_name(interface) {
             match self.netsh.set_nameserver(&friendly_name, nameservers) {
                 Ok(()) => Ok(()),
-                Err(NetshError::IOError(ref e)) if e.raw_os_error() == Some(PERMISSION_DENIED) => {
+                Err(NetshError::IoError(ref e)) if e.raw_os_error() == Some(PERMISSION_DENIED) => {
                     Err(PERMISSION_DENIED_STR.to_string())
                 }
-                Err(NetshError::IOError(ref e)) => Err(e.to_string()),
+                Err(NetshError::IoError(ref e)) => Err(e.to_string()),
                 Err(e) => Err(format!("{:?}", e)),
             }
         } else {
@@ -748,7 +748,7 @@ mod tests {
             .get_adapters_result(Ok(vec![Box::new(AdapterWrapperStub::default())]));
         subject.ipconfig = Box::new(ipconfig);
         let netsh = NetshMock::new()
-            .set_nameserver_result(Err(NetshError::IOError(Error::from_raw_os_error(3))));
+            .set_nameserver_result(Err(NetshError::IoError(Error::from_raw_os_error(3))));
         subject.netsh = Box::new(netsh);
 
         let result = subject.subvert_interface(&interface);
@@ -773,7 +773,7 @@ mod tests {
             .get_value_result("NameServer", Ok("127.0.0.1".to_string()))
             .get_value_result("NameServerBak", Ok("fine".to_string()));
 
-        let netsh = NetshMock::new().set_nameserver_result(Err(NetshError::IOError(
+        let netsh = NetshMock::new().set_nameserver_result(Err(NetshError::IoError(
             Error::from_raw_os_error(PERMISSION_DENIED),
         )));
         subject.netsh = Box::new(netsh);
@@ -959,7 +959,7 @@ mod tests {
         let hive = RegKeyMock::default().open_subkey_with_flags_result(Ok(Box::new(interfaces)));
         let ipconfig = IpconfigWrapperMock::new()
             .get_adapters_result(Ok(vec![Box::new(AdapterWrapperStub::default())]));
-        let netsh = NetshMock::new().set_nameserver_result(Err(NetshError::IOError(
+        let netsh = NetshMock::new().set_nameserver_result(Err(NetshError::IoError(
             Error::from_raw_os_error(PERMISSION_DENIED),
         )));
         let mut subject = WinDnsModifier::default();
@@ -1021,7 +1021,7 @@ mod tests {
         subject.hive = Box::new(hive);
         let netsh = NetshMock::new()
             .set_nameserver_result(Ok(()))
-            .set_nameserver_result(Err(NetshError::IOError(Error::from_raw_os_error(
+            .set_nameserver_result(Err(NetshError::IoError(Error::from_raw_os_error(
                 PERMISSION_DENIED,
             ))))
             .set_nameserver_result(Ok(()));
@@ -1255,7 +1255,7 @@ mod tests {
         let ipconfig = IpconfigWrapperMock::new()
             .get_adapters_result(Ok(vec![Box::new(AdapterWrapperStub::default())]));
         subject.ipconfig = Box::new(ipconfig);
-        let mut netsh = NetshMock::new().set_nameserver_result(Err(NetshError::IOError(
+        let mut netsh = NetshMock::new().set_nameserver_result(Err(NetshError::IoError(
             Error::from_raw_os_error(PERMISSION_DENIED),
         )));
         netsh.set_nameserver_parameters = set_nameserver_parameters_arc.clone();
@@ -1506,7 +1506,7 @@ mod tests {
             .get_adapters_result(Ok(vec![Box::new(AdapterWrapperStub::default())]));
         subject.ipconfig = Box::new(ipconfig);
         let netsh = NetshMock::new()
-            .set_nameserver_result(Err(NetshError::IOError(Error::from_raw_os_error(3))));
+            .set_nameserver_result(Err(NetshError::IoError(Error::from_raw_os_error(3))));
         subject.netsh = Box::new(netsh);
 
         let result = subject.revert_interface(&interface);

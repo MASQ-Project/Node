@@ -157,37 +157,48 @@ impl Clone for TerminalWrapper {
     }
 }
 
-pub fn configure_interface<F, U, E: ?Sized>(
+pub fn configure_interface<F, U, E: ?Sized, D>(
     interface_raw: Box<F>,
     terminal_type: Box<E>,
 ) -> Result<TerminalReal, String>
 where
-    F: FnOnce(&'static str, U) -> std::io::Result<Interface<U>>,
+    F: FnOnce(&'static str, U) -> std::io::Result<D>,
     E: FnOnce() -> std::io::Result<U>,
     U: linefeed::Terminal + 'static,
+    D: InterfaceRaw + Send + Sync + 'static,
 {
     let terminal: U = match terminal_type() {
         Ok(term) => term,
-        Err(e) => return Err(format!("Terminal interface error: {}", e)),
+        Err(e) => return Err(format!("Local terminal error: {}", e)),
     };
-    let interface: Interface<U> = match interface_raw("masq", terminal) {
-        Ok(interface) => interface,
-        //untested
-        Err(e) => return Err(format!("Getting terminal parameters: {}", e)),
+    let mut interface: Box<dyn InterfaceRaw + Send + Sync + 'static> =
+        match interface_raw("masq", terminal) {
+            Ok(interface) => Box::new(interface),
+            Err(e) => return Err(format!("Preparing terminal interface: {}", e)),
+        };
+
+    if let Err(e) = set_all_settable_or_give_an_error(&mut *interface) {
+        return Err(e);
     };
 
+    Ok(TerminalReal::new(interface))
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+fn set_all_settable_or_give_an_error<U>(interface: &mut U) -> Result<(), String>
+where
+    U: InterfaceRaw + Send + Sync + 'static + ?Sized,
+{
     if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
-        //untested
         return Err(format!("Setting prompt: {}", e));
-    };
+    }
 
     //here we can add some other parameter to be configured,
     //such as "completer" (see linefeed library)
 
-    Ok(TerminalReal::new(Box::new(interface)))
+    Ok(())
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //declaration of TerminalReal is in line_reader.rs
 
@@ -269,9 +280,7 @@ pub trait InterfaceRaw {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>>;
-    fn set_prompt(&self, _prompt: &str) -> std::io::Result<()> {
-        intentionally_blank!()
-    }
+    fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
 }
 
 impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
@@ -301,15 +310,14 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{MixingStdout, TerminalActiveMock};
+    use crate::test_utils::mocks::{InterfaceRawMock, MixingStdout, TerminalActiveMock};
     use crate::test_utils::{written_output_all_lines, written_output_by_line_number};
     use crossbeam_channel::unbounded;
     use linefeed::DefaultTerminal;
-    use std::io::Write;
+    use std::io::{Error, Write};
     use std::sync::Barrier;
     use std::thread;
     use std::time::{Duration, Instant};
-    use std::thread::JoinHandle;
 
     #[test]
     fn terminal_mock_and_test_tools_write_and_read() {
@@ -357,60 +365,22 @@ mod tests {
         assert_eq!(single_line, "hello world")
     }
 
-    fn test_terminal_collision<C>(closure1: Box<C>, closure2: Box<C>) -> String
-        where C: FnMut(TerminalWrapper, MixingStdout) -> () + Sync + Send + 'static {
-        let interface = TerminalWrapper::new()
-            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
-
-        let barrier = Arc::new(Barrier::new(2));
-
-        let (tx, rx) = unbounded();
-        let stdout_c1 = MixingStdout::new(tx);
-        let stdout_c2 = stdout_c1.clone();
-
-        let handles: Vec<_> = vec![(closure1, stdout_c1), (closure2, stdout_c2)].into_iter().map(|pair| {
-            let (mut closure, stdout): (Box<C>, MixingStdout) = pair;
-                let barrier_handle = Arc::clone(&barrier);
-                let thread_interface = interface.clone();
-
-                thread::spawn(move || {
-                    barrier_handle.wait();
-                    closure(thread_interface, stdout)
-                })
-            }
-        )
-            .collect();
-
-        handles.into_iter().for_each (|handle| handle.join().unwrap());
-
-        let mut buffer = String::new();
-        loop {
-            match rx.try_recv() {
-                Ok(string) => buffer.push_str(&string),
-                Err(_) => break buffer,
-            }
-        }
-    }
+    //In the two following tests I use the system stdout handles, which is the standard way in the project, but thanks to
+    //the lock from TerminalWrapper, it will be protected from one influencing another.
 
     #[test]
-    //Here I use the system stdout handles, which is the standard way in the project, but thanks to
-    //the lock from TerminalWrapper, it will be protected.
-    //The core of the test consists of two halves where the first shows unprotected writing while
-    //in the second locks are actively being used in both concurrent threads
-    fn terminal_wrapper_s_without_lock_does_not_block_others_from_writing_into_stdout() {
+    fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {
         let closure1: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
             Box::new(move |_interface: TerminalWrapper, mut stdout_c| {
-                //here without a lock in the first half -- printing in BOTH is unprotected
                 write_in_cycles("AAA", &mut stdout_c);
             });
 
         let closure2: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
             Box::new(move |_interface: TerminalWrapper, mut stdout_c| {
-                // lock from the very beginning of this thread...still it can have no effect
                 write_in_cycles("BBB", &mut stdout_c);
             });
 
-        let given_output = test_terminal_collision(Box::new (closure1), Box::new (closure2));
+        let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
         assert!(
             !given_output.contains(&"A".repeat(50)),
@@ -425,26 +395,22 @@ mod tests {
     }
 
     #[test]
-    //Here I use the system stdout handles, which is the standard way in the project, but thanks to
-    //the lock from TerminalWrapper, it will be protected.
-    //The core of the test consists of two halves where the first shows unprotected writing while
-    //in the second locks are actively being used in both concurrent threads
     fn terminal_wrapper_s_lock_blocks_others_to_write_into_stdout() {
-        let closure1: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
-            Box::new(move |mut interface: TerminalWrapper, mut stdout_c: MixingStdout| {
-                //here without a lock in the first half -- printing in BOTH is unprotected
+        let closure1: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> = Box::new(
+            move |mut interface: TerminalWrapper, mut stdout_c: MixingStdout| {
                 let _lock = interface.lock();
                 write_in_cycles("AAA", &mut stdout_c);
-            });
+            },
+        );
 
-        let closure2: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
-            Box::new(move |mut interface: TerminalWrapper, mut stdout_c: MixingStdout| {
-                // lock from the very beginning of this thread...still it can have no effect
+        let closure2: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> = Box::new(
+            move |mut interface: TerminalWrapper, mut stdout_c: MixingStdout| {
                 let _lock = interface.lock();
                 write_in_cycles("BBB", &mut stdout_c);
-            });
+            },
+        );
 
-        let given_output = test_terminal_collision(Box::new (closure1), Box::new (closure2));
+        let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
         assert!(
             //for some looseness not 90 but 80...sometimes a few letters from the 90 can be apart
@@ -460,6 +426,46 @@ mod tests {
         );
     }
 
+    fn test_terminal_collision<C>(closure1: Box<C>, closure2: Box<C>) -> String
+    where
+        C: FnMut(TerminalWrapper, MixingStdout) -> () + Sync + Send + 'static,
+    {
+        let interface = TerminalWrapper::new()
+            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
+
+        let barrier = Arc::new(Barrier::new(2));
+
+        let (tx, rx) = unbounded();
+        let stdout_c1 = MixingStdout::new(tx);
+        let stdout_c2 = stdout_c1.clone();
+
+        let handles: Vec<_> = vec![(closure1, stdout_c1), (closure2, stdout_c2)]
+            .into_iter()
+            .map(|pair| {
+                let (mut closure, stdout): (Box<C>, MixingStdout) = pair;
+                let barrier_handle = Arc::clone(&barrier);
+                let thread_interface = interface.clone();
+
+                thread::spawn(move || {
+                    barrier_handle.wait();
+                    closure(thread_interface, stdout)
+                })
+            })
+            .collect();
+
+        handles
+            .into_iter()
+            .for_each(|handle| handle.join().unwrap());
+
+        let mut buffer = String::new();
+        loop {
+            match rx.try_recv() {
+                Ok(string) => buffer.push_str(&string),
+                Err(_) => break buffer,
+            }
+        }
+    }
+
     fn write_in_cycles(written_signal: &str, stdout: &mut dyn Write) {
         (0..30).for_each(|_| {
             write!(stdout, "{}", written_signal).unwrap();
@@ -473,16 +479,15 @@ mod tests {
             Box::new(Interface::with_term),
             Box::new(DefaultTerminal::new),
         );
+
         let result = match subject {
             Ok(_) => panic!("should have been an error, got OK"),
             Err(e) => e,
         };
 
-        assert_eq!(
-            result,
-            "Terminal interface error: The handle is invalid. (os error 6)"
-        )
-        // TODO From Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
+        assert!(result.contains("Local terminal error"));
+        //Windows: The handle is invalid. (os error 6)
+        //Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
     }
 
     #[test]
@@ -502,6 +507,58 @@ mod tests {
         let checking_if_operational = written_output_all_lines(term_mock.lines(), false);
 
         assert_eq!(checking_if_operational, "hallelujah");
+    }
+
+    #[test]
+    fn configure_interface_catches_an_error_when_creating_an_interface_instance() {
+        let subject = configure_interface(
+            Box::new(producer_of_interface_raw_resulting_in_an_early_error),
+            Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
+        );
+
+        let result = match subject {
+            Err(e) => e,
+            Ok(_) => panic!("should have been Err, got Ok with TerminalReal"),
+        };
+
+        assert_eq!(
+            result,
+            format!(
+                "Preparing terminal interface: {}",
+                Error::from_raw_os_error(1)
+            )
+        )
+    }
+
+    fn producer_of_interface_raw_resulting_in_an_early_error(
+        _name: &str,
+        _terminal: impl linefeed::Terminal + 'static,
+    ) -> std::io::Result<impl InterfaceRaw + Send + Sync + 'static> {
+        Err(Error::from_raw_os_error(1)) as std::io::Result<InterfaceRawMock>
+    }
+
+    #[test]
+    fn configure_interface_catches_an_error_when_setting_the_prompt() {
+        let subject = configure_interface(
+            Box::new(producer_of_interface_raw_causing_set_prompt_error),
+            Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
+        );
+        let result = match subject {
+            Err(e) => e,
+            Ok(_) => panic!("should have been Err, got Ok with TerminalReal"),
+        };
+
+        assert_eq!(
+            result,
+            format!("Setting prompt: {}", Error::from_raw_os_error(10))
+        )
+    }
+
+    fn producer_of_interface_raw_causing_set_prompt_error(
+        _name: &str,
+        _terminal: impl linefeed::Terminal + 'static,
+    ) -> std::io::Result<impl InterfaceRaw + Send + Sync + 'static> {
+        Ok(InterfaceRawMock::new().set_prompt_result(Err(Error::from_raw_os_error(10))))
     }
 
     #[test]

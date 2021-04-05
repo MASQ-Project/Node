@@ -524,6 +524,7 @@ impl TerminalActiveMock {
 pub struct InterfaceRawMock {
     read_line_result: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
     add_history_unique_params: Arc<Mutex<Vec<String>>>,
+    set_prompt_result: Arc<Mutex<Vec<std::io::Result<()>>>>,
 }
 
 impl InterfaceRaw for InterfaceRawMock {
@@ -538,6 +539,10 @@ impl InterfaceRaw for InterfaceRawMock {
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + 'static>> {
         intentionally_blank!()
     }
+
+    fn set_prompt(&self, _prompt: &str) -> std::io::Result<()> {
+        self.set_prompt_result.lock().unwrap().remove(0)
+    }
 }
 
 impl InterfaceRawMock {
@@ -545,6 +550,7 @@ impl InterfaceRawMock {
         Self {
             read_line_result: Arc::new(Mutex::new(vec![])),
             add_history_unique_params: Arc::new(Mutex::new(vec![])),
+            set_prompt_result: Arc::new(Mutex::new(vec![])),
         }
     }
     pub fn read_line_result(self, result: std::io::Result<ReadResult>) -> Self {
@@ -554,6 +560,11 @@ impl InterfaceRawMock {
 
     pub fn add_history_unique_params(mut self, params: Arc<Mutex<Vec<String>>>) -> Self {
         self.add_history_unique_params = params;
+        self
+    }
+
+    pub fn set_prompt_result(self, result: std::io::Result<()>) -> Self {
+        self.set_prompt_result.lock().unwrap().push(result);
         self
     }
 }
