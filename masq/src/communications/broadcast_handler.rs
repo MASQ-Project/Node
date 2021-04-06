@@ -425,7 +425,7 @@ Cannot handle crash request: Node is not running.
             "The message from the broadcast handle isn't correct or entire: {}",
             full_stdout_output_sync
         );
-        //without synchronization it's a cut segment of these ten asterisks
+        //without synchronization there would have been cut segments of these ten asterisks
         assert!(
             full_stdout_output_sync.starts_with(&format!("{} ", "*".repeat(30))),
             "Each group of 30 asterisks must keep together: {}",
