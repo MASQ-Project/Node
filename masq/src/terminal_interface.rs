@@ -383,12 +383,12 @@ mod tests {
         let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
         assert!(
-            !given_output.contains(&"A".repeat(50)),
+            !given_output.contains(&"A".repeat(90)),
             "without synchronization: {}",
             given_output
         );
         assert!(
-            !given_output.contains(&"B".repeat(50)),
+            !given_output.contains(&"B".repeat(90)),
             "without synchronization: {}",
             given_output
         );
@@ -413,14 +413,12 @@ mod tests {
         let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
         assert!(
-            //for some looseness not 90 but 80...sometimes a few letters from the 90 can be apart
-            given_output.contains(&"A".repeat(80)),
+            given_output.contains(&"A".repeat(90)),
             "synchronized: {}",
             given_output
         );
         assert!(
-            //for some looseness not 90 but 80...sometimes a few letters from the 90 can be apart
-            given_output.contains(&"B".repeat(80)),
+            given_output.contains(&"B".repeat(90)),
             "synchronized: {}",
             given_output
         );
