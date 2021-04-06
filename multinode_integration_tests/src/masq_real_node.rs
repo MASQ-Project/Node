@@ -215,7 +215,6 @@ impl NodeStartupConfig {
     }
 
     fn make_establish_wallet_args(&self) -> Option<Vec<String>> {
-
         let args = match (&self.earning_wallet_info, &self.consuming_wallet_info) {
             (EarningWalletInfo::None, ConsumingWalletInfo::None) => return None,
             (EarningWalletInfo::None, ConsumingWalletInfo::PrivateKey(_)) => return None,
