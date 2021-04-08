@@ -3,6 +3,7 @@
 use masq_cli_lib::non_interactive_mode::Main;
 use masq_lib::command::{Command, StdStreams};
 use std::io;
+use std::sync::Arc;
 
 fn main() {
     let mut streams: StdStreams<'_> = StdStreams {

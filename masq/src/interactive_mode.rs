@@ -220,7 +220,7 @@ mod tests {
             .process_result(Ok(()))
             .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(
-                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(terminal_mock)),
+                TerminalWrapper::new(Box::new(terminal_mock)),
             );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
@@ -253,7 +253,7 @@ mod tests {
             .close_params(&close_params_arc)
             .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(
-                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
+                TerminalWrapper::new(Box::new(
                     TerminalPassiveMock::new()
                         .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
                 )),
@@ -286,7 +286,7 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(
-                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
+                TerminalWrapper::new(Box::new(
                     TerminalPassiveMock::new()
                         .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
                         .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
@@ -323,7 +323,7 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(
-                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
+                TerminalWrapper::new(Box::new(
                     TerminalPassiveMock::new()
                         .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
                         .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
@@ -352,8 +352,7 @@ mod tests {
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
-        let terminal_interface_reference_for_inner = TerminalWrapper::new()
-            .set_interactive_for_test_purposes(Box::new(
+        let terminal_interface_reference_for_inner = TerminalWrapper::new(Box::new(
                 TerminalPassiveMock::new()
                     .read_line_result(TerminalEvent::CommandLine("setup\n".to_string()))
                     .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
@@ -398,8 +397,7 @@ mod tests {
             .close_params(&close_params_arc)
             .upgrade_terminal_interface_result(Err("Invalid process handle".to_string()))
             .insert_terminal_interface(
-                TerminalWrapper::new()
-                    .set_interactive_for_test_purposes(Box::new(TerminalPassiveMock::new())),
+                TerminalWrapper::new(Box::new(TerminalPassiveMock::new())),
             );
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
@@ -426,7 +424,7 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
             .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new().set_interactive_for_test_purposes(
+            .insert_terminal_interface(TerminalWrapper::new(
                 Box::new(TerminalPassiveMock::new().read_line_result(TerminalEvent::Break)),
             ));
         let processor_factory =
@@ -455,7 +453,7 @@ mod tests {
             .close_params(&close_params_arc)
             .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(
-                TerminalWrapper::new().set_interactive_for_test_purposes(Box::new(
+                TerminalWrapper::new(Box::new(
                     TerminalPassiveMock::new()
                         .read_line_result(TerminalEvent::Continue)
                         .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),

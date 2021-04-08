@@ -19,6 +19,21 @@ pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
 }
 
+pub struct BroadcastHandleInactive {}
+
+impl BroadcastHandle for BroadcastHandleInactive {
+    fn send(&self, message_body: MessageBody) {
+        message_body; //drop it (unless we find a better use for such a message)
+    }
+}
+
+impl BroadcastHandleInactive {
+    pub fn new()->Self{
+        Self{}
+    }
+}
+
+
 pub struct BroadcastHandleGeneric {
     message_tx: Sender<MessageBody>,
 }
@@ -32,7 +47,7 @@ impl BroadcastHandle for BroadcastHandleGeneric {
 }
 
 pub trait BroadcastHandler {
-    fn start(self, stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle>;
+    fn start(self, streams:(Box<dyn Write + Send>,Box<dyn Write + Send>)) -> Box<dyn BroadcastHandle>;
 }
 
 pub struct BroadcastHandlerReal {
@@ -40,16 +55,15 @@ pub struct BroadcastHandlerReal {
 }
 
 impl BroadcastHandler for BroadcastHandlerReal {
-    fn start(mut self, stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle> {
+    fn start(mut self, streams:(Box<dyn Write + Send>,Box<dyn Write + Send>)) -> Box<dyn BroadcastHandle> {
         let (message_tx, message_rx) = unbounded();
         thread::spawn(move || {
-            let (mut stdout, mut stderr) = stream_factory.make();
+            let (mut stdout, mut stderr) = streams;
             let terminal_interface = self
                 .terminal_interface
                 .take()
                 .expect("BroadcastHandlerReal: start: Some was expected");
             loop {
-                //  terminal_interface.check_update();  TODO: consider optimization here -- it could avoid looking into mutex lock in multi-calls
                 Self::thread_loop_guts(
                     &message_rx,
                     stdout.as_mut(),
@@ -152,8 +166,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(
-            TerminalWrapper::new()
-                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+            TerminalWrapper::new(Box::new(TerminalActiveMock::new())),
         ))
         .start(Box::new(factory));
         let message = UiSetupBroadcast {
@@ -186,8 +199,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(
-            TerminalWrapper::new()
-                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+            TerminalWrapper::new(Box::new(TerminalActiveMock::new())),
         ))
         .start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
@@ -218,8 +230,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(
-            TerminalWrapper::new()
-                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+            TerminalWrapper::new(Box::new(TerminalActiveMock::new())),
         ))
         .start(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
@@ -244,8 +255,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(
-            TerminalWrapper::new()
-                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+            TerminalWrapper::new(Box::new(TerminalActiveMock::new())),
         ))
         .start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
@@ -273,8 +283,7 @@ mod tests {
         let (factory, handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(
-            TerminalWrapper::new()
-                .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new())),
+            TerminalWrapper::new(Box::new(TerminalActiveMock::new())),
         ))
         .start(Box::new(factory));
         let bad_message = MessageBody {
@@ -403,7 +412,7 @@ Cannot handle crash request: Node is not running.
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
 
-        let mut synchronizer = TerminalWrapper::new();
+        let mut synchronizer = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         let synchronizer_clone_idle = synchronizer.clone();
 

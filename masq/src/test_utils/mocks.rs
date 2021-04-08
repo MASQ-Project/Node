@@ -5,7 +5,7 @@ use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handler::StreamFactory;
+use crate::communications::broadcast_handler::{BroadcastHandle};
 use crate::line_reader::TerminalEvent;
 use crate::terminal_interface::{InterfaceRaw, Terminal, TerminalWrapper, WriterGeneric};
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
@@ -184,10 +184,6 @@ impl CommandProcessor for CommandProcessorMock {
         self.close_params.lock().unwrap().push(());
     }
 
-    fn upgrade_terminal_interface(&mut self) -> Result<(), String> {
-        self.upgrade_terminal_interface_results.remove(0)
-    }
-
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
         *self.terminal_interface_clone_count.lock().unwrap() += 1;
         self.terminal_interface[0].clone()
@@ -241,7 +237,8 @@ pub struct CommandProcessorFactoryMock {
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
-        _broadcast_stream_factory: Box<dyn StreamFactory>,
+        terminal_interface: TerminalWrapper,
+        generic_broadcast_handle: Box<dyn BroadcastHandle>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         self.make_params.lock().unwrap().push(args.to_vec());

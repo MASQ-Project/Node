@@ -3,7 +3,7 @@
 use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handler::StreamFactory;
+use crate::communications::broadcast_handler::{BroadcastHandle};
 use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
 use clap::value_t;
@@ -14,7 +14,8 @@ use masq_lib::intentionally_blank;
 pub trait CommandProcessorFactory {
     fn make(
         &self,
-        broadcast_stream_factory: Box<dyn StreamFactory>,
+        terminal_interface: TerminalWrapper,
+        generic_broadcast_handle: Box<dyn BroadcastHandle>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
 }
@@ -25,12 +26,13 @@ pub struct CommandProcessorFactoryReal {}
 impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
-        broadcast_stream_factory: Box<dyn StreamFactory>,
+        terminal_interface: TerminalWrapper,
+        generic_broadcast_handle: Box<dyn BroadcastHandle>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         let matches = app().get_matches_from(args);
         let ui_port = value_t!(matches, "ui-port", u16).expect("ui-port is not properly defaulted");
-        match CommandContextReal::new(ui_port, broadcast_stream_factory) {
+        match CommandContextReal::new(ui_port, terminal_interface,generic_broadcast_handle) {
             Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
             Err(e) => panic!("Unexpected error: {:?}", e),
@@ -47,7 +49,6 @@ impl CommandProcessorFactoryReal {
 pub trait CommandProcessor {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError>;
     fn close(&mut self);
-    fn upgrade_terminal_interface(&mut self) -> Result<(), String>;
     fn clone_terminal_interface(&mut self) -> TerminalWrapper;
     #[cfg(test)]
     fn clone_terminal_from_processor_test_only(&self) -> TerminalWrapper {
@@ -71,12 +72,7 @@ impl CommandProcessor for CommandProcessorReal {
         self.context.close();
     }
 
-    fn upgrade_terminal_interface(&mut self) -> Result<(), String> {
-        self.context.terminal_interface.upgrade()
-    }
-
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
-        self.context.terminal_interface.check_update(); //happens after upgrade
         self.context.terminal_interface.clone()
     }
 
@@ -90,8 +86,8 @@ impl CommandProcessor for CommandProcessorReal {
 mod tests {
     use super::*;
     use crate::command_context::CommandContext;
-    use crate::communications::broadcast_handler::StreamFactoryReal;
-    use crate::test_utils::mocks::TestStreamFactory;
+    use crate::communications::broadcast_handler::{BroadcastHandleInactive};
+    use crate::test_utils::mocks::{TestStreamFactory, TerminalPassiveMock};
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -122,8 +118,10 @@ mod tests {
             format!("{}", port),
         ];
         let subject = CommandProcessorFactoryReal::new();
+        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let broadcast_handle = BroadcastHandleInactive::new();
 
-        let result = subject.make(Box::new(StreamFactoryReal::new()), &args);
+        let result = subject.make(terminal_interface,Box::new(broadcast_handle), &args);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -142,12 +140,14 @@ mod tests {
             "--ui-port".to_string(),
             format!("{}", port),
         ];
+        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let broadcast_handle = BroadcastHandleInactive::new();
         let subject = CommandProcessorFactoryReal::new();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
 
         let mut result = subject
-            .make(Box::new(StreamFactoryReal::new()), &args)
+            .make(terminal_interface,Box::new(broadcast_handle), &args)
             .unwrap();
 
         let command = TestCommand {};
@@ -219,13 +219,15 @@ mod tests {
             "--ui-port".to_string(),
             format!("{}", port),
         ];
+        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let broadcast_handle = BroadcastHandleInactive::new();
         let processor_factory = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
         let mut processor = processor_factory
-            .make(Box::new(broadcast_stream_factory), &args)
+            .make(terminal_interface,Box::new(broadcast_handle), &args)   //it used to call broadcast_stream_factory
             .unwrap();
 
-        processor.upgrade_terminal_interface().unwrap();
+        //processor.upgrade_terminal_interface().unwrap(); TODO: remove once everything is clear
 
         processor
             .process(Box::new(ToUiBroadcastTrigger {}))
@@ -258,144 +260,148 @@ mod tests {
 
         stop_handle.stop();
     }
-    #[test]
-    fn upgrade_terminal_interface_works() {
-        let port = find_free_port();
-        let args = [
-            "masq".to_string(),
-            "--ui-port".to_string(),
-            format!("{}", port),
-        ];
-        let processor_factory = CommandProcessorFactoryReal::new();
-        let server = MockWebSocketsServer::new(port);
-        let stop_handle = server.start();
+    // #[test]
+    // fn upgrade_terminal_interface_works() {
+    //     let port = find_free_port();
+    //     let args = [
+    //         "masq".to_string(),
+    //         "--ui-port".to_string(),
+    //         format!("{}", port),
+    //     ];
+    //     let processor_factory = CommandProcessorFactoryReal::new();
+    //     let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+    //     let broadcast_handle = BroadcastHandleInactive::new();
+    //     let server = MockWebSocketsServer::new(port);
+    //     let stop_handle = server.start();
+    //
+    //     let mut processor = processor_factory
+    //         .make(terminal_interface,Box::new(broadcast_handle), &args)
+    //         .unwrap();
+    //
+    //     //in reality we don't use this function so early, now I just want to check the setting of TerminalWrapper
+    //     let mut terminal_first_check = processor.clone_terminal_from_processor_test_only();
+    //     assert!((*terminal_first_check.inspect_inner_active()).is_none());
+    //     assert!(terminal_first_check
+    //         .inspect_share_point()
+    //         .lock()
+    //         .unwrap()
+    //         .is_none());
+    //     assert_eq!(
+    //         terminal_first_check
+    //             .inspect_interactive_flag()
+    //             .load(Ordering::Relaxed),
+    //         false
+    //     ); //means as if we haven't entered go_interactive() yet
+    //
+    //     processor.upgrade_terminal_interface().unwrap();
+    //
+    //     let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
+    //     //Now there should be MemoryTerminal inside TerminalWrapper instead of TerminalIdle
+    //     //In production code it'd be DefaultTerminal at the place, thanks to conditional compilation done by attributes
+    //     assert_eq!(
+    //         terminal_second_check
+    //             .inspect_interactive_flag()
+    //             .load(Ordering::Relaxed),
+    //         true
+    //     );
+    //     assert!((*terminal_second_check.inspect_inner_active()).is_none());
+    //     //This means that it must be linefeed::Writer<'_,'_,MemoryTerminal> because DefaultTerminal would have made the test fail.
+    //     assert_eq!(
+    //         (*terminal_second_check
+    //             .inspect_share_point()
+    //             .lock()
+    //             .unwrap()
+    //             .as_ref()
+    //             .unwrap())
+    //         .tell_me_who_you_are(),
+    //         "TerminalReal<linefeed::Writer<_>>"
+    //     );
+    //
+    //     stop_handle.stop();
+    // }
 
-        let mut processor = processor_factory
-            .make(Box::new(StreamFactoryReal::new()), &args)
-            .unwrap();
-
-        //in reality we don't use this function so early, now I just want to check the setting of TerminalWrapper
-        let mut terminal_first_check = processor.clone_terminal_from_processor_test_only();
-        assert!((*terminal_first_check.inspect_inner_active()).is_none());
-        assert!(terminal_first_check
-            .inspect_share_point()
-            .lock()
-            .unwrap()
-            .is_none());
-        assert_eq!(
-            terminal_first_check
-                .inspect_interactive_flag()
-                .load(Ordering::Relaxed),
-            false
-        ); //means as if we haven't entered go_interactive() yet
-
-        processor.upgrade_terminal_interface().unwrap();
-
-        let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
-        //Now there should be MemoryTerminal inside TerminalWrapper instead of TerminalIdle
-        //In production code it'd be DefaultTerminal at the place, thanks to conditional compilation done by attributes
-        assert_eq!(
-            terminal_second_check
-                .inspect_interactive_flag()
-                .load(Ordering::Relaxed),
-            true
-        );
-        assert!((*terminal_second_check.inspect_inner_active()).is_none());
-        //This means that it must be linefeed::Writer<'_,'_,MemoryTerminal> because DefaultTerminal would have made the test fail.
-        assert_eq!(
-            (*terminal_second_check
-                .inspect_share_point()
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap())
-            .tell_me_who_you_are(),
-            "TerminalReal<linefeed::Writer<_>>"
-        );
-
-        stop_handle.stop();
-    }
-
-    #[test]
-    fn clone_terminal_interface_works() {
-        let port = find_free_port();
-        let args = [
-            "masq".to_string(),
-            "--ui-port".to_string(),
-            format!("{}", port),
-        ];
-        let processor_factory = CommandProcessorFactoryReal::new();
-        let server = MockWebSocketsServer::new(port);
-        let stop_handle = server.start();
-        let mut processor = processor_factory
-            .make(Box::new(StreamFactoryReal::new()), &args)
-            .unwrap();
-
-        processor.upgrade_terminal_interface().unwrap();
-
-        let mut terminal_first_check = processor.clone_terminal_from_processor_test_only();
-        assert_eq!(
-            terminal_first_check
-                .inspect_interactive_flag()
-                .load(Ordering::Relaxed),
-            true
-        );
-        assert!((*terminal_first_check.inspect_inner_active()).is_none());
-        assert_eq!(
-            (*terminal_first_check
-                .inspect_share_point()
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap())
-            .tell_me_who_you_are(),
-            "TerminalReal<linefeed::Writer<_>>"
-        );
-
-        let _ = processor.clone_terminal_interface();
-
-        let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
-        let inner_active = (*terminal_second_check.inspect_inner_active())
-            .as_ref()
-            .unwrap();
-        assert_eq!(
-            inner_active.tell_me_who_you_are(),
-            "TerminalReal<linefeed::Writer<_>>"
-        );
-        //conlusion: by cloning the upgrade was completed -> inner_active is truly active now
-
-        //share point remains full, since it is "point" which will use all future clones to upgrade themselves
-        assert!((*terminal_second_check.inspect_share_point().lock().unwrap()).is_some());
-        assert_eq!(
-            terminal_second_check
-                .inspect_interactive_flag()
-                .load(Ordering::Relaxed),
-            true
-        );
-        stop_handle.stop();
-
-        //now let's go backwards and check the older references if they are updated too
-        assert_eq!(
-            terminal_first_check
-                .inspect_interactive_flag()
-                .load(Ordering::Relaxed),
-            true
-        );
-        assert!((*terminal_first_check.inspect_share_point().lock().unwrap()).is_some());
-
-        //not fully yet...it has what it needs...correct value inside its share point, but it needs to be updated still
-        //because inner_active is None at the moment
-        assert!((*terminal_first_check.inspect_inner_active()).is_none());
-
-        //an update can be done by acquiring a lock too
-        terminal_first_check.lock();
-
-        let inner_active_from_older_reference = (*terminal_first_check.inspect_inner_active())
-            .as_ref()
-            .unwrap();
-        assert_eq!(
-            inner_active_from_older_reference.tell_me_who_you_are(),
-            "TerminalReal<linefeed::Writer<_>>"
-        );
-    }
+    // #[test]
+    // fn clone_terminal_interface_works() {
+    //     let port = find_free_port();
+    //     let args = [
+    //         "masq".to_string(),
+    //         "--ui-port".to_string(),
+    //         format!("{}", port),
+    //     ];
+    //     let processor_factory = CommandProcessorFactoryReal::new();
+    //     let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+    //     let broadcast_handle = BroadcastHandleInactive::new();
+    //     let server = MockWebSocketsServer::new(port);
+    //     let stop_handle = server.start();
+    //     let mut processor = processor_factory
+    //         .make(terminal_interface,Box::new(broadcast_handle), &args)
+    //         .unwrap();
+    //
+    //     processor.upgrade_terminal_interface().unwrap();
+    //
+    //     let mut terminal_first_check = processor.clone_terminal_from_processor_test_only();
+    //     assert_eq!(
+    //         terminal_first_check
+    //             .inspect_interactive_flag()
+    //             .load(Ordering::Relaxed),
+    //         true
+    //     );
+    //     assert!((*terminal_first_check.inspect_inner_active()).is_none());
+    //     assert_eq!(
+    //         (*terminal_first_check
+    //             .inspect_share_point()
+    //             .lock()
+    //             .unwrap()
+    //             .as_ref()
+    //             .unwrap())
+    //         .tell_me_who_you_are(),
+    //         "TerminalReal<linefeed::Writer<_>>"
+    //     );
+    //
+    //     let _ = processor.clone_terminal_interface();
+    //
+    //     let mut terminal_second_check = processor.clone_terminal_from_processor_test_only();
+    //     let inner_active = (*terminal_second_check.inspect_inner_active())
+    //         .as_ref()
+    //         .unwrap();
+    //     assert_eq!(
+    //         inner_active.tell_me_who_you_are(),
+    //         "TerminalReal<linefeed::Writer<_>>"
+    //     );
+    //     //conlusion: by cloning the upgrade was completed -> inner_active is truly active now
+    //
+    //     //share point remains full, since it is "point" which will use all future clones to upgrade themselves
+    //     assert!((*terminal_second_check.inspect_share_point().lock().unwrap()).is_some());
+    //     assert_eq!(
+    //         terminal_second_check
+    //             .inspect_interactive_flag()
+    //             .load(Ordering::Relaxed),
+    //         true
+    //     );
+    //     stop_handle.stop();
+    //
+    //     //now let's go backwards and check the older references if they are updated too
+    //     assert_eq!(
+    //         terminal_first_check
+    //             .inspect_interactive_flag()
+    //             .load(Ordering::Relaxed),
+    //         true
+    //     );
+    //     assert!((*terminal_first_check.inspect_share_point().lock().unwrap()).is_some());
+    //
+    //     //not fully yet...it has what it needs...correct value inside its share point, but it needs to be updated still
+    //     //because inner_active is None at the moment
+    //     assert!((*terminal_first_check.inspect_inner_active()).is_none());
+    //
+    //     //an update can be done by acquiring a lock too
+    //     terminal_first_check.lock();
+    //
+    //     let inner_active_from_older_reference = (*terminal_first_check.inspect_inner_active())
+    //         .as_ref()
+    //         .unwrap();
+    //     assert_eq!(
+    //         inner_active_from_older_reference.tell_me_who_you_are(),
+    //         "TerminalReal<linefeed::Writer<_>>"
+    //     );
+   // }
 }

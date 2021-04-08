@@ -5,11 +5,12 @@ use crate::command_factory::{CommandFactory, CommandFactoryReal};
 use crate::command_processor::{
     CommandProcessor, CommandProcessorFactory, CommandProcessorFactoryReal,
 };
-use crate::communications::broadcast_handler::StreamFactoryReal;
+use crate::communications::broadcast_handler::{BroadcastHandle, BroadcastHandleInactive, BroadcastHandlerReal, BroadcastHandler};
 use crate::interactive_mode::go_interactive;
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
+use crate::terminal_interface::{TerminalWrapper, TerminalIdle};
 
 pub struct Main {
     command_factory: Box<dyn CommandFactory>,
@@ -37,6 +38,26 @@ impl Main {
         None
     }
 
+    fn populate_non_interactive_dependencies()->(Box<dyn BroadcastHandle>,TerminalWrapper) {
+        (Box::new(BroadcastHandleInactive::new()),TerminalWrapper::new(Box::new(TerminalIdle::new())))
+    }
+
+    fn populate_interactive_dependencies()->Result<(Box<dyn BroadcastHandle>,TerminalWrapper),String> {
+
+
+
+        unimplemented!();
+
+            //////goes to another place
+            let foreground_terminal_interface = TerminalWrapper::configure_interface()?;
+            let background_terminal_interface = foreground_terminal_interface.clone();
+            let generic_broadcast_handler = BroadcastHandlerReal::new(Some(background_terminal_interface));
+            let generic_broadcast_handle = generic_broadcast_handler.start((Box::new(std::io::stdout()), Box::new(std::io::stderr())));
+            //////
+
+        Ok((Box::new(BroadcastHandleInactive::new()),foreground_terminal_interface))
+    }
+
     #[cfg(test)]
     pub fn test_only_new(
         command_factory: Box<dyn CommandFactory>,
@@ -51,10 +72,15 @@ impl Main {
 
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
-        let broadcast_stream_factory = StreamFactoryReal::new();
+        let subcommand_opt = Self::extract_subcommand(args);
+        let (generic_broadcast_handle,terminal_interface) = match subcommand_opt{
+            Some(_) => Self::populate_non_interactive_dependencies(),
+            None => Self::populate_interactive_dependencies()
+        };
+        //let stdout = Box::new(streams.stdout);
         let mut command_processor = match self
             .processor_factory
-            .make(Box::new(broadcast_stream_factory), args)
+            .make(terminal_interface,generic_broadcast_handle, args)
         {
             Ok(processor) => processor,
             Err(e) => {
@@ -62,6 +88,7 @@ impl command::Command for Main {
                 return 1;
             }
         };
+
         let result = match Self::extract_subcommand(args) {
             Some(command_parts) => {
                 match handle_command_common(

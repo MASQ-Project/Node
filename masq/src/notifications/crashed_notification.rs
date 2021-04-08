@@ -65,8 +65,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::ChildWaitFailure("Couldn't wait".to_string()),
         };
-        let term_interface = TerminalWrapper::new()
-            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
@@ -83,8 +82,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::Unrecognized("Just...failed!\n\n".to_string()),
         };
-        let term_interface = TerminalWrapper::new()
-            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
@@ -101,8 +99,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::NoInformation,
         };
-        let term_interface = TerminalWrapper::new()
-            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
 
@@ -119,8 +116,7 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::DaemonCrashed,
         };
-        let term_interface = TerminalWrapper::new()
-            .set_interactive_for_test_purposes(Box::new(TerminalActiveMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
     }

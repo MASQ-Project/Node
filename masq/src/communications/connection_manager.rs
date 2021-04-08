@@ -84,7 +84,7 @@ impl ConnectionManager {
     pub fn connect(
         &mut self,
         port: u16,
-        broadcast_handle: Box<dyn BroadcastHandle>,
+        generic_broadcast_handle: Box<dyn BroadcastHandle>,
         timeout_millis: u64,
     ) -> Result<(), ClientListenerError> {
         let (demand_tx, demand_rx) = unbounded();
@@ -95,7 +95,7 @@ impl ConnectionManager {
         let (redirect_response_tx, redirect_response_rx) = unbounded();
         let (active_port_response_tx, active_port_response_rx) = unbounded();
         let redirect_broadcast_handler =
-            RedirectBroadcastHandler::new(broadcast_handle, redirect_order_tx);
+            RedirectBroadcastHandler::new(generic_broadcast_handle, redirect_order_tx);
         self.demand_tx = demand_tx;
         self.conversation_return_rx = conversation_return_rx;
         self.redirect_response_rx = redirect_response_rx;
@@ -517,7 +517,7 @@ struct RedirectBroadcastHandler {
 }
 
 impl BroadcastHandler for RedirectBroadcastHandler {
-    fn start(self, _stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle> {
+    fn start(self, _streams:(Box<dyn Write>,Box<dyn Write>)) -> Box<dyn BroadcastHandle> {
         Box::new(BroadcastHandleRedirect {
             next_handle: self.next_handle,
             redirect_order_tx: self.redirect_order_tx,

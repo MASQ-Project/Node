@@ -181,25 +181,4 @@ mod tests {
         );
     }
 
-    //     #[test]
-    //     fn read_line_synchronization_works() {
-    //         let synchronizer_arc = Arc::new(Mutex::new(()));
-    //         let synchronizer_arc_clone = synchronizer_arc.clone();
-    //
-    //         let (tx, rx) = unbounded();
-    //
-    //         let thread_handle = thread::spawn(move || {
-    //             let mut subject = LineReader::new(synchronizer_arc_clone);
-    //             let buffer_arc = Box::new(MixingStdout::new(tx));
-    //             let editor =
-    //                 EditorMock::new().stdout_result(Rc::new(RefCell::new(Box::new(buffer_arc))));
-    //             subject.delegate = Box::new(editor);
-    //             subject.print_prompt_synchronized();
-    //         });
-    //         let printed_string = rx.recv().unwrap();
-    //
-    //         thread_handle.join().unwrap();
-    //
-    //         assert_eq!(printed_string, "masq> ".to_string())
-    //     }
 }
