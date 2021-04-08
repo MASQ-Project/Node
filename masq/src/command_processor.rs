@@ -3,7 +3,7 @@
 use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handler::{BroadcastHandle};
+use crate::communications::broadcast_handler::BroadcastHandle;
 use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
 use clap::value_t;
@@ -32,7 +32,7 @@ impl CommandProcessorFactory for CommandProcessorFactoryReal {
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         let matches = app().get_matches_from(args);
         let ui_port = value_t!(matches, "ui-port", u16).expect("ui-port is not properly defaulted");
-        match CommandContextReal::new(ui_port, terminal_interface,generic_broadcast_handle) {
+        match CommandContextReal::new(ui_port, terminal_interface, generic_broadcast_handle) {
             Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
             Err(e) => panic!("Unexpected error: {:?}", e),
@@ -86,14 +86,14 @@ impl CommandProcessor for CommandProcessorReal {
 mod tests {
     use super::*;
     use crate::command_context::CommandContext;
-    use crate::communications::broadcast_handler::{BroadcastHandleInactive};
-    use crate::test_utils::mocks::{TestStreamFactory, TerminalPassiveMock};
+    use crate::communications::broadcast_handler::BroadcastHandleInactive;
+    use crate::non_interactive_mode::Main;
+    use crate::test_utils::mocks::{TerminalPassiveMock, TestStreamFactory};
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::{find_free_port, running_test};
-    use std::sync::atomic::Ordering;
     use std::thread;
     use std::time::Duration;
 
@@ -121,7 +121,7 @@ mod tests {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
         let broadcast_handle = BroadcastHandleInactive::new();
 
-        let result = subject.make(terminal_interface,Box::new(broadcast_handle), &args);
+        let result = subject.make(terminal_interface, Box::new(broadcast_handle), &args);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -147,7 +147,7 @@ mod tests {
         let stop_handle = server.start();
 
         let mut result = subject
-            .make(terminal_interface,Box::new(broadcast_handle), &args)
+            .make(terminal_interface, Box::new(broadcast_handle), &args)
             .unwrap();
 
         let command = TestCommand {};
@@ -219,15 +219,15 @@ mod tests {
             "--ui-port".to_string(),
             format!("{}", port),
         ];
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
-        let broadcast_handle = BroadcastHandleInactive::new();
+
+        let (broadcast_handle, terminal_interface) =
+            Main::populate_interactive_dependencies(broadcast_stream_factory).unwrap();
+
         let processor_factory = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
         let mut processor = processor_factory
-            .make(terminal_interface,Box::new(broadcast_handle), &args)   //it used to call broadcast_stream_factory
+            .make(terminal_interface, broadcast_handle, &args)
             .unwrap();
-
-        //processor.upgrade_terminal_interface().unwrap(); TODO: remove once everything is clear
 
         processor
             .process(Box::new(ToUiBroadcastTrigger {}))
@@ -403,5 +403,5 @@ mod tests {
     //         inner_active_from_older_reference.tell_me_who_you_are(),
     //         "TerminalReal<linefeed::Writer<_>>"
     //     );
-   // }
+    // }
 }

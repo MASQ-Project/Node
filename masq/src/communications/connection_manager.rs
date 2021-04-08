@@ -517,7 +517,7 @@ struct RedirectBroadcastHandler {
 }
 
 impl BroadcastHandler for RedirectBroadcastHandler {
-    fn start(self, _streams:(Box<dyn Write>,Box<dyn Write>)) -> Box<dyn BroadcastHandle> {
+    fn start(self, _stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle> {
         Box::new(BroadcastHandleRedirect {
             next_handle: self.next_handle,
             redirect_order_tx: self.redirect_order_tx,

@@ -134,6 +134,7 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::communications::broadcast_handler::StreamFactory;
     use crate::test_utils::mocks::{CommandContextMock, TerminalActiveMock, TestStreamFactory};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};

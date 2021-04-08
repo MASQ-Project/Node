@@ -2,17 +2,19 @@
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
 use linefeed::memory::MemoryTerminal;
-use linefeed::{DefaultTerminal, Interface, ReadResult, Writer};
+use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+#[cfg(not(test))]
+use linefeed::DefaultTerminal;
 
 //this is a layer with the broadest functionality, an object which is intended for you to usually work with at other
 //places in the code
 
 pub struct TerminalWrapper {
-    interface: Arc<Box<dyn Terminal + Send + Sync>>
+    interface: Arc<Box<dyn Terminal + Send + Sync>>,
 }
 
 impl TerminalWrapper {
@@ -29,16 +31,16 @@ impl TerminalWrapper {
     }
 
     #[cfg(test)]
-    pub fn new(interface:Box<dyn Terminal + Send + Sync>) -> Self {
+    pub fn new(interface: Box<dyn Terminal + Send + Sync>) -> Self {
         Self {
-            interface:Arc::new(interface)
+            interface: Arc::new(interface),
         }
     }
 
     #[cfg(not(test))]
-    fn new(interface:Box<dyn Terminal + Send + Sync>) -> Self {
+    fn new(interface: Box<dyn Terminal + Send + Sync>) -> Self {
         Self {
-            interface:Arc::new(interface)
+            interface: Arc::new(interface),
         }
     }
 
@@ -49,17 +51,17 @@ impl TerminalWrapper {
 
     #[cfg(not(test))]
     pub fn configure_interface() -> Result<Self, String> {
-        //no automatic test for this; tested with the fact that people are able to run masq in interactive mode
-         Self::configure_interface_generic(Box::new(DefaultTerminal::new))
+        //no automatic test for this; tested by the fact that masq is runnable in interactive mode  TODO add an integration test failing on this
+        Self::configure_interface_generic(Box::new(DefaultTerminal::new))
     }
 
-    fn configure_interface_generic<F,U>(terminal_creator_by_type:Box<F>)->Result<Self, String>
-        where F: FnOnce() -> std::io::Result<U>,
-              U: linefeed::Terminal + 'static {
-        let interface =   configure_interface(
-            Box::new(Interface::with_term),
-            terminal_creator_by_type,
-        )?;
+    fn configure_interface_generic<F, U>(terminal_creator_by_type: Box<F>) -> Result<Self, String>
+    where
+        F: FnOnce() -> std::io::Result<U>,
+        U: linefeed::Terminal + 'static,
+    {
+        let interface =
+            configure_interface(Box::new(Interface::with_term), terminal_creator_by_type)?;
         Ok(Self::new(Box::new(interface)))
     }
 
@@ -91,7 +93,6 @@ where
     E: FnOnce() -> std::io::Result<U>,
     U: linefeed::Terminal + 'static,
     D: InterfaceRaw + Send + Sync + 'static,
-
 {
     let terminal: U = match terminal_type() {
         Ok(term) => term,
@@ -149,11 +150,11 @@ pub trait Terminal {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub struct TerminalIdle {}
+pub struct TerminalInactive {}
 
-impl Terminal for TerminalIdle {
+impl Terminal for TerminalInactive {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
-        Box::new(WriterIdle {})
+        Box::new(WriterInactive {})
     }
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
@@ -161,9 +162,9 @@ impl Terminal for TerminalIdle {
     }
 }
 
-impl TerminalIdle{
-    pub fn new() ->Self{
-        Self{}
+impl TerminalInactive {
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -176,8 +177,8 @@ pub trait WriterGeneric {
 
     //I failed in attempts to use Any and dynamical casting from Box<dyn WriterGeneric>
     //because: Writer doesn't implement Clone and many if not all methods of Any require
-    //'static, that is, it must be an owned object and I cannot get anything else but reference
-    //of Writer.
+    //'static, that is, it must be an owned object and I cannot get anything else but a referenced
+    //Writer.
     //For delivering at least some test I decided to use this unusual hack
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
@@ -197,12 +198,12 @@ impl<U: linefeed::Terminal> WriterGeneric for Writer<'_, '_, U> {
 }
 
 #[derive(Clone)]
-pub struct WriterIdle {}
+pub struct WriterInactive {}
 
-impl WriterGeneric for WriterIdle {
+impl WriterGeneric for WriterInactive {
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
-        "WriterIdle".to_string()
+        "WriterInactive".to_string()
     }
 }
 
@@ -249,7 +250,7 @@ mod tests {
     use std::io::{Error, Write};
     use std::sync::Barrier;
     use std::thread;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     #[test]
     fn terminal_mock_and_test_tools_write_and_read() {
@@ -429,8 +430,7 @@ mod tests {
             Err(e) => panic!("should have been OK, got Err: {}", e),
             Ok(val) => val,
         };
-        let mut wrapper =
-            TerminalWrapper::new(Box::new(result));
+        let mut wrapper = TerminalWrapper::new(Box::new(result));
         wrapper.lock().write_str("hallelujah").unwrap();
 
         let checking_if_operational = written_output_all_lines(term_mock.lines(), false);
@@ -442,7 +442,7 @@ mod tests {
     fn configure_interface_catches_an_error_when_creating_an_interface_instance() {
         let subject = configure_interface(
             Box::new(producer_of_interface_raw_resulting_in_an_early_error),
-            Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
+            Box::new(result_wrapper_for_in_memory_terminal),
         );
 
         let result = match subject {
@@ -470,7 +470,7 @@ mod tests {
     fn configure_interface_catches_an_error_when_setting_the_prompt() {
         let subject = configure_interface(
             Box::new(producer_of_interface_raw_causing_set_prompt_error),
-            Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
+            Box::new(result_wrapper_for_in_memory_terminal),
         );
         let result = match subject {
             Err(e) => e,
@@ -491,12 +491,12 @@ mod tests {
     }
 
     #[test]
-    fn terminal_wrapper_new_produces_writer_idle() {
-        let mut subject = TerminalWrapper::new(Box::new(TerminalIdle::new()));
+    fn terminal_wrapper_armed_with_terminal_inactive_produces_writer_inactive() {
+        let mut subject = TerminalWrapper::new(Box::new(TerminalInactive::new()));
 
         let lock = subject.lock();
 
-        assert_eq!(lock.tell_me_who_you_are(), "WriterIdle")
+        assert_eq!(lock.tell_me_who_you_are(), "WriterInactive")
     }
 
     // #[test]

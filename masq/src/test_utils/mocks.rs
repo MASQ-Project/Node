@@ -5,9 +5,11 @@ use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handler::{BroadcastHandle};
+use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
 use crate::line_reader::TerminalEvent;
-use crate::terminal_interface::{InterfaceRaw, Terminal, TerminalWrapper, WriterGeneric};
+use crate::terminal_interface::{
+    InterfaceRaw, Terminal, TerminalWrapper, WriterGeneric, WriterInactive,
+};
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult};
@@ -237,8 +239,8 @@ pub struct CommandProcessorFactoryMock {
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
-        terminal_interface: TerminalWrapper,
-        generic_broadcast_handle: Box<dyn BroadcastHandle>,
+        _terminal_interface: TerminalWrapper,
+        _generic_broadcast_handle: Box<dyn BroadcastHandle>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         self.make_params.lock().unwrap().push(args.to_vec());
@@ -448,6 +450,9 @@ pub struct TerminalPassiveMock {
 impl Terminal for TerminalPassiveMock {
     fn read_line(&self) -> TerminalEvent {
         self.read_line_result.lock().unwrap().remove(0)
+    }
+    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
+        Box::new(WriterInactive {})
     }
 }
 

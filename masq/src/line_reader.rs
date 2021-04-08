@@ -180,5 +180,4 @@ mod tests {
             TerminalEvent::Error("Reading from the terminal: invalid input parameter".to_string())
         );
     }
-
 }

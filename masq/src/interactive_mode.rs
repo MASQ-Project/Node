@@ -45,10 +45,6 @@ where
     A: CommandFactory + ?Sized + 'static,
     B: CommandProcessor + ?Sized + 'static,
 {
-    if let Err(e) = processor.upgrade_terminal_interface() {
-        short_writeln!(streams.stderr, "Terminal interface error: {}", e);
-        return 1;
-    };
     loop {
         let args = match processor.clone_terminal_interface().read_line() {
             CommandLine(line) => split_quoted_line(line),
@@ -219,9 +215,7 @@ mod tests {
             .process_result(Ok(()))
             .process_result(Ok(()))
             .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(
-                TerminalWrapper::new(Box::new(terminal_mock)),
-            );
+            .insert_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject =
@@ -252,12 +246,10 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
             .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(
-                TerminalWrapper::new(Box::new(
-                    TerminalPassiveMock::new()
-                        .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
-                )),
-            );
+            .insert_terminal_interface(TerminalWrapper::new(Box::new(
+                TerminalPassiveMock::new()
+                    .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
+            )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject =
@@ -285,13 +277,11 @@ mod tests {
             )));
         let processor = CommandProcessorMock::new()
             .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(
-                TerminalWrapper::new(Box::new(
-                    TerminalPassiveMock::new()
-                        .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
-                        .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-                )),
-            );
+            .insert_terminal_interface(TerminalWrapper::new(Box::new(
+                TerminalPassiveMock::new()
+                    .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
+                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+            )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject =
@@ -322,13 +312,11 @@ mod tests {
             )));
         let processor = CommandProcessorMock::new()
             .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(
-                TerminalWrapper::new(Box::new(
-                    TerminalPassiveMock::new()
-                        .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
-                        .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-                )),
-            );
+            .insert_terminal_interface(TerminalWrapper::new(Box::new(
+                TerminalPassiveMock::new()
+                    .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
+                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+            )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject =
@@ -353,10 +341,10 @@ mod tests {
             .make_params(&make_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
         let terminal_interface_reference_for_inner = TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine("setup\n".to_string()))
-                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-            ));
+            TerminalPassiveMock::new()
+                .read_line_result(TerminalEvent::CommandLine("setup\n".to_string()))
+                .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+        ));
         let reference_for_counting = Arc::new(Mutex::new(0));
         let processor = CommandProcessorMock::new()
             .insert_terminal_interface(terminal_interface_reference_for_inner.clone())
@@ -389,33 +377,33 @@ mod tests {
         assert_eq!(*make_params, vec![vec!["setup".to_string()]]);
     }
 
-    #[test]
-    fn interactive_mode_handles_error_caused_during_terminal_interface_upgrade() {
-        let command_factory = CommandFactoryMock::new();
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let processor = CommandProcessorMock::new()
-            .close_params(&close_params_arc)
-            .upgrade_terminal_interface_result(Err("Invalid process handle".to_string()))
-            .insert_terminal_interface(
-                TerminalWrapper::new(Box::new(TerminalPassiveMock::new())),
-            );
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject =
-            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-
-        assert_eq!(result, 1);
-        assert_eq!(
-            stream_holder.stderr.get_string(),
-            "Terminal interface error: Invalid process handle\n"
-        );
-        assert_eq!(stream_holder.stdout.get_string(), "");
-        let close_params = close_params_arc.lock().unwrap();
-        assert_eq!(close_params.len(), 1);
-    }
+    // #[test]
+    // fn interactive_mode_handles_error_caused_during_terminal_interface_upgrade() {
+    //     let command_factory = CommandFactoryMock::new();
+    //     let close_params_arc = Arc::new(Mutex::new(vec![]));
+    //     let processor = CommandProcessorMock::new()
+    //         .close_params(&close_params_arc)
+    //         .upgrade_terminal_interface_result(Err("Invalid process handle".to_string()))
+    //         .insert_terminal_interface(
+    //             TerminalWrapper::new(Box::new(TerminalPassiveMock::new())),
+    //         );
+    //     let processor_factory =
+    //         CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
+    //     let mut subject =
+    //         Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
+    //     let mut stream_holder = FakeStreamHolder::new();
+    //
+    //     let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+    //
+    //     assert_eq!(result, 1);
+    //     assert_eq!(
+    //         stream_holder.stderr.get_string(),
+    //         "Terminal interface error: Invalid process handle\n"
+    //     );
+    //     assert_eq!(stream_holder.stdout.get_string(), "");
+    //     let close_params = close_params_arc.lock().unwrap();
+    //     assert_eq!(close_params.len(), 1);
+    // }
 
     #[test]
     fn interactive_mode_handles_break_signal_from_line_reader() {
@@ -424,9 +412,9 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
             .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(
-                Box::new(TerminalPassiveMock::new().read_line_result(TerminalEvent::Break)),
-            ));
+            .insert_terminal_interface(TerminalWrapper::new(Box::new(
+                TerminalPassiveMock::new().read_line_result(TerminalEvent::Break),
+            )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject =
@@ -452,13 +440,11 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
             .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(
-                TerminalWrapper::new(Box::new(
-                    TerminalPassiveMock::new()
-                        .read_line_result(TerminalEvent::Continue)
-                        .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
-                )),
-            );
+            .insert_terminal_interface(TerminalWrapper::new(Box::new(
+                TerminalPassiveMock::new()
+                    .read_line_result(TerminalEvent::Continue)
+                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+            )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject =

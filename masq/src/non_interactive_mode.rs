@@ -5,12 +5,15 @@ use crate::command_factory::{CommandFactory, CommandFactoryReal};
 use crate::command_processor::{
     CommandProcessor, CommandProcessorFactory, CommandProcessorFactoryReal,
 };
-use crate::communications::broadcast_handler::{BroadcastHandle, BroadcastHandleInactive, BroadcastHandlerReal, BroadcastHandler};
+use crate::communications::broadcast_handler::{
+    BroadcastHandle, BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
+    StreamFactory, StreamFactoryReal,
+};
 use crate::interactive_mode::go_interactive;
+use crate::terminal_interface::{TerminalInactive, TerminalWrapper};
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
-use crate::terminal_interface::{TerminalWrapper, TerminalIdle};
 
 pub struct Main {
     command_factory: Box<dyn CommandFactory>,
@@ -38,24 +41,23 @@ impl Main {
         None
     }
 
-    fn populate_non_interactive_dependencies()->(Box<dyn BroadcastHandle>,TerminalWrapper) {
-        (Box::new(BroadcastHandleInactive::new()),TerminalWrapper::new(Box::new(TerminalIdle::new())))
+    pub fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, TerminalWrapper) {
+        (
+            Box::new(BroadcastHandleInactive::new()),
+            TerminalWrapper::new(Box::new(TerminalInactive::new())),
+        )
     }
 
-    fn populate_interactive_dependencies()->Result<(Box<dyn BroadcastHandle>,TerminalWrapper),String> {
+    pub fn populate_interactive_dependencies(
+        stream_factory: impl StreamFactory + 'static,
+    ) -> Result<(Box<dyn BroadcastHandle>, TerminalWrapper), String> {
+        let foreground_terminal_interface = TerminalWrapper::configure_interface()?;
+        let background_terminal_interface = foreground_terminal_interface.clone();
+        let generic_broadcast_handler =
+            BroadcastHandlerReal::new(Some(background_terminal_interface));
+        let generic_broadcast_handle = generic_broadcast_handler.start(Box::new(stream_factory));
 
-
-
-        unimplemented!();
-
-            //////goes to another place
-            let foreground_terminal_interface = TerminalWrapper::configure_interface()?;
-            let background_terminal_interface = foreground_terminal_interface.clone();
-            let generic_broadcast_handler = BroadcastHandlerReal::new(Some(background_terminal_interface));
-            let generic_broadcast_handle = generic_broadcast_handler.start((Box::new(std::io::stdout()), Box::new(std::io::stderr())));
-            //////
-
-        Ok((Box::new(BroadcastHandleInactive::new()),foreground_terminal_interface))
+        Ok((generic_broadcast_handle, foreground_terminal_interface))
     }
 
     #[cfg(test)]
@@ -73,15 +75,18 @@ impl Main {
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let subcommand_opt = Self::extract_subcommand(args);
-        let (generic_broadcast_handle,terminal_interface) = match subcommand_opt{
+        let (generic_broadcast_handle, terminal_interface) = match subcommand_opt {
             Some(_) => Self::populate_non_interactive_dependencies(),
-            None => Self::populate_interactive_dependencies()
+            None => match Self::populate_interactive_dependencies(StreamFactoryReal) {
+                Ok(tuple) => tuple,
+                Err(e) => unimplemented!(),
+            },
         };
-        //let stdout = Box::new(streams.stdout);
-        let mut command_processor = match self
-            .processor_factory
-            .make(terminal_interface,generic_broadcast_handle, args)
-        {
+        let mut command_processor = match self.processor_factory.make(
+            terminal_interface,
+            generic_broadcast_handle,
+            args,
+        ) {
             Ok(processor) => processor,
             Err(e) => {
                 short_writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e);
@@ -89,7 +94,7 @@ impl command::Command for Main {
             }
         };
 
-        let result = match Self::extract_subcommand(args) {
+        let result = match subcommand_opt {
             Some(command_parts) => {
                 match handle_command_common(
                     &*self.command_factory,
@@ -146,12 +151,17 @@ mod tests {
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        MockCommand,
+        MockCommand, TestStreamFactory,
     };
     use masq_lib::command::Command;
-    use masq_lib::messages::{ToMessageBody, UiShutdownRequest};
+    use masq_lib::messages::{
+        ToMessageBody, UiChangePasswordRequest, UiNewPasswordBroadcast, UiSetupBroadcast,
+        UiShutdownRequest,
+    };
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {
@@ -355,5 +365,38 @@ mod tests {
              Probably this means the Daemon isn't running.\n"
                 .to_string()
         );
+    }
+
+    #[test]
+    fn populate_interactive_dependencies_produces_a_functional_broadcast_handle() {
+        let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
+        let (broadcast_handle, _) =
+            Main::populate_interactive_dependencies(test_stream_factory).unwrap();
+        broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
+
+        let output = test_stream_handle.stdout_so_far();
+
+        assert_eq!(output, "\nThe Node\'s database password has changed.\n\n")
+    }
+
+    #[test]
+    fn populate_interactive_dependencies_produces_terminal_interface_blocking_printing_from_another_thread_when_the_lock_is_acquired(
+    ) {
+        let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
+        let (broadcast_handle, mut terminal_interface) =
+            Main::populate_interactive_dependencies(test_stream_factory).unwrap();
+        {
+            let _lock = terminal_interface.lock();
+
+            broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
+            let output = test_stream_handle.stdout_so_far();
+
+            assert_eq!(output, "")
+        }
+        let output_when_unlocked = test_stream_handle.stdout_so_far();
+        assert_eq!(
+            output_when_unlocked,
+            "\nThe Node\'s database password has changed.\n\n"
+        )
     }
 }
