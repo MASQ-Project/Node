@@ -480,6 +480,7 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
+
     use crate::shared_schema::common_validators;
 
     #[test]
