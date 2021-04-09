@@ -20,8 +20,13 @@ pub struct Main {
     processor_factory: Box<dyn CommandProcessorFactory>,
 }
 
+impl Default for Main {
+    fn default() -> Self {
+        Main::new()
+    }
+}
+
 impl Main {
-    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             command_factory: Box::new(CommandFactoryReal::new()),
@@ -44,7 +49,7 @@ impl Main {
     pub fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, TerminalWrapper) {
         (
             Box::new(BroadcastHandleInactive::new()),
-            TerminalWrapper::new(Box::new(TerminalInactive::new())),
+            TerminalWrapper::new(Box::new(TerminalInactive::default())),
         )
     }
 
@@ -79,7 +84,10 @@ impl command::Command for Main {
             Some(_) => Self::populate_non_interactive_dependencies(),
             None => match Self::populate_interactive_dependencies(StreamFactoryReal) {
                 Ok(tuple) => tuple,
-                Err(e) => unimplemented!(),
+                Err(e) => {
+                    short_writeln!(streams.stderr, "Pre-configuration error: {}", e);
+                    return 1;
+                } //tested by an integration test
             },
         };
         let mut command_processor = match self.processor_factory.make(
@@ -154,14 +162,9 @@ mod tests {
         MockCommand, TestStreamFactory,
     };
     use masq_lib::command::Command;
-    use masq_lib::messages::{
-        ToMessageBody, UiChangePasswordRequest, UiNewPasswordBroadcast, UiSetupBroadcast,
-        UiShutdownRequest,
-    };
+    use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {

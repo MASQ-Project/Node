@@ -10,6 +10,8 @@ mod utils;
 
 #[test]
 #[ignore] // Why doesn't this work?
+
+//unfortunately, this test may never work anymore, because of the program-flow affecting obstacle within DefaultTerminal
 fn setup_results_are_broadcast_to_all_uis() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);

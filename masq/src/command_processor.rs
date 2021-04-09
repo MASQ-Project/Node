@@ -57,7 +57,6 @@ pub trait CommandProcessor {
 }
 
 pub struct CommandProcessorReal {
-    #[allow(dead_code)]
     context: CommandContextReal,
 }
 
@@ -73,11 +72,6 @@ impl CommandProcessor for CommandProcessorReal {
     }
 
     fn clone_terminal_interface(&mut self) -> TerminalWrapper {
-        self.context.terminal_interface.clone()
-    }
-
-    #[cfg(test)]
-    fn clone_terminal_from_processor_test_only(&self) -> TerminalWrapper {
         self.context.terminal_interface.clone()
     }
 }

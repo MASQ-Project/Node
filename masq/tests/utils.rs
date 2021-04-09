@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 #[allow(dead_code)]
 pub struct DaemonProcess {}
@@ -47,7 +48,8 @@ impl MasqProcess {
 
     pub fn start_noninteractive(self, params: Vec<&str>) -> StopHandle {
         let mut command = Command::new(executable_path(executable_name("masq")));
-        let command = command.args(params);
+        let command = command.args(&params);
+        eprintln!("About to start masq with args {:?}", &params);
         let child = child_from_command(command);
         StopHandle {
             name: "masq".to_string(),
@@ -55,15 +57,12 @@ impl MasqProcess {
         }
     }
 
-    pub fn start_interactive(self, port: u16) -> ControlHandle {
+    pub fn start_interactive(self, port: u16) -> Child {
         let mut command = Command::new(executable_path(executable_name("masq")));
         let command = command.arg("--ui-port").arg(port.to_string());
+        eprintln!("{:?}", command);
         let child = child_from_command(command);
-        ControlHandle::new(
-            child.stdin.unwrap(),
-            child.stdout.unwrap(),
-            child.stderr.unwrap(),
-        )
+        child
     }
 }
 
@@ -95,72 +94,11 @@ impl StopHandle {
         Self::taskkill();
     }
 
+    #[cfg(target_os = "windows")]
     pub fn taskkill() {
-        #[cfg(target_os = "windows")]
-        {
-            let mut command = Command::new("taskkill");
-            command.args(&["/IM", "MASQNode.exe", "/F", "/T"]);
-            let _ = command.output().expect("Couldn't kill MASQNode.exe");
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub struct ControlHandle {
-    stdin: ChildStdin,
-    stdout: Arc<Mutex<String>>,
-    stderr: Arc<Mutex<String>>,
-}
-
-#[allow(dead_code)]
-impl ControlHandle {
-    fn new(stdin: ChildStdin, stdout: ChildStdout, stderr: ChildStderr) -> Self {
-        let stdout_arc = Self::start_listener(Box::new(stdout));
-        let stderr_arc = Self::start_listener(Box::new(stderr));
-        ControlHandle {
-            stdin,
-            stdout: stdout_arc,
-            stderr: stderr_arc,
-        }
-    }
-
-    pub fn type_command(&mut self, command: &str) {
-        short_writeln!(self.stdin, "{}", command);
-    }
-
-    pub fn get_stdout(&mut self) -> String {
-        Self::read_chunk(&self.stdout)
-    }
-
-    pub fn get_stderr(&mut self) -> String {
-        Self::read_chunk(&self.stderr)
-    }
-
-    fn read_chunk(string_arc: &Arc<Mutex<String>>) -> String {
-        let mut string = string_arc.lock().unwrap();
-        let chunk = (*string).clone();
-        string.clear();
-        chunk
-    }
-
-    fn start_listener(mut stream: Box<dyn Read + Send>) -> Arc<Mutex<String>> {
-        let internal_arc = Arc::new(Mutex::new(String::new()));
-        let external_arc = internal_arc.clone();
-        thread::spawn(move || loop {
-            let mut buf = String::new();
-            match stream.read_to_string(&mut buf) {
-                Err(e) => {
-                    let mut internal = internal_arc.lock().unwrap();
-                    internal.push_str(format!("[Error: {:?}]", e).as_str());
-                    break;
-                }
-                Ok(_) => {
-                    let mut internal = internal_arc.lock().unwrap();
-                    internal.push_str(buf.as_str());
-                }
-            }
-        });
-        external_arc
+        let mut command = Command::new("taskkill");
+        command.args(&["/IM", "MASQNode.exe", "/F", "/T"]);
+        let _ = command.output().expect("Couldn't kill MASQNode.exe");
     }
 }
 

@@ -23,10 +23,11 @@ pub struct BroadcastHandleInactive {}
 
 impl BroadcastHandle for BroadcastHandleInactive {
     fn send(&self, message_body: MessageBody) {
-        drop(message_body); //drop it (unless we find a better use for such a message)
+        drop(message_body); //simply dropped (unless we find a better use for such a message)
     }
 }
 
+#[allow(clippy::new_without_default)]
 impl BroadcastHandleInactive {
     pub fn new() -> Self {
         Self {}
@@ -61,7 +62,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
             let terminal_interface = self
                 .terminal_interface
                 .take()
-                .expect("BroadcastHandlerReal: start: Some was expected");
+                .expect("BroadcastHandlerReal: start: some was expected");
             loop {
                 Self::thread_loop_guts(
                     &message_rx,
@@ -414,8 +415,6 @@ Cannot handle crash request: Node is not running.
         let synchronizer = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         let synchronizer_clone_idle = synchronizer.clone();
-
-        //TODO remove this: synchronizer.upgrade().unwrap(); //testing proper functioning of upgrading
 
         //synchronized part proving that the broadcast print is synchronized
         let full_stdout_output_sync = background_thread_making_interferences(

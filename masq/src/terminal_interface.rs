@@ -1,11 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
-use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::Arc;
+
+#[cfg(test)]
+use linefeed::memory::MemoryTerminal;
 
 #[cfg(not(test))]
 use linefeed::DefaultTerminal;
@@ -30,15 +32,7 @@ impl TerminalWrapper {
         self.interface.add_history_unique(line)
     }
 
-    #[cfg(test)]
     pub fn new(interface: Box<dyn Terminal + Send + Sync>) -> Self {
-        Self {
-            interface: Arc::new(interface),
-        }
-    }
-
-    #[cfg(not(test))]
-    fn new(interface: Box<dyn Terminal + Send + Sync>) -> Self {
         Self {
             interface: Arc::new(interface),
         }
@@ -51,7 +45,8 @@ impl TerminalWrapper {
 
     #[cfg(not(test))]
     pub fn configure_interface() -> Result<Self, String> {
-        //no automatic test for this; tested by the fact that masq is runnable in interactive mode  TODO add an integration test failing on this
+        //tested only for a negative result (an integration test)
+        //no positive automatic test for this; tested by the fact that masq in interactive mode is runnable and passes human tests
         Self::configure_interface_generic(Box::new(DefaultTerminal::new))
     }
 
@@ -79,6 +74,7 @@ impl Clone for TerminalWrapper {
     }
 }
 
+#[cfg(test)]
 #[allow(clippy::unnecessary_wraps)]
 fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
     Ok(MemoryTerminal::new())
@@ -96,7 +92,7 @@ where
 {
     let terminal: U = match terminal_type() {
         Ok(term) => term,
-        Err(e) => return Err(format!("Local terminal error: {}", e)),
+        Err(e) => return Err(format!("Local terminal recognition: {}", e)),
     };
     let mut interface: Box<dyn InterfaceRaw + Send + Sync + 'static> =
         match interface_raw("masq", terminal) {
@@ -127,7 +123,7 @@ where
     Ok(())
 }
 
-//declaration of TerminalReal is in line_reader.rs
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub trait Terminal {
     fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
@@ -150,6 +146,11 @@ pub trait Terminal {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+//declaration of TerminalReal is in line_reader.rs
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Default)]
 pub struct TerminalInactive {}
 
 impl Terminal for TerminalInactive {
@@ -159,12 +160,6 @@ impl Terminal for TerminalInactive {
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
         "TerminalIdle".to_string()
-    }
-}
-
-impl TerminalInactive {
-    pub fn new() -> Self {
-        Self {}
     }
 }
 
@@ -415,7 +410,7 @@ mod tests {
             Err(e) => e,
         };
 
-        assert!(result.contains("Local terminal error"));
+        assert!(result.contains("Local terminal recognition:"), "{}", result);
         //Windows: The handle is invalid. (os error 6)
         //Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
     }
@@ -498,81 +493,4 @@ mod tests {
 
         assert_eq!(lock.tell_me_who_you_are(), "WriterInactive")
     }
-
-    // #[test]
-    // fn terminal_wrapper_new_provides_correctly_set_values() {
-    //     let subject = TerminalWrapper::new();
-    //
-    //     assert_eq!(subject.interactive_flag.load(Ordering::Relaxed), false);
-    //     assert!((*subject.share_point.lock().unwrap()).is_none());
-    //     assert!(subject.inner_active.is_none());
-    //     assert_eq!(subject.inner_idle.tell_me_who_you_are(), "TerminalIdle")
-    // }
-
-    // #[test]
-    // fn share_point_is_shared_between_threads_properly_when_its_clone_was_created_before() {
-    //     let terminal = TerminalWrapper::new();
-    //     assert!(terminal.share_point.lock().unwrap().is_none());
-    //     let mut terminal_background = terminal.clone();
-    //
-    //     let handle = thread::spawn(move || {
-    //         assert!(terminal_background.share_point.lock().unwrap().is_none());
-    //         terminal_background.upgrade().unwrap()
-    //     });
-    //     handle.join().unwrap();
-    //
-    //     assert!(terminal.share_point.lock().unwrap().is_some());
-    // }
-
-    // #[test]
-    // fn share_point_is_shared_between_threads_properly_even_along_those_clones_created_afterwards() {
-    //     let mut terminal = TerminalWrapper::new();
-    //     assert!(terminal.share_point.lock().unwrap().is_none());
-    //
-    //     terminal.upgrade().unwrap();
-    //
-    //     assert!(terminal.share_point.lock().unwrap().is_some());
-    //     let terminal_new_clone = terminal.clone();
-    //
-    //     assert!(terminal_new_clone.share_point.lock().unwrap().is_some());
-    // }
-
-    // #[test]
-    // fn share_point_is_shared_between_threads_properly_cloning_new_instances_from_an_instance_left_behind_in_upgrade(
-    // ) {
-    //     let mut terminal = TerminalWrapper::new();
-    //     let terminal_background = terminal.clone();
-    //
-    //     let (tx, rx) = std::sync::mpsc::channel();
-    //     let handle = thread::spawn(move || {
-    //         assert!(terminal_background.share_point.lock().unwrap().is_none());
-    //         assert_eq!(
-    //             terminal_background.interactive_flag.load(Ordering::Relaxed),
-    //             false
-    //         );
-    //         let local_main_instance = terminal_background;
-    //         tx.send(0usize).unwrap();
-    //         thread::sleep(Duration::from_millis(300));
-    //         let now = Instant::now();
-    //         loop {
-    //             let temporary_clone = local_main_instance.clone();
-    //             match temporary_clone.share_point.lock().unwrap().is_some() {
-    //                 true => {
-    //                     assert_eq!(
-    //                         temporary_clone.interactive_flag.load(Ordering::Relaxed),
-    //                         true
-    //                     );
-    //                     break;
-    //                 }
-    //                 false => match now.elapsed() > Duration::from_millis(400) {
-    //                     true => panic!("we are out of patience"),
-    //                     false => continue,
-    //                 },
-    //             };
-    //         }
-    //     });
-    //     rx.recv().unwrap();
-    //     terminal.upgrade().unwrap();
-    //     handle.join().unwrap(); //would panic if something wrong
-    // }
 }
