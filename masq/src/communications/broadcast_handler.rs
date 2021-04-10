@@ -516,7 +516,7 @@ Cannot handle crash request: Node is not running.
             })
         });
         sync_rx.recv().unwrap();
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_millis(20));
         broadcast_handle(broadcast_message_body.clone(), stdout, synchronizer_clone);
 
         interference_thread_handle.join().unwrap();
