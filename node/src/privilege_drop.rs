@@ -133,7 +133,7 @@ impl PrivilegeDropper for PrivilegeDropperReal {
     }
 
     #[cfg(target_os = "windows")]
-    fn chown(&self, _file: &PathBuf, _real_user: &RealUser) {
+    fn chown(&self, _file: &Path, _real_user: &RealUser) {
         // Windows doesn't need chown: it runs as administrator the whole way
     }
 
