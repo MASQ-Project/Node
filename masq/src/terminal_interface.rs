@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     fn terminal_wrapper_armed_with_terminal_inactive_produces_writer_inactive() {
-        let mut subject = TerminalWrapper::new(Box::new(TerminalInactive::new()));
+        let mut subject = TerminalWrapper::new(Box::new(TerminalInactive::default()));
 
         let lock = subject.lock();
 

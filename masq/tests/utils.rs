@@ -1,12 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_lib::short_writeln;
-use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::process::{Child, Command, Stdio};
 
 #[allow(dead_code)]
 pub struct DaemonProcess {}

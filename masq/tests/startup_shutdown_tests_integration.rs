@@ -2,9 +2,7 @@
 
 use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
-use crate::utils::StopHandle;
 use masq_lib::utils::find_free_port;
-use std::process::ExitStatus;
 use std::thread;
 use std::time::Duration;
 
