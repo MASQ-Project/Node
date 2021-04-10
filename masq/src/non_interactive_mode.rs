@@ -168,6 +168,8 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {
@@ -379,6 +381,8 @@ mod tests {
         let (broadcast_handle, _) =
             Main::populate_interactive_dependencies(test_stream_factory).unwrap();
         broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
+
+        thread::sleep(Duration::from_millis(5));
 
         let output = test_stream_handle.stdout_so_far();
 
