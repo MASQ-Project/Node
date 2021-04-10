@@ -104,7 +104,7 @@ lazy_static! {
     );
     pub static ref GAS_PRICE_HELP: String = format!(
        "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
-       If left unspecified, MASQ Node will use the previously stored value (Default {}). Valid range is 1-99 Gwei.",
+       If left unspecified, MASQ Node will use the previously stored value (Default {}).",
        DEFAULT_GAS_PRICE);
 }
 
