@@ -39,6 +39,9 @@ impl Main {
         for idx in 1..args_vec.len() {
             let one = &args_vec[idx - 1];
             let two = &args_vec[idx];
+            if &args_vec[idx] == "--help" {
+                return Some(vec!["--help".to_string()]);
+            } //tested by an integration test
             if !one.starts_with("--") && !two.starts_with("--") {
                 return Some(args_vec.into_iter().skip(idx).collect());
             }
