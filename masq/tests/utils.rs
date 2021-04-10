@@ -86,6 +86,8 @@ impl StopHandle {
 
     pub fn kill(mut self) {
         self.child.kill().unwrap();
+
+        #[cfg(target_os = "windows")]
         Self::taskkill();
     }
 
