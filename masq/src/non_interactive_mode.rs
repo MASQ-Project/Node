@@ -377,6 +377,7 @@ mod tests {
     fn populate_interactive_dependencies_produces_terminal_interface_blocking_printing_from_another_thread_when_the_lock_is_acquired(
     ) {
         let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
+        // This thread will leak, and will only stop when the tests stop running.
         let (broadcast_handle, mut terminal_interface) =
             Main::populate_interactive_dependencies(test_stream_factory).unwrap();
         {
@@ -394,15 +395,16 @@ mod tests {
         )
     }
 
-    // #[test]
-    // fn populate_interactive_dependencies_produces_a_functional_broadcast_handle() {
-    //     let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
-    //     let (broadcast_handle, _) =
-    //         Main::populate_interactive_dependencies(test_stream_factory).unwrap();
-    //     broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
-    //
-    //     let output = test_stream_handle.stdout_so_far();
-    //
-    //     assert_eq!(output, "\nThe Node\'s database password has changed.\n\n")
-    // }
+    #[test]
+    fn populate_interactive_dependencies_produces_a_functional_broadcast_handle() {
+        let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
+        // This thread will leak, and will only stop when the tests stop running.
+        let (broadcast_handle, _) =
+            Main::populate_interactive_dependencies(test_stream_factory).unwrap();
+        broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
+
+        let output = test_stream_handle.stdout_so_far();
+
+        assert_eq!(output, "\nThe Node\'s database password has changed.\n\n")
+    }
 }
