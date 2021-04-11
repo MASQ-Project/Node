@@ -310,13 +310,9 @@ mod tests {
 
         let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
+        //in an extreme case it may be printed as one is complete and the other sequence is interrupted
         assert!(
-            !given_output.contains(&"A".repeat(90)),
-            "without synchronization: {}",
-            given_output
-        );
-        assert!(
-            !given_output.contains(&"B".repeat(90)),
+            !given_output.contains(&"A".repeat(90)) && !given_output.contains(&"B".repeat(90)),
             "without synchronization: {}",
             given_output
         );

@@ -456,13 +456,11 @@ Cannot handle crash request: Node is not running.
         let incomplete_row = prefabricated_string
             .split(' ')
             .find(|row| !row.contains(&"*".repeat(80)) && row.contains("*"));
-        eprintln!("this the supposed incomplete row {:?}", incomplete_row); //TODO remove after you know what speed is in Actions (watch the position where the line of asterisks is cut
         assert!(
             incomplete_row.is_some(),
             "There mustn't be 80 asterisks together at one of these: {}",
             full_stdout_output_without_sync
         );
-        eprintln!("{}", full_stdout_output_without_sync); //TODO here too, remove after it is clear. Maybe we can get rid of the second and third row of asterisks, which would spare a lot of time
         let asterisks_count = full_stdout_output_without_sync
             .chars()
             .filter(|char| *char == '*')
@@ -503,7 +501,7 @@ Cannot handle crash request: Node is not running.
             drop(_lock)
         });
         sync_rx.recv().unwrap();
-        thread::sleep(Duration::from_millis(30));
+        thread::sleep(Duration::from_millis(40));
         broadcast_handle(broadcast_message_body.clone(), stdout, synchronizer_clone);
 
         interference_thread_handle.join().unwrap();
