@@ -8,9 +8,6 @@ use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
 use clap::value_t;
 
-#[cfg(test)]
-use masq_lib::intentionally_blank;
-
 pub trait CommandProcessorFactory {
     fn make(
         &self,
