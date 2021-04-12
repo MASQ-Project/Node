@@ -9,6 +9,7 @@ use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
 use crate::line_reader::TerminalEvent;
 use crate::terminal_interface::{
     InterfaceRaw, Terminal, TerminalWrapper, WriterGeneric, WriterInactive,
+    MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;

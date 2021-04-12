@@ -1,7 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use masq_cli_lib::terminal_interface::{MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE};
+use masq_lib::short_writeln;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 
 #[allow(dead_code)]
 pub struct DaemonProcess {}
@@ -52,12 +55,25 @@ impl MasqProcess {
         }
     }
 
-    pub fn start_interactive(self, port: u16) -> Child {
+    pub fn start_interactive(self, port: u16) -> StopHandle {
+        std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE);
         let mut command = Command::new(executable_path(executable_name("masq")));
         let command = command.arg("--ui-port").arg(port.to_string());
         eprintln!("{:?}", command);
         let child = child_from_command(command);
-        child
+        StopHandle {
+            name: "masq".to_string(),
+            child,
+        }
+    }
+}
+
+pub struct StdinHandle {
+    stdin: ChildStdin,
+}
+impl StdinHandle {
+    pub fn type_command(&mut self, command: &str) {
+        short_writeln!(&self.stdin, "{}", command)
     }
 }
 
@@ -81,6 +97,12 @@ impl StopHandle {
                 eprintln!("Couldn't get output from {}: {:?}", self.name, e);
                 (String::new(), String::new(), -1)
             }
+        }
+    }
+
+    pub fn create_stdin_handle(&mut self) -> StdinHandle {
+        StdinHandle {
+            stdin: self.child.stdin.take().unwrap(),
         }
     }
 

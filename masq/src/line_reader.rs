@@ -1,8 +1,12 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal_interface::{InterfaceRaw, Terminal, WriterGeneric};
+use lazy_static::lazy_static;
 use linefeed::{ReadResult, Signal};
+use masq_lib::constants::MASQ_PROMPT;
 use std::fmt::Debug;
+use std::io::{stdin, stdout, Read, Write};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, PartialEq)]
 pub enum TerminalEvent {
@@ -59,12 +63,114 @@ impl TerminalReal {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//utils for integration tests run in the interactive mode
+
+lazy_static! {
+    static ref FAKE_STREAM: Mutex<String> = Mutex::new(String::new());
+}
+
+struct IntegrationTestTerminal {
+    lock: Arc<Mutex<()>>,
+}
+
+impl Default for IntegrationTestTerminal {
+    fn default() -> Self {
+        IntegrationTestTerminal {
+            lock: Arc::new(Mutex::new(())),
+        }
+    }
+}
+
+impl Terminal for IntegrationTestTerminal {
+    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
+        Box::new(IntegrationTestWriter {
+            temporary_mutex_guard: self.lock.lock().expect("providing MutexGuard failed"),
+        })
+    }
+
+    fn read_line(&self) -> TerminalEvent {
+        let _lock = self
+            .lock
+            .lock()
+            .expect("poisoned mutex in IntegrationTestTerminal");
+
+        let test_input: Option<String> = if cfg!(test) {
+            Some(String::from("Some command"))
+        } else {
+            None
+        };
+
+        let used_input = if test_input.is_some() {
+            FAKE_STREAM
+                .lock()
+                .expect("poisoned mutex in IntegrationTestTerminal")
+                .push_str("PROMPT>");
+            test_input.unwrap()
+        } else {
+            let mut buffer = String::new();
+            std::io::stdin().read_to_string(&mut buffer);
+            writeln!(stdout(), "{}", MASQ_PROMPT).expect("writeln failed");
+            buffer
+        };
+
+        TerminalEvent::CommandLine(used_input)
+    }
+}
+
+struct IntegrationTestWriter<'a> {
+    temporary_mutex_guard: MutexGuard<'a, ()>,
+}
+
+impl WriterGeneric for IntegrationTestWriter<'_> {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::InterfaceRawMock;
     use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn integration_test_terminal_provides_functional_synchronization() {
+        let mut terminal = TerminalWrapper::new(Box::new(IntegrationTestTerminal::default()));
+        let mut terminal_clone = terminal.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            tx.send(()).unwrap();
+            (0..3).for_each(|_| write_one_cycle(&mut terminal_clone));
+        });
+        rx.recv().unwrap();
+        let quite_irrelevant = terminal.read_line();
+
+        handle.join().unwrap();
+
+        assert_eq!(
+            quite_irrelevant,
+            TerminalEvent::CommandLine(String::from("Some command"))
+        );
+        let written_in_a_whole = FAKE_STREAM.lock().unwrap().clone();
+        assert!(!written_in_a_whole.starts_with("PRO"));
+        assert!(!written_in_a_whole.ends_with("MPT>"));
+        assert_eq!(written_in_a_whole.len(), 97); // 30*3 + 7
+        let filtered_string = written_in_a_whole.replace("012345678910111213141516171819", ""); //this has length of 30 chars
+        assert_eq!(filtered_string, "PROMPT>");
+    }
+
+    fn write_one_cycle(interface: &mut TerminalWrapper) {
+        let _lock = interface.lock();
+        (0..20).for_each(|num| {
+            FAKE_STREAM
+                .lock()
+                .unwrap()
+                .push_str(num.to_string().as_str());
+            thread::sleep(Duration::from_millis(1))
+        })
+    }
 
     #[test]
     fn read_line_works_when_eof_is_hit() {

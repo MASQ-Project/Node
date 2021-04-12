@@ -1,16 +1,17 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
+use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::Arc;
 
-#[cfg(test)]
-use linefeed::memory::MemoryTerminal;
-
 #[cfg(not(test))]
 use linefeed::DefaultTerminal;
+
+pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
+pub const MASQ_TEST_INTEGRATION_VALUE: &str = "123"; //"3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb74b2eac7b8a3be8";
 
 //this is a layer with the broadest functionality, an object which is intended for you to usually work with at other
 //places in the code
@@ -47,7 +48,12 @@ impl TerminalWrapper {
     pub fn configure_interface() -> Result<Self, String> {
         //tested only for a negative result (an integration test)
         //no positive automatic test for this; tested by the fact that masq in interactive mode is runnable and passes human tests
-        Self::configure_interface_generic(Box::new(DefaultTerminal::new))
+        if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
+        {
+            Self::configure_interface_generic(Box::new(result_wrapper_for_in_memory_terminal))
+        } else {
+            Self::configure_interface_generic(Box::new(DefaultTerminal::new))
+        }
     }
 
     fn configure_interface_generic<F, U>(terminal_creator_by_type: Box<F>) -> Result<Self, String>
@@ -74,7 +80,6 @@ impl Clone for TerminalWrapper {
     }
 }
 
-#[cfg(test)]
 #[allow(clippy::unnecessary_wraps)]
 fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
     Ok(MemoryTerminal::new())

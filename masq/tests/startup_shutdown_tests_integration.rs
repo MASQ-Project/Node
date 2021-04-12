@@ -25,15 +25,14 @@ fn masq_without_daemon_integration() {
 }
 
 #[test]
-fn masq_propagates_errors_related_to_default_terminal() {
-    let child = MasqProcess::new().start_interactive(22222); //the port is irrelevant; it hits the error before it gets to trying to connect to the Daemon
+fn masq_propagates_errors_related_to_default_terminal_integration() {
+    //the port is irrelevant; it hits the error before it gets to trying to connect to the Daemon
+    let masq_handle = MasqProcess::new().start_interactive(22222);
 
-    let output = child.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let (stdout, stderr, exit_code) = masq_handle.stop();
 
-    assert_eq!(output.status.code().unwrap(), 1);
-    assert_eq!(stdout, "", "{}", stdout);
+    assert_eq!(exit_code, 1);
+    assert_eq!(stdout.as_str(), "", "{}", stdout);
     assert!(
         stderr.contains("Pre-configuration error: Local terminal recognition: "),
         "stderr was: {}",
