@@ -168,6 +168,8 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {
@@ -388,6 +390,9 @@ mod tests {
 
             assert_eq!(output, "")
         }
+
+        thread::sleep(Duration::from_millis(100)); //because of Win from Actions (theoretically others too)
+
         let output_when_unlocked = test_stream_handle.stdout_so_far();
         assert_eq!(
             output_when_unlocked,

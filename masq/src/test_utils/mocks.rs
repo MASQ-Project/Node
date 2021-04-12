@@ -397,10 +397,8 @@ impl TestStreamFactoryHandle {
                 Ok(s) => {
                     accum.push_str(&s);
                     retries_left = 5;
-                    eprintln!("debugging: added this string {}", s); //TODO remove this
                 }
                 Err(TryRecvError::Empty) => {
-                    eprintln!("debugging: TryRecvError:Empty"); //TODO remove this
                     retries_left -= 1;
                     if retries_left <= 0 {
                         break;
@@ -408,7 +406,6 @@ impl TestStreamFactoryHandle {
                     thread::sleep(Duration::from_millis(100));
                 }
                 Err(e) => {
-                    eprintln!("debugging: {}", e); //TODO remove this
                     break;
                 }
             }
