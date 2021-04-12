@@ -405,7 +405,7 @@ impl TestStreamFactoryHandle {
                     }
                     thread::sleep(Duration::from_millis(100));
                 }
-                Err(e) => {
+                Err(_) => {
                     break;
                 }
             }

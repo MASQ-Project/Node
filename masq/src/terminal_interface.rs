@@ -117,7 +117,7 @@ where
         return Err(format!("Setting prompt: {}", e));
     }
 
-    //here we can add some other parameter to be configured,
+    //here we can add another parameter to be configured,
     //such as "completer" (see linefeed library)
 
     Ok(())
@@ -170,11 +170,11 @@ pub trait WriterGeneric {
         intentionally_blank!()
     }
 
-    //I failed in attempts to use Any and dynamical casting from Box<dyn WriterGeneric>
+    //I failed in attempts to use 'Any' and dynamic casting from Box<dyn WriterGeneric>
     //because: Writer doesn't implement Clone and many if not all methods of Any require
     //'static, that is, it must be an owned object and I cannot get anything else but a referenced
-    //Writer.
-    //For delivering at least some test I decided to use this unusual hack
+    //Writer there.
+    //For delivering at least some tests I decided to use this, sort of a hack.
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
         intentionally_blank!()
@@ -223,7 +223,8 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>> {
         match self.lock_writer_append() {
             Ok(writer) => Ok(Box::new(writer)),
-            //untested ...dunno how to trigger any error here
+            //untested ...mocking here would require own definition of terminal type, I saw something like that
+            //and it takes many objects to be implemented because of the nature of the external library; I think it isn't worth it
             Err(error) => Err(error),
         }
     }
@@ -294,7 +295,7 @@ mod tests {
     }
 
     //In the two following tests I use the system stdout handles, which is the standard way in the project, but thanks to
-    //the lock from TerminalWrapper, it will be protected from one influencing another.
+    //the lock provided by TerminalWrapper, it'll protect one from any influence of another.
 
     #[test]
     fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {
@@ -310,7 +311,7 @@ mod tests {
 
         let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
-        //in an extreme case it may be printed as one is complete and the other sequence is interrupted
+        //in an extreme case it may be printed like one is complete (all "B" together) and the other sequence is interrupted
         assert!(
             !given_output.contains(&"A".repeat(90)) && !given_output.contains(&"B".repeat(90)),
             "without synchronization: {}",

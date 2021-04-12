@@ -39,9 +39,10 @@ impl Main {
         for idx in 1..args_vec.len() {
             let one = &args_vec[idx - 1];
             let two = &args_vec[idx];
+            //tested by an integration test
             if &args_vec[idx] == "--help" {
                 return Some(vec!["--help".to_string()]);
-            } //tested by an integration test
+            }
             if !one.starts_with("--") && !two.starts_with("--") {
                 return Some(args_vec.into_iter().skip(idx).collect());
             }
@@ -391,7 +392,7 @@ mod tests {
             assert_eq!(output, "")
         }
 
-        thread::sleep(Duration::from_millis(100)); //because of Win from Actions (theoretically others too)
+        thread::sleep(Duration::from_millis(200)); //because of Win from Actions (theoretically others too)
 
         let output_when_unlocked = test_stream_handle.stdout_so_far();
         assert_eq!(

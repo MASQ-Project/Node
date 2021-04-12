@@ -377,34 +377,6 @@ mod tests {
         assert_eq!(*make_params, vec![vec!["setup".to_string()]]);
     }
 
-    // #[test]
-    // fn interactive_mode_handles_error_caused_during_terminal_interface_upgrade() {
-    //     let command_factory = CommandFactoryMock::new();
-    //     let close_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let processor = CommandProcessorMock::new()
-    //         .close_params(&close_params_arc)
-    //         .upgrade_terminal_interface_result(Err("Invalid process handle".to_string()))
-    //         .insert_terminal_interface(
-    //             TerminalWrapper::new(Box::new(TerminalPassiveMock::new())),
-    //         );
-    //     let processor_factory =
-    //         CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-    //     let mut subject =
-    //         Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
-    //     let mut stream_holder = FakeStreamHolder::new();
-    //
-    //     let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-    //
-    //     assert_eq!(result, 1);
-    //     assert_eq!(
-    //         stream_holder.stderr.get_string(),
-    //         "Terminal interface error: Invalid process handle\n"
-    //     );
-    //     assert_eq!(stream_holder.stdout.get_string(), "");
-    //     let close_params = close_params_arc.lock().unwrap();
-    //     assert_eq!(close_params.len(), 1);
-    // }
-
     #[test]
     fn interactive_mode_handles_break_signal_from_line_reader() {
         let command_factory = CommandFactoryMock::new();
