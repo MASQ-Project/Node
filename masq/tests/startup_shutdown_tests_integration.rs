@@ -34,10 +34,10 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
     assert_eq!(exit_code, 1);
     assert_eq!(stdout.as_str(), "", "{}", stdout);
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     let expected_error_message = "Pre-configuration error: Preparing terminal interface:";
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     let expected_error_message = "Pre-configuration error: Local terminal: ";
 
     assert!(
