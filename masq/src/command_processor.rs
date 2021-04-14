@@ -55,7 +55,7 @@ pub struct CommandProcessorReal {
 
 impl CommandProcessor for CommandProcessorReal {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
-        let mut synchronizer = self.context.terminal_interface.clone();
+        let synchronizer = self.context.terminal_interface.clone();
         let _lock = synchronizer.lock();
         command.execute(&mut self.context)
     }

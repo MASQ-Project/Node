@@ -54,7 +54,7 @@ impl ChangePasswordCommand {
     pub fn handle_broadcast(
         _body: UiNewPasswordBroadcast,
         stdout: &mut dyn Write,
-        mut term_interface: TerminalWrapper,
+        term_interface: TerminalWrapper,
     ) {
         let _lock = term_interface.lock();
         write!(stdout, "\nThe Node's database password has changed.\n\n").expect("write! failed");

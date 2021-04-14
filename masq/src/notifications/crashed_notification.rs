@@ -12,7 +12,7 @@ impl CrashNotifier {
     pub fn handle_broadcast(
         response: UiNodeCrashedBroadcast,
         stdout: &mut dyn Write,
-        mut term_interface: TerminalWrapper,
+        term_interface: TerminalWrapper,
     ) {
         if response.crash_reason == CrashReason::DaemonCrashed {
             exit_process(1, "The Daemon is no longer running; masq is terminating.\n");

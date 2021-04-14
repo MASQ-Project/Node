@@ -476,7 +476,7 @@ Cannot handle crash request: Node is not running.
         sync: bool,
         stdout: &mut dyn Write,
         mut stdout_clone: Box<dyn Write + Send>,
-        mut synchronizer: TerminalWrapper,
+        synchronizer: TerminalWrapper,
         broadcast_handle: T,
         broadcast_message_body: U,
         rx: Receiver<String>,

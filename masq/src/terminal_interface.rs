@@ -1,27 +1,33 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
-use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::Arc;
 
+#[cfg(test)]
+use linefeed::memory::MemoryTerminal;
+
+#[cfg(not(test))]
+use crate::line_reader::IntegrationTestTerminal;
+
 #[cfg(not(test))]
 use linefeed::DefaultTerminal;
 
 pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
-pub const MASQ_TEST_INTEGRATION_VALUE: &str = "123"; //"3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb74b2eac7b8a3be8";
+pub const MASQ_TEST_INTEGRATION_VALUE: &str =
+    "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb74b2eac7b8a3be8xzt";
 
 //this is a layer with the broadest functionality, an object which is intended for you to usually work with at other
 //places in the code
 
 pub struct TerminalWrapper {
-    interface: Arc<Box<dyn Terminal + Send + Sync>>,
+    interface: Arc<Box<dyn MasqTerminal + Send + Sync>>,
 }
 
 impl TerminalWrapper {
-    pub fn lock(&mut self) -> Box<dyn WriterGeneric + '_> {
+    pub fn lock(&self) -> Box<dyn WriterLock + '_> {
         self.interface.provide_lock()
     }
 
@@ -33,7 +39,7 @@ impl TerminalWrapper {
         self.interface.add_history_unique(line)
     }
 
-    pub fn new(interface: Box<dyn Terminal + Send + Sync>) -> Self {
+    pub fn new(interface: Box<dyn MasqTerminal + Send + Sync>) -> Self {
         Self {
             interface: Arc::new(interface),
         }
@@ -50,7 +56,9 @@ impl TerminalWrapper {
         //no positive automatic test for this; tested by the fact that masq in interactive mode is runnable and passes human tests
         if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
-            Self::configure_interface_generic(Box::new(result_wrapper_for_in_memory_terminal))
+            Ok(TerminalWrapper::new(Box::new(
+                IntegrationTestTerminal::default(),
+            )))
         } else {
             Self::configure_interface_generic(Box::new(DefaultTerminal::new))
         }
@@ -80,6 +88,7 @@ impl Clone for TerminalWrapper {
     }
 }
 
+#[cfg(test)]
 #[allow(clippy::unnecessary_wraps)]
 fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
     Ok(MemoryTerminal::new())
@@ -97,7 +106,7 @@ where
 {
     let terminal: U = match terminal_type() {
         Ok(term) => term,
-        Err(e) => return Err(format!("Local terminal recognition: {}", e)),
+        Err(e) => return Err(format!("Local terminal: {}", e)),
     };
     let mut interface: Box<dyn InterfaceRaw + Send + Sync + 'static> =
         match interface_raw("masq", terminal) {
@@ -130,8 +139,8 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub trait Terminal {
-    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
+pub trait MasqTerminal {
+    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
         intentionally_blank!()
     }
     fn read_line(&self) -> TerminalEvent {
@@ -158,8 +167,8 @@ pub trait Terminal {
 #[derive(Default)]
 pub struct TerminalInactive {}
 
-impl Terminal for TerminalInactive {
-    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
+impl MasqTerminal for TerminalInactive {
+    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(WriterInactive {})
     }
     #[cfg(test)]
@@ -170,27 +179,19 @@ impl Terminal for TerminalInactive {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub trait WriterGeneric {
-    fn write_str(&mut self, _str: &str) -> std::io::Result<()> {
-        intentionally_blank!()
-    }
-
+pub trait WriterLock {
     //I failed in attempts to use 'Any' and dynamic casting from Box<dyn WriterGeneric>
     //because: Writer doesn't implement Clone and many if not all methods of Any require
     //'static, that is, it must be an owned object and I cannot get anything else but a referenced
     //Writer there.
-    //For delivering at least some tests I decided to use this, sort of a hack.
+    //For delivering at least some tests I decided to use this, kind of a hack.
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
         intentionally_blank!()
     }
 }
 
-impl<U: linefeed::Terminal> WriterGeneric for Writer<'_, '_, U> {
-    fn write_str(&mut self, str: &str) -> std::io::Result<()> {
-        self.write_str(&format!("{}\n*/-", str))
-    }
-
+impl<U: linefeed::Terminal> WriterLock for Writer<'_, '_, U> {
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
         "linefeed::Writer<_>".to_string()
@@ -200,7 +201,7 @@ impl<U: linefeed::Terminal> WriterGeneric for Writer<'_, '_, U> {
 #[derive(Clone)]
 pub struct WriterInactive {}
 
-impl WriterGeneric for WriterInactive {
+impl WriterLock for WriterInactive {
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
         "WriterInactive".to_string()
@@ -212,7 +213,7 @@ impl WriterGeneric for WriterInactive {
 pub trait InterfaceRaw {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
-    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>>;
+    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>>;
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
 }
 
@@ -225,11 +226,12 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
         self.add_history_unique(line);
     }
 
-    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + '_>> {
+    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>> {
         match self.lock_writer_append() {
             Ok(writer) => Ok(Box::new(writer)),
-            //untested ...mocking here would require own definition of terminal type, I saw something like that
-            //and it takes many objects to be implemented because of the nature of the external library; I think it isn't worth it
+            //untested ...mocking here would require own definition of a terminal type, I saw how
+            //that's done like that and it takes many objects to be implemented because of the nature
+            //of that external library; I think it isn't worth it
             Err(error) => Err(error),
         }
     }
@@ -245,59 +247,12 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::{InterfaceRawMock, MixingStdout, TerminalActiveMock};
-    use crate::test_utils::{written_output_all_lines, written_output_by_line_number};
     use crossbeam_channel::unbounded;
     use linefeed::DefaultTerminal;
     use std::io::{Error, Write};
     use std::sync::Barrier;
     use std::thread;
     use std::time::Duration;
-
-    #[test]
-    fn terminal_mock_and_test_tools_write_and_read() {
-        let mock = TerminalActiveMock::new()
-            .read_line_result("Rocket, go to Mars, go, go".to_string())
-            .read_line_result("And once again...nothing".to_string());
-
-        let mut terminal = TerminalWrapper::new(Box::new(mock));
-        let mut terminal_clone = terminal.clone();
-        let terminal_reference = terminal.clone();
-
-        terminal.lock().write_str("first attempt").unwrap();
-
-        let handle = thread::spawn(move || {
-            terminal_clone.lock().write_str("hello world").unwrap();
-            terminal_clone.lock().write_str("that's enough").unwrap()
-        });
-
-        handle.join().unwrap();
-
-        terminal.read_line();
-
-        terminal.read_line();
-
-        let lines_remaining = terminal_reference
-            .test_interface()
-            .lines()
-            .lines_remaining();
-        assert_eq!(lines_remaining, 24);
-
-        let written_output =
-            written_output_all_lines(terminal_reference.test_interface().lines(), true);
-        assert_eq!(
-            written_output,
-            "first attempt | hello world | that's enough | \
-         Rocket, go to Mars, go, go | And once again...nothing |"
-        );
-
-        let single_line =
-            written_output_by_line_number(terminal_reference.test_interface().lines(), 1);
-        assert_eq!(single_line, "first attempt");
-
-        let single_line =
-            written_output_by_line_number(terminal_reference.test_interface().lines(), 2);
-        assert_eq!(single_line, "hello world")
-    }
 
     //In the two following tests I use the system stdout handles, which is the standard way in the project, but thanks to
     //the lock provided by TerminalWrapper, it'll protect one from any influence of another.
@@ -316,25 +271,27 @@ mod tests {
 
         let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
-        //in an extreme case it may be printed like one is complete (all "B" together) and the other sequence is interrupted
-        assert!(
-            !given_output.contains(&"A".repeat(90)) && !given_output.contains(&"B".repeat(90)),
-            "without synchronization: {}",
-            given_output
-        );
+        //in an extreme case it may be printed like one group is complete and the other is divided
+        let results = [
+            given_output.contains(&"A".repeat(90)),
+            given_output.contains(&"B".repeat(90)),
+        ];
+        let at_least_one = results.iter().find(|bool| **bool == false);
+
+        assert!(at_least_one.is_some());
     }
 
     #[test]
     fn terminal_wrapper_s_lock_blocks_others_to_write_into_stdout() {
         let closure1: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> = Box::new(
-            move |mut interface: TerminalWrapper, mut stdout_c: MixingStdout| {
+            move |interface: TerminalWrapper, mut stdout_c: MixingStdout| {
                 let _lock = interface.lock();
                 write_in_cycles("AAA", &mut stdout_c);
             },
         );
 
         let closure2: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> = Box::new(
-            move |mut interface: TerminalWrapper, mut stdout_c: MixingStdout| {
+            move |interface: TerminalWrapper, mut stdout_c: MixingStdout| {
                 let _lock = interface.lock();
                 write_in_cycles("BBB", &mut stdout_c);
             },
@@ -412,7 +369,7 @@ mod tests {
             Err(e) => e,
         };
 
-        assert!(result.contains("Local terminal recognition:"), "{}", result);
+        assert!(result.contains("Local terminal:"), "{}", result);
         //Windows: The handle is invalid. (os error 6)
         //Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
     }
@@ -423,16 +380,10 @@ mod tests {
         let term_mock_clone = term_mock.clone();
         let terminal_type = move || -> std::io::Result<MemoryTerminal> { Ok(term_mock_clone) };
         let subject = configure_interface(Box::new(Interface::with_term), Box::new(terminal_type));
-        let result = match subject {
+        let _ = match subject {
             Err(e) => panic!("should have been OK, got Err: {}", e),
             Ok(val) => val,
         };
-        let mut wrapper = TerminalWrapper::new(Box::new(result));
-        wrapper.lock().write_str("hallelujah").unwrap();
-
-        let checking_if_operational = written_output_all_lines(term_mock.lines(), false);
-
-        assert_eq!(checking_if_operational, "hallelujah");
     }
 
     #[test]
@@ -489,7 +440,7 @@ mod tests {
 
     #[test]
     fn terminal_wrapper_armed_with_terminal_inactive_produces_writer_inactive() {
-        let mut subject = TerminalWrapper::new(Box::new(TerminalInactive::default()));
+        let subject = TerminalWrapper::new(Box::new(TerminalInactive::default()));
 
         let lock = subject.lock();
 

@@ -11,7 +11,7 @@ use std::io::Write;
 fn handle_node_not_running_for_fire_and_forget_on_the_way(
     body: UiUndeliveredFireAndForget,
     stdout: &mut dyn Write,
-    mut term_interface: TerminalWrapper,
+    term_interface: TerminalWrapper,
 ) {
     let _lock = term_interface.lock();
     write!(

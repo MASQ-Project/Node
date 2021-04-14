@@ -55,8 +55,10 @@ impl MasqProcess {
         }
     }
 
-    pub fn start_interactive(self, port: u16) -> StopHandle {
-        std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE);
+    pub fn start_interactive(self, port: u16, full_integration_test: bool) -> StopHandle {
+        if full_integration_test {
+            std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)
+        };
         let mut command = Command::new(executable_path(executable_name("masq")));
         let command = command.arg("--ui-port").arg(port.to_string());
         eprintln!("{:?}", command);
@@ -68,12 +70,15 @@ impl MasqProcess {
     }
 }
 
+#[allow(dead_code)]
 pub struct StdinHandle {
     stdin: ChildStdin,
 }
+
+#[allow(dead_code)]
 impl StdinHandle {
     pub fn type_command(&mut self, command: &str) {
-        short_writeln!(&self.stdin, "{}", command)
+        short_writeln!(&self.stdin, "{}", command);
     }
 }
 

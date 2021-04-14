@@ -77,7 +77,7 @@ impl SetupCommand {
     pub fn handle_broadcast(
         response: UiSetupBroadcast,
         stdout: &mut dyn Write,
-        mut term_interface: TerminalWrapper,
+        term_interface: TerminalWrapper,
     ) {
         let _lock = term_interface.lock();
         short_writeln!(stdout, "\nDaemon setup has changed:\n");

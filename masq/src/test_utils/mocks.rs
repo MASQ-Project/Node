@@ -8,8 +8,7 @@ use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
 use crate::line_reader::TerminalEvent;
 use crate::terminal_interface::{
-    InterfaceRaw, Terminal, TerminalWrapper, WriterGeneric, WriterInactive,
-    MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
+    InterfaceRaw, MasqTerminal, TerminalWrapper, WriterInactive, WriterLock,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
@@ -450,12 +449,12 @@ pub struct TerminalPassiveMock {
     read_line_result: Arc<Mutex<Vec<TerminalEvent>>>,
 }
 
-impl Terminal for TerminalPassiveMock {
+impl MasqTerminal for TerminalPassiveMock {
+    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
+        Box::new(WriterInactive {})
+    }
     fn read_line(&self) -> TerminalEvent {
         self.read_line_result.lock().unwrap().remove(0)
-    }
-    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
-        Box::new(WriterInactive {})
     }
 }
 
@@ -480,8 +479,8 @@ pub struct TerminalActiveMock {
     user_input: Arc<Mutex<Vec<String>>>,
 }
 
-impl Terminal for TerminalActiveMock {
-    fn provide_lock(&self) -> Box<dyn WriterGeneric + '_> {
+impl MasqTerminal for TerminalActiveMock {
+    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
 
@@ -541,7 +540,7 @@ impl InterfaceRaw for InterfaceRawMock {
         self.add_history_unique_params.lock().unwrap().push(line)
     }
 
-    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterGeneric + 'static>> {
+    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + 'static>> {
         intentionally_blank!()
     }
 

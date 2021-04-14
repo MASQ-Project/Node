@@ -381,7 +381,7 @@ mod tests {
     ) {
         let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
-        let (broadcast_handle, mut terminal_interface) =
+        let (broadcast_handle, terminal_interface) =
             Main::populate_interactive_dependencies(test_stream_factory).unwrap();
         {
             let _lock = terminal_interface.lock();
