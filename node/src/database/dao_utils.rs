@@ -2,7 +2,7 @@
 use crate::accountant::jackass_unsigned_to_signed;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -29,9 +29,9 @@ pub struct DaoFactoryReal {
 }
 
 impl DaoFactoryReal {
-    pub fn new(data_directory: &PathBuf, chain_id: u8, create_if_necessary: bool) -> Self {
+    pub fn new(data_directory: &Path, chain_id: u8, create_if_necessary: bool) -> Self {
         Self {
-            data_directory: data_directory.clone(),
+            data_directory: data_directory.to_path_buf(),
             chain_id,
             create_if_necessary,
         }

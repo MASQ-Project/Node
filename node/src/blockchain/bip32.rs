@@ -11,6 +11,7 @@ use std::num::NonZeroU32;
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::types::Address;
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub struct Bip32ECKeyPair {
     public: PublicKey,

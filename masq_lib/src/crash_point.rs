@@ -28,9 +28,9 @@ impl From<usize> for CrashPoint {
     }
 }
 
-impl Into<usize> for CrashPoint {
-    fn into(self) -> usize {
-        match self {
+impl From<CrashPoint> for usize {
+    fn from(crash_point: CrashPoint) -> Self {
+        match crash_point {
             CrashPoint::Message => MESSAGE,
             CrashPoint::Panic => PANIC,
             CrashPoint::Error => ERROR,
@@ -44,7 +44,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn into() {
+    fn from_usize_to_crash_point() {
         assert_eq!(CrashPoint::from(NONE), CrashPoint::None);
         assert_eq!(CrashPoint::from(PANIC), CrashPoint::Panic);
         assert_eq!(CrashPoint::from(ERROR), CrashPoint::Error);
@@ -52,11 +52,11 @@ mod tests {
     }
 
     #[test]
-    fn from() {
-        let none: usize = CrashPoint::None.into();
-        let panic: usize = CrashPoint::Panic.into();
-        let error: usize = CrashPoint::Error.into();
-        let message: usize = CrashPoint::Message.into();
+    fn from_crash_point_to_usize() {
+        let none = usize::from(CrashPoint::None);
+        let panic = usize::from(CrashPoint::Panic);
+        let error = usize::from(CrashPoint::Error);
+        let message = usize::from(CrashPoint::Message);
 
         assert_eq!(none, NONE);
         assert_eq!(panic, PANIC);

@@ -83,9 +83,9 @@ pub struct ArgsBuilder {
     args: Vec<String>,
 }
 
-impl Into<Vec<String>> for ArgsBuilder {
-    fn into(self) -> Vec<String> {
-        self.args
+impl From<ArgsBuilder> for Vec<String> {
+    fn from(builder: ArgsBuilder) -> Self {
+        builder.args
     }
 }
 
