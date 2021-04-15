@@ -52,7 +52,7 @@ fn handles_startup_and_shutdown_integration() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
 
-    thread::sleep(Duration::from_millis(500));
+    thread::sleep(Duration::from_millis(300));
 
     let masq_handle = MasqProcess::new().start_noninteractive(vec![
         "--ui-port",

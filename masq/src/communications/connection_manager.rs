@@ -25,7 +25,7 @@ use websocket::{ClientBuilder, WebSocketResult};
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
-pub const FALLBACK_TIMEOUT_MILLIS: u64 = 500;
+pub const FALLBACK_TIMEOUT_MILLIS: u64 = 1000; //used to be 500; but we have suspicion that Actions doesn't make it and needs more
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutgoingMessageType {
@@ -175,6 +175,7 @@ fn make_client_listener(
     Ok(talker_half)
 }
 
+//hack a time-out around connection attempt to the Node or Daemon. Leak a thread if the attempt times out
 fn connect_insecure_timeout(
     mut builder: ClientBuilder<'static>,
     timeout_millis: u64,
