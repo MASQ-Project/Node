@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Method, Transactor};
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
 use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
@@ -8,6 +8,8 @@ use igd::{
 use std::any::Any;
 use std::cell::RefCell;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
+use crate::control_layer::automap_control::AutomapChange;
+use masq_lib::utils::AutomapProtocol;
 
 trait GatewayFactory {
     fn make(&self, options: SearchOptions) -> Result<Box<dyn GatewayWrapper>, SearchError>;
@@ -184,8 +186,12 @@ impl Transactor for IgdpTransactor {
         }
     }
 
-    fn method(&self) -> Method {
-        Method::Igdp
+    fn method(&self) -> AutomapProtocol {
+        AutomapProtocol::Igdp
+    }
+
+    fn set_change_handler(&mut self, _change_handler: Box<dyn FnMut(AutomapChange)>) {
+        todo!()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -225,10 +231,10 @@ impl IgdpTransactor {
 mod tests {
     use super::*;
     use crate::comm_layer::tests::LocalIpFinderMock;
-    use crate::comm_layer::Method;
     use std::net::Ipv6Addr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use masq_lib::utils::AutomapProtocol;
 
     struct GatewayFactoryMock {
         make_params: Arc<Mutex<Vec<SearchOptions>>>,
@@ -368,7 +374,7 @@ mod tests {
 
         let method = subject.method();
 
-        assert_eq!(method, Method::Igdp);
+        assert_eq!(method, AutomapProtocol::Igdp);
     }
 
     #[test]

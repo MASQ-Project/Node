@@ -3,10 +3,10 @@
 use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
-use crate::comm_layer::{AutomapError, AutomapErrorCause, Method, Transactor};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor};
 use crate::probe_researcher::request_probe;
 use log::{info, warn};
-use masq_lib::utils::find_free_port;
+use masq_lib::utils::{find_free_port, AutomapProtocol};
 use std::env::Args;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -25,7 +25,7 @@ pub struct TestParameters {
 pub type Tester = Box<dyn FnOnce(TestStatus, &TestParameters) -> Result<(), AutomapErrorCause>>;
 
 pub struct AutomapParameters {
-    pub protocols: Vec<Method>,
+    pub protocols: Vec<AutomapProtocol>,
     pub test_parameters: TestParameters,
 }
 
@@ -40,9 +40,9 @@ impl AutomapParameters {
         let mut noremove = false;
         let mut permanent = false;
         args.into_iter().skip(1).for_each(|arg| match arg.as_str() {
-            "pcp" => protocols.push(Method::Pcp),
-            "pmp" => protocols.push(Method::Pmp),
-            "igdp" => protocols.push(Method::Igdp),
+            "pcp" => protocols.push(AutomapProtocol::Pcp),
+            "pmp" => protocols.push(AutomapProtocol::Pmp),
+            "igdp" => protocols.push(AutomapProtocol::Igdp),
             "nopoke" => nopoke = true,
             "noremove" => noremove = true,
             "permanent" => permanent = true,
@@ -53,7 +53,7 @@ impl AutomapParameters {
             }
         });
         if protocols.is_empty() {
-            protocols = vec![Method::Pcp, Method::Pmp, Method::Igdp]
+            protocols = vec![AutomapProtocol::Pcp, AutomapProtocol::Pmp, AutomapProtocol::Igdp]
         }
         if hole_port == 0 {
             hole_port = find_free_port();
@@ -74,11 +74,11 @@ impl AutomapParameters {
     }
 }
 
-pub fn tester_for(method: &Method) -> Tester {
+pub fn tester_for(method: &AutomapProtocol) -> Tester {
     match *method {
-        Method::Pcp => Box::new(test_pcp),
-        Method::Pmp => Box::new(test_pmp),
-        Method::Igdp => Box::new(test_igdp),
+        AutomapProtocol::Pcp => Box::new(test_pcp),
+        AutomapProtocol::Pmp => Box::new(test_pmp),
+        AutomapProtocol::Igdp => Box::new(test_igdp),
     }
 }
 

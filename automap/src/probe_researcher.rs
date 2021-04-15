@@ -10,11 +10,12 @@ use std::time::{Duration, Instant};
 use rand::{thread_rng, Rng};
 
 use crate::automap_core_functions::{TestParameters, TestStatus};
-use crate::comm_layer::{AutomapError, AutomapErrorCause, Method, Transactor};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor};
+use masq_lib::utils::AutomapProtocol;
 
 #[derive(Debug)]
 pub struct FirstSectionData {
-    pub method: Method,
+    pub method: AutomapProtocol,
     pub permanent_only: Option<bool>,
     pub ip: IpAddr,
     pub port: u16,

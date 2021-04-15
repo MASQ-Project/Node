@@ -5,7 +5,7 @@ use crate::comm_layer::pcp_pmp_common::{
     UdpSocketFactory, UdpSocketFactoryReal,
 };
 use crate::comm_layer::{
-    AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Method, Transactor,
+    AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Transactor,
 };
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
@@ -16,6 +16,8 @@ use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
+use crate::control_layer::automap_control::AutomapChange;
+use masq_lib::utils::AutomapProtocol;
 
 trait MappingNonceFactory {
     fn make(&self) -> [u8; 12];
@@ -89,8 +91,12 @@ impl Transactor for PcpTransactor {
         }
     }
 
-    fn method(&self) -> Method {
-        Method::Pcp
+    fn method(&self) -> AutomapProtocol {
+        AutomapProtocol::Pcp
+    }
+
+    fn set_change_handler(&mut self, _change_handler: Box<dyn FnMut(AutomapChange)>) {
+        todo!()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -205,7 +211,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::mocks::{
         FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
     };
-    use crate::comm_layer::{AutomapErrorCause, LocalIpFinder, Method};
+    use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
@@ -247,7 +253,7 @@ mod tests {
 
         let method = subject.method();
 
-        assert_eq!(method, Method::Pcp);
+        assert_eq!(method, AutomapProtocol::Pcp);
     }
 
     #[test]

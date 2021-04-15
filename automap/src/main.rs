@@ -1,9 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use automap_lib::automap_core_functions::{tester_for, AutomapParameters, TestStatus};
-use automap_lib::comm_layer::{AutomapErrorCause, Method};
+use automap_lib::comm_layer::{AutomapErrorCause};
 use automap_lib::logger::initiate_logger;
 use log::info;
+use masq_lib::utils::AutomapProtocol;
 
 const SERVER_SOCKET_ADDRESS: &str = "54.212.109.41:8081";
 
@@ -36,7 +37,7 @@ pub fn main() {
 }
 
 fn report_on_method(
-    method: &Method,
+    method: &AutomapProtocol,
     result: Result<(), AutomapErrorCause>,
     parameters: &AutomapParameters,
 ) {

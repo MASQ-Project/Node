@@ -71,6 +71,10 @@ Temporary Items
 **/.idea/**/gradle.xml
 **/.idea/**/libraries
 
+# Azure:
+**/.idea/**/azure/
+**/.idea/**/azureSettings.xml
+
 # CMake
 cmake-build-debug/
 

@@ -4,7 +4,7 @@ use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal,
     UdpSocketFactory, UdpSocketFactoryReal,
 };
-use crate::comm_layer::{AutomapError, AutomapErrorCause, Method, Transactor};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
 use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
@@ -14,6 +14,8 @@ use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
+use crate::control_layer::automap_control::AutomapChange;
+use masq_lib::utils::AutomapProtocol;
 
 pub struct PmpTransactor {
     socket_factory: Box<dyn UdpSocketFactory>,
@@ -94,8 +96,12 @@ impl Transactor for PmpTransactor {
         Ok(())
     }
 
-    fn method(&self) -> Method {
-        Method::Pmp
+    fn method(&self) -> AutomapProtocol {
+        AutomapProtocol::Pmp
+    }
+
+    fn set_change_handler(&mut self, _change_handler: Box<dyn FnMut(AutomapChange)>) {
+        todo!()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -167,7 +173,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::mocks::{
         FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
     };
-    use crate::comm_layer::{AutomapErrorCause, Method};
+    use crate::comm_layer::{AutomapErrorCause};
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
@@ -178,6 +184,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use masq_lib::utils::AutomapProtocol;
 
     #[test]
     fn knows_its_method() {
@@ -185,7 +192,7 @@ mod tests {
 
         let method = subject.method();
 
-        assert_eq!(method, Method::Pmp);
+        assert_eq!(method, AutomapProtocol::Pmp);
     }
 
     #[test]

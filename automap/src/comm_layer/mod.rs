@@ -1,12 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::any::Any;
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
 use crate::protocols::utils::ParseError;
+use crate::control_layer::automap_control::AutomapChange;
+use masq_lib::utils::AutomapProtocol;
 
 pub mod igdp;
 pub mod pcp;
@@ -43,6 +44,8 @@ pub enum AutomapError {
     ProbeReceiveError(String),
     DeleteMappingError(String),
     TransactionFailure(String),
+    AllProtocolsFailed,
+    AllRoutersFailed(AutomapProtocol),
 }
 
 impl AutomapError {
@@ -67,6 +70,8 @@ impl AutomapError {
             AutomapError::ProbeReceiveError(_) => AutomapErrorCause::ProbeFailed,
             AutomapError::DeleteMappingError(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::AllProtocolsFailed => todo!(),
+            AutomapError::AllRoutersFailed(_) => todo!(),
         }
     }
 }
@@ -83,7 +88,8 @@ pub trait Transactor {
     fn add_permanent_mapping(&self, router_ip: IpAddr, hole_port: u16)
         -> Result<u32, AutomapError>;
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
-    fn method(&self) -> Method;
+    fn method(&self) -> AutomapProtocol;
+    fn set_change_handler(&mut self, change_handler: Box<dyn FnMut(AutomapChange) -> ()>);
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -119,23 +125,6 @@ impl Default for LocalIpFinderReal {
 impl LocalIpFinderReal {
     pub fn new() -> Self {
         Self {}
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub enum Method {
-    Pmp,
-    Pcp,
-    Igdp,
-}
-
-impl Display for Method {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Method::Pmp => write!(f, "PMP"),
-            Method::Pcp => write!(f, "PCP"),
-            Method::Igdp => write!(f, "IGDP"),
-        }
     }
 }
 
