@@ -5,8 +5,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Direction {
-    Request,
-    Response,
+    Request, // 0
+    Response, // 1
 }
 
 impl From<u8> for Direction {

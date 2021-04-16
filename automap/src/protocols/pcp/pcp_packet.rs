@@ -39,7 +39,7 @@ impl Opcode {
 
     pub fn parse_data(&self, buf: &[u8]) -> Result<Box<dyn PcpOpcodeData>, ParseError> {
         match self {
-            Opcode::Announce => Err(ParseError::UnexpectedOpcode("Announce".to_string())),
+            Opcode::Announce => Ok(Box::new (UnrecognizedData::new())),
             Opcode::Map => Ok(Box::new(MapOpcodeData::try_from(buf)?)),
             Opcode::Peer => Err(ParseError::UnexpectedOpcode("Peer".to_string())),
             Opcode::Other(_) => Ok(Box::new(UnrecognizedData::new())),
@@ -315,6 +315,35 @@ mod tests {
     }
 
     #[test]
+    fn from_works_for_announce_packet() {
+        let buffer: &[u8] = &[
+            0x02, 0x80, 0x00, 0x00, // version, direction, opcode, reserved, result code
+            0x78, 0x56, 0x34, 0x12, // lifetime
+            0xFF, 0xEE, 0xDD, 0xCC, // epoch time
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved
+        ];
+
+        let subject = PcpPacket::try_from(buffer).unwrap();
+
+        assert_eq!(subject.direction, Direction::Response);
+        assert_eq!(subject.opcode, Opcode::Announce);
+        assert_eq!(subject.result_code_opt, Some(ResultCode::Success));
+        assert_eq!(subject.lifetime, 0x78563412);
+        assert_eq!(subject.epoch_time_opt, Some(0xFFEEDDCC));
+        assert_eq!(
+            subject
+                .opcode_data
+                .as_any()
+                .downcast_ref::<UnrecognizedData>()
+                .unwrap(),
+            &UnrecognizedData::new()
+        );
+        assert_eq!(subject.options.is_empty(), true);
+    }
+
+    #[test]
     fn from_works_for_unknown_response() {
         let buffer: &[u8] = &[
             0x02, 0xD5, 0x00, 0xAA, // version, direction, opcode, reserved, result code
@@ -458,6 +487,34 @@ mod tests {
     }
 
     #[test]
+    fn marshal_works_for_announce() {
+        let mut buffer = [0u8; 24];
+        let subject = PcpPacket {
+            direction: Direction::Response,
+            opcode: Opcode::Announce,
+            result_code_opt: Some(ResultCode::Success),
+            lifetime: 0x78563412,
+            client_ip_opt: None,
+            epoch_time_opt: Some(0xFFEEDDCC),
+            opcode_data: Box::new (UnrecognizedData::new()),
+            options: vec![],
+        };
+
+        let result = subject.marshal(&mut buffer).unwrap();
+
+        assert_eq!(result, 24);
+        let expected_buffer: [u8; 24] = [
+            0x02, 0x80, 0x00, 0x00, // version, direction, opcode, reserved, result code
+            0x78, 0x56, 0x34, 0x12, // requested lifetime
+            0xFF, 0xEE, 0xDD, 0xCC, // epoch time
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x00, // reserved
+        ];
+        assert_eq!(buffer, expected_buffer);
+    }
+
+    #[test]
     fn marshal_works_for_unknown_response() {
         let mut buffer = [0u8; 24];
         let subject = PcpPacket {
@@ -501,13 +558,6 @@ mod tests {
         let result = subject.marshal(&mut buffer);
 
         assert_eq!(result, Err(MarshalError::ShortBuffer(24, 23)));
-    }
-
-    #[test]
-    fn announce_opcode_is_future_enhancement() {
-        let result = Opcode::Announce.parse_data(&[]).err().unwrap();
-
-        assert_eq!(result, ParseError::UnexpectedOpcode("Announce".to_string()));
     }
 
     #[test]
