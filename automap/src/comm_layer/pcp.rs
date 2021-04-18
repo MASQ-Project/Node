@@ -1,9 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal,
-    UdpSocketFactory, UdpSocketFactoryReal,
-};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper};
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Transactor,
 };
@@ -16,10 +13,13 @@ use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use crate::control_layer::automap_control::AutomapChange;
+use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use masq_lib::utils::AutomapProtocol;
+use crossbeam_channel::{Sender, unbounded, Receiver};
+use std::sync::{Mutex, Arc};
+use std::{io, thread};
 
-trait MappingNonceFactory {
+trait MappingNonceFactory: Send {
     fn make(&self) -> [u8; 12];
 }
 
@@ -39,11 +39,29 @@ impl MappingNonceFactoryReal {
     }
 }
 
-pub struct PcpTransactor {
+struct Factories {
     socket_factory: Box<dyn UdpSocketFactory>,
+    local_ip_finder: Box<dyn LocalIpFinder>,
     mapping_nonce_factory: Box<dyn MappingNonceFactory>,
     free_port_factory: Box<dyn FreePortFactory>,
-    local_ip_finder: Box<dyn LocalIpFinder>,
+}
+
+impl Default for Factories {
+    fn default() -> Self {
+        Self {
+            socket_factory: Box::new(UdpSocketFactoryReal::new()),
+            local_ip_finder: Box::new(LocalIpFinderReal::new()),
+            mapping_nonce_factory: Box::new(MappingNonceFactoryReal::new()),
+            free_port_factory: Box::new(FreePortFactoryReal::new()),
+        }
+    }
+}
+
+pub struct PcpTransactor {
+    factories_arc: Arc<Mutex<Factories>>,
+    change_handler_port: u16,
+    change_handler_lifetime: Option<u32>,
+    change_handler_stopper: Option<Sender<()>>
 }
 
 impl Transactor for PcpTransactor {
@@ -53,7 +71,7 @@ impl Transactor for PcpTransactor {
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         let (result_code, _epoch_time, opcode_data) =
-            self.mapping_transaction(router_ip, 0x0009, 0)?;
+            Self::mapping_transaction(&self.factories_arc, router_ip, 0x0009, 0)?;
         match result_code {
             ResultCode::Success => Ok(opcode_data.external_ip_address),
             code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
@@ -67,7 +85,7 @@ impl Transactor for PcpTransactor {
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
         let (result_code, _epoch_time, _opcode_data) =
-            self.mapping_transaction(router_ip, hole_port, lifetime)?;
+            Self::mapping_transaction(&self.factories_arc, router_ip, hole_port, lifetime)?;
         match result_code {
             ResultCode::Success => Ok(lifetime / 2),
             code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
@@ -84,7 +102,7 @@ impl Transactor for PcpTransactor {
 
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         let (result_code, _epoch_time, _opcode_data) =
-            self.mapping_transaction(router_ip, hole_port, 0)?;
+            Self::mapping_transaction(&self.factories_arc, router_ip, hole_port, 0)?;
         match result_code {
             ResultCode::Success => Ok(()),
             code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
@@ -95,7 +113,44 @@ impl Transactor for PcpTransactor {
         AutomapProtocol::Pcp
     }
 
-    fn set_change_handler(&mut self, _change_handler: Box<dyn FnMut(AutomapChange)>) {
+    fn start_change_handler(&mut self, change_handler: ChangeHandler) -> Result<(), AutomapError> {
+        if let Some (_change_handler_stopper) = &self.change_handler_stopper {
+            todo! ("Stop previous change handler or throw error")
+        }
+        let ip_addr = IpAddr::V4(Ipv4Addr::new (224, 0, 0, 1));
+        let socket_addr = SocketAddr::new (ip_addr, self.change_handler_port);
+        let socket_result = {
+            let factories = self.factories_arc.lock().expect ("Automap is poisoned!");
+            factories.socket_factory.make (socket_addr)
+        };
+        let socket = match socket_result {
+            Ok(s) => s,
+            Err(e) => {
+                return Err(AutomapError::SocketBindingError(
+                    format!("{:?}", e),
+                    socket_addr,
+                ))
+            }
+        };
+        let (tx, rx) = unbounded();
+        self.change_handler_stopper = Some (tx);
+        let factories_arc = self.factories_arc.clone();
+        let change_handler_port = self.change_handler_port;
+        let change_handler_lifetime = self.change_handler_lifetime.unwrap_or (600);
+        thread::spawn (move || {
+            Self::thread_guts (
+                &socket,
+                &rx,
+                factories_arc,
+                &change_handler,
+                change_handler_port,
+                change_handler_lifetime,
+            )
+        });
+        Ok(())
+    }
+
+    fn stop_change_handler(&mut self) {
         todo!()
     }
 
@@ -107,30 +162,36 @@ impl Transactor for PcpTransactor {
 impl Default for PcpTransactor {
     fn default() -> Self {
         Self {
-            socket_factory: Box::new(UdpSocketFactoryReal::new()),
-            mapping_nonce_factory: Box::new(MappingNonceFactoryReal::new()),
-            free_port_factory: Box::new(FreePortFactoryReal::new()),
-            local_ip_finder: Box::new(LocalIpFinderReal::new()),
+            factories_arc: Arc::new (Mutex::new (Factories::default())),
+            change_handler_port: 5350,
+            change_handler_lifetime: None,
+            change_handler_stopper: None,
         }
     }
 }
 
 impl PcpTransactor {
     fn mapping_transaction(
-        &self,
+        factories_arc: &Arc<Mutex<Factories>>,
         router_ip: IpAddr,
         hole_port: u16,
         lifetime: u32,
     ) -> Result<(ResultCode, u32, MapOpcodeData), AutomapError> {
+        let (
+            socket_addr,
+            socket_result,
+            local_ip_result,
+            mapping_nonce,
+        ) = Self::employ_factories (factories_arc, router_ip);
         let packet = PcpPacket {
             direction: Direction::Request,
             opcode: Opcode::Map,
             result_code_opt: None,
             lifetime,
-            client_ip_opt: Some(self.local_ip_finder.find()?),
+            client_ip_opt: Some(local_ip_result?),
             epoch_time_opt: None,
             opcode_data: Box::new(MapOpcodeData {
-                mapping_nonce: self.mapping_nonce_factory.make(),
+                mapping_nonce,
                 protocol: Protocol::Tcp,
                 internal_port: hole_port,
                 external_port: hole_port,
@@ -142,8 +203,7 @@ impl PcpTransactor {
         let request_len = packet
             .marshal(&mut buffer)
             .expect("Bad packet construction");
-        let socket_addr = make_local_socket_address(router_ip, self.free_port_factory.make());
-        let socket = match self.socket_factory.make(socket_addr) {
+        let socket = match socket_result {
             Ok(s) => s,
             Err(e) => {
                 return Err(AutomapError::SocketBindingError(
@@ -203,6 +263,75 @@ impl PcpTransactor {
             .expect("Response parsing inoperative - opcode data");
         Ok((result_code, epoch_time, opcode_data.clone()))
     }
+
+    fn employ_factories (factories_arc: &Arc<Mutex<Factories>>, router_ip: IpAddr) -> (
+        SocketAddr,
+        io::Result<Box<dyn UdpSocketWrapper>>,
+        Result<IpAddr, AutomapError>,
+        [u8; 12],
+    ) {
+        let factories = factories_arc.lock().expect ("Automap is poisoned!");
+        let free_port = factories.free_port_factory.make();
+        let socket_addr = make_local_socket_address(router_ip, free_port);
+        (
+            socket_addr,
+            factories.socket_factory.make (socket_addr),
+            factories.local_ip_finder.find(),
+            factories.mapping_nonce_factory.make(),
+        )
+    }
+
+    fn thread_guts (
+        socket: &Box<dyn UdpSocketWrapper>,
+        rx: &Receiver<()>,
+        factories_arc: Arc<Mutex<Factories>>,
+        change_handler: &ChangeHandler,
+        change_handler_port: u16,
+        change_handler_lifetime: u32,
+    ) {
+        loop {
+            let mut buffer = [0u8; 100];
+            socket.set_read_timeout(Some(Duration::from_millis(250)));
+            match socket.recv_from(&mut buffer) {
+                Ok((len, socket_addr)) => match PcpPacket::try_from(&buffer[0..len]) {
+                    Ok(packet) => if packet.opcode == Opcode::Announce {
+                        Self::handle_announcement(
+                            factories_arc.clone(),
+                            socket_addr.ip(),
+                            change_handler,
+                            change_handler_port,
+                            change_handler_lifetime,
+                        );
+                    },
+                    Err(_) => todo!("Log here"),
+                },
+                Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
+                Err(e) => todo!("Log here"),
+            }
+            match rx.try_recv() {
+                Ok(_) => break,
+                Err(_) => (),
+            }
+        }
+    }
+
+    fn handle_announcement (
+        factories_arc: Arc<Mutex<Factories>>,
+        router_ip: IpAddr,
+        change_handler: &ChangeHandler,
+        change_handler_port: u16,
+        change_handler_lifetime: u32,
+    ) {
+        match Self::mapping_transaction(
+            &factories_arc,
+            router_ip,
+            change_handler_port,
+            change_handler_lifetime,
+        ) {
+            Ok ((_, _, opcode_data)) => change_handler(AutomapChange::NewIp(opcode_data.external_ip_address)),
+            Err (e) => (),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -217,12 +346,13 @@ mod tests {
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
     use std::cell::RefCell;
     use std::collections::HashSet;
-    use std::io;
+    use std::{io, thread};
     use std::io::ErrorKind;
-    use std::net::{SocketAddr, SocketAddrV4};
+    use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use masq_lib::utils::{find_free_port, localhost};
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -286,12 +416,14 @@ mod tests {
         let io_error_str = format!("{:?}", io_error);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
         let free_port_factory = FreePortFactoryMock::new().make_result(5566);
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-        subject.free_port_factory = Box::new(free_port_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+            factories.free_port_factory = Box::new (free_port_factory);
+        }
 
-        let result = subject
-            .mapping_transaction(router_ip, 6666, 4321)
+        let result = PcpTransactor::mapping_transaction(&subject.factories_arc, router_ip, 6666, 4321)
             .err()
             .unwrap();
 
@@ -314,10 +446,13 @@ mod tests {
             .set_read_timeout_result(Ok(()))
             .send_to_result(Err(io_error));
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+        }
 
-        let result = subject.mapping_transaction(router_ip, 6666, 4321);
+        let result = PcpTransactor::mapping_transaction(&subject.factories_arc, router_ip, 6666, 4321);
 
         assert_eq!(
             result,
@@ -337,10 +472,13 @@ mod tests {
             .send_to_result(Ok(1000))
             .recv_from_result(Err(io_error), vec![]);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+        }
 
-        let result = subject.mapping_transaction(router_ip, 6666, 4321);
+        let result = PcpTransactor::mapping_transaction(&subject.factories_arc, router_ip, 6666, 4321);
 
         assert_eq!(
             result,
@@ -358,10 +496,13 @@ mod tests {
             .send_to_result(Ok(1000))
             .recv_from_result(Ok((0, SocketAddr::new(router_ip, 5351))), vec![]);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+        }
 
-        let result = subject.mapping_transaction(router_ip, 6666, 4321);
+        let result = PcpTransactor::mapping_transaction(&subject.factories_arc, router_ip, 6666, 4321);
 
         assert_eq!(
             result,
@@ -385,10 +526,13 @@ mod tests {
                 buffer[0..len].to_vec(),
             );
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+        }
 
-        let result = subject.mapping_transaction(router_ip, 6666, 4321);
+        let result = PcpTransactor::mapping_transaction(&subject.factories_arc, router_ip, 6666, 4321);
 
         assert_eq!(
             result,
@@ -413,10 +557,13 @@ mod tests {
                 buffer[0..len].to_vec(),
             );
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+        }
 
-        let result = subject.mapping_transaction(router_ip, 6666, 4321);
+        let result = PcpTransactor::mapping_transaction(&subject.factories_arc, router_ip, 6666, 4321);
 
         assert_eq!(
             result,
@@ -464,9 +611,12 @@ mod tests {
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-        subject.mapping_nonce_factory = Box::new(nonce_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+            factories.mapping_nonce_factory = Box::new(nonce_factory);
+        }
 
         let result = subject.get_public_ip(IpAddr::from_str("1.2.3.4").unwrap());
 
@@ -509,9 +659,12 @@ mod tests {
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-        subject.mapping_nonce_factory = Box::new(nonce_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+            factories.mapping_nonce_factory = Box::new(nonce_factory);
+        }
 
         let result = subject.get_public_ip(IpAddr::from_str("1.2.3.4").unwrap());
 
@@ -555,14 +708,18 @@ mod tests {
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let free_port_factory = FreePortFactoryMock::new().make_result(34567);
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-        subject.mapping_nonce_factory = Box::new(nonce_factory);
-        subject.free_port_factory = Box::new(free_port_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+            factories.mapping_nonce_factory = Box::new(nonce_factory);
+            factories.free_port_factory = Box::new (free_port_factory);
+        }
 
         let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 1234);
 
         assert_eq!(result, Ok(617));
+        assert_eq!(subject.change_handler_lifetime, Some (1234));
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
@@ -604,9 +761,12 @@ mod tests {
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-        subject.mapping_nonce_factory = Box::new(nonce_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+            factories.mapping_nonce_factory = Box::new(nonce_factory);
+        }
 
         let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 1234);
 
@@ -656,9 +816,12 @@ mod tests {
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-        subject.mapping_nonce_factory = Box::new(nonce_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+            factories.mapping_nonce_factory = Box::new(nonce_factory);
+        }
 
         let result = subject.delete_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666);
 
@@ -696,9 +859,12 @@ mod tests {
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let mut subject = PcpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-        subject.mapping_nonce_factory = Box::new(nonce_factory);
+        let subject = PcpTransactor::default();
+        {
+            let mut factories = subject.factories_arc.lock().unwrap();
+            factories.socket_factory = Box::new(socket_factory);
+            factories.mapping_nonce_factory = Box::new(nonce_factory);
+        }
 
         let result = subject.delete_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666);
 
@@ -708,6 +874,54 @@ mod tests {
                 "AddressMismatch".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn change_handler_works() {
+        let port = find_free_port();
+        let mut subject = PcpTransactor::default();
+        subject.change_handler_port = port;
+        let changes_arc = Arc::new (Mutex::new (vec![]));
+        let changes_arc_inner = changes_arc.clone();
+        let change_handler = move |change| {
+            changes_arc_inner.lock().unwrap().push (change);
+        };
+
+        subject.start_change_handler(Box::new (change_handler)).unwrap();
+
+        assert!(subject.change_handler_stopper.is_some());
+        let socket = UdpSocket::bind (SocketAddr::new (localhost(), 0)).unwrap();
+        socket.set_read_timeout (Some (Duration::from_millis(1000))).unwrap();
+        socket.set_broadcast(true).unwrap();
+        socket.connect (SocketAddr::new (IpAddr::from_str ("224.0.0.1").unwrap(), port)).unwrap();
+        let mut packet = vanilla_response();
+        packet.opcode = Opcode::Announce;
+        packet.lifetime = 0;
+        packet.epoch_time_opt = Some (0);
+        let mut buffer = [0u8; 100];
+        let len_to_send = packet.marshal (&mut buffer).unwrap();
+        let sent_len = socket.send (&buffer[0..len_to_send]).unwrap();
+        assert_eq! (sent_len, len_to_send);
+        let recv_len = socket.recv (&mut buffer).unwrap();
+        let packet = PcpPacket::try_from (&buffer[0..recv_len]).unwrap();
+        assert_eq! (packet.opcode, Opcode::Map);
+        assert_eq! (packet.lifetime, 0);
+        let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
+        assert_eq! (opcode_data.external_port, 9);
+        assert_eq! (opcode_data.internal_port, 9);
+        let mut packet = vanilla_response();
+        packet.opcode = Opcode::Map;
+        let mut opcode_data = MapOpcodeData::default();
+        opcode_data.external_ip_address = IpAddr::from_str("4.5.6.7").unwrap();
+        packet.opcode_data = Box::new (opcode_data);
+        let len_to_send = packet.marshal (&mut buffer).unwrap();
+        let sent_len = socket.send (&buffer[0..len_to_send]).unwrap();
+        assert_eq! (sent_len, len_to_send);
+        thread::sleep (Duration::from_millis(0)); // yield timeslice
+        subject.stop_change_handler();
+        assert! (subject.change_handler_stopper.is_none());
+        let changes = changes_arc.lock().unwrap();
+        assert_eq! (*changes, vec![AutomapChange::NewIp(IpAddr::from_str ("4.5.6.7").unwrap())])
     }
 
     fn vanilla_request() -> PcpPacket {

@@ -14,7 +14,7 @@ use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
-use crate::control_layer::automap_control::AutomapChange;
+use crate::control_layer::automap_control::{ChangeHandler};
 use masq_lib::utils::AutomapProtocol;
 
 pub struct PmpTransactor {
@@ -100,7 +100,11 @@ impl Transactor for PmpTransactor {
         AutomapProtocol::Pmp
     }
 
-    fn set_change_handler(&mut self, _change_handler: Box<dyn FnMut(AutomapChange)>) {
+    fn start_change_handler(&mut self, _change_handler: ChangeHandler) -> Result<(), AutomapError> {
+        todo!()
+    }
+
+    fn stop_change_handler(&mut self) {
         todo!()
     }
 

@@ -24,7 +24,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
 
-pub trait UdpSocketWrapper {
+pub trait UdpSocketWrapper: Send {
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
     fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()>;
@@ -54,7 +54,7 @@ impl UdpSocketReal {
     }
 }
 
-pub trait UdpSocketFactory {
+pub trait UdpSocketFactory: Send {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>>;
 }
 
@@ -72,7 +72,7 @@ impl UdpSocketFactoryReal {
     }
 }
 
-pub trait FreePortFactory {
+pub trait FreePortFactory: Send {
     fn make(&self) -> u16;
 }
 

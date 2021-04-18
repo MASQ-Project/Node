@@ -14,12 +14,16 @@ pub enum AutomapChange {
     NewIp (IpAddr),
 }
 
+unsafe impl Send for AutomapChange {}
+
+pub type ChangeHandler = Box<dyn Fn (AutomapChange) -> () + Send>;
+
 pub trait AutomapControl {
-    fn establish_mapping<F: 'static + FnMut(AutomapChange) -> ()>(
+    fn establish_mapping (
         &mut self,
         port: u16,
         protocol_opt: Option<AutomapProtocol>,
-        change_handler: F
+        change_handler: ChangeHandler
     ) -> Result<(AutomapProtocol, IpAddr), AutomapError>;
 
     fn remove_mapping(&self) -> Result<(), AutomapError>;
@@ -38,11 +42,11 @@ pub struct AutomapControlReal {
 }
 
 impl AutomapControl for AutomapControlReal {
-    fn establish_mapping<F: 'static + FnMut(AutomapChange) -> ()>(
+    fn establish_mapping (
         &mut self,
         port: u16,
         protocol_opt: Option<AutomapProtocol>,
-        change_handler: F
+        change_handler: ChangeHandler,
     ) -> Result<(AutomapProtocol, IpAddr), AutomapError> {
         let box_change_handler = Box::new (change_handler);
         match protocol_opt {
@@ -51,7 +55,7 @@ impl AutomapControl for AutomapControlReal {
                 let transactor = self.transactors
                     .iter_mut()
                     .find (|t| t.method() == protocol).expect (&format!("Missing Transactor for {}", protocol));
-                transactor.set_change_handler(box_change_handler);
+                transactor.start_change_handler(box_change_handler)?;
                 self.inner_opt = Some (AutomapControlRealInner {
                     router_ip,
                     protocol,
@@ -72,7 +76,7 @@ impl AutomapControl for AutomapControlReal {
                 });
                 match result {
                     Some ((transactor, router_ip, public_ip)) => {
-                        transactor.set_change_handler (box_change_handler);
+                        transactor.start_change_handler(box_change_handler)?;
                         self.inner_opt = Some (AutomapControlRealInner {
                             router_ip,
                             protocol: transactor.method(),
@@ -176,6 +180,10 @@ mod tests {
         static ref PUBLIC_IP: IpAddr = IpAddr::from_str ("2.3.4.5").unwrap();
     }
 
+    fn null_change_handler() -> ChangeHandler {
+        Box::new (|_| {})
+    }
+
     struct TransactorMock {
         protocol: AutomapProtocol,
         find_routers_results: RefCell<Vec<Result<Vec<IpAddr>, AutomapError>>>,
@@ -187,7 +195,8 @@ mod tests {
         add_permanent_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
         delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
         delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
-        set_change_handler_params: Arc<Mutex<Vec<Box<dyn FnMut(AutomapChange) -> ()>>>>
+        set_change_handler_params: Arc<Mutex<Vec<ChangeHandler>>>,
+        set_change_handler_results: RefCell<Vec<Result<(), AutomapError>>>,
     }
 
     impl Transactor for TransactorMock {
@@ -219,8 +228,13 @@ mod tests {
             self.protocol
         }
 
-        fn set_change_handler(&mut self, change_handler: Box<dyn FnMut(AutomapChange)>) {
+        fn start_change_handler(&mut self, change_handler: ChangeHandler) -> Result<(), AutomapError> {
             self.set_change_handler_params.lock().unwrap().push (change_handler);
+            self.set_change_handler_results.borrow_mut().remove (0)
+        }
+
+        fn stop_change_handler(&mut self) {
+            todo!()
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -242,6 +256,7 @@ mod tests {
                 delete_mapping_params: Arc::new(Mutex::new(vec![])),
                 delete_mapping_results: RefCell::new(vec![]),
                 set_change_handler_params: Arc::new(Mutex::new(vec![])),
+                set_change_handler_results: RefCell::new(vec![]),
             }
         }
 
@@ -290,7 +305,12 @@ mod tests {
             self
         }
 
-        pub fn set_change_handler_params (mut self, params: &Arc<Mutex<Vec<Box<dyn FnMut(AutomapChange) -> ()>>>>) -> Self {
+        pub fn set_change_handler_result (self, result: Result<(), AutomapError>) -> Self {
+            self.set_change_handler_results.borrow_mut().push (result);
+            self
+        }
+
+        pub fn set_change_handler_params (mut self, params: &Arc<Mutex<Vec<ChangeHandler>>>) -> Self {
             self.set_change_handler_params = params.clone();
             self
         }
@@ -305,8 +325,8 @@ mod tests {
             &get_public_ip_params_arc, &add_mapping_params_arc, &set_change_handler_params_arc);
         let outer_handler_data = Arc::new (Mutex::new ("".to_string()));
         let inner_handler_data = outer_handler_data.clone();
-        let change_handler = move |change: AutomapChange|
-            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change));
+        let change_handler = Box::new (move |change: AutomapChange|
+            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change)));
 
         let result = subject.establish_mapping (1234, Some(AutomapProtocol::Pcp), change_handler);
 
@@ -334,8 +354,8 @@ mod tests {
             &get_public_ip_params_arc, &add_mapping_params_arc, &set_change_handler_params_arc);
         let outer_handler_data = Arc::new (Mutex::new ("".to_string()));
         let inner_handler_data = outer_handler_data.clone();
-        let change_handler = move |change: AutomapChange|
-            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change));
+        let change_handler = Box::new (move |change: AutomapChange|
+            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change)));
 
         let result = subject.establish_mapping (1234, Some(AutomapProtocol::Pmp), change_handler);
 
@@ -363,8 +383,8 @@ mod tests {
             &get_public_ip_params_arc, &add_mapping_params_arc, &set_change_handler_params_arc);
         let outer_handler_data = Arc::new (Mutex::new ("".to_string()));
         let inner_handler_data = outer_handler_data.clone();
-        let change_handler = move |change: AutomapChange|
-            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change));
+        let change_handler = Box::new (move |change: AutomapChange|
+            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change)));
 
         let result = subject.establish_mapping (1234, Some(AutomapProtocol::Igdp), change_handler);
 
@@ -386,7 +406,7 @@ mod tests {
     #[test]
     fn specific_establish_mapping_works_for_pcp_failure() {
         let mut subject = make_specific_failure_subject (AutomapProtocol::Pcp);
-        let change_handler = |_| {};
+        let change_handler = null_change_handler();
 
         let result = subject.establish_mapping (1234, Some(AutomapProtocol::Pcp), change_handler);
 
@@ -397,7 +417,7 @@ mod tests {
     #[test]
     fn specific_establish_mapping_works_for_pmp_failure() {
         let mut subject = make_specific_failure_subject (AutomapProtocol::Pmp);
-        let change_handler = |_| {};
+        let change_handler = null_change_handler();
 
         let result = subject.establish_mapping (1234, Some(AutomapProtocol::Pmp), change_handler);
 
@@ -408,7 +428,7 @@ mod tests {
     #[test]
     fn specific_establish_mapping_works_for_igdp_failure() {
         let mut subject = make_specific_failure_subject (AutomapProtocol::Igdp);
-        let change_handler = |_| {};
+        let change_handler = null_change_handler();
 
         let result = subject.establish_mapping (1234, Some(AutomapProtocol::Igdp), change_handler);
 
@@ -425,8 +445,8 @@ mod tests {
             &get_public_ip_params_arc, &add_mapping_params_arc, &set_change_handler_params_arc);
         let outer_handler_data = Arc::new (Mutex::new ("".to_string()));
         let inner_handler_data = outer_handler_data.clone();
-        let change_handler = move |change: AutomapChange|
-            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change));
+        let change_handler = Box::new (move |change: AutomapChange|
+            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change)));
 
         let result = subject.establish_mapping(1234, None, change_handler);
 
@@ -454,8 +474,8 @@ mod tests {
             &get_public_ip_params_arc, &add_mapping_params_arc, &set_change_handler_params_arc);
         let outer_handler_data = Arc::new (Mutex::new ("".to_string()));
         let inner_handler_data = outer_handler_data.clone();
-        let change_handler = move |change: AutomapChange|
-            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change));
+        let change_handler = Box::new (move |change: AutomapChange|
+            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change)));
 
         let result = subject.establish_mapping(1234, None, change_handler);
 
@@ -483,8 +503,8 @@ mod tests {
             &get_public_ip_params_arc, &add_mapping_params_arc, &set_change_handler_params_arc);
         let outer_handler_data = Arc::new (Mutex::new ("".to_string()));
         let inner_handler_data = outer_handler_data.clone();
-        let change_handler = move |change: AutomapChange|
-            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change));
+        let change_handler = Box::new (move |change: AutomapChange|
+            inner_handler_data.lock().unwrap().push_str (&format!("{:?}", change)));
 
         let result = subject.establish_mapping(1234, None, change_handler);
 
@@ -511,7 +531,7 @@ mod tests {
     #[test]
     fn general_establish_mapping_works_for_all_failure() {
         let mut subject = make_general_failure_subject ();
-        let change_handler = |_| {};
+        let change_handler = null_change_handler();
 
         let result = subject.establish_mapping(1234, None, change_handler);
 
@@ -613,7 +633,7 @@ mod tests {
         protocol: AutomapProtocol,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        set_change_handler_params_arc: &Arc<Mutex<Vec<Box<dyn FnMut (AutomapChange) -> ()>>>>
+        set_change_handler_params_arc: &Arc<Mutex<Vec<ChangeHandler>>>
     ) -> AutomapControlReal {
         let transactor = TransactorMock::new(protocol)
             .find_routers_result(Ok(vec![*ROUTER_IP]))
@@ -621,7 +641,8 @@ mod tests {
             .get_public_ip_result(Ok(*PUBLIC_IP))
             .add_mapping_params(add_mapping_params_arc)
             .add_mapping_result(Ok(1000))
-            .set_change_handler_params(set_change_handler_params_arc);
+            .set_change_handler_params(set_change_handler_params_arc)
+            .set_change_handler_result(Ok(()));
         replace_transactor (make_null_subject(), Box::new (transactor))
     }
 
@@ -663,7 +684,7 @@ mod tests {
         protocol: AutomapProtocol,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        set_change_handler_params_arc: &Arc<Mutex<Vec<Box<dyn FnMut (AutomapChange) -> ()>>>>
+        set_change_handler_params_arc: &Arc<Mutex<Vec<ChangeHandler>>>
     ) -> AutomapControlReal {
         let subject = make_general_failure_subject();
         let success_transactor = make_params_success_transactor(
@@ -687,7 +708,7 @@ mod tests {
         protocol: AutomapProtocol,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        set_change_handler_params_arc: &Arc<Mutex<Vec<Box<dyn FnMut (AutomapChange) -> ()>>>>
+        set_change_handler_params_arc: &Arc<Mutex<Vec<ChangeHandler>>>
     ) -> Box<dyn Transactor> {
         Box::new (TransactorMock::new(protocol)
             .find_routers_result(Ok(vec![*ROUTER_IP]))
@@ -695,7 +716,8 @@ mod tests {
             .get_public_ip_result(Ok(*PUBLIC_IP))
             .add_mapping_params(add_mapping_params_arc)
             .add_mapping_result(Ok(1000))
-            .set_change_handler_params(set_change_handler_params_arc))
+            .set_change_handler_params(set_change_handler_params_arc)
+            .set_change_handler_result(Ok(())))
     }
 
     fn make_failure_transactor(protocol: AutomapProtocol) -> Box<dyn Transactor> {

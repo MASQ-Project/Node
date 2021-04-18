@@ -8,7 +8,7 @@ use igd::{
 use std::any::Any;
 use std::cell::RefCell;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
-use crate::control_layer::automap_control::AutomapChange;
+use crate::control_layer::automap_control::{ChangeHandler};
 use masq_lib::utils::AutomapProtocol;
 
 trait GatewayFactory {
@@ -190,7 +190,11 @@ impl Transactor for IgdpTransactor {
         AutomapProtocol::Igdp
     }
 
-    fn set_change_handler(&mut self, _change_handler: Box<dyn FnMut(AutomapChange)>) {
+    fn start_change_handler(&mut self, _change_handler: ChangeHandler) -> Result<(), AutomapError> {
+        todo!()
+    }
+
+    fn stop_change_handler(&mut self) {
         todo!()
     }
 

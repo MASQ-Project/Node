@@ -6,8 +6,8 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
 use crate::protocols::utils::ParseError;
-use crate::control_layer::automap_control::AutomapChange;
 use masq_lib::utils::AutomapProtocol;
+use crate::control_layer::automap_control::ChangeHandler;
 
 pub mod igdp;
 pub mod pcp;
@@ -89,7 +89,8 @@ pub trait Transactor {
         -> Result<u32, AutomapError>;
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
     fn method(&self) -> AutomapProtocol;
-    fn set_change_handler(&mut self, change_handler: Box<dyn FnMut(AutomapChange) -> ()>);
+    fn start_change_handler(&mut self, change_handler: ChangeHandler) -> Result<(), AutomapError>;
+    fn stop_change_handler(&mut self);
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -99,7 +100,7 @@ impl Debug for dyn Transactor {
     }
 }
 
-pub trait LocalIpFinder {
+pub trait LocalIpFinder: Send {
     fn find(&self) -> Result<IpAddr, AutomapError>;
 }
 
