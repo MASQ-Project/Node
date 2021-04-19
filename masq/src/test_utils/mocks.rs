@@ -487,7 +487,7 @@ impl MasqTerminal for TerminalActiveMock {
     fn read_line(&self) -> TerminalEvent {
         let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
         self.reference.write(&format!("{}*/-", line));
-        TerminalEvent::CommandLine(line)
+        TerminalEvent::CommandLine(vec![line])
     }
 
     fn add_history_unique(&self, line: String) {

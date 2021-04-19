@@ -22,9 +22,8 @@ pub trait BroadcastHandle: Send {
 pub struct BroadcastHandleInactive {}
 
 impl BroadcastHandle for BroadcastHandleInactive {
-    fn send(&self, message_body: MessageBody) {
-        drop(message_body); //simply dropped (unless we find a better use for such a message)
-    }
+    //simply dropped (unless we find a better use for such a message)
+    fn send(&self, _message_body: MessageBody) {}
 }
 
 #[allow(clippy::new_without_default)]
@@ -122,7 +121,7 @@ impl BroadcastHandlerReal {
         terminal_interface: TerminalWrapper,
     ) {
         select! {
-        recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)
+            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)
         }
     }
 }
@@ -322,19 +321,40 @@ mod tests {
     fn setup_command_handle_broadcast_has_a_synchronizer_correctly_implemented() {
         let setup_body = UiSetupBroadcast {
             running: false,
-            values: vec![UiSetupResponseValue {
-                name: "ip".to_string(),
-                value: "4.4.4.4".to_string(),
-                status: UiSetupResponseValueStatus::Set,
-            }],
+            values: vec![
+                UiSetupResponseValue {
+                    name: "ip".to_string(),
+                    value: "4.4.4.4".to_string(),
+                    status: UiSetupResponseValueStatus::Set,
+                },
+                UiSetupResponseValue {
+                    name: "neighborhood-mode".to_string(),
+                    value: "standard".to_string(),
+                    status: UiSetupResponseValueStatus::Default,
+                },
+                UiSetupResponseValue {
+                    name: "chain".to_string(),
+                    value: "ropsten".to_string(),
+                    status: UiSetupResponseValueStatus::Configured,
+                },
+                UiSetupResponseValue {
+                    name: "log-level".to_string(),
+                    value: "error".to_string(),
+                    status: UiSetupResponseValueStatus::Set,
+                },
+            ],
             errors: vec![],
         };
 
+        //for the sake of simplification, tested on a small sample of setup parameters
+        //(the message is composed out of those entries in the vector above)
         let broadcast_output = "Daemon setup has changed:
 
 NAME                   VALUE                                                            STATUS
+chain                  ropsten                                                          Configured
 ip                     4.4.4.4                                                          Set
-
+log-level              error                                                            Set
+neighborhood-mode      standard                                                         Default
 ";
 
         test_generic_for_handle_broadcast(
@@ -399,12 +419,12 @@ Cannot handle crash request: Node is not running.
         )
     }
 
-    fn test_generic_for_handle_broadcast<T, U>(
-        broadcast_handle: T,
+    fn test_generic_for_handle_broadcast<F, U>(
+        broadcast_handler: F,
         broadcast_message_body: U,
         broadcast_desired_output: &str,
     ) where
-        T: FnOnce(U, &mut dyn Write, TerminalWrapper) + Copy,
+        F: FnOnce(U, &mut dyn Write, TerminalWrapper) + Copy,
         U: Debug + PartialEq + Clone,
     {
         let (tx, rx) = unbounded();
@@ -422,7 +442,7 @@ Cannot handle crash request: Node is not running.
             &mut stdout,
             Box::new(stdout_clone),
             synchronizer,
-            broadcast_handle,
+            broadcast_handler,
             broadcast_message_body.clone(),
             rx.clone(),
         );
@@ -433,8 +453,8 @@ Cannot handle crash request: Node is not running.
             full_stdout_output_sync
         );
         assert!(
-            full_stdout_output_sync.contains(&format!("{}", "*".repeat(80))),
-            "Each group of 80 asterisks must keep together: {}",
+            full_stdout_output_sync.contains(&format!("{}", "*".repeat(40))),
+            "Each group of 40 asterisks must keep together: {}",
             full_stdout_output_sync
         );
 
@@ -444,7 +464,7 @@ Cannot handle crash request: Node is not running.
             &mut stdout,
             Box::new(stdout_second_clone),
             synchronizer_clone_idle,
-            broadcast_handle,
+            broadcast_handler,
             broadcast_message_body,
             rx,
         );
@@ -455,10 +475,10 @@ Cannot handle crash request: Node is not running.
             .collect::<String>();
         let incomplete_row = prefabricated_string
             .split(' ')
-            .find(|row| !row.contains(&"*".repeat(80)) && row.contains("*"));
+            .find(|row| !row.contains(&"*".repeat(40)) && row.contains("*"));
         assert!(
             incomplete_row.is_some(),
-            "There mustn't be 80 asterisks together at one of these: {}",
+            "There mustn't be 40 asterisks together at one of these: {}",
             full_stdout_output_without_sync
         );
         let asterisks_count = full_stdout_output_without_sync
@@ -466,49 +486,50 @@ Cannot handle crash request: Node is not running.
             .filter(|char| *char == '*')
             .count();
         assert_eq!(
-            asterisks_count, 80,
-            "The count of asterisks isn't 80 but: {}",
+            asterisks_count, 40,
+            "The count of asterisks isn't 40 but: {}",
             asterisks_count
         );
     }
 
-    fn background_thread_making_interferences<U, T>(
+    fn background_thread_making_interferences<F, U>(
         sync: bool,
         stdout: &mut dyn Write,
         mut stdout_clone: Box<dyn Write + Send>,
         synchronizer: TerminalWrapper,
-        broadcast_handle: T,
+        broadcast_handler: F,
         broadcast_message_body: U,
-        rx: Receiver<String>,
+        mixed_stdout_receiver: Receiver<String>,
     ) -> String
     where
-        T: FnOnce(U, &mut dyn Write, TerminalWrapper) + Copy,
+        F: FnOnce(U, &mut dyn Write, TerminalWrapper) + Copy,
         U: Debug + PartialEq + Clone,
     {
         let synchronizer_clone = synchronizer.clone();
         let (sync_tx, sync_rx) = std::sync::mpsc::channel();
         let interference_thread_handle = thread::spawn(move || {
-            sync_tx.send(()).unwrap();
             let _lock = if sync {
                 Some(synchronizer.lock())
             } else {
                 None
             };
-            (0..80).into_iter().for_each(|_| {
+            (0..40).into_iter().for_each(|i| {
                 stdout_clone.write(b"*").unwrap();
-                thread::sleep(Duration::from_millis(1))
+                thread::sleep(Duration::from_millis(1));
+                if i == 5 {
+                    sync_tx.send(()).unwrap()
+                };
             });
             drop(_lock)
         });
         sync_rx.recv().unwrap();
-        thread::sleep(Duration::from_millis(40));
-        broadcast_handle(broadcast_message_body.clone(), stdout, synchronizer_clone);
+        broadcast_handler(broadcast_message_body.clone(), stdout, synchronizer_clone);
 
         interference_thread_handle.join().unwrap();
 
         let mut buffer = String::new();
         let full_stdout_output = loop {
-            match rx.try_recv() {
+            match mixed_stdout_receiver.try_recv() {
                 Ok(string) => buffer.push_str(&string),
                 Err(_) => break buffer,
             }

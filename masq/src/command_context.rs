@@ -61,9 +61,9 @@ pub trait CommandContext {
 
 pub struct CommandContextReal {
     connection: ConnectionManager,
-    pub stdin: Box<dyn Read + Send>,
-    pub stdout: Box<dyn Write + Send>,
-    pub stderr: Box<dyn Write + Send>,
+    pub stdin: Box<dyn Read>,
+    pub stdout: Box<dyn Write>,
+    pub stderr: Box<dyn Write>,
     pub terminal_interface: TerminalWrapper,
 }
 

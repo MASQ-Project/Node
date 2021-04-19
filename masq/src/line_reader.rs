@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, PartialEq)]
 pub enum TerminalEvent {
-    CommandLine(String),
+    CommandLine(Vec<String>),
     Error(String),
     Continue, //as ignore
     Break,
@@ -37,7 +37,8 @@ impl MasqTerminal for TerminalReal {
         match self.interface.read_line() {
             Ok(ReadResult::Input(line)) => {
                 self.add_history_unique(line.clone());
-                TerminalEvent::CommandLine(line)
+                let args = split_quoted_line(line);
+                TerminalEvent::CommandLine(args)
             }
             Err(e) => TerminalEvent::Error(format!("Reading from the terminal: {}", e)),
             Ok(ReadResult::Signal(Signal::Resize)) | Ok(ReadResult::Signal(Signal::Continue)) => {
@@ -51,8 +52,6 @@ impl MasqTerminal for TerminalReal {
         self.interface.add_history_unique(line)
     }
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////
-
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
         format!(
@@ -63,6 +62,31 @@ impl MasqTerminal for TerminalReal {
                 .tell_me_who_you_are()
         )
     }
+}
+
+fn split_quoted_line(input: String) -> Vec<String> {
+    let mut active_single = false;
+    let mut active_double = false;
+    let mut pieces: Vec<String> = vec![];
+    let mut current_piece = String::new();
+    input.chars().for_each(|c| {
+        if c.is_whitespace() && !active_double && !active_single {
+            if !current_piece.is_empty() {
+                pieces.push(current_piece.clone());
+                current_piece.clear();
+            }
+        } else if c == '"' && !active_single {
+            active_double = !active_double;
+        } else if c == '\'' && !active_double {
+            active_single = !active_single;
+        } else {
+            current_piece.push(c);
+        }
+    });
+    if !current_piece.is_empty() {
+        pieces.push(current_piece)
+    }
+    pieces
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -103,13 +127,19 @@ impl MasqTerminal for IntegrationTestTerminal {
         let _lock = self
             .lock
             .lock()
-            .expect("poisoned mutex in IntegrationTestTerminal");
-        short_writeln!(self.stdout.lock().unwrap(), "{}", MASQ_PROMPT);
+            .expect("poisoned mutex in IntegrationTestTerminal: lock");
+        short_writeln!(
+            self.stdout
+                .lock()
+                .expect("poisoned mutex in IntegrationTestTerminal: stdout"),
+            "{}",
+            MASQ_PROMPT
+        );
         drop(_lock);
         let finalized_command_line = std::str::from_utf8(&buffer[0..number_of_bytes])
             .expect("conversion into str failed")
             .to_string();
-        TerminalEvent::CommandLine(finalized_command_line)
+        TerminalEvent::CommandLine(vec![finalized_command_line])
     }
 }
 
@@ -159,7 +189,7 @@ mod tests {
 
         assert_eq!(
             quite_irrelevant,
-            TerminalEvent::CommandLine(String::from("Some command"))
+            TerminalEvent::CommandLine(vec![String::from("Some command")])
         );
         let mut written_in_a_whole = String::new();
         loop {
@@ -229,7 +259,7 @@ mod tests {
 
         assert_eq!(
             result,
-            TerminalEvent::CommandLine("setup --ip 4.4.4.4".to_string())
+            TerminalEvent::CommandLine(vec!["setup --ip 4.4.4.4".to_string()])
         );
 
         let add_history_unique_params = add_history_unique_params_arc.lock().unwrap();
@@ -296,5 +326,87 @@ mod tests {
             result,
             TerminalEvent::Error("Reading from the terminal: invalid input parameter".to_string())
         );
+    }
+
+    #[test]
+    fn accept_subcommand_handles_balanced_double_quotes() {
+        let command_line =
+            "  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth\" "
+                .to_string();
+
+        let result = split_quoted_line(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth'fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_unbalanced_double_quotes() {
+        let command_line =
+            "  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth  "
+                .to_string();
+
+        let result = split_quoted_line(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth'fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth  ".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_balanced_single_quotes() {
+        let command_line =
+            "  first \n 'second' \n third \n 'fourth\"fifth' \t sixth 'seventh eighth\tninth' "
+                .to_string();
+
+        let result = split_quoted_line(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth\"fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_unbalanced_single_quotes() {
+        let command_line =
+            "  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth  ".to_string();
+        let result = split_quoted_line(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth\"fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth  ".to_string(),
+            ]
+        )
     }
 }

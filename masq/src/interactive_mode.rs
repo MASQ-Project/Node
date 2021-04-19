@@ -2,70 +2,58 @@
 
 use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
+use crate::line_reader::TerminalEvent;
 use crate::line_reader::TerminalEvent::{
     Break, CommandLine, Continue, Error as TerminalEventError,
 };
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
+use std::any::Any;
+use std::fmt::Debug;
 use std::io::Write;
 
-fn split_quoted_line(input: String) -> Vec<String> {
-    let mut active_single = false;
-    let mut active_double = false;
-    let mut pieces: Vec<String> = vec![];
-    let mut current_piece = String::new();
-    input.chars().for_each(|c| {
-        if c.is_whitespace() && !active_double && !active_single {
-            if !current_piece.is_empty() {
-                pieces.push(current_piece.clone());
-                current_piece.clear();
-            }
-        } else if c == '"' && !active_single {
-            active_double = !active_double;
-        } else if c == '\'' && !active_double {
-            active_single = !active_single;
-        } else {
-            current_piece.push(c);
+fn pass_on_args_or_print_messages(
+    streams: &mut StdStreams<'_>,
+    read_line_result: TerminalEvent,
+) -> TerminalEvent {
+    match read_line_result {
+        CommandLine(args) => CommandLine(args),
+        Break => {
+            short_writeln!(streams.stdout, "Terminated");
+            Break
         }
-    });
-    if !current_piece.is_empty() {
-        pieces.push(current_piece)
+        Continue => {
+            short_writeln!(
+                streams.stdout,
+                "Received a specific signal interpretable as continue"
+            );
+            Continue
+        }
+        TerminalEventError(e) => {
+            short_writeln!(streams.stderr, "{}", e);
+            TerminalEventError(e)
+        }
     }
-    pieces
 }
 
-pub fn go_interactive<A, B, F>(
-    handle_command: Box<F>,
-    command_factory: &A,
-    processor: &mut B,
+pub fn go_interactive<CF, CP, HC>(
+    handle_command: Box<HC>,
+    command_factory: &CF,
+    processor: &mut CP,
     streams: &mut StdStreams<'_>,
 ) -> u8
 where
-    F: Fn(&A, &mut B, Vec<String>, &mut (dyn Write + Send)) -> Result<(), ()>,
-    A: CommandFactory + ?Sized + 'static,
-    B: CommandProcessor + ?Sized + 'static,
+    HC: Fn(&CF, &mut CP, Vec<String>, &mut (dyn Write + Send)) -> Result<(), ()>,
+    CF: CommandFactory + ?Sized + 'static,
+    CP: CommandProcessor + ?Sized + 'static,
 {
     loop {
-        let args = match processor.clone_terminal_interface().read_line() {
-            CommandLine(line) => split_quoted_line(line),
-            Break => {
-                short_writeln!(
-                    streams.stdout,
-                    "Terminated on the basis of a user's specific signal"
-                );
-                break;
-            }
-            Continue => {
-                short_writeln!(
-                    streams.stdout,
-                    "Received a specific signal interpretable as continue"
-                );
-                continue;
-            }
-            TerminalEventError(msg) => {
-                short_writeln!(streams.stderr, "{}", msg);
-                return 1;
-            }
+        let read_line_result = processor.clone_terminal_interface().read_line();
+        let args = match pass_on_args_or_print_messages(streams, read_line_result) {
+            CommandLine(args) => args,
+            Break => break,
+            Continue => continue,
+            TerminalEventError(_) => return 1,
         };
         if args.is_empty() {
             continue;
@@ -73,10 +61,7 @@ where
         if args[0] == "exit" {
             break;
         }
-        match handle_command(command_factory, processor, args, streams.stderr) {
-            Ok(_) => (),
-            Err(_) => continue,
-        }
+        let _ = handle_command(command_factory, processor, args, streams.stderr);
     }
     0
 }
@@ -87,8 +72,9 @@ mod tests {
     use crate::command_factory::CommandFactoryError;
     use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
-    use crate::interactive_mode::split_quoted_line;
+    use crate::interactive_mode::pass_on_args_or_print_messages;
     use crate::line_reader::TerminalEvent;
+    use crate::line_reader::TerminalEvent::{Break, Continue, Error};
     use crate::non_interactive_mode::Main;
     use crate::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{
@@ -98,88 +84,6 @@ mod tests {
     use masq_lib::intentionally_blank;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn accept_subcommand_handles_balanced_double_quotes() {
-        let command_line =
-            "  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth\" "
-                .to_string();
-
-        let result = split_quoted_line(command_line);
-
-        assert_eq!(
-            result,
-            vec![
-                "first".to_string(),
-                "second".to_string(),
-                "third".to_string(),
-                "fourth'fifth".to_string(),
-                "sixth".to_string(),
-                "seventh eighth\tninth".to_string(),
-            ]
-        )
-    }
-
-    #[test]
-    fn accept_subcommand_handles_unbalanced_double_quotes() {
-        let command_line =
-            "  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth  "
-                .to_string();
-
-        let result = split_quoted_line(command_line);
-
-        assert_eq!(
-            result,
-            vec![
-                "first".to_string(),
-                "second".to_string(),
-                "third".to_string(),
-                "fourth'fifth".to_string(),
-                "sixth".to_string(),
-                "seventh eighth\tninth  ".to_string(),
-            ]
-        )
-    }
-
-    #[test]
-    fn accept_subcommand_handles_balanced_single_quotes() {
-        let command_line =
-            "  first \n 'second' \n third \n 'fourth\"fifth' \t sixth 'seventh eighth\tninth' "
-                .to_string();
-
-        let result = split_quoted_line(command_line);
-
-        assert_eq!(
-            result,
-            vec![
-                "first".to_string(),
-                "second".to_string(),
-                "third".to_string(),
-                "fourth\"fifth".to_string(),
-                "sixth".to_string(),
-                "seventh eighth\tninth".to_string(),
-            ]
-        )
-    }
-
-    #[test]
-    fn accept_subcommand_handles_unbalanced_single_quotes() {
-        let command_line =
-            "  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth  ".to_string();
-        let result = split_quoted_line(command_line);
-
-        assert_eq!(
-            result,
-            vec![
-                "first".to_string(),
-                "second".to_string(),
-                "third".to_string(),
-                "fourth\"fifth".to_string(),
-                "sixth".to_string(),
-                "seventh eighth\tninth  ".to_string(),
-            ]
-        )
-    }
 
     #[derive(Debug)]
     struct FakeCommand {
@@ -208,9 +112,9 @@ mod tests {
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
             .make_result(Ok(Box::new(FakeCommand::new("start command"))));
         let terminal_mock = TerminalPassiveMock::new()
-            .read_line_result(TerminalEvent::CommandLine("setup".to_string()))
-            .read_line_result(TerminalEvent::CommandLine("start".to_string()))
-            .read_line_result(TerminalEvent::CommandLine("exit".to_string()));
+            .read_line_result(TerminalEvent::CommandLine(vec!["setup".to_string()]))
+            .read_line_result(TerminalEvent::CommandLine(vec!["start".to_string()]))
+            .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()]));
         let processor = CommandProcessorMock::new()
             .process_result(Ok(()))
             .process_result(Ok(()))
@@ -240,34 +144,6 @@ mod tests {
     }
 
     #[test]
-    fn interactive_mode_works_for_stdin_read_error() {
-        let command_factory = CommandFactoryMock::new();
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let processor = CommandProcessorMock::new()
-            .close_params(&close_params_arc)
-            .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
-            )));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject =
-            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-
-        assert_eq!(result, 1);
-        assert_eq!(
-            stream_holder.stderr.get_string(),
-            "ConnectionRefused\n".to_string()
-        );
-        let close_params = close_params_arc.lock().unwrap();
-        assert_eq!(close_params.len(), 1);
-    }
-
-    #[test]
     fn interactive_mode_works_for_unrecognized_command() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
@@ -279,8 +155,11 @@ mod tests {
             .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(TerminalWrapper::new(Box::new(
                 TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
-                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+                    .read_line_result(TerminalEvent::CommandLine(vec![
+                        "error".to_string(),
+                        "command".to_string(),
+                    ]))
+                    .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
@@ -314,8 +193,11 @@ mod tests {
             .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(TerminalWrapper::new(Box::new(
                 TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine("error command\n".to_string()))
-                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+                    .read_line_result(TerminalEvent::CommandLine(vec![
+                        "error".to_string(),
+                        "command".to_string(),
+                    ]))
+                    .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
@@ -342,8 +224,8 @@ mod tests {
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
         let terminal_interface_reference_for_inner = TerminalWrapper::new(Box::new(
             TerminalPassiveMock::new()
-                .read_line_result(TerminalEvent::CommandLine("setup\n".to_string()))
-                .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+                .read_line_result(TerminalEvent::CommandLine(vec!["setup".to_string()]))
+                .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
         ));
         let reference_for_counting = Arc::new(Mutex::new(0));
         let processor = CommandProcessorMock::new()
@@ -378,35 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn interactive_mode_handles_break_signal_from_line_reader() {
-        let command_factory = CommandFactoryMock::new();
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let processor = CommandProcessorMock::new()
-            .close_params(&close_params_arc)
-            .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new().read_line_result(TerminalEvent::Break),
-            )));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject =
-            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-
-        assert_eq!(result, 0);
-        assert_eq!(stream_holder.stderr.get_string(), "");
-        assert_eq!(
-            stream_holder.stdout.get_string(),
-            "Terminated on the basis of a user\'s specific signal\n"
-        );
-        let close_params = close_params_arc.lock().unwrap();
-        assert_eq!(close_params.len(), 1);
-    }
-
-    #[test]
-    fn interactive_mode_handles_signals_interpreted_as_continue_which_are_sent_from_line_reader() {
+    fn interactive_mode_works_for_stdin_read_error() {
         let command_factory = CommandFactoryMock::new();
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
@@ -414,8 +268,7 @@ mod tests {
             .upgrade_terminal_interface_result(Ok(()))
             .insert_terminal_interface(TerminalWrapper::new(Box::new(
                 TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::Continue)
-                    .read_line_result(TerminalEvent::CommandLine("exit\n".to_string())),
+                    .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
@@ -425,13 +278,51 @@ mod tests {
 
         let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
 
-        assert_eq!(result, 0);
+        assert_eq!(result, 1);
+        assert_eq!(
+            stream_holder.stderr.get_string(),
+            "ConnectionRefused\n".to_string()
+        );
+        let close_params = close_params_arc.lock().unwrap();
+        assert_eq!(close_params.len(), 1);
+    }
+
+    #[test]
+    fn pass_on_args_or_print_messages_announces_break_signal_from_line_reader() {
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = pass_on_args_or_print_messages(&mut stream_holder.streams(), Break);
+
+        assert_eq!(result, Break);
+        assert_eq!(stream_holder.stderr.get_string(), "");
+        assert_eq!(stream_holder.stdout.get_string(), "Terminated\n");
+    }
+
+    #[test]
+    fn pass_on_args_or_print_messages_announces_continue_signal_from_line_reader() {
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = pass_on_args_or_print_messages(&mut stream_holder.streams(), Continue);
+
+        assert_eq!(result, Continue);
         assert_eq!(stream_holder.stderr.get_string(), "");
         assert_eq!(
             stream_holder.stdout.get_string(),
             "Received a specific signal interpretable as continue\n"
         );
-        let close_params = close_params_arc.lock().unwrap();
-        assert_eq!(close_params.len(), 1);
+    }
+
+    #[test]
+    fn pass_on_args_or_print_messages_announces_error_from_line_reader() {
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = pass_on_args_or_print_messages(
+            &mut stream_holder.streams(),
+            Error("Invalid Input\n".to_string()),
+        );
+
+        assert_eq!(result, Error("Invalid Input\n".to_string()));
+        assert_eq!(stream_holder.stderr.get_string(), "Invalid Input\n\n");
+        assert_eq!(stream_holder.stdout.get_string(), "");
     }
 }

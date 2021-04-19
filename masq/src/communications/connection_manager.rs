@@ -541,7 +541,6 @@ impl RedirectBroadcastHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    //use crate::communications::node_conversation::ClientError;
     use crate::communications::node_conversation::ClientError;
     use crate::test_utils::client_utils::make_client;
     use crossbeam_channel::TryRecvError;

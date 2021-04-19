@@ -151,23 +151,23 @@ mod tests {
     impl Command for TameCommand {
         fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
             self.sender.send("This is a message".to_string()).unwrap();
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(1));
             self.sender
                 .send(" which must be delivered as one piece".to_string())
                 .unwrap();
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(1));
             self.sender
-                .send("; we'll do all being possible for that.".to_string())
+                .send("; we'll do all possible for that.".to_string())
                 .unwrap();
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(1));
             self.sender
                 .send(" If only we have enough strength and spirit".to_string())
                 .unwrap();
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(1));
             self.sender
                 .send(" and determination and support and... snacks.".to_string())
                 .unwrap();
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(1));
             self.sender.send(" Roger.".to_string()).unwrap();
             Ok(())
         }
@@ -226,17 +226,19 @@ mod tests {
             }))
             .unwrap();
 
-        let tamed_message_as_a_whole = "This is a message which must be delivered as one piece; we'll do all being \
+        let tamed_message_as_a_whole = "This is a message which must be delivered as one piece; we'll do all \
              possible for that. If only we have enough strength and spirit and determination and support and... snacks. Roger.";
+
         let received_output = broadcast_stream_factory_handle.stdout_so_far();
+        assert!(!received_output.starts_with("This is a message which"));
         assert!(
             received_output.contains(tamed_message_as_a_whole),
             "Message wasn't printed uninterrupted: {}",
             received_output
         );
-
-        let tamed_output_filtered_out = received_output.replace(tamed_message_as_a_whole, "");
-        let number_of_broadcast_received = tamed_output_filtered_out
+        let tamed_output_with_broadcasts_filtered_out =
+            received_output.replace(tamed_message_as_a_whole, "");
+        let number_of_broadcast_received = tamed_output_with_broadcasts_filtered_out
             .clone()
             .lines()
             .filter(|line| {

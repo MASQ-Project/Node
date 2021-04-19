@@ -459,7 +459,7 @@ Requests the Node descriptor from a Node.
 Contains a Node's Node descriptor.
 
 #### `undelivered`
-##### Direction: Broadcast
+##### Direction: Response
 ##### Correspondent: Daemon
 ##### Layout:
 ```
@@ -471,7 +471,7 @@ Contains a Node's Node descriptor.
 ##### Description:
 When the Daemon receives a fire-and-forget message (which is a case not being implemented at the time of writing this;
 all such messages go only in the opposite direction now), the normal way to proceed would be to look whether that type 
-of message is known to the Deamon. If not, then it tries to send a redirect message. However, if it turns out, at the 
+of message is known to the Daemon. If not, then it tries to send a redirect message. However, if it turns out, at the 
 same moment, that the Node is not running there is no sense in it, and the action should not be completed. On the other
 hand, we want the UI, or the user respectively to know that this has happened otherwise they might think that a certain
 operation was executed though wasn't. This message comes back to the sender (UI) saying that a message with a certain

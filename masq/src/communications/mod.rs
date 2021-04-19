@@ -6,6 +6,7 @@ pub mod node_conversation;
 
 use crate::terminal_interface::TerminalWrapper;
 use masq_lib::messages::UiUndeliveredFireAndForget;
+use masq_lib::short_writeln;
 use std::io::Write;
 
 fn handle_node_not_running_for_fire_and_forget_on_the_way(
@@ -14,11 +15,10 @@ fn handle_node_not_running_for_fire_and_forget_on_the_way(
     term_interface: TerminalWrapper,
 ) {
     let _lock = term_interface.lock();
-    write!(
+    short_writeln!(
         stdout,
         "\nCannot handle {} request: Node is not running.\n\n",
         body.opcode
-    )
-    .expect("write! failed");
+    );
     stdout.flush().expect("flush failed");
 }

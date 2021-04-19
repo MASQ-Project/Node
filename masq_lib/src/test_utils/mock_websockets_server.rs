@@ -201,7 +201,7 @@ impl MockWebSocketsServer {
                                     .into_iter()
                                     .for_each(|message| {
                                         client.send_message(&message).unwrap();
-                                        thread::sleep(Duration::from_millis(20))
+                                        thread::sleep(Duration::from_millis(2))
                                     })
                             }
                             MessagePath::FireAndForget => {
