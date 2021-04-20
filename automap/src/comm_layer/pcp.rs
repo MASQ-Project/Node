@@ -18,6 +18,7 @@ use masq_lib::utils::AutomapProtocol;
 use crossbeam_channel::{Sender, unbounded, Receiver};
 use std::sync::{Mutex, Arc};
 use std::{io, thread};
+use std::cell::RefCell;
 
 const ROUTER_PORT: u16 = 5351;
 const CHANGE_HANDLER_PORT: u16 = 5350;
@@ -70,7 +71,7 @@ pub struct PcpTransactor {
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
     listen_port: u16,
-    change_handler_config: Option<ChangeHandlerConfig>,
+    change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
     change_handler_stopper: Option<Sender<()>>,
 }
 
@@ -94,6 +95,10 @@ impl Transactor for PcpTransactor {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
+        self.change_handler_config.borrow_mut().replace(ChangeHandlerConfig {
+            hole_port,
+            lifetime
+        });
         let (result_code, _epoch_time, _opcode_data) =
             Self::mapping_transaction(&self.factories_arc, router_ip, self.router_port, hole_port, lifetime)?;
         match result_code {
@@ -127,7 +132,7 @@ impl Transactor for PcpTransactor {
         if let Some (_change_handler_stopper) = &self.change_handler_stopper {
             todo! ("Stop previous change handler or throw error")
         }
-        let change_handler_config = match &self.change_handler_config {
+        let change_handler_config = match &self.change_handler_config.borrow() {
             None => todo! (),
             Some (chc) => chc.clone(),
         };
@@ -178,7 +183,7 @@ impl Default for PcpTransactor {
             factories_arc: Arc::new (Mutex::new (Factories::default())),
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
-            change_handler_config: None,
+            change_handler_config: RefCell::new (None),
             change_handler_stopper: None,
         }
     }
@@ -777,7 +782,7 @@ mod tests {
         let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 1234);
 
         assert_eq!(result, Ok(617));
-        if let Some (chc) = subject.change_handler_config {
+        if let Some (chc) = &subject.change_handler_config.borrow() {
             assert_eq! (chc.hole_port, 6666);
             assert_eq! (chc.lifetime, 1234);
         }
