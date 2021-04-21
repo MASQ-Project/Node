@@ -63,12 +63,14 @@ impl BroadcastHandler for BroadcastHandlerReal {
                 .take()
                 .expect("BroadcastHandlerReal: start: some was expected");
             loop {
-                Self::thread_loop_guts(
+                if !Self::thread_loop_guts(
                     &message_rx,
                     stdout.as_mut(),
                     stderr.as_mut(),
                     terminal_interface.clone(),
-                )
+                ) {
+                    break;  //releases the loop if masq has died (testing concerns)   //TODO I haven't known how to test that
+                }
             }
         });
         Box::new(BroadcastHandleGeneric { message_tx })
@@ -85,9 +87,9 @@ impl BroadcastHandlerReal {
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
         terminal_interface: TerminalWrapper,
-    ) {
+    ) -> bool {
         match message_body_result {
-            Err(_) => (), // Receiver died; masq is going down
+            Err(_) => false, // Receiver died; masq is going down (if this is in a test, "false" prevents a thread leak)
             Ok(message_body) => {
                 if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
                     SetupCommand::handle_broadcast(body, stdout, terminal_interface);
@@ -110,6 +112,7 @@ impl BroadcastHandlerReal {
                     )
                     .expect("write! failed");
                 }
+                true
             }
         }
     }
@@ -119,10 +122,8 @@ impl BroadcastHandlerReal {
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
         terminal_interface: TerminalWrapper,
-    ) {
-        select! {
-            recv(message_rx) -> message_body_result => Self::handle_message_body (message_body_result, stdout, stderr,terminal_interface)
-        }
+    ) -> bool {
+        Self::handle_message_body(message_rx.recv(), stdout, stderr, terminal_interface)
     }
 }
 

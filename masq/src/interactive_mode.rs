@@ -6,11 +6,53 @@ use crate::line_reader::TerminalEvent;
 use crate::line_reader::TerminalEvent::{
     Break, CommandLine, Continue, Error as TerminalEventError,
 };
+use crate::schema::app;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
-use std::any::Any;
-use std::fmt::Debug;
 use std::io::Write;
+
+pub fn go_interactive<CF, CP, HC>(
+    handle_command: Box<HC>,
+    command_factory: &CF,
+    processor: &mut CP,
+    streams: &mut StdStreams<'_>,
+) -> u8
+where
+    HC: Fn(&CF, &mut CP, Vec<String>, &mut (dyn Write + Send)) -> Result<(), ()>,
+    CF: CommandFactory + ?Sized + 'static,
+    CP: CommandProcessor + ?Sized + 'static,
+{
+    loop {
+        let read_line_result = processor.terminal_wrapper_reference().read_line();
+        let args = match pass_on_args_or_print_messages(streams, read_line_result) {
+            CommandLine(args) => args,
+            Break => break,
+            Continue => continue,
+            TerminalEventError(_) => return 1,
+        };
+        if args.is_empty() {
+            continue;
+        }
+        if args[0] == "exit" {
+            break;
+        }
+        //that line cannot be tested by an integration test
+        let _ = clap_responds_to_descriptive_commands(&args[0]);
+        let _ = handle_command(command_factory, processor, args, streams.stderr);
+    }
+    0
+}
+
+fn clap_responds_to_descriptive_commands(arg: &str) -> bool {
+    match arg {
+        "help" => (),
+        "version" => (),
+        _ => return false,
+    }
+    app()
+        .get_matches_from_safe(vec![format!("--{}", arg)])
+        .is_ok()
+}
 
 fn pass_on_args_or_print_messages(
     streams: &mut StdStreams<'_>,
@@ -31,39 +73,10 @@ fn pass_on_args_or_print_messages(
         }
         TerminalEventError(e) => {
             short_writeln!(streams.stderr, "{}", e);
+            //Must provide some string, though that message is useless since now
             TerminalEventError(e)
         }
     }
-}
-
-pub fn go_interactive<CF, CP, HC>(
-    handle_command: Box<HC>,
-    command_factory: &CF,
-    processor: &mut CP,
-    streams: &mut StdStreams<'_>,
-) -> u8
-where
-    HC: Fn(&CF, &mut CP, Vec<String>, &mut (dyn Write + Send)) -> Result<(), ()>,
-    CF: CommandFactory + ?Sized + 'static,
-    CP: CommandProcessor + ?Sized + 'static,
-{
-    loop {
-        let read_line_result = processor.clone_terminal_interface().read_line();
-        let args = match pass_on_args_or_print_messages(streams, read_line_result) {
-            CommandLine(args) => args,
-            Break => break,
-            Continue => continue,
-            TerminalEventError(_) => return 1,
-        };
-        if args.is_empty() {
-            continue;
-        }
-        if args[0] == "exit" {
-            break;
-        }
-        let _ = handle_command(command_factory, processor, args, streams.stderr);
-    }
-    0
 }
 
 #[cfg(test)]
@@ -72,7 +85,9 @@ mod tests {
     use crate::command_factory::CommandFactoryError;
     use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
-    use crate::interactive_mode::pass_on_args_or_print_messages;
+    use crate::interactive_mode::{
+        clap_responds_to_descriptive_commands, pass_on_args_or_print_messages,
+    };
     use crate::line_reader::TerminalEvent;
     use crate::line_reader::TerminalEvent::{Break, Continue, Error};
     use crate::non_interactive_mode::Main;
@@ -118,8 +133,7 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .process_result(Ok(()))
             .process_result(Ok(()))
-            .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
+            .inject_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject =
@@ -151,9 +165,8 @@ mod tests {
             .make_result(Err(CommandFactoryError::UnrecognizedSubcommand(
                 "Booga!".to_string(),
             )));
-        let processor = CommandProcessorMock::new()
-            .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(
+        let processor =
+            CommandProcessorMock::new().inject_terminal_interface(TerminalWrapper::new(Box::new(
                 TerminalPassiveMock::new()
                     .read_line_result(TerminalEvent::CommandLine(vec![
                         "error".to_string(),
@@ -189,9 +202,8 @@ mod tests {
             .make_result(Err(CommandFactoryError::CommandSyntax(
                 "Booga!".to_string(),
             )));
-        let processor = CommandProcessorMock::new()
-            .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(
+        let processor =
+            CommandProcessorMock::new().inject_terminal_interface(TerminalWrapper::new(Box::new(
                 TerminalPassiveMock::new()
                     .read_line_result(TerminalEvent::CommandLine(vec![
                         "error".to_string(),
@@ -217,56 +229,12 @@ mod tests {
     }
 
     #[test]
-    fn clone_of_terminal_is_shared_along_and_passed_on_properly() {
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_factory = CommandFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
-        let terminal_interface_reference_for_inner = TerminalWrapper::new(Box::new(
-            TerminalPassiveMock::new()
-                .read_line_result(TerminalEvent::CommandLine(vec!["setup".to_string()]))
-                .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
-        ));
-        let reference_for_counting = Arc::new(Mutex::new(0));
-        let processor = CommandProcessorMock::new()
-            .insert_terminal_interface(terminal_interface_reference_for_inner.clone())
-            .insert_terminal_wrapper_shared_counter(reference_for_counting.clone())
-            .process_result(Ok(()))
-            .upgrade_terminal_interface_result(Ok(()));
-
-        assert_eq!(*reference_for_counting.lock().unwrap(), 0);
-
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject =
-            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(
-            &mut stream_holder.streams(),
-            &[
-                "command".to_string(),
-                "--param1".to_string(),
-                "value1".to_string(),
-            ],
-        );
-
-        //cloned once for each command, so twice in total
-        assert_eq!(*reference_for_counting.lock().unwrap(), 2);
-
-        assert_eq!(result, 0);
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(*make_params, vec![vec!["setup".to_string()]]);
-    }
-
-    #[test]
     fn interactive_mode_works_for_stdin_read_error() {
         let command_factory = CommandFactoryMock::new();
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
-            .upgrade_terminal_interface_result(Ok(()))
-            .insert_terminal_interface(TerminalWrapper::new(Box::new(
+            .inject_terminal_interface(TerminalWrapper::new(Box::new(
                 TerminalPassiveMock::new()
                     .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
             )));
@@ -324,5 +292,23 @@ mod tests {
         assert_eq!(result, Error("Invalid Input\n".to_string()));
         assert_eq!(stream_holder.stderr.get_string(), "Invalid Input\n\n");
         assert_eq!(stream_holder.stdout.get_string(), "");
+    }
+
+    #[test]
+    fn interactive_mode_may_respond_to_query_about_the_current_version() {
+        let result = clap_responds_to_descriptive_commands("version");
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn interactive_mode_may_respond_to_query_about_overall_help() {
+        let result = clap_responds_to_descriptive_commands("help");
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn clap_responds_to_overall_commands_ignores_uninteresting_entries() {
+        let result = clap_responds_to_descriptive_commands("something");
+        assert_eq!(result, false)
     }
 }

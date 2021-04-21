@@ -172,8 +172,6 @@ pub struct CommandProcessorMock {
     process_results: RefCell<Vec<Result<(), CommandError>>>,
     close_params: Arc<Mutex<Vec<()>>>,
     terminal_interface: Vec<TerminalWrapper>,
-    terminal_interface_clone_count: Arc<Mutex<usize>>,
-    upgrade_terminal_interface_results: Vec<Result<(), String>>,
 }
 
 impl CommandProcessor for CommandProcessorMock {
@@ -186,9 +184,8 @@ impl CommandProcessor for CommandProcessorMock {
         self.close_params.lock().unwrap().push(());
     }
 
-    fn clone_terminal_interface(&mut self) -> TerminalWrapper {
-        *self.terminal_interface_clone_count.lock().unwrap() += 1;
-        self.terminal_interface[0].clone()
+    fn terminal_wrapper_reference(&self) -> &TerminalWrapper {
+        &self.terminal_interface[0]
     }
 }
 
@@ -197,15 +194,11 @@ impl CommandProcessorMock {
         Self::default()
     }
 
-    pub fn insert_terminal_interface(
+    pub fn inject_terminal_interface(
         mut self,
         terminal_interface_arc_clone: TerminalWrapper,
     ) -> Self {
         self.terminal_interface.push(terminal_interface_arc_clone);
-        self
-    }
-    pub fn insert_terminal_wrapper_shared_counter(mut self, reference: Arc<Mutex<usize>>) -> Self {
-        self.terminal_interface_clone_count = reference;
         self
     }
 
@@ -216,11 +209,6 @@ impl CommandProcessorMock {
 
     pub fn process_result(self, result: Result<(), CommandError>) -> Self {
         self.process_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn upgrade_terminal_interface_result(mut self, result: Result<(), String>) -> Self {
-        self.upgrade_terminal_interface_results.push(result);
         self
     }
 
@@ -488,10 +476,6 @@ impl MasqTerminal for TerminalActiveMock {
         let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
         self.reference.write(&format!("{}*/-", line));
         TerminalEvent::CommandLine(vec![line])
-    }
-
-    fn add_history_unique(&self, line: String) {
-        self.in_memory_terminal.add_history_unique(line)
     }
 
     #[cfg(test)]

@@ -5,6 +5,7 @@ use crate::utils::MasqProcess;
 use masq_lib::utils::find_free_port;
 use std::thread;
 use std::time::Duration;
+use regex::Regex;
 
 mod utils;
 
@@ -32,7 +33,8 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
     assert_eq!(exit_code, 1);
-    assert_eq!(stdout.as_str(), "", "{}", stdout);
+    let regex = Regex::new(r"\x1B\[\?\d\d[lh]").unwrap();
+    assert_eq!(regex.replace_all( &stdout,""), "", "{}", stdout);
 
     #[cfg(not(target_os = "windows"))]
     let expected_error_message = "Pre-configuration error: Preparing terminal interface:";

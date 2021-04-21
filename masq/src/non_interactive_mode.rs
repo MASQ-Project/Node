@@ -39,25 +39,24 @@ impl Main {
         for idx in 1..args_vec.len() {
             let one = &args_vec[idx - 1];
             let two = &args_vec[idx];
-            //tested by an integration test
-            if &args_vec[idx] == "--help" {
-                return Some(vec!["--help".to_string()]);
-            }
-            if !one.starts_with("--") && !two.starts_with("--") {
+            if !one.starts_with("--") && !two.starts_with("--")
+                || two.contains("help")
+                || two.contains("version")
+            {
                 return Some(args_vec.into_iter().skip(idx).collect());
             }
         }
         None
     }
 
-    pub fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, TerminalWrapper) {
+    fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, TerminalWrapper) {
         (
             Box::new(BroadcastHandleInactive::new()),
             TerminalWrapper::new(Box::new(TerminalInactive::default())),
         )
     }
 
-    pub fn populate_interactive_dependencies(
+    fn populate_interactive_dependencies(
         stream_factory: impl StreamFactory + 'static,
     ) -> Result<(Box<dyn BroadcastHandle>, TerminalWrapper), String> {
         let foreground_terminal_interface = TerminalWrapper::configure_interface()?;
@@ -377,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn populate_interactive_dependencies_produces_terminal_interface_blocking_printing_from_another_thread_when_the_lock_is_acquired(
+    fn populate_interactive_dependencies_produces_all_needed_to_block_printing_from_another_thread_when_the_lock_is_acquired(
     ) {
         let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
         // This thread will leak, and will only stop when the tests stop running.
@@ -391,10 +390,10 @@ mod tests {
 
             assert_eq!(output, "")
         }
-
-        thread::sleep(Duration::from_millis(200)); //because of Win from Actions (theoretically others too)
-
+        //because of Win from Actions (theoretically some other platform too)
+        thread::sleep(Duration::from_millis(200));
         let output_when_unlocked = test_stream_handle.stdout_so_far();
+
         assert_eq!(
             output_when_unlocked,
             "\nThe Node\'s database password has changed.\n\n"
@@ -402,15 +401,66 @@ mod tests {
     }
 
     #[test]
-    fn populate_interactive_dependencies_produces_a_functional_broadcast_handle() {
-        let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
-        // This thread will leak, and will only stop when the tests stop running.
-        let (broadcast_handle, _) =
-            Main::populate_interactive_dependencies(test_stream_factory).unwrap();
-        broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
+    fn extract_subcommands_can_process_interactive_mode_request() {
+        let args = vec!["masq".to_string()];
 
-        let output = test_stream_handle.stdout_so_far();
+        let result = Main::extract_subcommand(&args);
 
-        assert_eq!(output, "\nThe Node\'s database password has changed.\n\n")
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn extract_subcommands_can_process_non_interactive_request() {
+        let args = vec![
+            "masq".to_string(),
+            "setup".to_string(),
+            "--log-level".to_string(),
+            "off".to_string(),
+        ];
+
+        let result = Main::extract_subcommand(&args);
+
+        assert_eq!(
+            result,
+            Some(vec![
+                "setup".to_string(),
+                "--log-level".to_string(),
+                "off".to_string()
+            ])
+        )
+    }
+
+    #[test]
+    fn extract_subcommands_can_process_simple_help_requests() {
+        let args = vec!["masq".to_string(), "--help".to_string()];
+
+        let result = Main::extract_subcommand(&args);
+
+        assert_eq!(result, Some(vec!["--help".to_string()]))
+    }
+
+    #[test]
+    fn extract_subcommands_can_process_command_specific_help_requests() {
+        let args = vec![
+            "masq".to_string(),
+            "setup".to_string(),
+            "--help".to_string(),
+        ];
+
+        let result = Main::extract_subcommand(&args);
+
+        assert_eq!(
+            result,
+            Some(vec!["setup".to_string(), "--help".to_string()])
+        )
+    }
+
+    #[test]
+    fn extract_subcommands_can_process_version_requests() {
+        let args = vec!["masq".to_string(), "--version".to_string()];
+
+        let result = Main::extract_subcommand(&args);
+
+        assert_eq!(result, Some(vec!["--version".to_string()]))
     }
 }

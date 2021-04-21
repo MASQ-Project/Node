@@ -46,7 +46,7 @@ impl CommandProcessorFactoryReal {
 pub trait CommandProcessor {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError>;
     fn close(&mut self);
-    fn clone_terminal_interface(&mut self) -> TerminalWrapper;
+    fn terminal_wrapper_reference(&self) -> &TerminalWrapper;
 }
 
 pub struct CommandProcessorReal {
@@ -64,8 +64,8 @@ impl CommandProcessor for CommandProcessorReal {
         self.context.close();
     }
 
-    fn clone_terminal_interface(&mut self) -> TerminalWrapper {
-        self.context.terminal_interface.clone()
+    fn terminal_wrapper_reference(&self) -> &TerminalWrapper {
+        &self.context.terminal_interface
     }
 }
 
@@ -73,8 +73,9 @@ impl CommandProcessor for CommandProcessorReal {
 mod tests {
     use super::*;
     use crate::command_context::CommandContext;
-    use crate::communications::broadcast_handler::BroadcastHandleInactive;
-    use crate::non_interactive_mode::Main;
+    use crate::communications::broadcast_handler::{
+        BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
+    };
     use crate::test_utils::mocks::{TerminalPassiveMock, TestStreamFactory};
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
@@ -207,13 +208,17 @@ mod tests {
             format!("{}", port),
         ];
 
-        let (broadcast_handle, terminal_interface) =
-            Main::populate_interactive_dependencies(broadcast_stream_factory).unwrap();
+        let terminal_interface = TerminalWrapper::configure_interface().unwrap();
+        let background_terminal_interface = terminal_interface.clone();
+        let generic_broadcast_handler =
+            BroadcastHandlerReal::new(Some(background_terminal_interface));
+        let generic_broadcast_handle =
+            generic_broadcast_handler.start(Box::new(broadcast_stream_factory));
 
         let processor_factory = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
         let mut processor = processor_factory
-            .make(terminal_interface, broadcast_handle, &args)
+            .make(terminal_interface, generic_broadcast_handle, &args)
             .unwrap();
 
         processor

@@ -1,19 +1,16 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#[cfg(not(test))]
+use crate::line_reader::IntegrationTestsTerminal;
 use crate::line_reader::{TerminalEvent, TerminalReal};
+#[cfg(test)]
+use linefeed::memory::MemoryTerminal;
+#[cfg(not(test))]
+use linefeed::DefaultTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::Arc;
-
-#[cfg(test)]
-use linefeed::memory::MemoryTerminal;
-
-#[cfg(not(test))]
-use crate::line_reader::IntegrationTestTerminal;
-
-#[cfg(not(test))]
-use linefeed::DefaultTerminal;
 
 pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
 pub const MASQ_TEST_INTEGRATION_VALUE: &str =
@@ -27,6 +24,11 @@ pub struct TerminalWrapper {
 }
 
 impl TerminalWrapper {
+    pub fn new(interface: Box<dyn MasqTerminal + Send + Sync>) -> Self {
+        Self {
+            interface: Arc::new(interface),
+        }
+    }
     pub fn lock(&self) -> Box<dyn WriterLock + '_> {
         self.interface.provide_lock()
     }
@@ -35,29 +37,14 @@ impl TerminalWrapper {
         self.interface.read_line()
     }
 
-    pub fn add_history_unique(&self, line: String) {
-        self.interface.add_history_unique(line)
-    }
-
-    pub fn new(interface: Box<dyn MasqTerminal + Send + Sync>) -> Self {
-        Self {
-            interface: Arc::new(interface),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn configure_interface() -> Result<Self, String> {
-        Self::configure_interface_generic(Box::new(result_wrapper_for_in_memory_terminal))
-    }
-
     #[cfg(not(test))]
     pub fn configure_interface() -> Result<Self, String> {
         //tested only for a negative result (an integration test)
-        //no positive automatic test for this; tested by the fact that masq in interactive mode is runnable and passes human tests
+        //no positive automatic test aimed on this
         if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
             Ok(TerminalWrapper::new(Box::new(
-                IntegrationTestTerminal::default(),
+                IntegrationTestsTerminal::default(),
             )))
         } else {
             Self::configure_interface_generic(Box::new(DefaultTerminal::new))
@@ -70,14 +57,25 @@ impl TerminalWrapper {
         U: linefeed::Terminal + 'static,
     {
         let interface =
-            configure_interface(Box::new(Interface::with_term), terminal_creator_by_type)?;
+            interface_configurator(Box::new(Interface::with_term), terminal_creator_by_type)?;
         Ok(Self::new(Box::new(interface)))
+    }
+
+    #[cfg(test)]
+    pub fn configure_interface() -> Result<Self, String> {
+        Self::configure_interface_generic(Box::new(result_wrapper_for_in_memory_terminal))
     }
 
     #[cfg(test)]
     pub fn test_interface(&self) -> MemoryTerminal {
         self.interface.test_interface()
     }
+}
+
+#[cfg(test)]
+#[allow(clippy::unnecessary_wraps)]
+fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
+    Ok(MemoryTerminal::new())
 }
 
 impl Clone for TerminalWrapper {
@@ -88,13 +86,7 @@ impl Clone for TerminalWrapper {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::unnecessary_wraps)]
-fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
-    Ok(MemoryTerminal::new())
-}
-
-fn configure_interface<F, U, E: ?Sized, D>(
+fn interface_configurator<F, U, E: ?Sized, D>(
     interface_raw: Box<F>,
     terminal_type: Box<E>,
 ) -> Result<TerminalReal, String>
@@ -121,8 +113,6 @@ where
     Ok(TerminalReal::new(interface))
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 fn set_all_settable_or_give_an_error<U>(interface: &mut U) -> Result<(), String>
 where
     U: InterfaceRaw + Send + Sync + 'static + ?Sized,
@@ -146,7 +136,6 @@ pub trait MasqTerminal {
     fn read_line(&self) -> TerminalEvent {
         intentionally_blank!()
     }
-    fn add_history_unique(&self, _line: String) {}
 
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
@@ -157,12 +146,7 @@ pub trait MasqTerminal {
         intentionally_blank!()
     }
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 //declaration of TerminalReal is in line_reader.rs
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Default)]
 pub struct TerminalInactive {}
@@ -240,8 +224,6 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
         self.set_prompt(prompt)
     }
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
@@ -359,7 +341,7 @@ mod tests {
 
     #[test]
     fn configure_interface_complains_that_there_is_no_real_terminal() {
-        let subject = configure_interface(
+        let subject = interface_configurator(
             Box::new(Interface::with_term),
             Box::new(DefaultTerminal::new),
         );
@@ -369,7 +351,14 @@ mod tests {
             Err(e) => e,
         };
 
+        #[cfg(target_os = "windows")]
         assert!(result.contains("Local terminal:"), "{}", result);
+        #[cfg(not(windows))]
+        assert!(
+            result.contains("Preparing terminal interface: "),
+            "{}",
+            result
+        );
         //Windows: The handle is invalid. (os error 6)
         //Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
     }
@@ -379,7 +368,8 @@ mod tests {
         let term_mock = MemoryTerminal::new();
         let term_mock_clone = term_mock.clone();
         let terminal_type = move || -> std::io::Result<MemoryTerminal> { Ok(term_mock_clone) };
-        let subject = configure_interface(Box::new(Interface::with_term), Box::new(terminal_type));
+        let subject =
+            interface_configurator(Box::new(Interface::with_term), Box::new(terminal_type));
         let _ = match subject {
             Err(e) => panic!("should have been OK, got Err: {}", e),
             Ok(val) => val,
@@ -388,7 +378,7 @@ mod tests {
 
     #[test]
     fn configure_interface_catches_an_error_when_creating_an_interface_instance() {
-        let subject = configure_interface(
+        let subject = interface_configurator(
             Box::new(producer_of_interface_raw_resulting_in_an_early_error),
             Box::new(result_wrapper_for_in_memory_terminal),
         );
@@ -416,7 +406,7 @@ mod tests {
 
     #[test]
     fn configure_interface_catches_an_error_when_setting_the_prompt() {
-        let subject = configure_interface(
+        let subject = interface_configurator(
             Box::new(producer_of_interface_raw_causing_set_prompt_error),
             Box::new(result_wrapper_for_in_memory_terminal),
         );

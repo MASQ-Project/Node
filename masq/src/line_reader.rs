@@ -36,7 +36,7 @@ impl MasqTerminal for TerminalReal {
     fn read_line(&self) -> TerminalEvent {
         match self.interface.read_line() {
             Ok(ReadResult::Input(line)) => {
-                self.add_history_unique(line.clone());
+                add_history_unique(self, line.clone());
                 let args = split_quoted_line(line);
                 TerminalEvent::CommandLine(args)
             }
@@ -46,10 +46,6 @@ impl MasqTerminal for TerminalReal {
             }
             _ => TerminalEvent::Break,
         }
-    }
-
-    fn add_history_unique(&self, line: String) {
-        self.interface.add_history_unique(line)
     }
 
     #[cfg(test)]
@@ -62,6 +58,10 @@ impl MasqTerminal for TerminalReal {
                 .tell_me_who_you_are()
         )
     }
+}
+
+fn add_history_unique(terminal: &TerminalReal, line: String) {
+    terminal.interface.add_history_unique(line)
 }
 
 fn split_quoted_line(input: String) -> Vec<String> {
@@ -93,15 +93,15 @@ fn split_quoted_line(input: String) -> Vec<String> {
 
 //utils for integration tests run in the interactive mode
 
-pub struct IntegrationTestTerminal {
+pub struct IntegrationTestsTerminal {
     lock: Arc<Mutex<()>>,
     stdin: Arc<Mutex<Box<dyn Read + Send + 'static>>>,
     stdout: Arc<Mutex<Box<dyn Write + Send + 'static>>>,
 }
 
-impl Default for IntegrationTestTerminal {
+impl Default for IntegrationTestsTerminal {
     fn default() -> Self {
-        IntegrationTestTerminal {
+        IntegrationTestsTerminal {
             lock: Arc::new(Mutex::new(())),
             stdin: Arc::new(Mutex::new(Box::new(stdin()))),
             stdout: Arc::new(Mutex::new(Box::new(stdout()))),
@@ -109,7 +109,7 @@ impl Default for IntegrationTestTerminal {
     }
 }
 
-impl MasqTerminal for IntegrationTestTerminal {
+impl MasqTerminal for IntegrationTestsTerminal {
     fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(IntegrationTestWriter {
             temporary_mutex_guard: self.lock.lock().expect("providing MutexGuard failed"),
@@ -139,7 +139,7 @@ impl MasqTerminal for IntegrationTestTerminal {
         let finalized_command_line = std::str::from_utf8(&buffer[0..number_of_bytes])
             .expect("conversion into str failed")
             .to_string();
-        TerminalEvent::CommandLine(vec![finalized_command_line])
+        TerminalEvent::CommandLine(split_quoted_line(finalized_command_line))
     }
 }
 
@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn integration_test_terminal_provides_functional_synchronization() {
         let (tx_cb, rx_cb) = unbounded();
-        let mut terminal_interface = IntegrationTestTerminal::default();
+        let mut terminal_interface = IntegrationTestsTerminal::default();
         terminal_interface.stdin =
             Arc::new(Mutex::new(Box::new(ByteArrayReader::new(b"Some command"))));
         terminal_interface.stdout =
@@ -189,7 +189,7 @@ mod tests {
 
         assert_eq!(
             quite_irrelevant,
-            TerminalEvent::CommandLine(vec![String::from("Some command")])
+            TerminalEvent::CommandLine(vec!["Some".to_string(), ("command").to_string()])
         );
         let mut written_in_a_whole = String::new();
         loop {
@@ -259,7 +259,11 @@ mod tests {
 
         assert_eq!(
             result,
-            TerminalEvent::CommandLine(vec!["setup --ip 4.4.4.4".to_string()])
+            TerminalEvent::CommandLine(vec![
+                "setup".to_string(),
+                "--ip".to_string(),
+                "4.4.4.4".to_string()
+            ])
         );
 
         let add_history_unique_params = add_history_unique_params_arc.lock().unwrap();
