@@ -135,7 +135,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::communications::broadcast_handler::StreamFactory;
-    use crate::test_utils::mocks::{CommandContextMock, TerminalActiveMock, TestStreamFactory};
+    use crate::test_utils::mocks::{CommandContextMock,TestStreamFactory, TerminalPassiveMock};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
@@ -289,7 +289,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, _) = stream_factory.make();
-        let term_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
         SetupCommand::handle_broadcast(message, &mut stdout, term_interface);
 

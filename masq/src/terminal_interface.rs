@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #[cfg(not(test))]
-use crate::line_reader::IntegrationTestsTerminal;
+use crate::line_reader::IntegrationTestTerminal;
 use crate::line_reader::{TerminalEvent, TerminalReal};
 #[cfg(test)]
 use linefeed::memory::MemoryTerminal;
@@ -44,7 +44,7 @@ impl TerminalWrapper {
         if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
             Ok(TerminalWrapper::new(Box::new(
-                IntegrationTestsTerminal::default(),
+                IntegrationTestTerminal::default(),
             )))
         } else {
             Self::configure_interface_generic(Box::new(DefaultTerminal::new))
@@ -130,45 +130,37 @@ where
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub trait MasqTerminal {
-    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
-        intentionally_blank!()
-    }
-    fn read_line(&self) -> TerminalEvent {
-        intentionally_blank!()
-    }
-
+    fn provide_lock(&self) -> Box<dyn WriterLock + '_>;
+    fn read_line(&self) -> TerminalEvent;
     #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal {
-        intentionally_blank!()
-    }
+    fn test_interface(&self) -> MemoryTerminal {intentionally_blank!()}
     #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
-        intentionally_blank!()
-    }
+    fn tell_me_who_you_are(&self) -> String {intentionally_blank!()}
 }
-//declaration of TerminalReal is in line_reader.rs
+
+//you may look for the declaration of TerminalReal which is another file
 
 #[derive(Default)]
-pub struct TerminalInactive {}
+pub struct TerminalNonInteractive {}
 
-impl MasqTerminal for TerminalInactive {
+impl MasqTerminal for TerminalNonInteractive {
     fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(WriterInactive {})
     }
+    fn read_line(&self) -> TerminalEvent {
+        panic!("should never be called; since never come in to the body of go_interactive()")
+    }
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
-        "TerminalIdle".to_string()
+        "TerminalNonInteractive".to_string()
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-
+//writer in a passive mock has no functionality but still must be provided because such an object is required in certain procedures;
+//look at that like a method of a different object returns something what is in the production code, doesn't need its own method calls
+//but most importunately cannot be reconstructed because of lack of a public constructor or public character in the external library. No way.
 pub trait WriterLock {
-    //I failed in attempts to use 'Any' and dynamic casting from Box<dyn WriterGeneric>
-    //because: Writer doesn't implement Clone and many if not all methods of Any require
-    //'static, that is, it must be an owned object and I cannot get anything else but a referenced
-    //Writer there.
-    //For delivering at least some tests I decided to use this, kind of a hack.
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
         intentionally_blank!()
@@ -193,7 +185,10 @@ impl WriterLock for WriterInactive {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-
+//though this looks like a wast; it is needed for good coverage of certain tests...
+//there is another possible way, to create our own 'terminal type', an object implementing
+//linefeed::Terminal and then to use Interface<T>, where T (within our tests) is our terminal type.
+//Sadly, that would require much longer implementation than this here, forced by the nature of linefeed::Terminal
 pub trait InterfaceRaw {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
@@ -213,9 +208,7 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>> {
         match self.lock_writer_append() {
             Ok(writer) => Ok(Box::new(writer)),
-            //untested ...mocking here would require own definition of a terminal type, I saw how
-            //that's done like that and it takes many objects to be implemented because of the nature
-            //of that external library; I think it isn't worth it
+            //untested ...mocking here would require own definition of a terminal type; it isn't worth it (see above)
             Err(error) => Err(error),
         }
     }
@@ -228,7 +221,7 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{InterfaceRawMock, MixingStdout, TerminalActiveMock};
+    use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender, TerminalActiveMock};
     use crossbeam_channel::unbounded;
     use linefeed::DefaultTerminal;
     use std::io::{Error, Write};
@@ -236,17 +229,17 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    //In the two following tests I use the system stdout handles, which is the standard way in the project, but thanks to
-    //the lock provided by TerminalWrapper, it'll protect one from any influence of another.
+    //In those two following tests I'm using the system stdout handles which is the standard way in the project but thanks to
+    //the lock provided by TerminalWrapper it'll protect one stream from any influence of another.
 
     #[test]
     fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {
-        let closure1: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
+        let closure1: Box<dyn FnMut(TerminalWrapper, StdoutBlender) + Sync + Send> =
             Box::new(move |_interface: TerminalWrapper, mut stdout_c| {
                 write_in_cycles("AAA", &mut stdout_c);
             });
 
-        let closure2: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> =
+        let closure2: Box<dyn FnMut(TerminalWrapper, StdoutBlender) + Sync + Send> =
             Box::new(move |_interface: TerminalWrapper, mut stdout_c| {
                 write_in_cycles("BBB", &mut stdout_c);
             });
@@ -258,22 +251,21 @@ mod tests {
             given_output.contains(&"A".repeat(90)),
             given_output.contains(&"B".repeat(90)),
         ];
-        let at_least_one = results.iter().find(|bool| **bool == false);
 
-        assert!(at_least_one.is_some());
+        assert!(results.iter().any(|bool_result| *bool_result == false))
     }
 
     #[test]
     fn terminal_wrapper_s_lock_blocks_others_to_write_into_stdout() {
-        let closure1: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> = Box::new(
-            move |interface: TerminalWrapper, mut stdout_c: MixingStdout| {
+        let closure1: Box<dyn FnMut(TerminalWrapper, StdoutBlender) + Sync + Send> = Box::new(
+            move |interface: TerminalWrapper, mut stdout_c: StdoutBlender| {
                 let _lock = interface.lock();
                 write_in_cycles("AAA", &mut stdout_c);
             },
         );
 
-        let closure2: Box<dyn FnMut(TerminalWrapper, MixingStdout) + Sync + Send> = Box::new(
-            move |interface: TerminalWrapper, mut stdout_c: MixingStdout| {
+        let closure2: Box<dyn FnMut(TerminalWrapper, StdoutBlender) + Sync + Send> = Box::new(
+            move |interface: TerminalWrapper, mut stdout_c: StdoutBlender| {
                 let _lock = interface.lock();
                 write_in_cycles("BBB", &mut stdout_c);
             },
@@ -295,20 +287,20 @@ mod tests {
 
     fn test_terminal_collision<C>(closure1: Box<C>, closure2: Box<C>) -> String
     where
-        C: FnMut(TerminalWrapper, MixingStdout) -> () + Sync + Send + 'static,
+        C: FnMut(TerminalWrapper, StdoutBlender) -> () + Sync + Send + 'static,
     {
         let interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
 
         let barrier = Arc::new(Barrier::new(2));
 
         let (tx, rx) = unbounded();
-        let stdout_c1 = MixingStdout::new(tx);
+        let stdout_c1 = StdoutBlender::new(tx);
         let stdout_c2 = stdout_c1.clone();
 
         let handles: Vec<_> = vec![(closure1, stdout_c1), (closure2, stdout_c2)]
             .into_iter()
             .map(|pair| {
-                let (mut closure, stdout): (Box<C>, MixingStdout) = pair;
+                let (mut closure, stdout): (Box<C>, StdoutBlender) = pair;
                 let barrier_handle = Arc::clone(&barrier);
                 let thread_interface = interface.clone();
 
@@ -368,12 +360,11 @@ mod tests {
         let term_mock = MemoryTerminal::new();
         let term_mock_clone = term_mock.clone();
         let terminal_type = move || -> std::io::Result<MemoryTerminal> { Ok(term_mock_clone) };
-        let subject =
+
+        let result =
             interface_configurator(Box::new(Interface::with_term), Box::new(terminal_type));
-        let _ = match subject {
-            Err(e) => panic!("should have been OK, got Err: {}", e),
-            Ok(val) => val,
-        };
+
+        assert!(result.is_ok())
     }
 
     #[test]
@@ -430,10 +421,16 @@ mod tests {
 
     #[test]
     fn terminal_wrapper_armed_with_terminal_inactive_produces_writer_inactive() {
-        let subject = TerminalWrapper::new(Box::new(TerminalInactive::default()));
+        let subject = TerminalWrapper::new(Box::new(TerminalNonInteractive::default()));
 
         let lock = subject.lock();
 
         assert_eq!(lock.tell_me_who_you_are(), "WriterInactive")
+    }
+
+    #[test]
+    #[should_panic="should never be called; since never come in to the body of go_interactive()"]
+    fn terminal_non_interactive_triggers_clear_panic_if_read_line_called_on_it(){
+        TerminalNonInteractive::default().read_line();
     }
 }

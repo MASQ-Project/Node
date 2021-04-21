@@ -62,15 +62,10 @@ impl BroadcastHandler for BroadcastHandlerReal {
                 .terminal_interface
                 .take()
                 .expect("BroadcastHandlerReal: start: some was expected");
-            loop {
-                if !Self::thread_loop_guts(
-                    &message_rx,
-                    stdout.as_mut(),
-                    stderr.as_mut(),
-                    terminal_interface.clone(),
-                ) {
-                    break;  //releases the loop if masq has died (testing concerns)   //TODO I haven't known how to test that
-                }
+            //release the loop if masq has died (testing concerns)
+            let mut flag = true;
+            while flag {
+                flag = Self::handle_message_body(message_rx.recv(), stdout.as_mut(), stderr.as_mut(), terminal_interface.clone());
             }
         });
         Box::new(BroadcastHandleGeneric { message_tx })
@@ -89,7 +84,7 @@ impl BroadcastHandlerReal {
         terminal_interface: TerminalWrapper,
     ) -> bool {
         match message_body_result {
-            Err(_) => false, // Receiver died; masq is going down (if this is in a test, "false" prevents a thread leak)
+            Err(_) => false, // Receiver died; masq is going down
             Ok(message_body) => {
                 if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
                     SetupCommand::handle_broadcast(body, stdout, terminal_interface);
@@ -110,20 +105,11 @@ impl BroadcastHandlerReal {
                         "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",
                         message_body.opcode
                     )
-                    .expect("write! failed");
+                        .expect("write! failed");
                 }
                 true
             }
         }
-    }
-
-    fn thread_loop_guts(
-        message_rx: &Receiver<MessageBody>,
-        stdout: &mut dyn Write,
-        stderr: &mut dyn Write,
-        terminal_interface: TerminalWrapper,
-    ) -> bool {
-        Self::handle_message_body(message_rx.recv(), stdout, stderr, terminal_interface)
     }
 }
 
@@ -155,7 +141,7 @@ impl StreamFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{MixingStdout, TerminalActiveMock, TestStreamFactory};
+    use crate::test_utils::mocks::{StdoutBlender, TerminalActiveMock, TestStreamFactory, TerminalPassiveMock, make_tools_for_test_streams_with_thread_life_checker};
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
@@ -164,9 +150,8 @@ mod tests {
     #[test]
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
+            TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
         let message = UiSetupBroadcast {
@@ -197,9 +182,8 @@ mod tests {
     #[test]
     fn broadcast_of_crashed_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
+            TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
@@ -228,9 +212,8 @@ mod tests {
     #[test]
     fn broadcast_of_new_password_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
+            TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
@@ -253,9 +236,8 @@ mod tests {
     #[test]
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
+            TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
@@ -281,9 +263,8 @@ mod tests {
     #[test]
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        // This thread will leak, and will only stop when the tests stop running.
         let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
-            TerminalActiveMock::new(),
+            TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
         let bad_message = MessageBody {
@@ -316,6 +297,28 @@ mod tests {
             stdout
         );
         assert_eq!(handle.stderr_so_far(), String::new());
+    }
+
+    #[test]
+    fn broadcast_handler_thread_terminates_immediately_if_it_senses_that_masq_is_gone(){
+       let (life_checker_handle, stream_factory, stream_handle) = make_tools_for_test_streams_with_thread_life_checker();
+       let broadcast_handler_real = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalPassiveMock::new()))));
+       let broadcast_handle = broadcast_handler_real.start(Box::new(stream_factory));
+       let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
+       broadcast_handle.send(example_broadcast);
+
+       let stdout_content = stream_handle.stdout_so_far();
+
+       assert_eq!(stdout_content,"\
+       \nThe Node's database password has changed.\n\n");
+
+       //I'm dropping this handle...handler should next terminate.
+       drop(broadcast_handle);
+
+       //we should get a message meaning that objects in the background thread were dropped before the thread stopped to exist
+       let result = life_checker_handle.recv_timeout(Duration::from_millis(100));
+
+       assert!(result.is_ok())
     }
 
     #[test]
@@ -429,7 +432,7 @@ Cannot handle crash request: Node is not running.
         U: Debug + PartialEq + Clone,
     {
         let (tx, rx) = unbounded();
-        let mut stdout = MixingStdout::new(tx);
+        let mut stdout = StdoutBlender::new(tx);
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
 

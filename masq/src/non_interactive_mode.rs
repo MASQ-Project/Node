@@ -10,7 +10,7 @@ use crate::communications::broadcast_handler::{
     StreamFactory, StreamFactoryReal,
 };
 use crate::interactive_mode::go_interactive;
-use crate::terminal_interface::{TerminalInactive, TerminalWrapper};
+use crate::terminal_interface::{TerminalNonInteractive, TerminalWrapper};
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
@@ -52,7 +52,7 @@ impl Main {
     fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, TerminalWrapper) {
         (
             Box::new(BroadcastHandleInactive::new()),
-            TerminalWrapper::new(Box::new(TerminalInactive::default())),
+            TerminalWrapper::new(Box::new(TerminalNonInteractive::default())),
         )
     }
 
@@ -379,7 +379,6 @@ mod tests {
     fn populate_interactive_dependencies_produces_all_needed_to_block_printing_from_another_thread_when_the_lock_is_acquired(
     ) {
         let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
-        // This thread will leak, and will only stop when the tests stop running.
         let (broadcast_handle, terminal_interface) =
             Main::populate_interactive_dependencies(test_stream_factory).unwrap();
         {

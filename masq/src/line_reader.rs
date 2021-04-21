@@ -93,15 +93,15 @@ fn split_quoted_line(input: String) -> Vec<String> {
 
 //utils for integration tests run in the interactive mode
 
-pub struct IntegrationTestsTerminal {
+pub struct IntegrationTestTerminal {
     lock: Arc<Mutex<()>>,
     stdin: Arc<Mutex<Box<dyn Read + Send + 'static>>>,
     stdout: Arc<Mutex<Box<dyn Write + Send + 'static>>>,
 }
 
-impl Default for IntegrationTestsTerminal {
+impl Default for IntegrationTestTerminal {
     fn default() -> Self {
-        IntegrationTestsTerminal {
+        IntegrationTestTerminal {
             lock: Arc::new(Mutex::new(())),
             stdin: Arc::new(Mutex::new(Box::new(stdin()))),
             stdout: Arc::new(Mutex::new(Box::new(stdout()))),
@@ -109,7 +109,7 @@ impl Default for IntegrationTestsTerminal {
     }
 }
 
-impl MasqTerminal for IntegrationTestsTerminal {
+impl MasqTerminal for IntegrationTestTerminal {
     fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(IntegrationTestWriter {
             temporary_mutex_guard: self.lock.lock().expect("providing MutexGuard failed"),
@@ -154,7 +154,7 @@ impl WriterLock for IntegrationTestWriter<'_> {}
 mod tests {
     use super::*;
     use crate::terminal_interface::TerminalWrapper;
-    use crate::test_utils::mocks::{InterfaceRawMock, MixingStdout};
+    use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender};
     use crossbeam_channel::unbounded;
     use masq_lib::test_utils::fake_stream_holder::ByteArrayReader;
     use std::io::ErrorKind;
@@ -165,16 +165,16 @@ mod tests {
     #[test]
     fn integration_test_terminal_provides_functional_synchronization() {
         let (tx_cb, rx_cb) = unbounded();
-        let mut terminal_interface = IntegrationTestsTerminal::default();
+        let mut terminal_interface = IntegrationTestTerminal::default();
         terminal_interface.stdin =
             Arc::new(Mutex::new(Box::new(ByteArrayReader::new(b"Some command"))));
         terminal_interface.stdout =
-            Arc::new(Mutex::new(Box::new(MixingStdout::new(tx_cb.clone()))));
+            Arc::new(Mutex::new(Box::new(StdoutBlender::new(tx_cb.clone()))));
         let terminal = TerminalWrapper::new(Box::new(terminal_interface));
         let mut terminal_clone = terminal.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         let handle = thread::spawn(move || {
-            let mut background_thread_stdout = MixingStdout::new(tx_cb);
+            let mut background_thread_stdout = StdoutBlender::new(tx_cb);
             tx.send(()).unwrap();
             (0..3).for_each(|_| {
                 write_one_cycle(&mut background_thread_stdout, &mut terminal_clone);
@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(filtered_string, "masq> \n");
     }
 
-    fn write_one_cycle(stdout: &mut MixingStdout, interface: &mut TerminalWrapper) {
+    fn write_one_cycle(stdout: &mut StdoutBlender, interface: &mut TerminalWrapper) {
         let _lock = interface.lock();
         (0..20).for_each(|num: u8| {
             stdout.write(num.to_string().as_bytes()).unwrap();

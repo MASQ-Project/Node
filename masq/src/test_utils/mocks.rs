@@ -11,6 +11,7 @@ use crate::terminal_interface::{
     InterfaceRaw, MasqTerminal, TerminalWrapper, WriterInactive, WriterLock,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{channel,Sender as MpscSender,Receiver as MpscReceiver};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult};
 use masq_lib::intentionally_blank;
@@ -343,7 +344,8 @@ impl TestStreamFactory {
         (factory, handle)
     }
 
-    pub fn clone_senders(&self) -> (Sender<String>, Sender<String>) {
+    pub fn clone_senders(&self)
+        -> (Sender<String>, Sender<String>) {
         let stdout = self
             .stdout_opt
             .borrow_mut()
@@ -393,34 +395,76 @@ impl TestStreamFactoryHandle {
                     }
                     thread::sleep(Duration::from_millis(100));
                 }
-                Err(_) => {
-                    break;
-                }
+                Err(_) => break
             }
         }
         accum
     }
 }
 
+impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory{
+    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
+        let (stdout, stderr) = self.stream_factory.make();
+        let stream_with_checker = TestStreamWithThreadLifeChecker{ stream: stdout, threads_connector: self.threads_connector.borrow_mut().take().unwrap() };
+        (Box::new(stream_with_checker),stderr)
+    }
+}
+
+#[derive(Debug)]
+pub struct TestStreamsWithThreadLifeCheckerFactory{
+    stream_factory: TestStreamFactory,
+    threads_connector: RefCell<Option<MpscSender<()>>>
+}
+
+struct TestStreamWithThreadLifeChecker{
+    stream: Box<dyn Write>,
+    threads_connector: MpscSender<()>
+}
+
+impl Write for TestStreamWithThreadLifeChecker{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.stream.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stream.flush()
+    }
+}
+
+impl Drop for TestStreamWithThreadLifeChecker{
+    fn drop(&mut self) {
+        self.threads_connector.send(()).unwrap();
+    }
+}
+
+pub fn make_tools_for_test_streams_with_thread_life_checker()->(MpscReceiver<()>,TestStreamsWithThreadLifeCheckerFactory,TestStreamFactoryHandle){
+    let (stream_factory, stream_handle) = TestStreamFactory::new();
+    let (tx,rx) = channel();
+    let life_checker_receiver = rx;
+    (life_checker_receiver,TestStreamsWithThreadLifeCheckerFactory{ stream_factory, threads_connector: RefCell::new(Some(tx))},stream_handle)
+}
+
 #[derive(Clone)]
-pub struct MixingStdout {
+pub struct StdoutBlender {
     channel_half: Sender<String>,
 }
 
-impl MixingStdout {
+impl StdoutBlender {
     pub fn new(sender: Sender<String>) -> Self {
-        MixingStdout {
+        StdoutBlender {
             channel_half: sender,
         }
     }
 }
 
-impl Write for MixingStdout {
+impl Write for StdoutBlender {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let chunk = std::str::from_utf8(buf).unwrap().to_string();
+        let length = chunk.len();
         self.channel_half
-            .send(std::str::from_utf8(buf).unwrap().to_string())
+            .send(chunk)
             .unwrap();
-        Ok(0)
+        Ok(length)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -431,6 +475,9 @@ impl Write for MixingStdout {
         Ok(())
     }
 }
+
+//light-weight mock (passive = without functions of the linefeed interface and mainly without functional locking
+//thus unusable for accurate sync tests
 
 #[derive(Clone)]
 pub struct TerminalPassiveMock {
@@ -459,7 +506,7 @@ impl TerminalPassiveMock {
     }
 }
 
-//mock incorporating a terminal very similar to the real one, which is run as in-memory though
+//mock incorporating with in-memory using functional locking corresponding to how it works in the production code;
 
 pub struct TerminalActiveMock {
     in_memory_terminal: Interface<MemoryTerminal>,
