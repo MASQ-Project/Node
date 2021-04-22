@@ -5,7 +5,7 @@ use crate::commands::setup_command::SetupCommand;
 use crate::communications::handle_node_not_running_for_fire_and_forget_on_the_way;
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal_interface::TerminalWrapper;
-use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
+use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
     UiUndeliveredFireAndForget,
@@ -65,7 +65,12 @@ impl BroadcastHandler for BroadcastHandlerReal {
             //release the loop if masq has died (testing concerns)
             let mut flag = true;
             while flag {
-                flag = Self::handle_message_body(message_rx.recv(), stdout.as_mut(), stderr.as_mut(), terminal_interface.clone());
+                flag = Self::handle_message_body(
+                    message_rx.recv(),
+                    stdout.as_mut(),
+                    stderr.as_mut(),
+                    terminal_interface.clone(),
+                );
             }
         });
         Box::new(BroadcastHandleGeneric { message_tx })
@@ -105,7 +110,7 @@ impl BroadcastHandlerReal {
                         "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",
                         message_body.opcode
                     )
-                        .expect("write! failed");
+                    .expect("write! failed");
                 }
                 true
             }
@@ -141,7 +146,11 @@ impl StreamFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{StdoutBlender, TerminalActiveMock, TestStreamFactory, TerminalPassiveMock, make_tools_for_test_streams_with_thread_life_checker};
+    use crate::test_utils::mocks::{
+        make_tools_for_test_streams_with_thread_life_checker, StdoutBlender, TerminalActiveMock,
+        TerminalPassiveMock, TestStreamFactory,
+    };
+    use crossbeam_channel::Receiver;
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
@@ -300,25 +309,31 @@ mod tests {
     }
 
     #[test]
-    fn broadcast_handler_thread_terminates_immediately_if_it_senses_that_masq_is_gone(){
-       let (life_checker_handle, stream_factory, stream_handle) = make_tools_for_test_streams_with_thread_life_checker();
-       let broadcast_handler_real = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(TerminalPassiveMock::new()))));
-       let broadcast_handle = broadcast_handler_real.start(Box::new(stream_factory));
-       let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
-       broadcast_handle.send(example_broadcast);
+    fn broadcast_handler_thread_terminates_immediately_if_it_senses_that_masq_is_gone() {
+        let (life_checker_handle, stream_factory, stream_handle) =
+            make_tools_for_test_streams_with_thread_life_checker();
+        let broadcast_handler_real = BroadcastHandlerReal::new(Some(TerminalWrapper::new(
+            Box::new(TerminalPassiveMock::new()),
+        )));
+        let broadcast_handle = broadcast_handler_real.start(Box::new(stream_factory));
+        let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
+        broadcast_handle.send(example_broadcast);
 
-       let stdout_content = stream_handle.stdout_so_far();
+        let stdout_content = stream_handle.stdout_so_far();
 
-       assert_eq!(stdout_content,"\
-       \nThe Node's database password has changed.\n\n");
+        assert_eq!(
+            stdout_content,
+            "\
+       \nThe Node's database password has changed.\n\n"
+        );
 
-       //I'm dropping this handle...handler should next terminate.
-       drop(broadcast_handle);
+        //I'm dropping this handle...handler should next terminate.
+        drop(broadcast_handle);
 
-       //we should get a message meaning that objects in the background thread were dropped before the thread stopped to exist
-       let result = life_checker_handle.recv_timeout(Duration::from_millis(100));
+        //we should get a message meaning that objects in the background thread were dropped before the thread stopped to exist
+        let result = life_checker_handle.recv_timeout(Duration::from_millis(100));
 
-       assert!(result.is_ok())
+        assert!(result.is_ok())
     }
 
     #[test]

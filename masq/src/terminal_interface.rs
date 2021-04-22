@@ -9,15 +9,15 @@ use linefeed::memory::MemoryTerminal;
 use linefeed::DefaultTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
+#[cfg(test)]
 use masq_lib::intentionally_blank;
 use std::sync::Arc;
 
 pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
-pub const MASQ_TEST_INTEGRATION_VALUE: &str =
-    "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb74b2eac7b8a3be8xzt";
+pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb\
+74b2eac7b8a3be8xzt";
 
-//this is a layer with the broadest functionality, an object which is intended for you to usually work with at other
-//places in the code
+//This is the outermost layer which is intended for you to usually work with at other places in the codebase.
 
 pub struct TerminalWrapper {
     interface: Arc<Box<dyn MasqTerminal + Send + Sync>>,
@@ -29,6 +29,7 @@ impl TerminalWrapper {
             interface: Arc::new(interface),
         }
     }
+
     pub fn lock(&self) -> Box<dyn WriterLock + '_> {
         self.interface.provide_lock()
     }
@@ -37,10 +38,10 @@ impl TerminalWrapper {
         self.interface.read_line()
     }
 
+    //tested only for a negative result (an integration test)
+    //we have no positive automatic test aimed on this
     #[cfg(not(test))]
     pub fn configure_interface() -> Result<Self, String> {
-        //tested only for a negative result (an integration test)
-        //no positive automatic test aimed on this
         if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
             Ok(TerminalWrapper::new(Box::new(
@@ -86,17 +87,42 @@ impl Clone for TerminalWrapper {
     }
 }
 
-fn interface_configurator<F, U, E: ?Sized, D>(
-    interface_raw: Box<F>,
-    terminal_type: Box<E>,
+//This construction, including functions with closures above that are strongly affected by the way how interface_configurator()
+//is written, has to be so complicated because there are tough obstacles to write simple tests here.
+//interface_configurator() substitutes something that may otherwise look, in the production code, simplified, like:
+//let terminal = match DefaultTerminal::new() {*something*};
+//let interface = match Interface::start_with("masq",terminal){*something*};
+//if let Err(e) = interface.set_prompt(){*something*};
+//Ok(TerminalReal::new(interface))
+//
+//However, since we want to write tests we have to face here the following:
+//1) DefaultTerminal alone is a part which can be theoretically tested outside, with certain troubles, but because of the other
+//lines of codes in interface_configurator() it makes sense for it to stay there.
+//2) It's quite hard to simulate a failure at Interface::start_with, though possible; you have to implement your own "terminal
+//type", which you'll then instruct to cause an error during a call of the function below. It requires an implementation
+//of linefeed::Terminal and creation of some other objects, hanged on it and dependant on each other, which leads up to an extremely
+//long sequence of declarations written from zero.
+//3) Sadly, when you're finally done with the previous you'll find that point 3 is even impossible because unlike the previous case
+//you are about to hit an external struct, named 'Reader', with a private constructor (and also declared publicly but with private
+//fields) and which doesn't share its traits - and that's the end of the line.
+//
+//We decided that some day in the future we'll probably want to properly react on errors that are possible on set_prompt(). Thus this
+//"silly play with closures" may be justifiable.
+//
+//In short, I created a so to say skeleton which takes injections of closures where I can exactly say how the mock, the injected
+//function shall behave and what it shall produce. Like so, all problems can be finally covered.
+
+fn interface_configurator<FN1, FN2: ?Sized, T, I>(
+    interface_raw: Box<FN1>,
+    terminal_type: Box<FN2>,
 ) -> Result<TerminalReal, String>
 where
-    F: FnOnce(&'static str, U) -> std::io::Result<D>,
-    E: FnOnce() -> std::io::Result<U>,
-    U: linefeed::Terminal + 'static,
-    D: InterfaceRaw + Send + Sync + 'static,
+    FN1: FnOnce(&'static str, T) -> std::io::Result<I>,
+    FN2: FnOnce() -> std::io::Result<T>,
+    T: linefeed::Terminal + 'static,
+    I: InterfaceRaw + Send + Sync + 'static,
 {
-    let terminal: U = match terminal_type() {
+    let terminal: T = match terminal_type() {
         Ok(term) => term,
         Err(e) => return Err(format!("Local terminal: {}", e)),
     };
@@ -105,25 +131,21 @@ where
             Ok(interface) => Box::new(interface),
             Err(e) => return Err(format!("Preparing terminal interface: {}", e)),
         };
-
-    if let Err(e) = set_all_settable_or_give_an_error(&mut *interface) {
+    if let Err(e) = set_all_settable(&mut *interface) {
         return Err(e);
     };
-
     Ok(TerminalReal::new(interface))
 }
 
-fn set_all_settable_or_give_an_error<U>(interface: &mut U) -> Result<(), String>
+fn set_all_settable<I>(interface: &mut I) -> Result<(), String>
 where
-    U: InterfaceRaw + Send + Sync + 'static + ?Sized,
+    I: InterfaceRaw + Send + Sync + 'static + ?Sized,
 {
     if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
         return Err(format!("Setting prompt: {}", e));
     }
-
     //here we can add another parameter to be configured,
     //such as "completer" (see linefeed library)
-
     Ok(())
 }
 
@@ -133,12 +155,16 @@ pub trait MasqTerminal {
     fn provide_lock(&self) -> Box<dyn WriterLock + '_>;
     fn read_line(&self) -> TerminalEvent;
     #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal {intentionally_blank!()}
+    fn test_interface(&self) -> MemoryTerminal {
+        intentionally_blank!()
+    }
     #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {intentionally_blank!()}
+    fn tell_me_who_you_are(&self) -> String {
+        intentionally_blank!()
+    }
 }
 
-//you may look for the declaration of TerminalReal which is another file
+//you may be looking for the declaration of TerminalReal which is in another file
 
 #[derive(Default)]
 pub struct TerminalNonInteractive {}
@@ -157,9 +183,11 @@ impl MasqTerminal for TerminalNonInteractive {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//writer in a passive mock has no functionality but still must be provided because such an object is required in certain procedures;
-//look at that like a method of a different object returns something what is in the production code, doesn't need its own method calls
-//but most importunately cannot be reconstructed because of lack of a public constructor or public character in the external library. No way.
+//Writer in the context of a passive mock has no functionality but still must be provided because such an object is required by
+//certain procedures. Look at that like a method of a different object returns a struct that is in the production code, doesn't
+//need its own method calls but most importantly cannot be reconstructed because of the lack of a public constructor or public
+//trait in the external library. No way.
+
 pub trait WriterLock {
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
@@ -185,10 +213,12 @@ impl WriterLock for WriterInactive {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//though this looks like a wast; it is needed for good coverage of certain tests...
-//there is another possible way, to create our own 'terminal type', an object implementing
+//Though this looks like a wast; it is needed for good coverage of certain tests...
+//There is another possible way, to create our own 'terminal type', an object implementing
 //linefeed::Terminal and then to use Interface<T>, where T (within our tests) is our terminal type.
-//Sadly, that would require much longer implementation than this here, forced by the nature of linefeed::Terminal
+//Sadly, that would require much longer implementation than this here, forced by the nature
+//of linefeed::Terminal
+
 pub trait InterfaceRaw {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
@@ -208,7 +238,8 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>> {
         match self.lock_writer_append() {
             Ok(writer) => Ok(Box::new(writer)),
-            //untested ...mocking here would require own definition of a terminal type; it isn't worth it (see above)
+            //untested ...mocking here would require own definition of a terminal type;
+            //it isn't worth it (see above)
             Err(error) => Err(error),
         }
     }
@@ -230,7 +261,7 @@ mod tests {
     use std::time::Duration;
 
     //In those two following tests I'm using the system stdout handles which is the standard way in the project but thanks to
-    //the lock provided by TerminalWrapper it'll protect one stream from any influence of another.
+    //the lock provided by TerminalWrapper it'll protect one writing to the stream from any influence of another.
 
     #[test]
     fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {
@@ -290,13 +321,10 @@ mod tests {
         C: FnMut(TerminalWrapper, StdoutBlender) -> () + Sync + Send + 'static,
     {
         let interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
-
         let barrier = Arc::new(Barrier::new(2));
-
         let (tx, rx) = unbounded();
         let stdout_c1 = StdoutBlender::new(tx);
         let stdout_c2 = stdout_c1.clone();
-
         let handles: Vec<_> = vec![(closure1, stdout_c1), (closure2, stdout_c2)]
             .into_iter()
             .map(|pair| {
@@ -429,8 +457,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic="should never be called; since never come in to the body of go_interactive()"]
-    fn terminal_non_interactive_triggers_clear_panic_if_read_line_called_on_it(){
+    #[should_panic = "should never be called; since never come in to the body of go_interactive()"]
+    fn terminal_non_interactive_triggers_clear_panic_if_read_line_called_on_it() {
         TerminalNonInteractive::default().read_line();
     }
 }

@@ -122,7 +122,7 @@ macro_rules! short_writeln {
 #[macro_export]
 macro_rules! intentionally_blank {
     () => {
-        panic!("unrequired method of a trait; left blank here")
+        panic!("Required method left unimplemented: should never be called.")
     };
 }
 

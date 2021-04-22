@@ -7,6 +7,7 @@ use crate::line_reader::TerminalEvent::{
     Break, CommandLine, Continue, Error as TerminalEventError,
 };
 use crate::schema::app;
+use crate::terminal_interface::TerminalWrapper;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 use std::io::Write;
@@ -23,8 +24,8 @@ where
     CP: CommandProcessor + ?Sized + 'static,
 {
     loop {
-        let read_line_result = processor.terminal_wrapper_reference().read_line();
-        let args = match pass_on_args_or_print_messages(streams, read_line_result) {
+        let read_line_result = processor.terminal_wrapper_ref().read_line();
+        let args = match pass_on_args_or_write_messages(streams, read_line_result) {
             CommandLine(args) => args,
             Break => break,
             Continue => continue,
@@ -36,25 +37,43 @@ where
         if args[0] == "exit" {
             break;
         }
-        //that line cannot be tested by an integration test
-        let _ = clap_responds_to_descriptive_commands(&args[0]);
+        if clap_responds_to_descriptive_commands(
+            &args[0],
+            streams.stdout,
+            processor.terminal_wrapper_ref(),
+        ) {
+            continue;
+        }
         let _ = handle_command(command_factory, processor, args, streams.stderr);
     }
     0
 }
 
-fn clap_responds_to_descriptive_commands(arg: &str) -> bool {
+fn clap_responds_to_descriptive_commands(
+    arg: &str,
+    mut stdout: &mut dyn Write,
+    terminal_interface: &TerminalWrapper,
+) -> bool {
     match arg {
-        "help" => (),
-        "version" => (),
+        "help" => {
+            let _lock = terminal_interface.lock();
+            app()
+                .write_help(&mut stdout)
+                .expect("masq help set incorrectly");
+            true
+        }
+        "version" => {
+            let _lock = terminal_interface.lock();
+            app()
+                .write_version(&mut stdout)
+                .expect("information of masq version set incorrectly");
+            true
+        }
         _ => return false,
     }
-    app()
-        .get_matches_from_safe(vec![format!("--{}", arg)])
-        .is_ok()
 }
 
-fn pass_on_args_or_print_messages(
+fn pass_on_args_or_write_messages(
     streams: &mut StdStreams<'_>,
     read_line_result: TerminalEvent,
 ) -> TerminalEvent {
@@ -73,8 +92,7 @@ fn pass_on_args_or_print_messages(
         }
         TerminalEventError(e) => {
             short_writeln!(streams.stderr, "{}", e);
-            //Must provide some string, though that message is useless since now
-            TerminalEventError(e)
+            TerminalEventError(String::new()) //we'll discard this String immediately
         }
     }
 }
@@ -86,7 +104,7 @@ mod tests {
     use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
     use crate::interactive_mode::{
-        clap_responds_to_descriptive_commands, pass_on_args_or_print_messages,
+        clap_responds_to_descriptive_commands, pass_on_args_or_write_messages,
     };
     use crate::line_reader::TerminalEvent;
     use crate::line_reader::TerminalEvent::{Break, Continue, Error};
@@ -97,7 +115,7 @@ mod tests {
     };
     use masq_lib::command::Command;
     use masq_lib::intentionally_blank;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug)]
@@ -259,7 +277,7 @@ mod tests {
     fn pass_on_args_or_print_messages_announces_break_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_print_messages(&mut stream_holder.streams(), Break);
+        let result = pass_on_args_or_write_messages(&mut stream_holder.streams(), Break);
 
         assert_eq!(result, Break);
         assert_eq!(stream_holder.stderr.get_string(), "");
@@ -270,7 +288,7 @@ mod tests {
     fn pass_on_args_or_print_messages_announces_continue_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_print_messages(&mut stream_holder.streams(), Continue);
+        let result = pass_on_args_or_write_messages(&mut stream_holder.streams(), Continue);
 
         assert_eq!(result, Continue);
         assert_eq!(stream_holder.stderr.get_string(), "");
@@ -284,7 +302,7 @@ mod tests {
     fn pass_on_args_or_print_messages_announces_error_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_print_messages(
+        let result = pass_on_args_or_write_messages(
             &mut stream_holder.streams(),
             Error("Invalid Input\n".to_string()),
         );
@@ -296,19 +314,36 @@ mod tests {
 
     #[test]
     fn interactive_mode_may_respond_to_query_about_the_current_version() {
-        let result = clap_responds_to_descriptive_commands("version");
-        assert_eq!(result, true)
+        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let mut stdout = ByteArrayWriter::new();
+        let result =
+            clap_responds_to_descriptive_commands("version", &mut stdout, &terminal_interface);
+        assert_eq!(result, true);
+        assert!(stdout.get_string().contains("masq 1"))
     }
 
     #[test]
     fn interactive_mode_may_respond_to_query_about_overall_help() {
-        let result = clap_responds_to_descriptive_commands("help");
-        assert_eq!(result, true)
+        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let mut stdout = ByteArrayWriter::new();
+        let result =
+            clap_responds_to_descriptive_commands("help", &mut stdout, &terminal_interface);
+        assert_eq!(result, true);
+        let stdout = stdout.get_string();
+        assert!(stdout.contains(
+            "masq is a command-line user interface to the MASQ Daemon and the MASQ Node"
+        ));
+        assert!(stdout.contains("recover-wallets"));
+        assert!(stdout.contains("descriptor"));
     }
 
     #[test]
     fn clap_responds_to_overall_commands_ignores_uninteresting_entries() {
-        let result = clap_responds_to_descriptive_commands("something");
-        assert_eq!(result, false)
+        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let mut stdout = ByteArrayWriter::new();
+        let result =
+            clap_responds_to_descriptive_commands("something", &mut stdout, &terminal_interface);
+        assert_eq!(result, false);
+        assert_eq!(stdout.get_string(), "")
     }
 }

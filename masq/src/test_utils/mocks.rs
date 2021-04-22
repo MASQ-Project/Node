@@ -11,7 +11,6 @@ use crate::terminal_interface::{
     InterfaceRaw, MasqTerminal, TerminalWrapper, WriterInactive, WriterLock,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
-use std::sync::mpsc::{channel,Sender as MpscSender,Receiver as MpscReceiver};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult};
 use masq_lib::intentionally_blank;
@@ -21,6 +20,7 @@ use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::io::{Read, Write};
+use std::sync::mpsc::{channel, Receiver as MpscReceiver, Sender as MpscSender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
@@ -172,7 +172,7 @@ pub struct CommandProcessorMock {
     process_params: Arc<Mutex<Vec<Box<dyn Command>>>>,
     process_results: RefCell<Vec<Result<(), CommandError>>>,
     close_params: Arc<Mutex<Vec<()>>>,
-    terminal_interface: Vec<TerminalWrapper>,
+    terminal_interface: Option<TerminalWrapper>,
 }
 
 impl CommandProcessor for CommandProcessorMock {
@@ -185,8 +185,8 @@ impl CommandProcessor for CommandProcessorMock {
         self.close_params.lock().unwrap().push(());
     }
 
-    fn terminal_wrapper_reference(&self) -> &TerminalWrapper {
-        &self.terminal_interface[0]
+    fn terminal_wrapper_ref(&self) -> &TerminalWrapper {
+        self.terminal_interface.as_ref().unwrap()
     }
 }
 
@@ -199,7 +199,7 @@ impl CommandProcessorMock {
         mut self,
         terminal_interface_arc_clone: TerminalWrapper,
     ) -> Self {
-        self.terminal_interface.push(terminal_interface_arc_clone);
+        self.terminal_interface = Some(terminal_interface_arc_clone);
         self
     }
 
@@ -344,8 +344,7 @@ impl TestStreamFactory {
         (factory, handle)
     }
 
-    pub fn clone_senders(&self)
-        -> (Sender<String>, Sender<String>) {
+    pub fn clone_senders(&self) -> (Sender<String>, Sender<String>) {
         let stdout = self
             .stdout_opt
             .borrow_mut()
@@ -395,53 +394,66 @@ impl TestStreamFactoryHandle {
                     }
                     thread::sleep(Duration::from_millis(100));
                 }
-                Err(_) => break
+                Err(_) => break,
             }
         }
         accum
     }
 }
 
-impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory{
+impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
         let (stdout, stderr) = self.stream_factory.make();
-        let stream_with_checker = TestStreamWithThreadLifeChecker{ stream: stdout, threads_connector: self.threads_connector.borrow_mut().take().unwrap() };
-        (Box::new(stream_with_checker),stderr)
+        let stream_with_checker = TestStreamWithThreadLifeChecker {
+            stream: stdout,
+            threads_connector: self.threads_connector.borrow_mut().take().unwrap(),
+        };
+        (Box::new(stream_with_checker), stderr)
     }
 }
 
 #[derive(Debug)]
-pub struct TestStreamsWithThreadLifeCheckerFactory{
+pub struct TestStreamsWithThreadLifeCheckerFactory {
     stream_factory: TestStreamFactory,
-    threads_connector: RefCell<Option<MpscSender<()>>>
+    threads_connector: RefCell<Option<MpscSender<()>>>,
 }
 
-struct TestStreamWithThreadLifeChecker{
+struct TestStreamWithThreadLifeChecker {
     stream: Box<dyn Write>,
-    threads_connector: MpscSender<()>
+    threads_connector: MpscSender<()>,
 }
 
-impl Write for TestStreamWithThreadLifeChecker{
+impl Write for TestStreamWithThreadLifeChecker {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.stream.write(buf)
     }
-
     fn flush(&mut self) -> std::io::Result<()> {
         self.stream.flush()
     }
 }
 
-impl Drop for TestStreamWithThreadLifeChecker{
+impl Drop for TestStreamWithThreadLifeChecker {
     fn drop(&mut self) {
         self.threads_connector.send(()).unwrap();
     }
 }
 
-pub fn make_tools_for_test_streams_with_thread_life_checker()->(MpscReceiver<()>,TestStreamsWithThreadLifeCheckerFactory,TestStreamFactoryHandle){
+pub fn make_tools_for_test_streams_with_thread_life_checker() -> (
+    MpscReceiver<()>,
+    TestStreamsWithThreadLifeCheckerFactory,
+    TestStreamFactoryHandle,
+) {
     let (stream_factory, stream_handle) = TestStreamFactory::new();
-    let (tx,rx) = channel();
+    let (tx, rx) = channel();
     let life_checker_receiver = rx;
-    (life_checker_receiver,TestStreamsWithThreadLifeCheckerFactory{ stream_factory, threads_connector: RefCell::new(Some(tx))},stream_handle)
+    (
+        life_checker_receiver,
+        TestStreamsWithThreadLifeCheckerFactory {
+            stream_factory,
+            threads_connector: RefCell::new(Some(tx)),
+        },
+        stream_handle,
+    )
 }
 
 #[derive(Clone)]
@@ -461,12 +473,9 @@ impl Write for StdoutBlender {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let chunk = std::str::from_utf8(buf).unwrap().to_string();
         let length = chunk.len();
-        self.channel_half
-            .send(chunk)
-            .unwrap();
+        self.channel_half.send(chunk).unwrap();
         Ok(length)
     }
-
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
@@ -499,7 +508,6 @@ impl TerminalPassiveMock {
             read_line_result: Arc::new(Mutex::new(vec![])),
         }
     }
-
     pub fn read_line_result(self, result: TerminalEvent) -> Self {
         self.read_line_result.lock().unwrap().push(result);
         self
@@ -518,13 +526,11 @@ impl MasqTerminal for TerminalActiveMock {
     fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
-
     fn read_line(&self) -> TerminalEvent {
         let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
         self.reference.write(&format!("{}*/-", line));
         TerminalEvent::CommandLine(vec![line])
     }
-
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
         self.reference.clone()
@@ -544,7 +550,6 @@ impl TerminalActiveMock {
             user_input: Arc::new(Mutex::new(vec![])),
         }
     }
-
     pub fn read_line_result(self, line: String) -> Self {
         self.user_input
             .lock()
@@ -566,15 +571,12 @@ impl InterfaceRaw for InterfaceRawMock {
     fn read_line(&self) -> std::io::Result<ReadResult> {
         self.read_line_result.lock().unwrap().remove(0)
     }
-
     fn add_history_unique(&self, line: String) {
         self.add_history_unique_params.lock().unwrap().push(line)
     }
-
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + 'static>> {
         intentionally_blank!()
     }
-
     fn set_prompt(&self, _prompt: &str) -> std::io::Result<()> {
         self.set_prompt_result.lock().unwrap().remove(0)
     }
@@ -592,12 +594,10 @@ impl InterfaceRawMock {
         self.read_line_result.lock().unwrap().push(result);
         self
     }
-
     pub fn add_history_unique_params(mut self, params: Arc<Mutex<Vec<String>>>) -> Self {
         self.add_history_unique_params = params;
         self
     }
-
     pub fn set_prompt_result(self, result: std::io::Result<()>) -> Self {
         self.set_prompt_result.lock().unwrap().push(result);
         self

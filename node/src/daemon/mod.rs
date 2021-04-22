@@ -261,9 +261,7 @@ impl Daemon {
                         },
                         payload: match body.payload {
                             Ok(json) => json,
-                            Err((_code, _message)) => {
-                                panic!("Incoming message from UI with a payload signaling an error")
-                            }
+                            Err((_code, _message)) => unimplemented!(),
                         },
                     }
                     .tmb(0),

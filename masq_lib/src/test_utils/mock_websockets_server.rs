@@ -192,7 +192,7 @@ impl MockWebSocketsServer {
                                 log(
                                     do_log,
                                     index,
-                                    "Responding to a request for FireAndForget message in dirrection to UI",
+                                    "Responding to a request for FireAndForget message in direction to UI",
                                 );
                                 inner_responses_arc
                                     .lock()

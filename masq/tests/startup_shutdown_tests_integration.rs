@@ -3,9 +3,9 @@
 use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
 use masq_lib::utils::find_free_port;
+use regex::Regex;
 use std::thread;
 use std::time::Duration;
-use regex::Regex;
 
 mod utils;
 
@@ -34,7 +34,7 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
 
     assert_eq!(exit_code, 1);
     let regex = Regex::new(r"\x1B\[\?\d\d[lh]").unwrap();
-    assert_eq!(regex.replace_all( &stdout,""), "", "{}", stdout);
+    assert_eq!(regex.replace_all(&stdout, ""), "", "{}", stdout);
 
     #[cfg(not(target_os = "windows"))]
     let expected_error_message = "Pre-configuration error: Preparing terminal interface:";
@@ -68,7 +68,7 @@ fn handles_startup_and_shutdown_integration() {
 
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
-    assert_eq!(&stderr, "", "ln. 70: {}", stderr);
+    assert_eq!(&stderr, "", "setup phase: {}", stderr);
     assert_eq!(
         stdout.contains("neighborhood-mode      zero-hop"),
         true,
@@ -82,7 +82,7 @@ fn handles_startup_and_shutdown_integration() {
 
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
-    assert_eq!(&stderr, "", "ln. 83: {}", stderr);
+    assert_eq!(&stderr, "", "start phase: {}", stderr);
     assert_eq!(
         stdout.contains("MASQNode successfully started in process"),
         true,
@@ -96,7 +96,7 @@ fn handles_startup_and_shutdown_integration() {
 
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
-    assert_eq!(&stderr, "", "ln. 96: {}", stderr);
+    assert_eq!(&stderr, "", "shutdown phase: {}", stderr);
     assert_eq!(
         stdout.contains("MASQNode was instructed to shut down and has broken its connection"),
         true,

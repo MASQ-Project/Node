@@ -46,7 +46,7 @@ impl CommandProcessorFactoryReal {
 pub trait CommandProcessor {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError>;
     fn close(&mut self);
-    fn terminal_wrapper_reference(&self) -> &TerminalWrapper;
+    fn terminal_wrapper_ref(&self) -> &TerminalWrapper;
 }
 
 pub struct CommandProcessorReal {
@@ -64,7 +64,7 @@ impl CommandProcessor for CommandProcessorReal {
         self.context.close();
     }
 
-    fn terminal_wrapper_reference(&self) -> &TerminalWrapper {
+    fn terminal_wrapper_ref(&self) -> &TerminalWrapper {
         &self.context.terminal_interface
     }
 }
