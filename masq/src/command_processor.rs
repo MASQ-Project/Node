@@ -11,7 +11,7 @@ use clap::value_t;
 pub trait CommandProcessorFactory {
     fn make(
         &self,
-        terminal_interface: TerminalWrapper,
+        terminal_interface: Option<TerminalWrapper>,
         generic_broadcast_handle: Box<dyn BroadcastHandle>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
@@ -23,7 +23,7 @@ pub struct CommandProcessorFactoryReal {}
 impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
-        terminal_interface: TerminalWrapper,
+        terminal_interface: Option<TerminalWrapper>,
         generic_broadcast_handle: Box<dyn BroadcastHandle>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
@@ -55,9 +55,12 @@ pub struct CommandProcessorReal {
 
 impl CommandProcessor for CommandProcessorReal {
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
-        let synchronizer = self.context.terminal_interface.clone();
-        let _lock = synchronizer.lock();
-        command.execute(&mut self.context)
+        if let Some(synchronizer) = self.context.terminal_interface.clone() {
+            let _lock = synchronizer.lock();
+            command.execute(&mut self.context)
+        } else {
+            command.execute(&mut self.context)
+        }
     }
 
     fn close(&mut self) {
@@ -65,7 +68,11 @@ impl CommandProcessor for CommandProcessorReal {
     }
 
     fn terminal_wrapper_ref(&self) -> &TerminalWrapper {
-        &self.context.terminal_interface
+        &self
+            .context
+            .terminal_interface
+            .as_ref()
+            .expect("Some(TerminalWrapper) expected")
     }
 }
 
@@ -76,7 +83,7 @@ mod tests {
     use crate::communications::broadcast_handler::{
         BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
     };
-    use crate::test_utils::mocks::{TerminalPassiveMock, TestStreamFactory};
+    use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::Sender;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -106,10 +113,9 @@ mod tests {
             format!("{}", port),
         ];
         let subject = CommandProcessorFactoryReal::new();
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
         let broadcast_handle = BroadcastHandleInactive::new();
 
-        let result = subject.make(terminal_interface, Box::new(broadcast_handle), &args);
+        let result = subject.make(None, Box::new(broadcast_handle), &args);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -128,14 +134,13 @@ mod tests {
             "--ui-port".to_string(),
             format!("{}", port),
         ];
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
         let broadcast_handle = BroadcastHandleInactive::new();
         let subject = CommandProcessorFactoryReal::new();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
 
         let mut result = subject
-            .make(terminal_interface, Box::new(broadcast_handle), &args)
+            .make(None, Box::new(broadcast_handle), &args)
             .unwrap();
 
         let command = TestCommand {};
@@ -218,7 +223,7 @@ mod tests {
         let processor_factory = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
         let mut processor = processor_factory
-            .make(terminal_interface, generic_broadcast_handle, &args)
+            .make(Some(terminal_interface), generic_broadcast_handle, &args)
             .unwrap();
 
         processor

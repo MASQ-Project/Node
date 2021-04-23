@@ -23,6 +23,14 @@ pub struct TerminalWrapper {
     interface: Arc<Box<dyn MasqTerminal + Send + Sync>>,
 }
 
+impl Clone for TerminalWrapper {
+    fn clone(&self) -> Self {
+        Self {
+            interface: Arc::clone(&self.interface),
+        }
+    }
+}
+
 impl TerminalWrapper {
     pub fn new(interface: Box<dyn MasqTerminal + Send + Sync>) -> Self {
         Self {
@@ -33,13 +41,10 @@ impl TerminalWrapper {
     pub fn lock(&self) -> Box<dyn WriterLock + '_> {
         self.interface.provide_lock()
     }
-
     pub fn read_line(&self) -> TerminalEvent {
         self.interface.read_line()
     }
 
-    //tested only for a negative result (an integration test)
-    //we have no positive automatic test aimed on this
     #[cfg(not(test))]
     pub fn configure_interface() -> Result<Self, String> {
         if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
@@ -48,6 +53,7 @@ impl TerminalWrapper {
                 IntegrationTestTerminal::default(),
             )))
         } else {
+            //we have no positive automatic test aimed on this (only negative, an integration test)
             Self::configure_interface_generic(Box::new(DefaultTerminal::new))
         }
     }
@@ -61,6 +67,9 @@ impl TerminalWrapper {
             interface_configurator(Box::new(Interface::with_term), terminal_creator_by_type)?;
         Ok(Self::new(Box::new(interface)))
     }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    //test only
 
     #[cfg(test)]
     pub fn configure_interface() -> Result<Self, String> {
@@ -78,17 +87,9 @@ impl TerminalWrapper {
 fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
     Ok(MemoryTerminal::new())
 }
-
-impl Clone for TerminalWrapper {
-    fn clone(&self) -> Self {
-        Self {
-            interface: Arc::clone(&self.interface),
-        }
-    }
-}
-
-//This construction, including functions with closures above that are strongly affected by the way how interface_configurator()
-//is written, has to be so complicated because there are tough obstacles to write simple tests here.
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//This construction, including those functions with closures above that are strongly affected by the way how interface_configurator()
+//is written, is so complicated because there are tough obstacles to write simple tests here.
 //interface_configurator() substitutes something that may otherwise look, in the production code, simplified, like:
 //let terminal = match DefaultTerminal::new() {*something*};
 //let interface = match Interface::start_with("masq",terminal){*something*};
@@ -163,24 +164,7 @@ pub trait MasqTerminal {
         intentionally_blank!()
     }
 }
-
 //you may be looking for the declaration of TerminalReal which is in another file
-
-#[derive(Default)]
-pub struct TerminalNonInteractive {}
-
-impl MasqTerminal for TerminalNonInteractive {
-    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
-        Box::new(WriterInactive {})
-    }
-    fn read_line(&self) -> TerminalEvent {
-        panic!("should never be called; since never come in to the body of go_interactive()")
-    }
-    #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
-        "TerminalNonInteractive".to_string()
-    }
-}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //Writer in the context of a passive mock has no functionality but still must be provided because such an object is required by
@@ -445,20 +429,5 @@ mod tests {
         _terminal: impl linefeed::Terminal + 'static,
     ) -> std::io::Result<impl InterfaceRaw + Send + Sync + 'static> {
         Ok(InterfaceRawMock::new().set_prompt_result(Err(Error::from_raw_os_error(10))))
-    }
-
-    #[test]
-    fn terminal_wrapper_armed_with_terminal_inactive_produces_writer_inactive() {
-        let subject = TerminalWrapper::new(Box::new(TerminalNonInteractive::default()));
-
-        let lock = subject.lock();
-
-        assert_eq!(lock.tell_me_who_you_are(), "WriterInactive")
-    }
-
-    #[test]
-    #[should_panic = "should never be called; since never come in to the body of go_interactive()"]
-    fn terminal_non_interactive_triggers_clear_panic_if_read_line_called_on_it() {
-        TerminalNonInteractive::default().read_line();
     }
 }

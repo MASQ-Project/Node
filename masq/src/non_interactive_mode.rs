@@ -10,7 +10,7 @@ use crate::communications::broadcast_handler::{
     StreamFactory, StreamFactoryReal,
 };
 use crate::interactive_mode::go_interactive;
-use crate::terminal_interface::{TerminalNonInteractive, TerminalWrapper};
+use crate::terminal_interface::TerminalWrapper;
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
@@ -49,23 +49,24 @@ impl Main {
         None
     }
 
-    fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, TerminalWrapper) {
-        (
-            Box::new(BroadcastHandleInactive::new()),
-            TerminalWrapper::new(Box::new(TerminalNonInteractive::default())),
-        )
+    fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, Option<TerminalWrapper>)
+    {
+        (Box::new(BroadcastHandleInactive::new()), None)
     }
 
     fn populate_interactive_dependencies(
         stream_factory: impl StreamFactory + 'static,
-    ) -> Result<(Box<dyn BroadcastHandle>, TerminalWrapper), String> {
+    ) -> Result<(Box<dyn BroadcastHandle>, Option<TerminalWrapper>), String> {
         let foreground_terminal_interface = TerminalWrapper::configure_interface()?;
         let background_terminal_interface = foreground_terminal_interface.clone();
         let generic_broadcast_handler =
             BroadcastHandlerReal::new(Some(background_terminal_interface));
         let generic_broadcast_handle = generic_broadcast_handler.start(Box::new(stream_factory));
 
-        Ok((generic_broadcast_handle, foreground_terminal_interface))
+        Ok((
+            generic_broadcast_handle,
+            Some(foreground_terminal_interface),
+        ))
     }
 
     #[cfg(test)]
@@ -219,10 +220,11 @@ mod tests {
                 "param5".to_string()
             ],]
         );
-        let p_make_params = p_make_params_arc.lock().unwrap();
+        let mut p_make_params = p_make_params_arc.lock().unwrap();
+        let (terminal_interface, broadcast_handle, args_from_params) = p_make_params.pop().unwrap();
         assert_eq!(
-            *p_make_params,
-            vec![vec![
+            args_from_params,
+            vec![
                 "command".to_string(),
                 "--param1".to_string(),
                 "value1".to_string(),
@@ -233,8 +235,14 @@ mod tests {
                 "value3".to_string(),
                 "param4".to_string(),
                 "param5".to_string(),
-            ]]
+            ]
         );
+        assert!(terminal_interface.is_none());
+        assert!(broadcast_handle
+            .as_any()
+            .downcast_ref::<BroadcastHandleInactive>()
+            .is_some());
+
         let mut process_params = process_params_arc.lock().unwrap();
         let command = process_params.remove(0);
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
@@ -382,7 +390,7 @@ mod tests {
         let (broadcast_handle, terminal_interface) =
             Main::populate_interactive_dependencies(test_stream_factory).unwrap();
         {
-            let _lock = terminal_interface.lock();
+            let _lock = terminal_interface.as_ref().unwrap().lock();
 
             broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
             let output = test_stream_handle.stdout_so_far();

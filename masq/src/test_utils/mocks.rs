@@ -221,18 +221,30 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandProcessorFactoryMock {
-    make_params: Arc<Mutex<Vec<Vec<String>>>>,
+    make_params: Arc<
+        Mutex<
+            Vec<(
+                Option<TerminalWrapper>,
+                Box<dyn BroadcastHandle>,
+                Vec<String>,
+            )>,
+        >,
+    >,
     make_results: RefCell<Vec<Result<Box<dyn CommandProcessor>, CommandError>>>,
 }
 
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
-        _terminal_interface: TerminalWrapper,
-        _generic_broadcast_handle: Box<dyn BroadcastHandle>,
+        terminal_interface: Option<TerminalWrapper>,
+        generic_broadcast_handle: Box<dyn BroadcastHandle>,
         args: &[String],
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        self.make_params.lock().unwrap().push(args.to_vec());
+        self.make_params.lock().unwrap().push((
+            terminal_interface,
+            generic_broadcast_handle,
+            args.to_vec(),
+        ));
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -242,7 +254,18 @@ impl CommandProcessorFactoryMock {
         Self::default()
     }
 
-    pub fn make_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+    pub fn make_params(
+        mut self,
+        params: &Arc<
+            Mutex<
+                Vec<(
+                    Option<TerminalWrapper>,
+                    Box<dyn BroadcastHandle>,
+                    Vec<String>,
+                )>,
+            >,
+        >,
+    ) -> Self {
         self.make_params = params.clone();
         self
     }
