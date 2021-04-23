@@ -19,6 +19,7 @@ use crossbeam_channel::{Sender, unbounded, Receiver};
 use std::sync::{Mutex, Arc};
 use std::{io, thread};
 use std::cell::RefCell;
+use std::ops::Deref;
 
 const ROUTER_PORT: u16 = 5351;
 const CHANGE_HANDLER_PORT: u16 = 5350;
@@ -132,7 +133,7 @@ impl Transactor for PcpTransactor {
         if let Some (_change_handler_stopper) = &self.change_handler_stopper {
             todo! ("Stop previous change handler or throw error")
         }
-        let change_handler_config = match &self.change_handler_config.borrow() {
+        let change_handler_config = match self.change_handler_config.borrow().deref() {
             None => todo! (),
             Some (chc) => chc.clone(),
         };
@@ -380,6 +381,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use masq_lib::utils::{find_free_port, localhost};
+    use std::ops::Deref;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -782,7 +784,7 @@ mod tests {
         let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 1234);
 
         assert_eq!(result, Ok(617));
-        if let Some (chc) = &subject.change_handler_config.borrow() {
+        if let Some (chc) = subject.change_handler_config.borrow().deref() {
             assert_eq! (chc.hole_port, 6666);
             assert_eq! (chc.lifetime, 1234);
         }
@@ -953,6 +955,10 @@ mod tests {
         let mut subject = PcpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
+        subject.change_handler_config = RefCell::new (Some (ChangeHandlerConfig {
+            hole_port: 1234,
+            lifetime: 600
+        }));
         let changes_arc = Arc::new (Mutex::new (vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
