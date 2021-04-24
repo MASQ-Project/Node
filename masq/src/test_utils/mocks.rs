@@ -25,6 +25,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
 
+pub const MASQ_TESTS_RUN_IN_TERMINAL_KEY: &str = "MASQ_TESTS_RUN_IN_TERMINAL";
+
 #[derive(Default)]
 pub struct CommandFactoryMock {
     make_params: Arc<Mutex<Vec<Vec<String>>>>,

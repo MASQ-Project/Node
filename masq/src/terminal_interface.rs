@@ -236,7 +236,9 @@ impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender, TerminalActiveMock};
+    use crate::test_utils::mocks::{
+        InterfaceRawMock, StdoutBlender, TerminalActiveMock, MASQ_TESTS_RUN_IN_TERMINAL_KEY,
+    };
     use crossbeam_channel::unbounded;
     use linefeed::DefaultTerminal;
     use std::io::{Error, Write};
@@ -345,26 +347,33 @@ mod tests {
 
     #[test]
     fn configure_interface_complains_that_there_is_no_real_terminal() {
-        let subject = interface_configurator(
-            Box::new(Interface::with_term),
-            Box::new(DefaultTerminal::new),
-        );
+        let pre_check = std::env::var(MASQ_TESTS_RUN_IN_TERMINAL_KEY);
+        if pre_check.is_ok() && pre_check.unwrap() == "true" {
+            eprintln!(
+                r#"test "configure_interface_complains_that_there_is_no_real_terminal" was skipped because was about to be run in a terminal"#
+            )
+        } else {
+            let subject = interface_configurator(
+                Box::new(Interface::with_term),
+                Box::new(DefaultTerminal::new),
+            );
 
-        let result = match subject {
-            Ok(_) => panic!("should have been an error, got OK"),
-            Err(e) => e,
-        };
+            let result = match subject {
+                Ok(_) => panic!("should have been an error, got OK"),
+                Err(e) => e,
+            };
 
-        #[cfg(target_os = "windows")]
-        assert!(result.contains("Local terminal:"), "{}", result);
-        #[cfg(not(windows))]
-        assert!(
-            result.contains("Preparing terminal interface: "),
-            "{}",
-            result
-        );
-        //Windows: The handle is invalid. (os error 6)
-        //Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
+            #[cfg(target_os = "windows")]
+            assert!(result.contains("Local terminal:"), "{}", result);
+            #[cfg(not(windows))]
+            assert!(
+                result.contains("Preparing terminal interface: "),
+                "{}",
+                result
+            );
+            //Windows: The handle is invalid. (os error 6)
+            //Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
+        }
     }
 
     #[test]

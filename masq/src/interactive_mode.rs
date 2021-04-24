@@ -60,6 +60,7 @@ fn clap_answers_descriptive_commands(
             app()
                 .write_help(&mut stdout)
                 .expect("masq help set incorrectly");
+            short_writeln!(stdout, "");
             true
         }
         "version" => {
@@ -67,9 +68,10 @@ fn clap_answers_descriptive_commands(
             app()
                 .write_version(&mut stdout)
                 .expect("information of masq version set incorrectly");
+            short_writeln!(stdout, "");
             true
         }
-        _ => return false,
+        _ => false,
     }
 }
 
@@ -92,7 +94,8 @@ fn pass_on_args_or_write_messages(
         }
         TerminalEventError(e) => {
             short_writeln!(streams.stderr, "{}", e);
-            TerminalEventError(String::new()) //we'll discard this String immediately
+            //we're gonna discard this empty String immediately
+            TerminalEventError(String::new())
         }
     }
 }

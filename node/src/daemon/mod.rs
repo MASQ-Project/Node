@@ -442,10 +442,9 @@ mod tests {
     };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Required, Set};
     use masq_lib::messages::{
-        CrashReason, UiConfigurationRequest, UiFinancialsRequest, UiNodeCrashedBroadcast,
-        UiRedirect, UiSetupBroadcast, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
-        UiSetupResponseValue, UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder,
-        UiStartResponse,
+        CrashReason, UiFinancialsRequest, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
+        UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue,
+        UiSetupResponseValueStatus, UiShutdownRequest, UiStartOrder, UiStartResponse,
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -1416,6 +1415,21 @@ mod tests {
     }
 
     #[test]
+    fn remembers_unexpected_node_crash() {
+        let verifier_tools = VerifierToolsMock::new().process_is_running_result(false);
+        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
+        subject.node_ui_port = Some(7777);
+        subject.node_process_id = Some(8888);
+        subject.verifier_tools = Box::new(verifier_tools);
+
+        let result = subject.port_if_node_is_running();
+
+        assert_eq!(result, None);
+        assert_eq!(subject.node_ui_port, None);
+        assert_eq!(subject.node_process_id, None)
+    }
+
+    #[test]
     fn accepts_unexpected_message_discovers_non_running_node_and_returns_conversational_answer_of_error(
     ) {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -1430,10 +1444,6 @@ mod tests {
             .try_send(make_bind_message(ui_gateway))
             .unwrap();
         let shutdown_body: MessageBody = UiShutdownRequest {}.tmb(4321);
-        let configuration_body: MessageBody = UiConfigurationRequest {
-            db_password_opt: None,
-        }
-        .tmb(3333);
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -1441,38 +1451,20 @@ mod tests {
                 body: shutdown_body.clone(),
             })
             .unwrap();
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: configuration_body.clone(),
-            })
-            .unwrap();
 
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let first_record = ui_gateway_recording
+        let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
             .clone();
-        assert_eq!(first_record.target, ClientId(1234));
-        assert_eq!(first_record.body.path, Conversation(4321));
+        assert_eq!(record.target, ClientId(1234));
+        assert_eq!(record.body.path, Conversation(4321));
         assert_eq!(
-            first_record.body.payload,
+            record.body.payload,
             Err((
                 NODE_NOT_RUNNING_ERROR,
                 "Cannot handle shutdown request: Node is not running".to_string()
-            ))
-        );
-        let second_record = ui_gateway_recording
-            .get_record::<NodeToUiMessage>(1)
-            .clone();
-        assert_eq!(second_record.target, ClientId(1234));
-        assert_eq!(second_record.body.path, Conversation(3333));
-        assert_eq!(
-            second_record.body.payload,
-            Err((
-                NODE_NOT_RUNNING_ERROR,
-                "Cannot handle configuration request: Node is not running".to_string()
             ))
         );
     }
@@ -1650,22 +1642,5 @@ mod tests {
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
-    }
-
-    #[test]
-    #[should_panic(expected = "Incoming message from UI with a payload signaling an error")]
-    fn handle_unexpected_message_panics_if_receiving_payload_from_ui_being_an_error() {
-        let verifier_tools = VerifierToolsMock::new().process_is_running_result(true);
-        let mut subject = Daemon::new(Box::new(LauncherMock::new()));
-        subject.verifier_tools = Box::new(verifier_tools);
-        subject.node_process_id = Some(1212);
-        subject.node_ui_port = Some(3333);
-        let body = MessageBody {
-            opcode: "blah".to_string(),
-            path: MessagePath::Conversation(232),
-            payload: Err((1111, "right after the start and already baaaad".to_string())),
-        };
-
-        let _ = subject.handle_unexpected_message(1111, body);
     }
 }
