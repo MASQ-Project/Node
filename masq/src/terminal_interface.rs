@@ -362,17 +362,15 @@ mod tests {
                 Ok(_) => panic!("should have been an error, got OK"),
                 Err(e) => e,
             };
-
-            #[cfg(target_os = "windows")]
-            assert!(result.contains("Local terminal:"), "{}", result);
-            #[cfg(not(windows))]
             assert!(
-                result.contains("Preparing terminal interface: "),
+                result.contains("Preparing terminal interface: ")
+                    || result.contains("Local terminal"),
                 "{}",
                 result
             );
             //Windows: The handle is invalid. (os error 6)
             //Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
+            //Actions Linux: terminfo entry not found
         }
     }
 
