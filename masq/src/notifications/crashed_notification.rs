@@ -12,7 +12,7 @@ impl CrashNotifier {
     pub fn handle_broadcast(
         response: UiNodeCrashedBroadcast,
         stdout: &mut dyn Write,
-        term_interface: TerminalWrapper,
+        term_interface: &TerminalWrapper,
     ) {
         if response.crash_reason == CrashReason::DaemonCrashed {
             exit_process(1, "The Daemon is no longer running; masq is terminating.\n");
@@ -67,7 +67,7 @@ mod tests {
         };
         let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
         assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
@@ -84,7 +84,7 @@ mod tests {
         };
         let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
         assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
@@ -101,7 +101,7 @@ mod tests {
         };
         let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
         assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
@@ -118,6 +118,6 @@ mod tests {
         };
         let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout, term_interface);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
     }
 }

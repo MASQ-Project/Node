@@ -19,7 +19,7 @@ fn setup_results_are_broadcast_to_all_uis_integration() {
     let mut stdin_handle_setupper = setupper_handle.create_stdin_handle();
     let mut stdin_handle_receiver = receiver_handle.create_stdin_handle();
 
-    //TODO This first "setup" call shouldn't be necessary. Will be investigated within GH-438
+    //TODO This first "setup" call shouldn't be necessary. We want only one call here. Will be investigated within GH-438
     stdin_handle_setupper.type_command("setup --dns-servers 4.5.6.5");
 
     thread::sleep(Duration::from_millis(300));
@@ -44,7 +44,10 @@ fn setup_results_are_broadcast_to_all_uis_integration() {
          stdout_setupper
     );
 
-    //TODO the following lines are here to cause a failure once GH-438 fixes what it should fix; Please, remove them then
+    //TODO the following lines are here to drag attention of somebody.
+    // They'll cause an alarm if somebody fixed the bug described in GH-438 without knowing about this test.
+    // Remove them in that case.
+    // This is associated with the TO-DO above.
     let full_output_length = stdout_receiver.len();
     let wanted_line_length = "Daemon setup has changed".len();
     let stdout_receiver_without_the_message =

@@ -6,17 +6,22 @@ use crate::communications::handle_node_not_running_for_fire_and_forget_on_the_wa
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
+use masq_lib::intentionally_blank;
 use masq_lib::messages::{
     FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
     UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
+use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
+    fn as_any(&self) -> &dyn Any {
+        intentionally_blank!()
+    }
 }
 
 pub struct BroadcastHandleInactive {}
@@ -24,6 +29,9 @@ pub struct BroadcastHandleInactive {}
 impl BroadcastHandle for BroadcastHandleInactive {
     //simply dropped (unless we find a better use for such a message)
     fn send(&self, _message_body: MessageBody) {}
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[allow(clippy::new_without_default)]
@@ -69,7 +77,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
                     message_rx.recv(),
                     stdout.as_mut(),
                     stderr.as_mut(),
-                    terminal_interface.clone(),
+                    &terminal_interface,
                 );
             }
         });
@@ -86,7 +94,7 @@ impl BroadcastHandlerReal {
         message_body_result: Result<MessageBody, RecvError>,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
-        terminal_interface: TerminalWrapper,
+        terminal_interface: &TerminalWrapper,
     ) -> bool {
         match message_body_result {
             Err(_) => false, // Receiver died; masq is going down
@@ -443,7 +451,7 @@ Cannot handle crash request: Node is not running.
         broadcast_message_body: U,
         broadcast_desired_output: &str,
     ) where
-        F: FnOnce(U, &mut dyn Write, TerminalWrapper) + Copy,
+        F: FnOnce(U, &mut dyn Write, &TerminalWrapper) + Copy,
         U: Debug + PartialEq + Clone,
     {
         let (tx, rx) = unbounded();
@@ -521,7 +529,7 @@ Cannot handle crash request: Node is not running.
         mixed_stdout_receiver: Receiver<String>,
     ) -> String
     where
-        F: FnOnce(U, &mut dyn Write, TerminalWrapper) + Copy,
+        F: FnOnce(U, &mut dyn Write, &TerminalWrapper) + Copy,
         U: Debug + PartialEq + Clone,
     {
         let synchronizer_clone = synchronizer.clone();
@@ -542,7 +550,7 @@ Cannot handle crash request: Node is not running.
             drop(_lock)
         });
         sync_rx.recv().unwrap();
-        broadcast_handler(broadcast_message_body.clone(), stdout, synchronizer_clone);
+        broadcast_handler(broadcast_message_body.clone(), stdout, &synchronizer_clone);
 
         interference_thread_handle.join().unwrap();
 

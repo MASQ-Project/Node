@@ -14,6 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 #[test]
+#[ignore]
 #[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the
                            // MASQNode will be immediately reclaimed.
 fn tls_through_node_integration() {
