@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn configure_interface_complains_that_there_is_no_real_terminal() {
+    fn configure_interface_complains_that_there_is_no_real_terminal_if_tested_without_a_terminal() {
         let pre_check = std::env::var(MASQ_TESTS_RUN_IN_TERMINAL_KEY);
         if pre_check.is_ok() && pre_check.unwrap() == "true" {
             eprintln!(

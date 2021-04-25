@@ -6,7 +6,7 @@ use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use lazy_static::lazy_static;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -194,15 +194,17 @@ impl MockWebSocketsServer {
                                     index,
                                     "Responding to a request for FireAndForget message in direction to UI",
                                 );
-                                inner_responses_arc
-                                    .lock()
-                                    .unwrap()
-                                    .clone()
-                                    .into_iter()
-                                    .for_each(|message| {
-                                        client.send_message(&message).unwrap();
-                                        thread::sleep(Duration::from_millis(2))
-                                    })
+                                let (ordinal_number, sender) =
+                                    SENDER_SHARE_POINT.lock().unwrap().take().unwrap();
+                                let quequed_messages = inner_responses_arc.lock().unwrap().clone();
+                                let messages_count = quequed_messages.len();
+                                (0..messages_count).for_each(|i| {
+                                    if ordinal_number == i {
+                                        sender.send(()).unwrap()
+                                    }
+                                    client.send_message(&quequed_messages[i]).unwrap();
+                                    thread::sleep(Duration::from_millis(1))
+                                })
                             }
                             MessagePath::FireAndForget => {
                                 log(
@@ -299,6 +301,29 @@ impl MockWebSocketsServerStopHandle {
 fn log(log: bool, index: u64, msg: &str) {
     if log {
         eprintln!("MockWebSocketsServer {}: {}", index, msg);
+    }
+}
+
+lazy_static! {
+    pub static ref SINGLE_TEST_A_TIME_LOCK: Mutex<()> = Mutex::new(());
+}
+
+lazy_static! {
+    pub static ref SENDER_SHARE_POINT: Mutex<Option<(usize, Sender<()>)>> = Mutex::new(None);
+}
+
+#[allow(dead_code)]
+pub struct BroadcatTriggerSignaLerSafe {
+    single_test_lock_holder: MutexGuard<'static, ()>,
+}
+
+impl BroadcatTriggerSignaLerSafe {
+    pub fn fill_mutex_and_obtain_a_lock(signal_position: usize, sender: Sender<()>) -> Self {
+        let guard = Self {
+            single_test_lock_holder: SINGLE_TEST_A_TIME_LOCK.lock().unwrap(),
+        };
+        *SENDER_SHARE_POINT.lock().unwrap() = Some((signal_position, sender));
+        guard
     }
 }
 

@@ -1526,7 +1526,7 @@ version = "1.0.0"
 dependencies = [
  "actix",
  "clap",
- "crossbeam-channel 0.4.4",
+ "crossbeam-channel 0.5.0",
  "itertools",
  "lazy_static",
  "regex",

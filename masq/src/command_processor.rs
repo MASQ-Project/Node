@@ -84,10 +84,12 @@ mod tests {
         BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
     };
     use crate::test_utils::mocks::TestStreamFactory;
-    use crossbeam_channel::Sender;
+    use crossbeam_channel::{bounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
-    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
+    use masq_lib::test_utils::mock_websockets_server::{
+        BroadcatTriggerSignaLerSafe, MockWebSocketsServer,
+    };
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
     use std::time::Duration;
@@ -202,34 +204,36 @@ mod tests {
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
+            .queue_response(broadcast.clone())
             .queue_response(broadcast);
-
         let (broadcast_stream_factory, broadcast_stream_factory_handle) = TestStreamFactory::new();
         let (cloned_stdout_sender, _) = broadcast_stream_factory.clone_senders();
-
         let args = [
             "masq".to_string(),
             "--ui-port".to_string(),
             format!("{}", port),
         ];
-
         let terminal_interface = TerminalWrapper::configure_interface().unwrap();
         let background_terminal_interface = terminal_interface.clone();
         let generic_broadcast_handler =
             BroadcastHandlerReal::new(Some(background_terminal_interface));
         let generic_broadcast_handle =
             generic_broadcast_handler.start(Box::new(broadcast_stream_factory));
-
         let processor_factory = CommandProcessorFactoryReal::new();
+        let (tx, rx) = bounded(1);
+        //will be dropped at the end of this test and let a concurrent test progress...
+        //potentially, if we have two tests of this kind, each will give us relevant results
+        let _broadcast_trigger_single_test_lock =
+            BroadcatTriggerSignaLerSafe::fill_mutex_and_obtain_a_lock(1, tx);
         let stop_handle = server.start();
+
         let mut processor = processor_factory
             .make(Some(terminal_interface), generic_broadcast_handle, &args)
             .unwrap();
-
         processor
             .process(Box::new(ToUiBroadcastTrigger {}))
             .unwrap();
-        thread::sleep(Duration::from_millis(60));
+        rx.recv().unwrap();
         processor
             .process(Box::new(TameCommand {
                 sender: cloned_stdout_sender,
@@ -238,14 +242,12 @@ mod tests {
 
         let tamed_message_as_a_whole = "This is a message which must be delivered as one piece; we'll do all \
              possible for that. If only we have enough strength and spirit and determination and support and... snacks. Roger.";
-
         let received_output = broadcast_stream_factory_handle.stdout_so_far();
         assert!(
             received_output.contains(tamed_message_as_a_whole),
             "Message wasn't printed uninterrupted: {}",
             received_output
         );
-        assert!(!received_output.starts_with("This is a message which"));
         let tamed_output_with_broadcasts_filtered_out =
             received_output.replace(tamed_message_as_a_whole, "");
         let number_of_broadcast_received = tamed_output_with_broadcasts_filtered_out
@@ -255,8 +257,7 @@ mod tests {
                 line.contains("Cannot handle whateverTheOpcodeHereIs request: Node is not running")
             })
             .count();
-        assert_eq!(number_of_broadcast_received, 4);
-
+        assert_eq!(number_of_broadcast_received, 5);
         stop_handle.stop();
     }
 }
