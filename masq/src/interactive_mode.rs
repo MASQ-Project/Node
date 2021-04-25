@@ -361,7 +361,7 @@ mod tests {
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(30));
         });
         rx.recv().unwrap();
         let now = Instant::now();
@@ -370,16 +370,26 @@ mod tests {
         handle.join().unwrap();
         assert!(stdout.get_string().contains("masq 1"));
         assert!(
-            time_period > Duration::from_millis(10),
+            time_period > Duration::from_millis(30),
             "different time period than expected: {:?}",
             time_period
         );
-        assert!(
-            time_period < Duration::from_millis(13),
-            "validity check: {:?}",
-            time_period
-        ); //that time period mustn't be excessively long
         assert_eq!(result, true);
+
+        let mut stdout = ByteArrayWriter::new();
+
+        let now = Instant::now();
+        let _ = clap_answers_descriptive_commands("help", &mut stdout, &terminal_interface);
+        let time_period = now.elapsed();
+
+        assert!(
+            time_period < Duration::from_millis(5),
+            "longer time period than expected; should've been 5 ms max: {:?}",
+            time_period
+        );
+        assert!(stdout
+            .get_string()
+            .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
     }
 
     #[test]
@@ -391,7 +401,7 @@ mod tests {
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(30));
         });
         rx.recv().unwrap();
         let now = Instant::now();
@@ -402,15 +412,27 @@ mod tests {
             .get_string()
             .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
         assert!(
-            time_period > Duration::from_millis(10),
+            time_period > Duration::from_millis(30),
             "different time period than expected: {:?}",
             time_period
         );
-        assert!(
-            time_period < Duration::from_millis(13),
-            "validity check: {:?}",
-            time_period
-        ); //that time period mustn't be excessively long
         assert_eq!(result, true);
+
+        //a negative-positivity check
+
+        let mut stdout = ByteArrayWriter::new();
+
+        let now = Instant::now();
+        let _ = clap_answers_descriptive_commands("help", &mut stdout, &terminal_interface);
+        let time_period = now.elapsed();
+
+        assert!(
+            time_period < Duration::from_millis(5),
+            "longer time period than expected: should've been 5 ms max {:?}",
+            time_period
+        );
+        assert!(stdout
+            .get_string()
+            .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
     }
 }

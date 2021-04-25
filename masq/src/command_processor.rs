@@ -229,7 +229,7 @@ mod tests {
         processor
             .process(Box::new(ToUiBroadcastTrigger {}))
             .unwrap();
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(60));
         processor
             .process(Box::new(TameCommand {
                 sender: cloned_stdout_sender,
@@ -240,12 +240,12 @@ mod tests {
              possible for that. If only we have enough strength and spirit and determination and support and... snacks. Roger.";
 
         let received_output = broadcast_stream_factory_handle.stdout_so_far();
-        assert!(!received_output.starts_with("This is a message which"));
         assert!(
             received_output.contains(tamed_message_as_a_whole),
             "Message wasn't printed uninterrupted: {}",
             received_output
         );
+        assert!(!received_output.starts_with("This is a message which"));
         let tamed_output_with_broadcasts_filtered_out =
             received_output.replace(tamed_message_as_a_whole, "");
         let number_of_broadcast_received = tamed_output_with_broadcasts_filtered_out
