@@ -236,6 +236,7 @@ impl PcpTransactor {
         socket
             .set_read_timeout(Some(Duration::from_secs(3)))
             .expect("set_read_timeout failed");
+eprintln! ("Sending mapping request to {}:{}", router_ip, router_port);
         match socket.send_to(&buffer[0..request_len], SocketAddr::new(router_ip, router_port)) {
             Ok(_) => (),
             Err(e) => {
@@ -311,25 +312,30 @@ impl PcpTransactor {
         change_handler_config: ChangeHandlerConfig,
     ) {
         let change_handler_lifetime = change_handler_config.lifetime;
+        let mut buffer = [0u8; 100];
         loop {
-            let mut buffer = [0u8; 100];
+eprintln! ("Change handler listening for Announce");
             socket.set_read_timeout(Some(Duration::from_millis(250))).expect("Can't set read timeout");
             match socket.recv_from(&mut buffer) {
-                Ok((len, socket_addr)) => match PcpPacket::try_from(&buffer[0..len]) {
-                    Ok(packet) => if packet.opcode == Opcode::Announce {
-                        Self::handle_announcement(
-                            factories_arc.clone(),
-                            socket_addr.ip(),
-                            router_port,
-                            change_handler_config.hole_port,
-                            change_handler,
-                            change_handler_lifetime,
-                        );
-                    },
-                    Err(_) => todo!("Log here"),
+                Ok((len, socket_addr)) => {
+eprintln! ("Change handler received something");
+                    match PcpPacket::try_from(&buffer[0..len]) {
+                        Ok(packet) => if packet.opcode == Opcode::Announce {
+                            eprintln! ("It was an Announce!");
+                            Self::handle_announcement(
+                                factories_arc.clone(),
+                                socket_addr.ip(),
+                                router_port,
+                                change_handler_config.hole_port,
+                                change_handler,
+                                change_handler_lifetime,
+                            );
+                        },
+                        Err(_) => todo!("Log here"),
+                    }
                 },
                 Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
-                Err(e) => todo!("Log here"),
+                Err(_) => todo!("Log here"),
             }
             match rx.try_recv() {
                 Ok(_) => break,
@@ -346,13 +352,16 @@ impl PcpTransactor {
         change_handler: &ChangeHandler,
         change_handler_lifetime: u32,
     ) {
-        match Self::mapping_transaction(
+eprintln! ("Change handler handling Announce");
+        let result = Self::mapping_transaction(
             &factories_arc,
             router_ip,
             router_port,
             hole_port,
             change_handler_lifetime,
-        ) {
+        );
+eprintln! ("Result of remapping after Announce: {:?}", result);
+        match result {
             Ok ((_, _, opcode_data)) => change_handler(AutomapChange::NewIp(opcode_data.external_ip_address)),
             Err (e) => {
                 eprintln! ("Error retrieving new information: {:?}", e);
@@ -968,18 +977,21 @@ mod tests {
         subject.start_change_handler(Box::new (change_handler)).unwrap();
 
         assert!(subject.change_handler_stopper.is_some());
+        let change_handler_ip = IpAddr::from_str ("224.0.0.1").unwrap();
         let socket = UdpSocket::bind (SocketAddr::new (localhost(), router_port)).unwrap();
         socket.set_read_timeout (Some (Duration::from_millis(1000))).unwrap();
         socket.set_broadcast(true).unwrap();
-        socket.connect (SocketAddr::new (IpAddr::from_str ("224.0.0.1").unwrap(), change_handler_port)).unwrap();
+        socket.connect (SocketAddr::new (change_handler_ip, change_handler_port)).unwrap();
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Announce;
         packet.lifetime = 0;
         packet.epoch_time_opt = Some (0);
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal (&mut buffer).unwrap();
+eprintln! ("Test is sending Announce");
         let sent_len = socket.send (&buffer[0..len_to_send]).unwrap();
         assert_eq! (sent_len, len_to_send);
+eprintln! ("Test is listening for mapping request on {}:{}", change_handler_ip, change_handler_port);
         let recv_len = socket.recv (&mut buffer).unwrap();
         let packet = PcpPacket::try_from (&buffer[0..recv_len]).unwrap();
         assert_eq! (packet.opcode, Opcode::Map);

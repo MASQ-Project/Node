@@ -16,7 +16,7 @@ pub enum AutomapChange {
 
 unsafe impl Send for AutomapChange {}
 
-pub type ChangeHandler = Box<dyn Fn (AutomapChange) -> () + Send>;
+pub type ChangeHandler = Box<dyn Fn (AutomapChange) + Send>;
 
 pub trait AutomapControl {
     fn establish_mapping (
@@ -340,7 +340,7 @@ mod tests {
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]);
-        let mut set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
+        let set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
         set_change_handler_params[0] (AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         assert_eq! (*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
     }
@@ -369,7 +369,7 @@ mod tests {
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]);
-        let mut set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
+        let set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
         set_change_handler_params[0] (AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         assert_eq! (*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
     }
@@ -398,7 +398,7 @@ mod tests {
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]);
-        let mut set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
+        let set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
         set_change_handler_params[0] (AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         assert_eq! (*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
     }
@@ -460,7 +460,7 @@ mod tests {
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]);
-        let mut set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
+        let set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
         set_change_handler_params[0] (AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         assert_eq! (*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
     }
@@ -489,7 +489,7 @@ mod tests {
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]);
-        let mut set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
+        let set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
         set_change_handler_params[0] (AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         assert_eq! (*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
     }
@@ -523,7 +523,7 @@ mod tests {
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]);
-        let mut set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
+        let set_change_handler_params = set_change_handler_params_arc.lock().unwrap();
         set_change_handler_params[0] (AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         assert_eq! (*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
     }
