@@ -170,7 +170,10 @@ impl Transactor for PcpTransactor {
     }
 
     fn stop_change_handler(&mut self) {
-        todo!()
+        match self.change_handler_stopper.take() {
+            Some (stopper) => {let _ = stopper.send(());},
+            None => todo!(),
+        }
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -224,6 +227,7 @@ impl PcpTransactor {
         let request_len = packet
             .marshal(&mut buffer)
             .expect("Bad packet construction");
+eprintln! ("Created remapping packet");
         let socket = match socket_result {
             Ok(s) => s,
             Err(e) => {
@@ -245,22 +249,29 @@ eprintln! ("Sending mapping request to {}:{}", router_ip, router_port);
                 )))
             }
         };
+eprintln! ("Awaiting response");
         let response = match socket.recv_from(&mut buffer) {
-            Ok((len, _peer_addr)) => match PcpPacket::try_from(&buffer[0..len]) {
-                Ok(pkt) => pkt,
-                Err(e) => return Err(AutomapError::PacketParseError(e)),
+            Ok((len, _peer_addr)) => {
+eprintln! ("Response bytes received");
+                match PcpPacket::try_from(&buffer[0..len]) {
+                    Ok(pkt) => pkt,
+                    Err(e) => return Err(AutomapError::PacketParseError(e)),
+                }
             },
             Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
+eprintln! ("Timeout");
                 return Err(AutomapError::ProtocolError(
                     "Timed out after 3 seconds".to_string(),
                 ))
             }
             Err(e) => {
+eprintln! ("Error");
                 return Err(AutomapError::SocketReceiveError(
                     AutomapErrorCause::Unknown(format!("{:?}", e)),
                 ))
             }
         };
+eprintln! ("Received remapping response");
         if response.direction != Direction::Response {
             return Err(AutomapError::ProtocolError(
                 "Map response labeled as request".to_string(),
@@ -283,6 +294,7 @@ eprintln! ("Sending mapping request to {}:{}", router_ip, router_port);
             .as_any()
             .downcast_ref::<MapOpcodeData>()
             .expect("Response parsing inoperative - opcode data");
+eprintln! ("Returning remapping data");
         Ok((result_code, epoch_time, opcode_data.clone()))
     }
 
@@ -362,7 +374,10 @@ eprintln! ("Change handler handling Announce");
         );
 eprintln! ("Result of remapping after Announce: {:?}", result);
         match result {
-            Ok ((_, _, opcode_data)) => change_handler(AutomapChange::NewIp(opcode_data.external_ip_address)),
+            Ok ((_, _, opcode_data)) => {
+eprintln! ("Calling supplied change handler");
+                change_handler(AutomapChange::NewIp(opcode_data.external_ip_address))
+            },
             Err (e) => {
                 eprintln! ("Error retrieving new information: {:?}", e);
                 todo!()
@@ -966,7 +981,7 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config = RefCell::new (Some (ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: 600
+            lifetime: 321
         }));
         let changes_arc = Arc::new (Mutex::new (vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -978,36 +993,39 @@ mod tests {
 
         assert!(subject.change_handler_stopper.is_some());
         let change_handler_ip = IpAddr::from_str ("224.0.0.1").unwrap();
-        let socket = UdpSocket::bind (SocketAddr::new (localhost(), router_port)).unwrap();
-        socket.set_read_timeout (Some (Duration::from_millis(1000))).unwrap();
-        socket.set_broadcast(true).unwrap();
-        socket.connect (SocketAddr::new (change_handler_ip, change_handler_port)).unwrap();
+        let announce_socket = UdpSocket::bind (SocketAddr::new (localhost(), 0)).unwrap();
+        announce_socket.set_read_timeout (Some (Duration::from_millis(1000))).unwrap();
+        announce_socket.set_broadcast(true).unwrap();
+        announce_socket.connect (SocketAddr::new (change_handler_ip, change_handler_port)).unwrap();
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Announce;
         packet.lifetime = 0;
         packet.epoch_time_opt = Some (0);
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal (&mut buffer).unwrap();
+        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
 eprintln! ("Test is sending Announce");
-        let sent_len = socket.send (&buffer[0..len_to_send]).unwrap();
+        let sent_len = announce_socket.send (&buffer[0..len_to_send]).unwrap();
         assert_eq! (sent_len, len_to_send);
-eprintln! ("Test is listening for mapping request on {}:{}", change_handler_ip, change_handler_port);
-        let recv_len = socket.recv (&mut buffer).unwrap();
+eprintln! ("Test is listening for mapping request on {}:{}", localhost(), router_port);
+        let recv_len = mapping_socket.recv (&mut buffer).unwrap();
         let packet = PcpPacket::try_from (&buffer[0..recv_len]).unwrap();
         assert_eq! (packet.opcode, Opcode::Map);
-        assert_eq! (packet.lifetime, 0);
+        assert_eq! (packet.lifetime, 321);
         let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
-        assert_eq! (opcode_data.external_port, 9);
-        assert_eq! (opcode_data.internal_port, 9);
+        assert_eq! (opcode_data.external_port, 1234);
+        assert_eq! (opcode_data.internal_port, 1234);
+eprintln! ("Received and verified mapping request");
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
         let mut opcode_data = MapOpcodeData::default();
         opcode_data.external_ip_address = IpAddr::from_str("4.5.6.7").unwrap();
         packet.opcode_data = Box::new (opcode_data);
         let len_to_send = packet.marshal (&mut buffer).unwrap();
-        let sent_len = socket.send (&buffer[0..len_to_send]).unwrap();
+eprintln!("Sending remapping response");
+        let sent_len = mapping_socket.send_to (&buffer[0..len_to_send], SocketAddr::new(localhost(), router_port)).unwrap();
         assert_eq! (sent_len, len_to_send);
-        thread::sleep (Duration::from_millis(0)); // yield timeslice
+        thread::sleep (Duration::from_millis(1)); // yield timeslice
         subject.stop_change_handler();
         assert! (subject.change_handler_stopper.is_none());
         let changes = changes_arc.lock().unwrap();
