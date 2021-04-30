@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal_interface::{InterfaceRaw, MasqTerminal, WriterLock};
+use crate::terminal_interface::{InterfaceWrapper, MasqTerminal, WriterLock};
 use linefeed::{ReadResult, Signal};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::short_writeln;
@@ -17,17 +17,17 @@ pub enum TerminalEvent {
 }
 
 pub struct TerminalReal {
-    pub interface: Box<dyn InterfaceRaw + Send + Sync>,
+    pub interface: Box<dyn InterfaceWrapper + Send + Sync>,
 }
 
 impl TerminalReal {
-    pub fn new(interface: Box<dyn InterfaceRaw + Send + Sync>) -> Self {
+    pub fn new(interface: Box<dyn InterfaceWrapper + Send + Sync>) -> Self {
         Self { interface }
     }
 }
 
 impl MasqTerminal for TerminalReal {
-    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
         self.interface
             .lock_writer_append()
             .expect("lock writer append failed")
@@ -110,7 +110,7 @@ impl Default for IntegrationTestTerminal {
 }
 
 impl MasqTerminal for IntegrationTestTerminal {
-    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(IntegrationTestWriter {
             temporary_mutex_guard: self.lock.lock().expect("providing MutexGuard failed"),
         })
@@ -155,7 +155,7 @@ mod tests {
     use super::*;
     use crate::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender};
-    use crossbeam_channel::unbounded;
+    use crossbeam_channel::{unbounded, bounded};
     use masq_lib::test_utils::fake_stream_holder::ByteArrayReader;
     use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
@@ -172,7 +172,7 @@ mod tests {
             Arc::new(Mutex::new(Box::new(StdoutBlender::new(tx_cb.clone()))));
         let terminal = TerminalWrapper::new(Box::new(terminal_interface));
         let mut terminal_clone = terminal.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = bounded(1);
         let handle = thread::spawn(move || {
             let mut background_thread_stdout = StdoutBlender::new(tx_cb);
             tx.send(()).unwrap();

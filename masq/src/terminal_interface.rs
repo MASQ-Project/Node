@@ -37,9 +37,8 @@ impl TerminalWrapper {
             interface: Arc::new(interface),
         }
     }
-
     pub fn lock(&self) -> Box<dyn WriterLock + '_> {
-        self.interface.provide_lock()
+        self.interface.lock()
     }
     pub fn read_line(&self) -> TerminalEvent {
         self.interface.read_line()
@@ -88,30 +87,31 @@ fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
     Ok(MemoryTerminal::new())
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//This construction, including those functions with closures above that are strongly affected by the way how interface_configurator()
-//is written, is so complicated because there are tough obstacles to write simple tests here.
-//interface_configurator() substitutes something that may otherwise look, in the production code, simplified, like:
-//let terminal = match DefaultTerminal::new() {*something*};
-//let interface = match Interface::start_with("masq",terminal){*something*};
-//if let Err(e) = interface.set_prompt(){*something*};
-//Ok(TerminalReal::new(interface))
+//The applied design here, including those functions with closures above that are also strongly affected by the look of interface_configurator()
+//is complicated (and clumsy, in a way) because there are tough obstacles to write simple tests here.
+//interface_configurator() substitutes something that might otherwise look, if simplified, like:
 //
-//However, since we want to write tests we have to face here the following:
-//1) DefaultTerminal alone is a part which can be theoretically tested outside, with certain troubles, but because of the other
-//lines of codes in interface_configurator() it makes sense for it to stay there.
+//A) let terminal = match DefaultTerminal::new() {*something*};
+//B) let interface = match Interface::start_with("masq",terminal){*something*};
+//C) if let Err(e) = interface.set_prompt(){*something*};
+//D) Ok(TerminalReal::new(interface))
+//
+//However, since we want to write safe tests we have to face here the following:
+//1) DefaultTerminal alone is a part which could be theoretically tested outside of this function, with certain troubles,
+//but because of the other following facts it quite makes sense for it to simply stay where it is.
 //2) It's quite hard to simulate a failure at Interface::start_with, though possible; you have to implement your own "terminal
-//type", which you'll then instruct to cause an error during a call of the function below. It requires an implementation
-//of linefeed::Terminal and creation of some other objects, hanged on it and dependant on each other, which leads up to an extremely
+//type", which you'll then instruct to cause an error during a call of the function below. It requires an additional implementation
+//of linefeed::Terminal and creation of some other objects, suspended on it and dependent on each other, which leads up to an extremely
 //long sequence of declarations written from zero.
-//3) Sadly, when you're finally done with the previous you'll find that point 3 is even impossible because unlike the previous case
-//you are about to hit an external struct, named 'Reader', with a private constructor (and also declared publicly but with private
-//fields) and which doesn't share its traits - and that's the end of the line.
+//3) Sadly, when you're finally done with the previous you'll find that point C (with the method set_prompt()) is even impossible because
+//unlike the previous case you're about to meet an external struct, named 'Reader', with a private constructor (also declared publicly
+//but with all private fields) and which doesn't share its traits - and that's the end of the line.
 //
-//We decided that some day in the future we'll probably want to properly react on errors that are possible on set_prompt(). Thus this
-//"silly play with closures" may be justifiable.
+//We've agreed that sometime in the future we'll probably want to react on those errors that can come out of set_prompt() more specifically.
+//Thus this "silly play with closures" may be justifiable.
 //
 //In short, I created a so to say skeleton which takes injections of closures where I can exactly say how the mock, the injected
-//function shall behave and what it shall produce. Like so, all problems can be finally covered.
+//function shall behave and what it shall produce. Like so, all possible situations can be finally covered.
 
 fn interface_configurator<FN1, FN2: ?Sized, T, I>(
     interface_raw: Box<FN1>,
@@ -121,13 +121,13 @@ where
     FN1: FnOnce(&'static str, T) -> std::io::Result<I>,
     FN2: FnOnce() -> std::io::Result<T>,
     T: linefeed::Terminal + 'static,
-    I: InterfaceRaw + Send + Sync + 'static,
+    I: InterfaceWrapper + Send + Sync + 'static,
 {
     let terminal: T = match terminal_type() {
         Ok(term) => term,
-        Err(e) => return Err(format!("Local terminal: {}", e)),
+        Err(e) => return Err(format!("Local terminal recognition: {}", e)),
     };
-    let mut interface: Box<dyn InterfaceRaw + Send + Sync + 'static> =
+    let mut interface: Box<dyn InterfaceWrapper + Send + Sync + 'static> =
         match interface_raw("masq", terminal) {
             Ok(interface) => Box::new(interface),
             Err(e) => return Err(format!("Preparing terminal interface: {}", e)),
@@ -140,7 +140,7 @@ where
 
 fn set_all_settable<I>(interface: &mut I) -> Result<(), String>
 where
-    I: InterfaceRaw + Send + Sync + 'static + ?Sized,
+    I: InterfaceWrapper + Send + Sync + 'static + ?Sized,
 {
     if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
         return Err(format!("Setting prompt: {}", e));
@@ -153,7 +153,7 @@ where
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub trait MasqTerminal {
-    fn provide_lock(&self) -> Box<dyn WriterLock + '_>;
+    fn lock(&self) -> Box<dyn WriterLock + '_>;
     fn read_line(&self) -> TerminalEvent;
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
@@ -197,20 +197,20 @@ impl WriterLock for WriterInactive {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//Though this looks like a wast; it is needed for good coverage of certain tests...
+//Though this looks like a waste it's needed for good coverage of certain test cases...
 //There is another possible way, to create our own 'terminal type', an object implementing
 //linefeed::Terminal and then to use Interface<T>, where T (within our tests) is our terminal type.
 //Sadly, that would require much longer implementation than this here, forced by the nature
 //of linefeed::Terminal
 
-pub trait InterfaceRaw {
+pub trait InterfaceWrapper {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>>;
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
 }
 
-impl<U: linefeed::Terminal + 'static> InterfaceRaw for Interface<U> {
+impl<U: linefeed::Terminal + 'static> InterfaceWrapper for Interface<U> {
     fn read_line(&self) -> std::io::Result<ReadResult> {
         self.read_line()
     }
@@ -255,7 +255,6 @@ mod tests {
             Box::new(move |_interface: TerminalWrapper, mut stdout_c| {
                 write_in_cycles("AAA", &mut stdout_c);
             });
-
         let closure2: Box<dyn FnMut(TerminalWrapper, StdoutBlender) + Sync + Send> =
             Box::new(move |_interface: TerminalWrapper, mut stdout_c| {
                 write_in_cycles("BBB", &mut stdout_c);
@@ -264,12 +263,9 @@ mod tests {
         let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
         //in an extreme case it may be printed like one group is complete and the other is divided
-        let results = [
-            given_output.contains(&"A".repeat(90)),
-            given_output.contains(&"B".repeat(90)),
-        ];
-
-        assert!(results.iter().any(|bool_result| *bool_result == false))
+        assert!(
+            !given_output.contains(&"A".repeat(90)) || !given_output.contains(&"B".repeat(90))
+        )
     }
 
     #[test]
@@ -280,7 +276,6 @@ mod tests {
                 write_in_cycles("AAA", &mut stdout_c);
             },
         );
-
         let closure2: Box<dyn FnMut(TerminalWrapper, StdoutBlender) + Sync + Send> = Box::new(
             move |interface: TerminalWrapper, mut stdout_c: StdoutBlender| {
                 let _lock = interface.lock();
@@ -346,32 +341,26 @@ mod tests {
     }
 
     #[test]
-    fn configure_interface_complains_that_there_is_no_real_terminal_if_tested_without_a_terminal() {
-        let pre_check = std::env::var(MASQ_TESTS_RUN_IN_TERMINAL_KEY);
-        if pre_check.is_ok() && pre_check.unwrap() == "true" {
-            eprintln!(
-                r#"test "configure_interface_complains_that_there_is_no_real_terminal" was skipped because was about to be run in a terminal"#
-            )
-        } else {
+    fn configure_interface_catches_an_error_at_the_first_level_of_result_matching() {
             let subject = interface_configurator(
                 Box::new(Interface::with_term),
-                Box::new(DefaultTerminal::new),
+                Box::new(producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error),
             );
 
             let result = match subject {
                 Ok(_) => panic!("should have been an error, got OK"),
                 Err(e) => e,
             };
-            assert!(
-                result.contains("Preparing terminal interface: ")
-                    || result.contains("Local terminal"),
-                "{}",
-                result
-            );
-            //Windows: The handle is invalid. (os error 6)
-            //Linux: "Getting terminal parameters: Inappropriate ioctl for device (os error 25)"
-            //Actions Linux: terminfo entry not found
-        }
+
+            assert_eq!(
+                    result,format!("Local terminal recognition: {}",
+                Error::from_raw_os_error(1))
+            )
+    }
+
+    fn producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error()
+        -> std::io::Result<impl linefeed::Terminal + 'static> {
+        Err(Error::from_raw_os_error(1)) as std::io::Result<DefaultTerminal>
     }
 
     #[test]
@@ -410,7 +399,7 @@ mod tests {
     fn producer_of_interface_raw_resulting_in_an_early_error(
         _name: &str,
         _terminal: impl linefeed::Terminal + 'static,
-    ) -> std::io::Result<impl InterfaceRaw + Send + Sync + 'static> {
+    ) -> std::io::Result<impl InterfaceWrapper + Send + Sync + 'static> {
         Err(Error::from_raw_os_error(1)) as std::io::Result<InterfaceRawMock>
     }
 
@@ -420,6 +409,7 @@ mod tests {
             Box::new(producer_of_interface_raw_causing_set_prompt_error),
             Box::new(result_wrapper_for_in_memory_terminal),
         );
+
         let result = match subject {
             Err(e) => e,
             Ok(_) => panic!("should have been Err, got Ok with TerminalReal"),
@@ -434,7 +424,7 @@ mod tests {
     fn producer_of_interface_raw_causing_set_prompt_error(
         _name: &str,
         _terminal: impl linefeed::Terminal + 'static,
-    ) -> std::io::Result<impl InterfaceRaw + Send + Sync + 'static> {
+    ) -> std::io::Result<impl InterfaceWrapper + Send + Sync + 'static> {
         Ok(InterfaceRawMock::new().set_prompt_result(Err(Error::from_raw_os_error(10))))
     }
 }

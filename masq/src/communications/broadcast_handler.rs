@@ -158,7 +158,7 @@ mod tests {
         make_tools_for_test_streams_with_thread_life_checker, StdoutBlender, TerminalActiveMock,
         TerminalPassiveMock, TestStreamFactory,
     };
-    use crossbeam_channel::Receiver;
+    use crossbeam_channel::{Receiver, bounded};
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
@@ -458,9 +458,7 @@ Cannot handle crash request: Node is not running.
         let mut stdout = StdoutBlender::new(tx);
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
-
         let synchronizer = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
-
         let synchronizer_clone_idle = synchronizer.clone();
 
         //synchronized part proving that the broadcast print is synchronized
@@ -533,7 +531,7 @@ Cannot handle crash request: Node is not running.
         U: Debug + PartialEq + Clone,
     {
         let synchronizer_clone = synchronizer.clone();
-        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+        let (sync_tx, sync_rx) = bounded(1);
         let interference_thread_handle = thread::spawn(move || {
             let _lock = if sync {
                 Some(synchronizer.lock())
