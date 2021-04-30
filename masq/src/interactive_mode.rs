@@ -10,7 +10,7 @@ use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
-use std::io::Write;
+use std::io::{Write};
 
 pub fn go_interactive<CF, CP, HC>(
     handle_command: Box<HC>,
@@ -25,7 +25,7 @@ where
 {
     loop {
         let read_line_result = processor.terminal_wrapper_ref().read_line();
-        let args = match pass_on_args_or_write_messages(streams, read_line_result) {
+        let args = match pass_on_args_or_print_messages(streams, read_line_result) {
             CommandLine(args) => args,
             Break => break,
             Continue => continue,
@@ -37,11 +37,7 @@ where
         if args[0] == "exit" {
             break;
         }
-        if clap_answers_descriptive_commands(
-            &args[0],
-            streams.stdout,
-            processor.terminal_wrapper_ref(),
-        ) {
+        if handle_help_or_version(&args[0], streams.stdout, processor.terminal_wrapper_ref()) {
             continue;
         }
         let _ = handle_command(command_factory, processor, args, streams.stderr);
@@ -49,52 +45,48 @@ where
     0
 }
 
-fn clap_answers_descriptive_commands(
+fn handle_help_or_version(
     arg: &str,
     mut stdout: &mut dyn Write,
     terminal_interface: &TerminalWrapper,
 ) -> bool {
+    let _lock = terminal_interface.lock();
     match arg {
-        "help" => {
-            let _lock = terminal_interface.lock();
-            app()
-                .write_help(&mut stdout)
-                .expect("masq help set incorrectly");
-            short_writeln!(stdout, "");
-            true
-        }
-        "version" => {
-            let _lock = terminal_interface.lock();
-            app()
-                .write_version(&mut stdout)
-                .expect("information of masq version set incorrectly");
-            short_writeln!(stdout, "");
-            true
-        }
-        _ => false,
+        "help" => app()
+            .write_help(&mut stdout)
+            .expect("masq help set incorrectly"),
+        "version" => app()
+            .write_version(&mut stdout)
+            .expect("masq version set incorrectly"),
+        _ => return false,
     }
+    short_writeln!(stdout, "");
+    true
 }
 
-fn pass_on_args_or_write_messages(
+fn pass_on_args_or_print_messages(
     streams: &mut StdStreams<'_>,
     read_line_result: TerminalEvent,
 ) -> TerminalEvent {
     match read_line_result {
         CommandLine(args) => CommandLine(args),
-        Break => {
-            short_writeln!(streams.stdout, "Terminated");
-            Break
-        }
+
         Continue => {
             short_writeln!(
                 streams.stdout,
-                "Received a specific signal interpretable as continue"
+                "Received a signal interpretable as continue"
             );
             Continue
-        }
+        },
+
+        Break => {
+            short_writeln!(streams.stdout, "Terminated");
+            Break
+        },
+
         TerminalEventError(e) => {
             short_writeln!(streams.stderr, "{}", e);
-            //we're gonna discard this empty String immediately
+            //we're gonna discard this empty String when out of this fn
             TerminalEventError(String::new())
         }
     }
@@ -106,9 +98,7 @@ mod tests {
     use crate::command_factory::CommandFactoryError;
     use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
-    use crate::interactive_mode::{
-        clap_answers_descriptive_commands, pass_on_args_or_write_messages,
-    };
+    use crate::interactive_mode::{handle_help_or_version, pass_on_args_or_print_messages};
     use crate::line_reader::TerminalEvent;
     use crate::line_reader::TerminalEvent::{Break, Continue, Error};
     use crate::non_interactive_mode::Main;
@@ -120,10 +110,11 @@ mod tests {
     use masq_lib::command::Command;
     use masq_lib::intentionally_blank;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
-    use std::sync::mpsc::channel;
+    use regex::Regex;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
+    use crossbeam_channel::bounded;
 
     #[derive(Debug)]
     struct FakeCommand {
@@ -284,7 +275,7 @@ mod tests {
     fn pass_on_args_or_print_messages_announces_break_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_write_messages(&mut stream_holder.streams(), Break);
+        let result = pass_on_args_or_print_messages(&mut stream_holder.streams(), Break);
 
         assert_eq!(result, Break);
         assert_eq!(stream_holder.stderr.get_string(), "");
@@ -295,13 +286,13 @@ mod tests {
     fn pass_on_args_or_print_messages_announces_continue_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_write_messages(&mut stream_holder.streams(), Continue);
+        let result = pass_on_args_or_print_messages(&mut stream_holder.streams(), Continue);
 
         assert_eq!(result, Continue);
         assert_eq!(stream_holder.stderr.get_string(), "");
         assert_eq!(
             stream_holder.stdout.get_string(),
-            "Received a specific signal interpretable as continue\n"
+            "Received a signal interpretable as continue\n"
         );
     }
 
@@ -309,7 +300,7 @@ mod tests {
     fn pass_on_args_or_print_messages_announces_error_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_write_messages(
+        let result = pass_on_args_or_print_messages(
             &mut stream_holder.streams(),
             Error("Invalid Input\n".to_string()),
         );
@@ -319,45 +310,25 @@ mod tests {
         assert_eq!(stream_holder.stdout.get_string(), "");
     }
 
-    #[test]
-    fn clap_answers_descriptive_commands_about_the_current_version() {
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
-        let mut stdout = ByteArrayWriter::new();
-        let result = clap_answers_descriptive_commands("version", &mut stdout, &terminal_interface);
-        assert_eq!(result, true);
-        assert!(stdout.get_string().contains("masq 1"))
-    }
+    //help and version commands are also tested in integration tests with the focus on a bigger context
 
     #[test]
-    fn clap_answers_descriptive_commands_about_the_overall_help() {
+    fn handle_help_or_version_ignores_uninteresting_entries() {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
         let mut stdout = ByteArrayWriter::new();
-        let result = clap_answers_descriptive_commands("help", &mut stdout, &terminal_interface);
-        assert_eq!(result, true);
-        let stdout = stdout.get_string();
-        assert!(stdout.contains(
-            "masq is a command-line user interface to the MASQ Daemon and the MASQ Node"
-        ));
-        assert!(stdout.contains("recover-wallets"));
-        assert!(stdout.contains("descriptor"));
-    }
 
-    #[test]
-    fn clap_answers_descriptive_commands_ignores_uninteresting_entries() {
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
-        let mut stdout = ByteArrayWriter::new();
-        let result =
-            clap_answers_descriptive_commands("something", &mut stdout, &terminal_interface);
+        let result = handle_help_or_version("something", &mut stdout, &terminal_interface);
+
         assert_eq!(result, false);
         assert_eq!(stdout.get_string(), "")
     }
 
     #[test]
-    fn clap_answers_descriptive_commands_provides_fine_lock_for_questioning_the_current_version() {
+    fn handle_help_or_version_provides_fine_lock_for_questioning_the_current_version() {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
         let background_interface_clone = terminal_interface.clone();
         let mut stdout = ByteArrayWriter::new();
-        let (tx, rx) = channel();
+        let (tx, rx) = bounded(1);
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
@@ -365,23 +336,26 @@ mod tests {
         });
         rx.recv().unwrap();
         let now = Instant::now();
-        let result = clap_answers_descriptive_commands("version", &mut stdout, &terminal_interface);
+
+        let result = handle_help_or_version("version", &mut stdout, &terminal_interface);
+
         let time_period = now.elapsed();
         handle.join().unwrap();
-        assert!(stdout.get_string().contains("masq 1"));
+        assert!(stdout.get_string().contains("masq"));
         assert!(
             time_period > Duration::from_millis(30),
-            "different time period than expected: {:?}",
+            "Terminal should have been locked for 30ms, but allowed access after only {:?}ms.",
             time_period
         );
         assert_eq!(result, true);
 
+        //a check against negative positivity
         let mut stdout = ByteArrayWriter::new();
-
         let now = Instant::now();
-        let _ = clap_answers_descriptive_commands("help", &mut stdout, &terminal_interface);
-        let time_period = now.elapsed();
 
+        let _ = handle_help_or_version("version", &mut stdout, &terminal_interface);
+
+        let time_period = now.elapsed();
         assert!(
             time_period < Duration::from_millis(5),
             "longer time period than expected; should've been 5 ms max: {:?}",
@@ -389,15 +363,15 @@ mod tests {
         );
         assert!(stdout
             .get_string()
-            .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
+            .contains("masq"));
     }
 
     #[test]
-    fn clap_answers_descriptive_commands_provides_fine_lock_for_help_call() {
+    fn handle_help_or_version_provides_fine_lock_for_help_call() {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
         let background_interface_clone = terminal_interface.clone();
         let mut stdout = ByteArrayWriter::new();
-        let (tx, rx) = channel();
+        let (tx, rx) = bounded(1);
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
@@ -405,7 +379,9 @@ mod tests {
         });
         rx.recv().unwrap();
         let now = Instant::now();
-        let result = clap_answers_descriptive_commands("help", &mut stdout, &terminal_interface);
+
+        let result = handle_help_or_version("help", &mut stdout, &terminal_interface);
+
         let time_period = now.elapsed();
         handle.join().unwrap();
         assert!(stdout
@@ -413,19 +389,18 @@ mod tests {
             .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
         assert!(
             time_period > Duration::from_millis(30),
-            "different time period than expected: {:?}",
+            "Terminal should have been locked for 30ms, but allowed access after only {:?}ms.",
             time_period
         );
         assert_eq!(result, true);
 
-        //a negative-positivity check
-
+        //a check against negative positivity
         let mut stdout = ByteArrayWriter::new();
-
         let now = Instant::now();
-        let _ = clap_answers_descriptive_commands("help", &mut stdout, &terminal_interface);
-        let time_period = now.elapsed();
 
+        let _ = handle_help_or_version("help", &mut stdout, &terminal_interface);
+
+        let time_period = now.elapsed();
         assert!(
             time_period < Duration::from_millis(5),
             "longer time period than expected: should've been 5 ms max {:?}",

@@ -6,13 +6,14 @@ use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use lazy_static::lazy_static;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use websocket::result::WebSocketError;
 use websocket::sync::Server;
 use websocket::OwnedMessage;
+use std::cell::Cell;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -23,6 +24,7 @@ pub struct MockWebSocketsServer {
     port: u16,
     pub protocol: String,
     responses_arc: Arc<Mutex<Vec<OwnedMessage>>>,
+    broadcast_trigger_acessories: Cell<Option<(Sender<()>, usize)>>
 }
 
 pub struct MockWebSocketsServerStopHandle {
@@ -41,6 +43,7 @@ impl MockWebSocketsServer {
             port,
             protocol: NODE_UI_PROTOCOL.to_string(),
             responses_arc: Arc::new(Mutex::new(vec![])),
+            broadcast_trigger_acessories: Cell::new(None)
         }
     }
 
@@ -58,6 +61,11 @@ impl MockWebSocketsServer {
 
     pub fn queue_owned_message(self, msg: OwnedMessage) -> Self {
         self.responses_arc.lock().unwrap().push(msg);
+        self
+    }
+
+    pub fn inject_broadcast_trigger_accesories(self, accessories: (Sender<()>,usize)) -> Self {
+        self.broadcast_trigger_acessories.set(Some(accessories));
         self
     }
 
@@ -194,17 +202,17 @@ impl MockWebSocketsServer {
                                     index,
                                     "Responding to a request for FireAndForget message in direction to UI",
                                 );
-                                let (ordinal_number, sender) =
-                                    SENDER_SHARE_POINT.lock().unwrap().take().unwrap();
-                                let quequed_messages = inner_responses_arc.lock().unwrap().clone();
-                                let messages_count = quequed_messages.len();
-                                (0..messages_count).for_each(|i| {
-                                    if ordinal_number == i {
-                                        sender.send(()).unwrap()
-                                    }
-                                    client.send_message(&quequed_messages[i]).unwrap();
-                                    thread::sleep(Duration::from_millis(1))
-                                })
+                                if let Some(tuple) = self.broadcast_trigger_acessories.take() {
+                                    let (signal_sender, positional_number_of_the_signal_sent) = tuple;
+                                    let queued_messages = inner_responses_arc.lock().unwrap().clone();
+                                    (0..queued_messages.len()).for_each(|i| {
+                                        if positional_number_of_the_signal_sent == i {
+                                            signal_sender.send(()).unwrap()
+                                        }
+                                        client.send_message(&queued_messages[i]).unwrap();
+                                        thread::sleep(Duration::from_millis(1))
+                                    })
+                                }
                             }
                             MessagePath::FireAndForget => {
                                 log(
@@ -301,29 +309,6 @@ impl MockWebSocketsServerStopHandle {
 fn log(log: bool, index: u64, msg: &str) {
     if log {
         eprintln!("MockWebSocketsServer {}: {}", index, msg);
-    }
-}
-
-lazy_static! {
-    pub static ref SINGLE_TEST_A_TIME_LOCK: Mutex<()> = Mutex::new(());
-}
-
-lazy_static! {
-    pub static ref SENDER_SHARE_POINT: Mutex<Option<(usize, Sender<()>)>> = Mutex::new(None);
-}
-
-#[allow(dead_code)]
-pub struct BroadcatTriggerSignaLerSafe {
-    single_test_lock_holder: MutexGuard<'static, ()>,
-}
-
-impl BroadcatTriggerSignaLerSafe {
-    pub fn fill_mutex_and_obtain_a_lock(signal_position: usize, sender: Sender<()>) -> Self {
-        let guard = Self {
-            single_test_lock_holder: SINGLE_TEST_A_TIME_LOCK.lock().unwrap(),
-        };
-        *SENDER_SHARE_POINT.lock().unwrap() = Some((signal_position, sender));
-        guard
     }
 }
 

@@ -40,8 +40,8 @@ impl Main {
             let one = &args_vec[idx - 1];
             let two = &args_vec[idx];
             if !one.starts_with("--") && !two.starts_with("--")
-                || two.contains("help")
-                || two.contains("version")
+                || two.eq("--help")
+                || two.eq("--version")
             {
                 return Some(args_vec.into_iter().skip(idx).collect());
             }
@@ -391,14 +391,15 @@ mod tests {
             Main::populate_interactive_dependencies(test_stream_factory).unwrap();
         {
             let _lock = terminal_interface.as_ref().unwrap().lock();
-
             broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
+
             let output = test_stream_handle.stdout_so_far();
 
             assert_eq!(output, "")
         }
         //because of Win from Actions (theoretically some other platform too)
         thread::sleep(Duration::from_millis(200));
+
         let output_when_unlocked = test_stream_handle.stdout_so_far();
 
         assert_eq!(

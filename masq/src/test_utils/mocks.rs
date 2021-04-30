@@ -8,9 +8,9 @@ use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
 use crate::line_reader::TerminalEvent;
 use crate::terminal_interface::{
-    InterfaceRaw, MasqTerminal, TerminalWrapper, WriterInactive, WriterLock,
+    InterfaceWrapper, MasqTerminal, TerminalWrapper, WriterInactive, WriterLock,
 };
-use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
+use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError, bounded};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult};
 use masq_lib::intentionally_blank;
@@ -20,12 +20,9 @@ use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::io::{Read, Write};
-use std::sync::mpsc::{channel, Receiver as MpscReceiver, Sender as MpscSender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
-
-pub const MASQ_TESTS_RUN_IN_TERMINAL_KEY: &str = "MASQ_TESTS_RUN_IN_TERMINAL";
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -440,12 +437,12 @@ impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory {
 #[derive(Debug)]
 pub struct TestStreamsWithThreadLifeCheckerFactory {
     stream_factory: TestStreamFactory,
-    threads_connector: RefCell<Option<MpscSender<()>>>,
+    threads_connector: RefCell<Option<Sender<()>>>,
 }
 
 struct TestStreamWithThreadLifeChecker {
     stream: Box<dyn Write>,
-    threads_connector: MpscSender<()>,
+    threads_connector: Sender<()>,
 }
 
 impl Write for TestStreamWithThreadLifeChecker {
@@ -464,13 +461,12 @@ impl Drop for TestStreamWithThreadLifeChecker {
 }
 
 pub fn make_tools_for_test_streams_with_thread_life_checker() -> (
-    MpscReceiver<()>,
+    Receiver<()>,
     TestStreamsWithThreadLifeCheckerFactory,
     TestStreamFactoryHandle,
 ) {
     let (stream_factory, stream_handle) = TestStreamFactory::new();
-    let (tx, rx) = channel();
-    let life_checker_receiver = rx;
+    let (tx, life_checker_receiver) = bounded(1);
     (
         life_checker_receiver,
         TestStreamsWithThreadLifeCheckerFactory {
@@ -519,7 +515,7 @@ pub struct TerminalPassiveMock {
 }
 
 impl MasqTerminal for TerminalPassiveMock {
-    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(WriterInactive {})
     }
     fn read_line(&self) -> TerminalEvent {
@@ -548,7 +544,7 @@ pub struct TerminalActiveMock {
 }
 
 impl MasqTerminal for TerminalActiveMock {
-    fn provide_lock(&self) -> Box<dyn WriterLock + '_> {
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
     fn read_line(&self) -> TerminalEvent {
@@ -592,7 +588,7 @@ pub struct InterfaceRawMock {
     set_prompt_result: Arc<Mutex<Vec<std::io::Result<()>>>>,
 }
 
-impl InterfaceRaw for InterfaceRawMock {
+impl InterfaceWrapper for InterfaceRawMock {
     fn read_line(&self) -> std::io::Result<ReadResult> {
         self.read_line_result.lock().unwrap().remove(0)
     }

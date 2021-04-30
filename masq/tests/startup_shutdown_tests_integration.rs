@@ -40,7 +40,7 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
     let expected_error_message = "Pre-configuration error: Preparing terminal interface:";
 
     #[cfg(target_os = "windows")]
-    let expected_error_message = "Pre-configuration error: Local terminal: ";
+    let expected_error_message = "Pre-configuration error: Local terminal recognition: ";
 
     assert!(
         stderr.contains(expected_error_message),

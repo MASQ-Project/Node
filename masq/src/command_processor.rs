@@ -87,9 +87,7 @@ mod tests {
     use crossbeam_channel::{bounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
-    use masq_lib::test_utils::mock_websockets_server::{
-        BroadcatTriggerSignaLerSafe, MockWebSocketsServer,
-    };
+    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
     use std::time::Duration;
@@ -156,26 +154,20 @@ mod tests {
         sender: Sender<String>,
     }
 
+    impl TameCommand{
+        fn send_piece_of_whole_message(&self,piece:&str){
+            self.sender.send(piece.to_string()).unwrap();
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+
     impl Command for TameCommand {
         fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            self.sender.send("This is a message".to_string()).unwrap();
-            thread::sleep(Duration::from_millis(1));
-            self.sender
-                .send(" which must be delivered as one piece".to_string())
-                .unwrap();
-            thread::sleep(Duration::from_millis(1));
-            self.sender
-                .send("; we'll do all possible for that.".to_string())
-                .unwrap();
-            thread::sleep(Duration::from_millis(1));
-            self.sender
-                .send(" If only we have enough strength and spirit".to_string())
-                .unwrap();
-            thread::sleep(Duration::from_millis(1));
-            self.sender
-                .send(" and determination and support and... snacks.".to_string())
-                .unwrap();
-            thread::sleep(Duration::from_millis(1));
+            self.send_piece_of_whole_message("This is a message");
+            self.send_piece_of_whole_message(" which must be delivered as one piece");
+            self.send_piece_of_whole_message("; we'll do all possible for that.");
+            self.send_piece_of_whole_message(" If only we have enough strength and spirit");
+            self.send_piece_of_whole_message(" and determination and support and... snacks.");
             self.sender.send(" Roger.".to_string()).unwrap();
             Ok(())
         }
@@ -200,12 +192,15 @@ mod tests {
             opcode: "whateverTheOpcodeHereIs".to_string(),
         }
         .tmb(0);
+        let (tx, rx) = bounded(1);
+        let position_of_the_signal_message = 1; //means the one after the first
         let server = MockWebSocketsServer::new(port)
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
-            .queue_response(broadcast);
+            .queue_response(broadcast)
+            .inject_broadcast_trigger_accesories((tx,position_of_the_signal_message));
         let (broadcast_stream_factory, broadcast_stream_factory_handle) = TestStreamFactory::new();
         let (cloned_stdout_sender, _) = broadcast_stream_factory.clone_senders();
         let args = [
@@ -220,11 +215,6 @@ mod tests {
         let generic_broadcast_handle =
             generic_broadcast_handler.start(Box::new(broadcast_stream_factory));
         let processor_factory = CommandProcessorFactoryReal::new();
-        let (tx, rx) = bounded(1);
-        //will be dropped at the end of this test and let a concurrent test progress...
-        //potentially, if we have two tests of this kind, each will give us relevant results
-        let _broadcast_trigger_single_test_lock =
-            BroadcatTriggerSignaLerSafe::fill_mutex_and_obtain_a_lock(1, tx);
         let stop_handle = server.start();
 
         let mut processor = processor_factory
@@ -233,7 +223,7 @@ mod tests {
         processor
             .process(Box::new(ToUiBroadcastTrigger {}))
             .unwrap();
-        rx.recv().unwrap();
+        rx.recv_timeout(Duration::from_millis(200)).unwrap();
         processor
             .process(Box::new(TameCommand {
                 sender: cloned_stdout_sender,
