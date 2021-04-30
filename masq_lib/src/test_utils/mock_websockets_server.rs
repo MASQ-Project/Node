@@ -5,6 +5,7 @@ use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use lazy_static::lazy_static;
+use std::cell::Cell;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -13,7 +14,6 @@ use std::time::Duration;
 use websocket::result::WebSocketError;
 use websocket::sync::Server;
 use websocket::OwnedMessage;
-use std::cell::Cell;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -24,7 +24,7 @@ pub struct MockWebSocketsServer {
     port: u16,
     pub protocol: String,
     responses_arc: Arc<Mutex<Vec<OwnedMessage>>>,
-    broadcast_trigger_acessories: Cell<Option<(Sender<()>, usize)>>
+    broadcast_trigger_acessories: Cell<Option<(Sender<()>, usize)>>,
 }
 
 pub struct MockWebSocketsServerStopHandle {
@@ -43,7 +43,7 @@ impl MockWebSocketsServer {
             port,
             protocol: NODE_UI_PROTOCOL.to_string(),
             responses_arc: Arc::new(Mutex::new(vec![])),
-            broadcast_trigger_acessories: Cell::new(None)
+            broadcast_trigger_acessories: Cell::new(None),
         }
     }
 
@@ -64,7 +64,7 @@ impl MockWebSocketsServer {
         self
     }
 
-    pub fn inject_broadcast_trigger_accesories(self, accessories: (Sender<()>,usize)) -> Self {
+    pub fn inject_broadcast_trigger_accesories(self, accessories: (Sender<()>, usize)) -> Self {
         self.broadcast_trigger_acessories.set(Some(accessories));
         self
     }
@@ -203,8 +203,10 @@ impl MockWebSocketsServer {
                                     "Responding to a request for FireAndForget message in direction to UI",
                                 );
                                 if let Some(tuple) = self.broadcast_trigger_acessories.take() {
-                                    let (signal_sender, positional_number_of_the_signal_sent) = tuple;
-                                    let queued_messages = inner_responses_arc.lock().unwrap().clone();
+                                    let (signal_sender, positional_number_of_the_signal_sent) =
+                                        tuple;
+                                    let queued_messages =
+                                        inner_responses_arc.lock().unwrap().clone();
                                     (0..queued_messages.len()).for_each(|i| {
                                         if positional_number_of_the_signal_sent == i {
                                             signal_sender.send(()).unwrap()

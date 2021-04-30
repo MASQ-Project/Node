@@ -7,6 +7,7 @@ pub mod commands;
 pub mod communications;
 pub mod interactive_mode;
 pub mod line_reader;
+pub mod non_interactive_clap;
 pub mod non_interactive_mode;
 mod notifications;
 mod schema;

@@ -16,10 +16,24 @@ fn masq_without_daemon_integration() {
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
     assert_eq!(&stdout, "", "{}", stdout);
-    assert_eq!(
+    assert!(
         stderr.contains("Can't connect to Daemon or Node"),
-        true,
-        "{}",
+        "we got{}",
+        stderr
+    );
+    assert_eq!(exit_code, 1);
+}
+
+#[test]
+fn masq_terminates_immediately_when_clap_is_furious_above_what_came_from_the_command_line_integration(
+) {
+    let masq_handle = MasqProcess::new().start_noninteractive(vec!["uninvented-command"]);
+
+    let (stdout, stderr, exit_code) = masq_handle.stop();
+
+    assert_eq!(&stdout, "", "{}", stdout);
+    assert!(stderr.contains("Found argument 'uninvented-command' which wasn't expected, or isn't valid in this context"),
+        "we got {}",
         stderr
     );
     assert_eq!(exit_code, 1);
@@ -35,16 +49,13 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
     assert_eq!(exit_code, 1);
     let regex = Regex::new(r"\x1B\[\?\d\d[lh]").unwrap();
     assert_eq!(regex.replace_all(&stdout, ""), "", "{}", stdout);
-
     #[cfg(not(target_os = "windows"))]
     let expected_error_message = "Pre-configuration error: Preparing terminal interface:";
-
     #[cfg(target_os = "windows")]
     let expected_error_message = "Pre-configuration error: Local terminal recognition: ";
-
     assert!(
         stderr.contains(expected_error_message),
-        "stderr was: {}",
+        "unlike what we expected stderr was: {}",
         stderr
     );
 }

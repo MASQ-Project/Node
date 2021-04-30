@@ -10,7 +10,7 @@ use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
-use std::io::{Write};
+use std::io::Write;
 
 pub fn go_interactive<CF, CP, HC>(
     handle_command: Box<HC>,
@@ -77,12 +77,12 @@ fn pass_on_args_or_print_messages(
                 "Received a signal interpretable as continue"
             );
             Continue
-        },
+        }
 
         Break => {
             short_writeln!(streams.stdout, "Terminated");
             Break
-        },
+        }
 
         TerminalEventError(e) => {
             short_writeln!(streams.stderr, "{}", e);
@@ -104,17 +104,16 @@ mod tests {
     use crate::non_interactive_mode::Main;
     use crate::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{
-        CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock, TerminalActiveMock,
-        TerminalPassiveMock,
+        CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
+        NonInteractiveClapFactoryMock, TerminalActiveMock, TerminalPassiveMock,
     };
+    use crossbeam_channel::bounded;
     use masq_lib::command::Command;
     use masq_lib::intentionally_blank;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
-    use regex::Regex;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
-    use crossbeam_channel::bounded;
 
     #[derive(Debug)]
     struct FakeCommand {
@@ -152,16 +151,19 @@ mod tests {
             .inject_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject =
-            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
+        let mut subject = Main::test_only_new(
+            Box::new(NonInteractiveClapFactoryMock {}),
+            Box::new(command_factory),
+            Box::new(processor_factory),
+        );
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(
             &mut stream_holder.streams(),
             &[
                 "command".to_string(),
-                "--param1".to_string(),
-                "value1".to_string(),
+                "--ui-port".to_string(),
+                "10000".to_string(),
             ],
         );
 
@@ -192,8 +194,11 @@ mod tests {
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject =
-            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
+        let mut subject = Main::test_only_new(
+            Box::new(NonInteractiveClapFactoryMock {}),
+            Box::new(command_factory),
+            Box::new(processor_factory),
+        );
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
@@ -229,8 +234,11 @@ mod tests {
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject =
-            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
+        let mut subject = Main::test_only_new(
+            Box::new(NonInteractiveClapFactoryMock {}),
+            Box::new(command_factory),
+            Box::new(processor_factory),
+        );
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
@@ -256,8 +264,11 @@ mod tests {
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject =
-            Main::test_only_new(Box::new(command_factory), Box::new(processor_factory));
+        let mut subject = Main::test_only_new(
+            Box::new(NonInteractiveClapFactoryMock {}),
+            Box::new(command_factory),
+            Box::new(processor_factory),
+        );
         let mut stream_holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
@@ -361,9 +372,7 @@ mod tests {
             "longer time period than expected; should've been 5 ms max: {:?}",
             time_period
         );
-        assert!(stdout
-            .get_string()
-            .contains("masq"));
+        assert!(stdout.get_string().contains("masq"));
     }
 
     #[test]

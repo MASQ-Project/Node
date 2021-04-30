@@ -26,7 +26,7 @@ pub trait CommandFactory {
 }
 
 #[derive(Default)]
-pub struct CommandFactoryReal {}
+pub struct CommandFactoryReal;
 
 impl CommandFactory for CommandFactoryReal {
     fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError> {

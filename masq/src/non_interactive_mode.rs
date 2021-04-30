@@ -10,12 +10,14 @@ use crate::communications::broadcast_handler::{
     StreamFactory, StreamFactoryReal,
 };
 use crate::interactive_mode::go_interactive;
+use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClapFactoryReal};
 use crate::terminal_interface::TerminalWrapper;
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 
 pub struct Main {
+    non_interactive_clap_factory: Box<dyn NIClapFactory>,
     command_factory: Box<dyn CommandFactory>,
     processor_factory: Box<dyn CommandProcessorFactory>,
 }
@@ -29,24 +31,33 @@ impl Default for Main {
 impl Main {
     pub fn new() -> Self {
         Self {
-            command_factory: Box::new(CommandFactoryReal::new()),
-            processor_factory: Box::new(CommandProcessorFactoryReal {}),
+            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryReal),
+            command_factory: Box::new(CommandFactoryReal),
+            processor_factory: Box::new(CommandProcessorFactoryReal),
         }
     }
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
-        let args_vec: Vec<String> = args.to_vec();
-        for idx in 1..args_vec.len() {
-            let one = &args_vec[idx - 1];
-            let two = &args_vec[idx];
-            if !one.starts_with("--") && !two.starts_with("--")
-                || two.eq("--help")
-                || two.eq("--version")
-            {
-                return Some(args_vec.into_iter().skip(idx).collect());
-            }
+        if args.len().eq(&1) {
+            return None;
         }
-        None
+        let vec_candidate = args
+            .to_vec()
+            .into_iter()
+            .skip(
+                1 + match args[1].as_str() {
+                    //first ln: assertion that Clap hasn't prepared a trap for us
+                    "--help" | "--version" => 1,
+                    "--ui-port" => 2,
+                    _ => 0,
+                },
+            )
+            .collect::<Vec<String>>();
+        if vec_candidate.len() > 0 {
+            Some(vec_candidate)
+        } else {
+            None
+        }
     }
 
     fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, Option<TerminalWrapper>)
@@ -71,10 +82,12 @@ impl Main {
 
     #[cfg(test)]
     pub fn test_only_new(
+        non_interactive_clap_factory: Box<dyn NIClapFactory>,
         command_factory: Box<dyn CommandFactory>,
         processor_factory: Box<dyn CommandProcessorFactory>,
     ) -> Self {
         Self {
+            non_interactive_clap_factory,
             command_factory,
             processor_factory,
         }
@@ -83,6 +96,10 @@ impl Main {
 
 impl command::Command for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
+        let ui_port = self
+            .non_interactive_clap_factory
+            .make()
+            .non_interactive_clap_circuit(args);
         let subcommand_opt = Self::extract_subcommand(args);
         let (generic_broadcast_handle, terminal_interface) = match subcommand_opt {
             Some(_) => Self::populate_non_interactive_dependencies(),
@@ -97,11 +114,15 @@ impl command::Command for Main {
         let mut command_processor = match self.processor_factory.make(
             terminal_interface,
             generic_broadcast_handle,
-            args,
+            ui_port,
         ) {
             Ok(processor) => processor,
             Err(e) => {
-                short_writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e);
+                short_writeln!(
+                        streams.stderr,
+                        "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.",
+                        e
+                    );
                 return 1;
             }
         };
@@ -163,7 +184,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        MockCommand, TestStreamFactory,
+        MockCommand, NonInteractiveClapFactoryMock, TestStreamFactory,
     };
     use masq_lib::command::Command;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
@@ -188,6 +209,7 @@ mod tests {
             .make_params(&p_make_params_arc)
             .make_result(Ok(Box::new(processor)));
         let mut subject = Main {
+            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
         };
@@ -196,10 +218,6 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &[
                 "command".to_string(),
-                "--param1".to_string(),
-                "value1".to_string(),
-                "--param2".to_string(),
-                "value2".to_string(),
                 "subcommand".to_string(),
                 "--param3".to_string(),
                 "value3".to_string(),
@@ -221,22 +239,8 @@ mod tests {
             ],]
         );
         let mut p_make_params = p_make_params_arc.lock().unwrap();
-        let (terminal_interface, broadcast_handle, args_from_params) = p_make_params.pop().unwrap();
-        assert_eq!(
-            args_from_params,
-            vec![
-                "command".to_string(),
-                "--param1".to_string(),
-                "value1".to_string(),
-                "--param2".to_string(),
-                "value2".to_string(),
-                "subcommand".to_string(),
-                "--param3".to_string(),
-                "value3".to_string(),
-                "param4".to_string(),
-                "param5".to_string(),
-            ]
-        );
+        let (terminal_interface, broadcast_handle, ui_port) = p_make_params.pop().unwrap();
+        assert_eq!(ui_port, 5333);
         assert!(terminal_interface.is_none());
         assert!(broadcast_handle
             .as_any()
@@ -281,6 +285,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
+            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
         };
@@ -312,6 +317,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
+            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
         };
@@ -340,6 +346,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
+            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
         };
@@ -363,6 +370,7 @@ mod tests {
         let processor_factory = CommandProcessorFactoryMock::new()
             .make_result(Err(CommandError::ConnectionProblem("booga".to_string())));
         let mut subject = Main {
+            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
             command_factory: Box::new(CommandFactoryMock::new()),
             processor_factory: Box::new(processor_factory),
         };
@@ -439,15 +447,6 @@ mod tests {
     }
 
     #[test]
-    fn extract_subcommands_can_process_simple_help_requests() {
-        let args = vec!["masq".to_string(), "--help".to_string()];
-
-        let result = Main::extract_subcommand(&args);
-
-        assert_eq!(result, Some(vec!["--help".to_string()]))
-    }
-
-    #[test]
     fn extract_subcommands_can_process_command_specific_help_requests() {
         let args = vec![
             "masq".to_string(),
@@ -461,14 +460,5 @@ mod tests {
             result,
             Some(vec!["setup".to_string(), "--help".to_string()])
         )
-    }
-
-    #[test]
-    fn extract_subcommands_can_process_version_requests() {
-        let args = vec!["masq".to_string(), "--version".to_string()];
-
-        let result = Main::extract_subcommand(&args);
-
-        assert_eq!(result, Some(vec!["--version".to_string()]))
     }
 }

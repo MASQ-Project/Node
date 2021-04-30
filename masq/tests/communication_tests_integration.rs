@@ -15,7 +15,6 @@ fn setup_results_are_broadcast_to_all_uis_integration() {
     thread::sleep(Duration::from_millis(300));
     let mut setupper_handle = MasqProcess::new().start_interactive(port, true);
     let mut receiver_handle = MasqProcess::new().start_interactive(port, true);
-
     let mut stdin_handle_setupper = setupper_handle.create_stdin_handle();
     let mut stdin_handle_receiver = receiver_handle.create_stdin_handle();
 
@@ -27,15 +26,11 @@ fn setup_results_are_broadcast_to_all_uis_integration() {
     stdin_handle_setupper.type_command("setup --log-level error");
 
     thread::sleep(Duration::from_millis(300));
-
     stdin_handle_setupper.type_command("exit");
     stdin_handle_receiver.type_command("exit");
-
     let (stdout_setupper, _, _) = setupper_handle.stop();
     let (stdout_receiver, _, _) = receiver_handle.stop();
-
     daemon_handle.kill();
-
     assert_eq!(
          stdout_receiver.contains("Daemon setup has changed:"),
          true,
@@ -43,7 +38,6 @@ fn setup_results_are_broadcast_to_all_uis_integration() {
          stdout_receiver,
          stdout_setupper
     );
-
     //TODO the following lines are here to drag attention of somebody.
     // They'll cause an alarm if somebody fixed the bug described in GH-438 without knowing about this test.
     // Remove them in that case.

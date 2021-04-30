@@ -20,7 +20,6 @@ fn interactive_mode_allows_a_help_call_integration() {
     stdin_handle.type_command("help");
 
     thread::sleep(Duration::from_millis(300));
-
     stdin_handle.type_command("exit");
     let (stdout, _stderr, _) = masq_handle.stop();
     daemon_handle.kill();
@@ -63,7 +62,6 @@ fn interactive_mode_allows_a_version_call_integration() {
     stdin_handle.type_command("version");
 
     thread::sleep(Duration::from_millis(300));
-
     stdin_handle.type_command("exit");
     let (stdout, _stderr, _) = masq_handle.stop();
     daemon_handle.kill();

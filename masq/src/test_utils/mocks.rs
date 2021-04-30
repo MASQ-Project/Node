@@ -7,12 +7,14 @@ use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
 use crate::line_reader::TerminalEvent;
+use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClap};
 use crate::terminal_interface::{
     InterfaceWrapper, MasqTerminal, TerminalWrapper, WriterInactive, WriterLock,
 };
-use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError, bounded};
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult};
+use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::intentionally_blank;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
@@ -220,15 +222,7 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandProcessorFactoryMock {
-    make_params: Arc<
-        Mutex<
-            Vec<(
-                Option<TerminalWrapper>,
-                Box<dyn BroadcastHandle>,
-                Vec<String>,
-            )>,
-        >,
-    >,
+    make_params: Arc<Mutex<Vec<(Option<TerminalWrapper>, Box<dyn BroadcastHandle>, u16)>>>,
     make_results: RefCell<Vec<Result<Box<dyn CommandProcessor>, CommandError>>>,
 }
 
@@ -237,12 +231,12 @@ impl CommandProcessorFactory for CommandProcessorFactoryMock {
         &self,
         terminal_interface: Option<TerminalWrapper>,
         generic_broadcast_handle: Box<dyn BroadcastHandle>,
-        args: &[String],
+        ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         self.make_params.lock().unwrap().push((
             terminal_interface,
             generic_broadcast_handle,
-            args.to_vec(),
+            ui_port,
         ));
         self.make_results.borrow_mut().remove(0)
     }
@@ -255,15 +249,7 @@ impl CommandProcessorFactoryMock {
 
     pub fn make_params(
         mut self,
-        params: &Arc<
-            Mutex<
-                Vec<(
-                    Option<TerminalWrapper>,
-                    Box<dyn BroadcastHandle>,
-                    Vec<String>,
-                )>,
-            >,
-        >,
+        params: &Arc<Mutex<Vec<(Option<TerminalWrapper>, Box<dyn BroadcastHandle>, u16)>>>,
     ) -> Self {
         self.make_params = params.clone();
         self
@@ -272,6 +258,22 @@ impl CommandProcessorFactoryMock {
     pub fn make_result(self, result: Result<Box<dyn CommandProcessor>, CommandError>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
+    }
+}
+
+pub struct NonInteractiveClapFactoryMock {}
+
+impl NIClapFactory for NonInteractiveClapFactoryMock {
+    fn make(&self) -> Box<dyn NonInteractiveClap> {
+        Box::new(NonInteractiveClapMock {})
+    }
+}
+
+pub struct NonInteractiveClapMock {}
+
+impl NonInteractiveClap for NonInteractiveClapMock {
+    fn non_interactive_clap_circuit(&self, _args: &[String]) -> u16 {
+        DEFAULT_UI_PORT
     }
 }
 

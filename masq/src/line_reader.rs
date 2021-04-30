@@ -155,7 +155,7 @@ mod tests {
     use super::*;
     use crate::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender};
-    use crossbeam_channel::{unbounded, bounded};
+    use crossbeam_channel::{bounded, unbounded};
     use masq_lib::test_utils::fake_stream_holder::ByteArrayReader;
     use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};

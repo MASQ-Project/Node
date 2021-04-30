@@ -236,9 +236,7 @@ impl<U: linefeed::Terminal + 'static> InterfaceWrapper for Interface<U> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{
-        InterfaceRawMock, StdoutBlender, TerminalActiveMock, MASQ_TESTS_RUN_IN_TERMINAL_KEY,
-    };
+    use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender, TerminalActiveMock};
     use crossbeam_channel::unbounded;
     use linefeed::DefaultTerminal;
     use std::io::{Error, Write};
@@ -263,9 +261,7 @@ mod tests {
         let given_output = test_terminal_collision(Box::new(closure1), Box::new(closure2));
 
         //in an extreme case it may be printed like one group is complete and the other is divided
-        assert!(
-            !given_output.contains(&"A".repeat(90)) || !given_output.contains(&"B".repeat(90))
-        )
+        assert!(!given_output.contains(&"A".repeat(90)) || !given_output.contains(&"B".repeat(90)))
     }
 
     #[test]
@@ -342,24 +338,27 @@ mod tests {
 
     #[test]
     fn configure_interface_catches_an_error_at_the_first_level_of_result_matching() {
-            let subject = interface_configurator(
+        let subject = interface_configurator(
                 Box::new(Interface::with_term),
                 Box::new(producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error),
             );
 
-            let result = match subject {
-                Ok(_) => panic!("should have been an error, got OK"),
-                Err(e) => e,
-            };
+        let result = match subject {
+            Ok(_) => panic!("should have been an error, got OK"),
+            Err(e) => e,
+        };
 
-            assert_eq!(
-                    result,format!("Local terminal recognition: {}",
-                Error::from_raw_os_error(1))
+        assert_eq!(
+            result,
+            format!(
+                "Local terminal recognition: {}",
+                Error::from_raw_os_error(1)
             )
+        )
     }
 
-    fn producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error()
-        -> std::io::Result<impl linefeed::Terminal + 'static> {
+    fn producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error(
+    ) -> std::io::Result<impl linefeed::Terminal + 'static> {
         Err(Error::from_raw_os_error(1)) as std::io::Result<DefaultTerminal>
     }
 

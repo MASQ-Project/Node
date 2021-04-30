@@ -4,31 +4,27 @@ use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::BroadcastHandle;
-use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
-use clap::value_t;
 
 pub trait CommandProcessorFactory {
     fn make(
         &self,
         terminal_interface: Option<TerminalWrapper>,
         generic_broadcast_handle: Box<dyn BroadcastHandle>,
-        args: &[String],
+        ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
 }
 
 #[derive(Default)]
-pub struct CommandProcessorFactoryReal {}
+pub struct CommandProcessorFactoryReal;
 
 impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
         terminal_interface: Option<TerminalWrapper>,
         generic_broadcast_handle: Box<dyn BroadcastHandle>,
-        args: &[String],
+        ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        let matches = app().get_matches_from(args);
-        let ui_port = value_t!(matches, "ui-port", u16).expect("ui-port is not properly defaulted");
         match CommandContextReal::new(ui_port, terminal_interface, generic_broadcast_handle) {
             Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
@@ -106,16 +102,11 @@ mod tests {
 
     #[test]
     fn handles_nonexistent_server() {
-        let port = find_free_port();
-        let args = [
-            "masq".to_string(),
-            "--ui-port".to_string(),
-            format!("{}", port),
-        ];
+        let ui_port = find_free_port();
         let subject = CommandProcessorFactoryReal::new();
         let broadcast_handle = BroadcastHandleInactive::new();
 
-        let result = subject.make(None, Box::new(broadcast_handle), &args);
+        let result = subject.make(None, Box::new(broadcast_handle), ui_port);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -128,19 +119,15 @@ mod tests {
 
     #[test]
     fn factory_parses_out_the_correct_port_when_specified() {
-        let port = find_free_port();
-        let args = [
-            "masq".to_string(),
-            "--ui-port".to_string(),
-            format!("{}", port),
-        ];
+        let ui_port = find_free_port();
         let broadcast_handle = BroadcastHandleInactive::new();
         let subject = CommandProcessorFactoryReal::new();
-        let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
+        let server =
+            MockWebSocketsServer::new(ui_port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
 
         let mut result = subject
-            .make(None, Box::new(broadcast_handle), &args)
+            .make(None, Box::new(broadcast_handle), ui_port)
             .unwrap();
 
         let command = TestCommand {};
@@ -154,8 +141,8 @@ mod tests {
         sender: Sender<String>,
     }
 
-    impl TameCommand{
-        fn send_piece_of_whole_message(&self,piece:&str){
+    impl TameCommand {
+        fn send_piece_of_whole_message(&self, piece: &str) {
             self.sender.send(piece.to_string()).unwrap();
             thread::sleep(Duration::from_millis(1));
         }
@@ -187,27 +174,22 @@ mod tests {
     #[test]
     fn process_locks_writing_and_prevents_interferences_from_broadcast_messages() {
         running_test();
-        let port = find_free_port();
+        let ui_port = find_free_port();
         let broadcast = UiUndeliveredFireAndForget {
             opcode: "whateverTheOpcodeHereIs".to_string(),
         }
         .tmb(0);
         let (tx, rx) = bounded(1);
         let position_of_the_signal_message = 1; //means the one after the first
-        let server = MockWebSocketsServer::new(port)
+        let server = MockWebSocketsServer::new(ui_port)
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast)
-            .inject_broadcast_trigger_accesories((tx,position_of_the_signal_message));
+            .inject_broadcast_trigger_accesories((tx, position_of_the_signal_message));
         let (broadcast_stream_factory, broadcast_stream_factory_handle) = TestStreamFactory::new();
         let (cloned_stdout_sender, _) = broadcast_stream_factory.clone_senders();
-        let args = [
-            "masq".to_string(),
-            "--ui-port".to_string(),
-            format!("{}", port),
-        ];
         let terminal_interface = TerminalWrapper::configure_interface().unwrap();
         let background_terminal_interface = terminal_interface.clone();
         let generic_broadcast_handler =
@@ -218,7 +200,7 @@ mod tests {
         let stop_handle = server.start();
 
         let mut processor = processor_factory
-            .make(Some(terminal_interface), generic_broadcast_handle, &args)
+            .make(Some(terminal_interface), generic_broadcast_handle, ui_port)
             .unwrap();
         processor
             .process(Box::new(ToUiBroadcastTrigger {}))
