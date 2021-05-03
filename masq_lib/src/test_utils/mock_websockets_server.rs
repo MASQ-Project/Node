@@ -380,7 +380,7 @@ mod tests {
     use crate::messages::UiSetupResponseValueStatus::Set;
     use crate::messages::{
         FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiChangePasswordRequest,
-        UiChangePasswordResponse, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
+        UiChangePasswordResponse, UiNewPasswordBroadcast, UiSetupBroadcast,
         UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiUnmarshalError, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
@@ -471,7 +471,6 @@ mod tests {
     #[test]
     fn broadcast_trigger_can_work_together_with_conversational_messages() {
         let port = find_free_port();
-        let (tx, rx) = bounded(1);
         let expected_ui_setup_broadcast = UiSetupBroadcast {
             running: false,
             values: vec![UiSetupResponseValue {
@@ -481,19 +480,18 @@ mod tests {
             }],
             errors: vec![],
         };
+        let expected_ui_setup_response = UiSetupResponse {
+            running: true,
+            values: vec![],
+            errors: vec![],
+        };
         let server = MockWebSocketsServer::new(port)
-            .queue_response(
-                UiSetupResponse {
-                    running: false,
-                    values: vec![],
-                    errors: vec![],
-                }
+            .queue_response(expected_ui_setup_response.clone()
                 .tmb(10),
             )
             .queue_response(expected_ui_setup_broadcast.clone().tmb(0))
             .queue_response(UiChangePasswordResponse {}.tmb(11))
-            .queue_response(UiNewPasswordBroadcast {}.tmb(0))
-            .inject_signal_sender(tx);
+            .queue_response(UiNewPasswordBroadcast {}.tmb(0));
         let stop_handle = server.start();
         let ui_setup_request = UiSetupRequest { values: vec![] };
         let ui_change_password_request = UiChangePasswordRequest {
@@ -505,13 +503,17 @@ mod tests {
         };
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
-        connection.send(broadcast_trigger);
+        connection.send(broadcast_trigger.clone());
         let first_received_message: UiSetupBroadcast = connection.receive().unwrap();
         let second_received_message: UiNewPasswordBroadcast = connection.receive().unwrap();
-        //let ui_setup_response: UiSetupResponse = connection.transact_with_context_id(ui_setup_request,10).unwrap();
+        let third_received_message: UiSetupResponse = connection.transact_with_context_id(ui_setup_request,10).unwrap();
+        let forth_received_message: UiChangePasswordResponse = connection.transact_with_context_id(ui_change_password_request,10).unwrap();
 
         let requests = stop_handle.stop();
         assert_eq!(first_received_message, expected_ui_setup_broadcast);
-        assert_eq!(second_received_message, UiNewPasswordBroadcast {})
+        assert_eq!(second_received_message, UiNewPasswordBroadcast {});
+        assert_eq!(third_received_message,expected_ui_setup_response);
+        assert_eq!(forth_received_message,UiChangePasswordResponse{});
+        assert_eq!(requests[0].as_ref().unwrap(),&broadcast_trigger.tmb(0))
     }
 }
