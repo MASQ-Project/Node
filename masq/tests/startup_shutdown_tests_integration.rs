@@ -25,7 +25,7 @@ fn masq_without_daemon_integration() {
 }
 
 #[test]
-fn masq_terminates_immediately_when_clap_is_furious_above_what_came_from_the_command_line_integration(
+fn masq_terminates_immediately_when_clap_gets_furious_at_what_came_from_the_command_line_integration(
 ) {
     let masq_handle = MasqProcess::new().start_noninteractive(vec!["uninvented-command"]);
 

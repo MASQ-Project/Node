@@ -1,6 +1,7 @@
 use crate::schema::app;
 use clap::{value_t, ArgMatches};
 
+#[allow(clippy::upper_case_acronyms)]
 pub trait NIClapFactory {
     fn make(&self) -> Box<dyn NonInteractiveClap>;
 }

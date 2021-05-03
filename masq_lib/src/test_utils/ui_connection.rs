@@ -68,6 +68,7 @@ impl UiConnection {
         let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
             .expect("Deserialization problem");
         let opcode = incoming_msg.body.opcode.clone();
+
         let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body);
         match result {
             Ok((payload, _)) => Ok(payload),

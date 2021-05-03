@@ -1,5 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::messages::NODE_UI_PROTOCOL;
+use crate::messages::{
+    FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiUnmarshalError, NODE_UI_PROTOCOL,
+};
 use crate::ui_gateway::{MessageBody, MessagePath};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
@@ -24,7 +26,7 @@ pub struct MockWebSocketsServer {
     port: u16,
     pub protocol: String,
     responses_arc: Arc<Mutex<Vec<OwnedMessage>>>,
-    broadcast_trigger_acessories: Cell<Option<(Sender<()>, usize)>>,
+    signal_sender: Cell<Option<Sender<()>>>,
 }
 
 pub struct MockWebSocketsServerStopHandle {
@@ -43,7 +45,7 @@ impl MockWebSocketsServer {
             port,
             protocol: NODE_UI_PROTOCOL.to_string(),
             responses_arc: Arc::new(Mutex::new(vec![])),
-            broadcast_trigger_acessories: Cell::new(None),
+            signal_sender: Cell::new(None),
         }
     }
 
@@ -64,8 +66,8 @@ impl MockWebSocketsServer {
         self
     }
 
-    pub fn inject_broadcast_trigger_accesories(self, accessories: (Sender<()>, usize)) -> Self {
-        self.broadcast_trigger_acessories.set(Some(accessories));
+    pub fn inject_signal_sender(self, sender: Sender<()>) -> Self {
+        self.signal_sender.set(Some(sender));
         self
     }
 
@@ -202,17 +204,54 @@ impl MockWebSocketsServer {
                                     index,
                                     "Responding to a request for FireAndForget message in direction to UI",
                                 );
-                                if let Some(tuple) = self.broadcast_trigger_acessories.take() {
-                                    let (signal_sender, positional_number_of_the_signal_sent) =
-                                        tuple;
-                                    let queued_messages =
-                                        inner_responses_arc.lock().unwrap().clone();
-                                    (0..queued_messages.len()).for_each(|i| {
-                                        if positional_number_of_the_signal_sent == i {
-                                            signal_sender.send(()).unwrap()
+                                let (trigger, _) = UiBroadcastTrigger::fmb(message_body).unwrap();
+                                let positional_number_of_the_signal_sent_opt =
+                                    trigger.position_to_send_the_signal_opt;
+                                let signal_sender_opt: Option<Sender<()>> =
+                                    if positional_number_of_the_signal_sent_opt.is_some() {
+                                        if let Some(signal_sender) = self.signal_sender.take() {
+                                            Some(signal_sender)
+                                        } else {
+                                            panic!("You require to send a signal but haven't provided Sender<()> by inject_signal_sender()")
                                         }
-                                        client.send_message(&queued_messages[i]).unwrap();
-                                        thread::sleep(Duration::from_millis(1))
+                                    } else {
+                                        None
+                                    };
+                                {
+                                    let queued_messages = &mut *inner_responses_arc.lock().unwrap();
+                                    let mut factor_of_position_reduction = 0_usize;
+                                    (0..queued_messages.len()).for_each(|i| {
+                                        if let Some(position) =
+                                            positional_number_of_the_signal_sent_opt
+                                        {
+                                            if position == i {
+                                                signal_sender_opt
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .send(())
+                                                    .unwrap()
+                                            }
+                                        }
+                                        if let OwnedMessage::Text(json) =
+                                            &queued_messages[i - factor_of_position_reduction]
+                                        {
+                                            if let Ok(msg) =
+                                                UiTrafficConverter::new_unmarshal_from_ui(&json, 0)
+                                            {
+                                                if msg.body.path == MessagePath::FireAndForget {
+                                                    client
+                                                        .send_message(
+                                                            &queued_messages
+                                                                [i - factor_of_position_reduction],
+                                                        )
+                                                        .unwrap();
+                                                    queued_messages
+                                                        .remove(i - factor_of_position_reduction);
+                                                    factor_of_position_reduction += 1;
+                                                    thread::sleep(Duration::from_millis(1))
+                                                }
+                                            }
+                                        }
                                     })
                                 }
                             }
@@ -224,6 +263,27 @@ impl MockWebSocketsServer {
                                 );
                             }
                         }
+                    } else {
+                        log(
+                            do_log,
+                            index,
+                            "Responding to unrecognizable OwnedMessage::Text",
+                        );
+                        let bad_message = incoming.unwrap_err();
+                        let marshal_error = UiTrafficConverter::new_unmarshal_from_ui(
+                            &bad_message,
+                            0, //irrelevant?
+                        )
+                        .unwrap_err();
+                        let to_ui_response = UiUnmarshalError {
+                            message: bad_message,
+                            bad_data: marshal_error.to_string(),
+                        }
+                        .tmb(0);
+                        let marshaled_response = UiTrafficConverter::new_marshal(to_ui_response);
+                        client
+                            .send_message(&OwnedMessage::Text(marshaled_response))
+                            .unwrap()
                     }
                 }
                 log(do_log, index, "Checking for termination directive");
@@ -319,14 +379,15 @@ mod tests {
     use super::*;
     use crate::messages::UiSetupResponseValueStatus::Set;
     use crate::messages::{
-        FromMessageBody, ToMessageBody, UiSetupResponse, UiSetupResponseValue, UiUnmarshalError,
-        NODE_UI_PROTOCOL,
+        FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiChangePasswordRequest,
+        UiChangePasswordResponse, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
+        UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiUnmarshalError, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
     use crate::utils::find_free_port;
+    use crossbeam_channel::bounded;
 
     #[test]
-    #[ignore]
     fn two_in_two_out() {
         let port = find_free_port();
         let first_expected_response = UiSetupResponse {
@@ -343,8 +404,10 @@ mod tests {
         }
         .tmb(1);
         let second_expected_response = UiUnmarshalError {
-            message: "message".to_string(),
-            bad_data: "{}".to_string(),
+            message: "}: Bad request :{".to_string(),
+            bad_data: "Critical error unmarshalling unidentified message: \
+            Couldn't parse text as JSON: Error(\"expected value\", line: 1, column: 1)"
+                .to_string(),
         }
         .tmb(0);
         let stop_handle = MockWebSocketsServer::new(port)
@@ -352,6 +415,7 @@ mod tests {
             .queue_response(second_expected_response.clone())
             .start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
+
         let first_actual_response: UiSetupResponse = connection
             .transact_with_context_id(
                 UiSetupResponse {
@@ -369,7 +433,9 @@ mod tests {
                 1234,
             )
             .unwrap();
+
         connection.send_string("}: Bad request :{".to_string());
+
         let second_actual_response: UiUnmarshalError = connection.receive().unwrap();
 
         let requests = stop_handle.stop();
@@ -400,5 +466,52 @@ mod tests {
             (second_actual_response, 0),
             UiUnmarshalError::fmb(second_expected_response).unwrap()
         );
+    }
+
+    #[test]
+    fn broadcast_trigger_can_work_together_with_conversational_messages() {
+        let port = find_free_port();
+        let (tx, rx) = bounded(1);
+        let expected_ui_setup_broadcast = UiSetupBroadcast {
+            running: false,
+            values: vec![UiSetupResponseValue {
+                name: "direction".to_string(),
+                value: "to UI".to_string(),
+                status: Set,
+            }],
+            errors: vec![],
+        };
+        let server = MockWebSocketsServer::new(port)
+            .queue_response(
+                UiSetupResponse {
+                    running: false,
+                    values: vec![],
+                    errors: vec![],
+                }
+                .tmb(10),
+            )
+            .queue_response(expected_ui_setup_broadcast.clone().tmb(0))
+            .queue_response(UiChangePasswordResponse {}.tmb(11))
+            .queue_response(UiNewPasswordBroadcast {}.tmb(0))
+            .inject_signal_sender(tx);
+        let stop_handle = server.start();
+        let ui_setup_request = UiSetupRequest { values: vec![] };
+        let ui_change_password_request = UiChangePasswordRequest {
+            old_password_opt: None,
+            new_password: "abraka".to_string(),
+        };
+        let broadcast_trigger = UiBroadcastTrigger {
+            position_to_send_the_signal_opt: None,
+        };
+        let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
+
+        connection.send(broadcast_trigger);
+        let first_received_message: UiSetupBroadcast = connection.receive().unwrap();
+        let second_received_message: UiNewPasswordBroadcast = connection.receive().unwrap();
+        //let ui_setup_response: UiSetupResponse = connection.transact_with_context_id(ui_setup_request,10).unwrap();
+
+        let requests = stop_handle.stop();
+        assert_eq!(first_received_message, expected_ui_setup_broadcast);
+        assert_eq!(second_received_message, UiNewPasswordBroadcast {})
     }
 }

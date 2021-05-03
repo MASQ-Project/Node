@@ -44,19 +44,20 @@ impl Main {
         let vec_candidate = args
             .to_vec()
             .into_iter()
-            .skip(
-                1 + match args[1].as_str() {
-                    //first ln: assertion that Clap hasn't prepared a trap for us
-                    "--help" | "--version" => 1,
-                    "--ui-port" => 2,
-                    _ => 0,
-                },
-            )
+            .skip(1 + Self::eliminate_pre_subcommand_items(args[1].as_str()))
             .collect::<Vec<String>>();
-        if vec_candidate.len() > 0 {
+        if !vec_candidate.is_empty() {
             Some(vec_candidate)
         } else {
             None
+        }
+    }
+
+    fn eliminate_pre_subcommand_items(second_arg: &str) -> usize {
+        match second_arg {
+            "--ui-port" => 2,
+            "--help" | "--version" => panic!("Unexpected Clap behavior; terminating."),
+            _ => 0,
         }
     }
 
@@ -182,6 +183,7 @@ mod tests {
     use crate::command_context::ContextError::Other;
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
+    use crate::commands::setup_command::SetupCommand;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand, NonInteractiveClapFactoryMock, TestStreamFactory,
@@ -217,26 +219,26 @@ mod tests {
         let result = subject.go(
             &mut FakeStreamHolder::new().streams(),
             &[
-                "command".to_string(),
-                "subcommand".to_string(),
-                "--param3".to_string(),
-                "value3".to_string(),
-                "param4".to_string(),
-                "param5".to_string(),
-            ],
+                "command",
+                "subcommand",
+                "--param3",
+                "value3",
+                "param4",
+                "param5",
+            ]
+            .iter()
+            .map(|str| str.to_string())
+            .collect::<Vec<String>>(),
         );
 
         assert_eq!(result, 0);
         let c_make_params = c_make_params_arc.lock().unwrap();
         assert_eq!(
             *c_make_params,
-            vec![vec![
-                "subcommand".to_string(),
-                "--param3".to_string(),
-                "value3".to_string(),
-                "param4".to_string(),
-                "param5".to_string()
-            ],]
+            vec![vec!["subcommand", "--param3", "value3", "param4", "param5"]
+                .iter()
+                .map(|str| str.to_string())
+                .collect::<Vec<String>>(),]
         );
         let mut p_make_params = p_make_params_arc.lock().unwrap();
         let (terminal_interface, broadcast_handle, ui_port) = p_make_params.pop().unwrap();
@@ -417,6 +419,72 @@ mod tests {
     }
 
     #[test]
+    fn noninteractive_mode_works_when_special_ui_port_is_required() {
+        let c_make_params_arc = Arc::new(Mutex::new(vec![]));
+        let command_factory = CommandFactoryMock::new()
+            .make_params(&c_make_params_arc)
+            .make_result(Ok(Box::new(SetupCommand::new(vec![]).unwrap())));
+        let process_params_arc = Arc::new(Mutex::new(vec![]));
+        let processor = CommandProcessorMock::new()
+            .process_params(&process_params_arc)
+            .process_result(Ok(()));
+        let p_make_params_arc = Arc::new(Mutex::new(vec![]));
+        let processor_factory = CommandProcessorFactoryMock::new()
+            .make_params(&p_make_params_arc)
+            .make_result(Ok(Box::new(processor)));
+        let clap_factory = NonInteractiveClapFactoryReal;
+        let mut subject = Main {
+            non_interactive_clap_factory: Box::new(clap_factory),
+            command_factory: Box::new(command_factory),
+            processor_factory: Box::new(processor_factory),
+        };
+
+        let result = subject.go(
+            &mut FakeStreamHolder::new().streams(),
+            &[
+                "masq".to_string(),
+                "--ui-port".to_string(),
+                "10000".to_string(),
+                "setup".to_string(),
+            ],
+        );
+
+        assert_eq!(result, 0);
+        let c_make_params = c_make_params_arc.lock().unwrap();
+        assert_eq!(*c_make_params, vec![vec!["setup".to_string(),],]);
+        let mut p_make_params = p_make_params_arc.lock().unwrap();
+        let (terminal_interface, broadcast_handle, ui_port) = p_make_params.pop().unwrap();
+        assert_eq!(ui_port, 10000);
+        assert!(terminal_interface.is_none());
+        assert!(broadcast_handle
+            .as_any()
+            .downcast_ref::<BroadcastHandleInactive>()
+            .is_some());
+        let mut process_params = process_params_arc.lock().unwrap();
+        assert_eq!(
+            *(*process_params)
+                .pop()
+                .unwrap()
+                .as_any()
+                .downcast_ref::<SetupCommand>()
+                .unwrap(),
+            SetupCommand { values: vec![] }
+        )
+    }
+
+    #[test]
+    #[should_panic(expected = "Unexpected Clap behavior; terminating.")]
+    fn eliminate_pre_subcommand_items_panics_on_help() {
+        let _ = Main::eliminate_pre_subcommand_items("--help");
+    }
+
+    #[test]
+    #[should_panic(expected = "Unexpected Clap behavior; terminating.")]
+    fn eliminate_pre_subcommand_items_panics_on_version() {
+        let _ = Main::eliminate_pre_subcommand_items("--version");
+    }
+
+    #[test]
     fn extract_subcommands_can_process_interactive_mode_request() {
         let args = vec!["masq".to_string()];
 
@@ -426,13 +494,11 @@ mod tests {
     }
 
     #[test]
-    fn extract_subcommands_can_process_non_interactive_request() {
-        let args = vec![
-            "masq".to_string(),
-            "setup".to_string(),
-            "--log-level".to_string(),
-            "off".to_string(),
-        ];
+    fn extract_subcommands_can_process_normal_non_interactive_request() {
+        let args = vec!["masq", "setup", "--log-level", "off"]
+            .iter()
+            .map(|str| str.to_string())
+            .collect::<Vec<String>>();
 
         let result = Main::extract_subcommand(&args);
 
@@ -447,18 +513,21 @@ mod tests {
     }
 
     #[test]
-    fn extract_subcommands_can_process_command_specific_help_requests() {
-        let args = vec![
-            "masq".to_string(),
-            "setup".to_string(),
-            "--help".to_string(),
-        ];
+    fn extract_subcommands_can_process_non_interactive_request_including_special_port() {
+        let args = vec!["masq", "--ui-port", "10000", "setup", "--log-level", "off"]
+            .iter()
+            .map(|str| str.to_string())
+            .collect::<Vec<String>>();
 
         let result = Main::extract_subcommand(&args);
 
         assert_eq!(
             result,
-            Some(vec!["setup".to_string(), "--help".to_string()])
+            Some(vec![
+                "setup".to_string(),
+                "--log-level".to_string(),
+                "off".to_string()
+            ])
         )
     }
 }

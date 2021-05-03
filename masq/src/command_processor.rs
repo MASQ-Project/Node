@@ -161,11 +161,16 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct ToUiBroadcastTrigger {}
+    struct ToUiBroadcastTrigger {
+        pub signal_position: Option<usize>,
+    }
 
     impl Command for ToUiBroadcastTrigger {
         fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            let input = UiBroadcastTrigger {}.tmb(0);
+            let input = UiBroadcastTrigger {
+                position_to_send_the_signal_opt: self.signal_position,
+            }
+            .tmb(0);
             context.send(input).unwrap(); //send instead of transact; using FFM.
             Ok(())
         }
@@ -187,7 +192,7 @@ mod tests {
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast)
-            .inject_broadcast_trigger_accesories((tx, position_of_the_signal_message));
+            .inject_signal_sender(tx);
         let (broadcast_stream_factory, broadcast_stream_factory_handle) = TestStreamFactory::new();
         let (cloned_stdout_sender, _) = broadcast_stream_factory.clone_senders();
         let terminal_interface = TerminalWrapper::configure_interface().unwrap();
@@ -203,7 +208,9 @@ mod tests {
             .make(Some(terminal_interface), generic_broadcast_handle, ui_port)
             .unwrap();
         processor
-            .process(Box::new(ToUiBroadcastTrigger {}))
+            .process(Box::new(ToUiBroadcastTrigger {
+                signal_position: Some(position_of_the_signal_message),
+            }))
             .unwrap();
         rx.recv_timeout(Duration::from_millis(200)).unwrap();
         processor
@@ -220,9 +227,8 @@ mod tests {
             "Message wasn't printed uninterrupted: {}",
             received_output
         );
-        let tamed_output_with_broadcasts_filtered_out =
-            received_output.replace(tamed_message_as_a_whole, "");
-        let number_of_broadcast_received = tamed_output_with_broadcasts_filtered_out
+        let output_with_broadcasts_only = received_output.replace(tamed_message_as_a_whole, "");
+        let number_of_broadcast_received = output_with_broadcasts_only
             .clone()
             .lines()
             .filter(|line| {

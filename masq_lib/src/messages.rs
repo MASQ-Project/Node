@@ -621,7 +621,9 @@ conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UiBroadcastTrigger {}
+pub struct UiBroadcastTrigger {
+    pub position_to_send_the_signal_opt: Option<usize>,
+}
 fire_and_forget_message!(UiBroadcastTrigger, "broadcastTrigger");
 
 #[cfg(test)]
