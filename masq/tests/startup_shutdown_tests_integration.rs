@@ -18,7 +18,7 @@ fn masq_without_daemon_integration() {
     assert_eq!(&stdout, "", "{}", stdout);
     assert!(
         stderr.contains("Can't connect to Daemon or Node"),
-        "we got{}",
+        "we got: {}",
         stderr
     );
     assert_eq!(exit_code, 1);
@@ -33,7 +33,7 @@ fn masq_terminates_immediately_when_clap_gets_furious_at_what_came_from_the_comm
 
     assert_eq!(&stdout, "", "{}", stdout);
     assert!(stderr.contains("Found argument 'uninvented-command' which wasn't expected, or isn't valid in this context"),
-        "we got {}",
+        "we got: {}",
         stderr
     );
     assert_eq!(exit_code, 1);

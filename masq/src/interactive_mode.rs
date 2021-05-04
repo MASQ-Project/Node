@@ -104,8 +104,8 @@ mod tests {
     use crate::non_interactive_mode::Main;
     use crate::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{
-        CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        NonInteractiveClapFactoryMock, TerminalActiveMock, TerminalPassiveMock,
+        CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock, NIClapFactoryMock,
+        TerminalActiveMock, TerminalPassiveMock,
     };
     use crossbeam_channel::bounded;
     use masq_lib::command::Command;
@@ -152,7 +152,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main::test_only_new(
-            Box::new(NonInteractiveClapFactoryMock {}),
+            Box::new(NIClapFactoryMock {}),
             Box::new(command_factory),
             Box::new(processor_factory),
         );
@@ -162,8 +162,8 @@ mod tests {
             &mut stream_holder.streams(),
             &[
                 "command".to_string(),
-                "--ui-port".to_string(),
-                "10000".to_string(),
+                "--param".to_string(),
+                "value".to_string(),
             ],
         );
 
@@ -195,7 +195,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main::test_only_new(
-            Box::new(NonInteractiveClapFactoryMock {}),
+            Box::new(NIClapFactoryMock {}),
             Box::new(command_factory),
             Box::new(processor_factory),
         );
@@ -235,7 +235,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main::test_only_new(
-            Box::new(NonInteractiveClapFactoryMock {}),
+            Box::new(NIClapFactoryMock {}),
             Box::new(command_factory),
             Box::new(processor_factory),
         );
@@ -265,7 +265,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main::test_only_new(
-            Box::new(NonInteractiveClapFactoryMock {}),
+            Box::new(NIClapFactoryMock {}),
             Box::new(command_factory),
             Box::new(processor_factory),
         );

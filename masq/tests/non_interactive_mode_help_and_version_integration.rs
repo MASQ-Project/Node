@@ -30,7 +30,7 @@ fn masq_non_interactive_version_command_integration() {
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
     assert_eq!(stderr, "");
-    let regex = Regex::new(r"masq \d.\d.\d\n").unwrap();
+    let regex = Regex::new(r"masq [1-255]\.[0-255]\.[0-255]\n").unwrap();
     assert!(
         regex.is_match(&stdout),
         "Should see the version of masq printed to stdout, but got this: {}",

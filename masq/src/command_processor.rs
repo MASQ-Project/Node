@@ -81,8 +81,8 @@ mod tests {
     };
     use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::{bounded, Sender};
+    use masq_lib::messages::UiShutdownRequest;
     use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
-    use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
@@ -117,25 +117,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn factory_parses_out_the_correct_port_when_specified() {
-        let ui_port = find_free_port();
-        let broadcast_handle = BroadcastHandleInactive::new();
-        let subject = CommandProcessorFactoryReal::new();
-        let server =
-            MockWebSocketsServer::new(ui_port).queue_response(UiShutdownResponse {}.tmb(1));
-        let stop_handle = server.start();
-
-        let mut result = subject
-            .make(None, Box::new(broadcast_handle), ui_port)
-            .unwrap();
-
-        let command = TestCommand {};
-        result.process(Box::new(command)).unwrap();
-        let received = stop_handle.stop();
-        assert_eq!(received, vec![Ok(UiShutdownRequest {}.tmb(1))]);
-    }
-
     #[derive(Debug)]
     struct TameCommand {
         sender: Sender<String>,
@@ -168,6 +149,7 @@ mod tests {
     impl Command for ToUiBroadcastTrigger {
         fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
             let input = UiBroadcastTrigger {
+                number_of_broadcasts_in_one_batch: None,
                 position_to_send_the_signal_opt: self.signal_position,
             }
             .tmb(0);

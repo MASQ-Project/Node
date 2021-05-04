@@ -67,7 +67,7 @@ fn interactive_mode_allows_a_version_call_integration() {
     daemon_handle.kill();
     //TODO put this assertion back when GH-446 is played out - paired with the test above
     //assert_eq!(stderr, "");
-    let regex = Regex::new(r"masq> \nmasq \d.\d.\d\nmasq> ").unwrap();
+    let regex = Regex::new(r"masq> \nmasq [1-255]\.[0-255]\.[0-255]\nmasq> ").unwrap();
     assert!(
         regex.is_match(&stdout),
         "Should see a printed message of the current version of masq, but got this: {}",

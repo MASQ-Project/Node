@@ -10,11 +10,12 @@ use crate::communications::broadcast_handler::{
     StreamFactory, StreamFactoryReal,
 };
 use crate::interactive_mode::go_interactive;
-use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClapFactoryReal};
+use crate::non_interactive_clap::{NIClapFactory, NIClapFactoryReal};
 use crate::terminal_interface::TerminalWrapper;
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
+use std::ops::Not;
 
 pub struct Main {
     non_interactive_clap_factory: Box<dyn NIClapFactory>,
@@ -31,34 +32,31 @@ impl Default for Main {
 impl Main {
     pub fn new() -> Self {
         Self {
-            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryReal),
+            non_interactive_clap_factory: Box::new(NIClapFactoryReal),
             command_factory: Box::new(CommandFactoryReal),
             processor_factory: Box::new(CommandProcessorFactoryReal),
         }
     }
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
-        if args.len().eq(&1) {
-            return None;
-        }
-        let vec_candidate = args
-            .to_vec()
-            .into_iter()
-            .skip(1 + Self::eliminate_pre_subcommand_items(args[1].as_str()))
-            .collect::<Vec<String>>();
-        if !vec_candidate.is_empty() {
-            Some(vec_candidate)
+        let original = args.iter();
+        let one_item_shifted_forth = args.iter().skip(1);
+        let index = original.zip(one_item_shifted_forth).enumerate().find(
+            |(_position, (orig, shifted))| Self::both_do_not_start_with_two_dashes(orig, shifted),
+        );
+        if let Some((index, _)) = index {
+            Some(args.to_vec().into_iter().skip(index + 1).collect())
         } else {
             None
         }
     }
 
-    fn eliminate_pre_subcommand_items(second_arg: &str) -> usize {
-        match second_arg {
-            "--ui-port" => 2,
-            "--help" | "--version" => panic!("Unexpected Clap behavior; terminating."),
-            _ => 0,
-        }
+    fn both_do_not_start_with_two_dashes(
+        one_program_arg: &&String,
+        program_arg_next_to_the_previous: &&String,
+    ) -> bool {
+        one_program_arg.starts_with("--").not()
+            && program_arg_next_to_the_previous.starts_with("--").not()
     }
 
     fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, Option<TerminalWrapper>)
@@ -100,7 +98,7 @@ impl command::Command for Main {
         let ui_port = self
             .non_interactive_clap_factory
             .make()
-            .non_interactive_clap_circuit(args);
+            .non_interactive_initial_clap_operations(args);
         let subcommand_opt = Self::extract_subcommand(args);
         let (generic_broadcast_handle, terminal_interface) = match subcommand_opt {
             Some(_) => Self::populate_non_interactive_dependencies(),
@@ -186,7 +184,7 @@ mod tests {
     use crate::commands::setup_command::SetupCommand;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        MockCommand, NonInteractiveClapFactoryMock, TestStreamFactory,
+        MockCommand, NIClapFactoryMock, TestStreamFactory,
     };
     use masq_lib::command::Command;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
@@ -211,7 +209,7 @@ mod tests {
             .make_params(&p_make_params_arc)
             .make_result(Ok(Box::new(processor)));
         let mut subject = Main {
-            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
+            non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
         };
@@ -221,10 +219,10 @@ mod tests {
             &[
                 "command",
                 "subcommand",
-                "--param3",
-                "value3",
-                "param4",
-                "param5",
+                "--param1",
+                "value1",
+                "param2",
+                "param3",
             ]
             .iter()
             .map(|str| str.to_string())
@@ -235,7 +233,7 @@ mod tests {
         let c_make_params = c_make_params_arc.lock().unwrap();
         assert_eq!(
             *c_make_params,
-            vec![vec!["subcommand", "--param3", "value3", "param4", "param5"]
+            vec![vec!["subcommand", "--param1", "value1", "param2", "param3"]
                 .iter()
                 .map(|str| str.to_string())
                 .collect::<Vec<String>>(),]
@@ -287,7 +285,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
-            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
+            non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
         };
@@ -319,7 +317,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
-            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
+            non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
         };
@@ -348,7 +346,7 @@ mod tests {
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
-            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
+            non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
         };
@@ -372,7 +370,7 @@ mod tests {
         let processor_factory = CommandProcessorFactoryMock::new()
             .make_result(Err(CommandError::ConnectionProblem("booga".to_string())));
         let mut subject = Main {
-            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryMock {}),
+            non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(CommandFactoryMock::new()),
             processor_factory: Box::new(processor_factory),
         };
@@ -432,7 +430,7 @@ mod tests {
         let processor_factory = CommandProcessorFactoryMock::new()
             .make_params(&p_make_params_arc)
             .make_result(Ok(Box::new(processor)));
-        let clap_factory = NonInteractiveClapFactoryReal;
+        let clap_factory = NIClapFactoryReal;
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(clap_factory),
             command_factory: Box::new(command_factory),
@@ -470,18 +468,6 @@ mod tests {
                 .unwrap(),
             SetupCommand { values: vec![] }
         )
-    }
-
-    #[test]
-    #[should_panic(expected = "Unexpected Clap behavior; terminating.")]
-    fn eliminate_pre_subcommand_items_panics_on_help() {
-        let _ = Main::eliminate_pre_subcommand_items("--help");
-    }
-
-    #[test]
-    #[should_panic(expected = "Unexpected Clap behavior; terminating.")]
-    fn eliminate_pre_subcommand_items_panics_on_version() {
-        let _ = Main::eliminate_pre_subcommand_items("--version");
     }
 
     #[test]

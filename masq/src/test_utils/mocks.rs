@@ -261,18 +261,18 @@ impl CommandProcessorFactoryMock {
     }
 }
 
-pub struct NonInteractiveClapFactoryMock {}
+pub struct NIClapFactoryMock;
 
-impl NIClapFactory for NonInteractiveClapFactoryMock {
+impl NIClapFactory for NIClapFactoryMock {
     fn make(&self) -> Box<dyn NonInteractiveClap> {
         Box::new(NonInteractiveClapMock {})
     }
 }
 
-pub struct NonInteractiveClapMock {}
+pub struct NonInteractiveClapMock;
 
 impl NonInteractiveClap for NonInteractiveClapMock {
-    fn non_interactive_clap_circuit(&self, _args: &[String]) -> u16 {
+    fn non_interactive_initial_clap_operations(&self, _args: &[String]) -> u16 {
         DEFAULT_UI_PORT
     }
 }

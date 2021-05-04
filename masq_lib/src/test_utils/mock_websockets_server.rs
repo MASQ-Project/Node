@@ -66,6 +66,7 @@ impl MockWebSocketsServer {
         self
     }
 
+    // I did't want to write a special test for this as it's already used in a test from command_processor() and works good
     pub fn inject_signal_sender(self, sender: Sender<()>) -> Self {
         self.signal_sender.set(Some(sender));
         self
@@ -205,6 +206,7 @@ impl MockWebSocketsServer {
                                     "Responding to a request for FireAndForget message in direction to UI",
                                 );
                                 let (trigger, _) = UiBroadcastTrigger::fmb(message_body).unwrap();
+                                //preparing variables for signalization of an exact moment; if wanted ///////////////////////
                                 let positional_number_of_the_signal_sent_opt =
                                     trigger.position_to_send_the_signal_opt;
                                 let signal_sender_opt: Option<Sender<()>> =
@@ -217,10 +219,24 @@ impl MockWebSocketsServer {
                                     } else {
                                         None
                                     };
+                                ////////////////////////////////////////////////////////////////////////////////////////////
                                 {
                                     let queued_messages = &mut *inner_responses_arc.lock().unwrap();
-                                    let mut factor_of_position_reduction = 0_usize;
-                                    (0..queued_messages.len()).for_each(|i| {
+                                    let batch_size_of_broadcasts_to_be_released_at_once =
+                                        if let Some(amount) =
+                                            trigger.number_of_broadcasts_in_one_batch
+                                        {
+                                            amount
+                                        } else {
+                                            queued_messages.len()
+                                        };
+                                    let mut already_sent = 0_usize;
+                                    /////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                                    //here the own algorithm carrying out messaging starts //////////////////////////////////////////////////////
+
+                                    let mut factor_of_position_reduction = 0_usize; //because I remove each meassage after I send it
+                                    for i in 0..queued_messages.len() {
+                                        //sending signal if wanted ////////////////////////////
                                         if let Some(position) =
                                             positional_number_of_the_signal_sent_opt
                                         {
@@ -232,6 +248,7 @@ impl MockWebSocketsServer {
                                                     .unwrap()
                                             }
                                         }
+                                        //filtering broadcasts only from the queu /////////////////////////////////
                                         if let OwnedMessage::Text(json) =
                                             &queued_messages[i - factor_of_position_reduction]
                                         {
@@ -239,6 +256,7 @@ impl MockWebSocketsServer {
                                                 UiTrafficConverter::new_unmarshal_from_ui(&json, 0)
                                             {
                                                 if msg.body.path == MessagePath::FireAndForget {
+                                                    //////////////////////////////////////////////////////////////////////
                                                     client
                                                         .send_message(
                                                             &queued_messages
@@ -247,12 +265,15 @@ impl MockWebSocketsServer {
                                                         .unwrap();
                                                     queued_messages
                                                         .remove(i - factor_of_position_reduction);
+                                                    already_sent += 1;
+                                                    if already_sent == batch_size_of_broadcasts_to_be_released_at_once {break}
                                                     factor_of_position_reduction += 1;
                                                     thread::sleep(Duration::from_millis(1))
+                                                    /////////////////////////////////////////////////////////////////////////////////////////////////
                                                 }
                                             }
                                         }
-                                    })
+                                    }
                                 }
                             }
                             MessagePath::FireAndForget => {
@@ -379,13 +400,13 @@ mod tests {
     use super::*;
     use crate::messages::UiSetupResponseValueStatus::Set;
     use crate::messages::{
-        FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiChangePasswordRequest,
-        UiChangePasswordResponse, UiNewPasswordBroadcast, UiSetupBroadcast,
-        UiSetupRequest, UiSetupResponse, UiSetupResponseValue, UiUnmarshalError, NODE_UI_PROTOCOL,
+        CrashReason, FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiChangePasswordRequest,
+        UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
+        UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast, UiSetupRequest,
+        UiSetupResponse, UiSetupResponseValue, UiUnmarshalError, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
     use crate::utils::find_free_port;
-    use crossbeam_channel::bounded;
 
     #[test]
     fn two_in_two_out() {
@@ -486,9 +507,7 @@ mod tests {
             errors: vec![],
         };
         let server = MockWebSocketsServer::new(port)
-            .queue_response(expected_ui_setup_response.clone()
-                .tmb(10),
-            )
+            .queue_response(expected_ui_setup_response.clone().tmb(10))
             .queue_response(expected_ui_setup_broadcast.clone().tmb(0))
             .queue_response(UiChangePasswordResponse {}.tmb(11))
             .queue_response(UiNewPasswordBroadcast {}.tmb(0));
@@ -500,20 +519,91 @@ mod tests {
         };
         let broadcast_trigger = UiBroadcastTrigger {
             position_to_send_the_signal_opt: None,
+            number_of_broadcasts_in_one_batch: None,
         };
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
         connection.send(broadcast_trigger.clone());
         let first_received_message: UiSetupBroadcast = connection.receive().unwrap();
         let second_received_message: UiNewPasswordBroadcast = connection.receive().unwrap();
-        let third_received_message: UiSetupResponse = connection.transact_with_context_id(ui_setup_request,10).unwrap();
-        let forth_received_message: UiChangePasswordResponse = connection.transact_with_context_id(ui_change_password_request,10).unwrap();
+        let third_received_message: UiSetupResponse = connection
+            .transact_with_context_id(ui_setup_request, 10)
+            .unwrap();
+        let forth_received_message: UiChangePasswordResponse = connection
+            .transact_with_context_id(ui_change_password_request, 10)
+            .unwrap();
 
         let requests = stop_handle.stop();
         assert_eq!(first_received_message, expected_ui_setup_broadcast);
         assert_eq!(second_received_message, UiNewPasswordBroadcast {});
-        assert_eq!(third_received_message,expected_ui_setup_response);
-        assert_eq!(forth_received_message,UiChangePasswordResponse{});
-        assert_eq!(requests[0].as_ref().unwrap(),&broadcast_trigger.tmb(0))
+        assert_eq!(third_received_message, expected_ui_setup_response);
+        assert_eq!(forth_received_message, UiChangePasswordResponse {});
+        assert_eq!(requests[0].as_ref().unwrap(), &broadcast_trigger.tmb(0))
+    }
+
+    #[test]
+    fn stored_broadcasts_can_be_devided_into_multiple_batches_with_broadcast_trigger_parameter() {
+        let port = find_free_port();
+        let broadcast = UiNewPasswordBroadcast {}.tmb(0);
+        let server = MockWebSocketsServer::new(port)
+            .queue_response(broadcast.clone())
+            .queue_response(broadcast.clone())
+            .queue_response(broadcast.clone())
+            .queue_response(UiCheckPasswordResponse { matches: false }.tmb(10))
+            .queue_response(broadcast.clone())
+            .queue_response(
+                UiNodeCrashedBroadcast {
+                    process_id: 0,
+                    crash_reason: CrashReason::NoInformation,
+                }
+                .tmb(0),
+            );
+        let stop_handle = server.start();
+        let first_broadcast_trigger = UiBroadcastTrigger {
+            position_to_send_the_signal_opt: None,
+            number_of_broadcasts_in_one_batch: Some(3),
+        };
+        let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
+        connection.send(first_broadcast_trigger.clone());
+
+        //TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED
+        let _first_batch_of_broadcasts = (0..3)
+            .map(|_| connection.receive().unwrap())
+            .collect::<Vec<UiNewPasswordBroadcast>>();
+        //let's check out if more than those was sent. Next we should see an conversational message poping from the queue.
+        //the previous test "broadcast_trigger_can_work_together_with_conversational_messages" tested that conversational messages are ommited when we're using
+        //a UiBroadcastTrigger
+
+        connection.send(UiCheckPasswordRequest {
+            db_password_opt: None,
+        });
+
+        //TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED
+        let _hopefully_a_response_to_conversational_message: UiCheckPasswordResponse =
+            connection.receive().unwrap();
+
+        //now let's use a UiBroadcastTrigger again, this time without count boundaries. We should get all the remaining broadcasts from the queue
+        let second_broadcast_trigger = UiBroadcastTrigger {
+            number_of_broadcasts_in_one_batch: None,
+            position_to_send_the_signal_opt: None,
+        };
+        connection.send(second_broadcast_trigger.clone());
+
+        //TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED
+        let _first_broadcast_from_the_second_batch: UiNewPasswordBroadcast =
+            connection.receive().unwrap();
+        //testing that the second arriving is really the last one; that means that used broadcasts are removed
+        let _second_broadcast_from_the_second_batch: UiNodeCrashedBroadcast =
+            connection.receive().unwrap();
+
+        let requests = stop_handle.stop();
+        assert_eq!(
+            *requests[0].as_ref().unwrap(),
+            first_broadcast_trigger.tmb(0)
+        );
+        assert_eq!(
+            *requests[2].as_ref().unwrap(),
+            second_broadcast_trigger.tmb(0)
+        )
     }
 }
