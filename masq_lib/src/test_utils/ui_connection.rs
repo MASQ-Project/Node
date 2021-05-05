@@ -6,8 +6,9 @@ use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::io::Write;
 use std::net::TcpStream;
+use std::time::{Duration, Instant};
 use websocket::sync::Client;
-use websocket::{ClientBuilder, OwnedMessage};
+use websocket::{ClientBuilder, OwnedMessage, WebSocketResult};
 
 pub struct UiConnection {
     context_id: u64,
@@ -25,6 +26,10 @@ impl UiConnection {
             Ok(c) => c,
             Err(e) => return Err(format!("{:?}", e)),
         };
+        match client.set_nonblocking(true) {
+            Ok(_) => (),
+            Err(e) => return Err(format!("{:?}", e)),
+        }
         Ok(UiConnection {
             client,
             context_id: 0,
@@ -60,13 +65,29 @@ impl UiConnection {
     }
 
     pub fn receive<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
-        let incoming_msg = self.client.recv_message();
-        let incoming_msg_json = match incoming_msg {
-            Ok(OwnedMessage::Text(json)) => json,
-            x => panic!("Expected text; received {:?}", x),
+        let mut failure_state_holder: Option<WebSocketResult<OwnedMessage>> = None;
+        let start_instant = Instant::now();
+        let incoming_msg_json = loop {
+            if start_instant.elapsed() > Duration::from_millis(150) {
+                //a way to inform that the queque was probably empty, without panicking
+                return Err((
+                    0,
+                    format!(
+                        "Expected a corresponding response pulled out from the queue. Probably none of such exists. See more: {:?}",
+                        failure_state_holder
+                    ),
+                ));
+            }
+            match self.client.recv_message() {
+                Ok(OwnedMessage::Binary(numeric_code)) if numeric_code == vec![101] => {
+                    return Err((0, "The queue is empty; all messages are gone.".to_string()))
+                }
+                Ok(OwnedMessage::Text(json)) => break json,
+                x => failure_state_holder = Some(x),
+            }
         };
         let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
-            .expect("Deserialization problem");
+            .unwrap_or_else(|_| panic!("Deserialization problem with: {}: ", &incoming_msg_json));
         let opcode = incoming_msg.body.opcode.clone();
 
         let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body);
