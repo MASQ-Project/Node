@@ -67,7 +67,7 @@ impl MockWebSocketsServer {
         self
     }
 
-    // I did't want to write a special test for this as it's already used in a test from command_processor() and works good
+    // I didn't want to write a special test for this as it's already used in a test from command_processor() and works good
     pub fn inject_signal_sender(self, sender: Sender<()>) -> Self {
         self.signal_sender.set(Some(sender));
         self
@@ -274,13 +274,13 @@ impl MockWebSocketsServer {
                         let response_to_the_client = if outgoing.contains("\"contextId\"") {
                             outgoing
                         }
-                        //all messages not being conversational but still recognisible from our point of view
+                        //all messages not being conversational but still recognisable from our point of view
                         else if outgoing.starts_with("{\"opcode\":") {
                             //giving the pulled message back into the queue on its former position
                             temporary_access_to_inner_responses_arc
                                 .insert(0, OwnedMessage::Text(outgoing));
                             format!(
-                                r#"{{"opcode": "{}", "contextId": {}, "error": {{"code": 0, "message": "You tried to call up a fire-and-forget message from the queue by sending a conversational request; try adjust the queue or similar"}}}}"#,
+                                r#"{{"opcode": "{}", "contextId": {}, "error": {{"code": 0, "message": "You tried to call up a fire-and-forget message from the queue by sending a conversational request; try to adjust the queue or similar"}}}}"#,
                                 message_body.opcode, context_id
                             )
                         } else {
@@ -304,7 +304,7 @@ impl MockWebSocketsServer {
             //code that can be interpreted as an empty queue
         } else {
             client
-                //freely choosen number
+                //freely chosen number
                 .send_message(&OwnedMessage::Binary(vec![101]))
                 .unwrap()
         };
@@ -331,7 +331,7 @@ impl MockWebSocketsServer {
                 Some(position) => match trigger_message.number_of_broadcasts_in_one_batch {
                     Some(demanded_batch_size) => (Some(position), Some(sender), demanded_batch_size),
                     None => (Some(position), Some(sender), queued_messages.len())},
-                None => panic!("You provided a Sender<()> but forgot to provide the postional number of the brodcast where it should be sent; settable within the trigger message"),
+                None => panic!("You provided a Sender<()> but forgot to provide the positional number of the broadcast where it should be sent; settable within the trigger message"),
             },
             (Ok((trigger_message, _)), None) => match trigger_message.position_to_send_the_signal_opt {
                 Some(_) => panic!("You require to send a signal but haven't provided Sender<()> by inject_signal_sender()"),
@@ -346,9 +346,9 @@ impl MockWebSocketsServer {
         //////////////////////////////////////////////////////////////////////////////////////////////////////////
         //here the own algorithm carrying out messaging starts
 
-        let mut factor_of_position_reduction = 0_usize; //because I remove each meassage after I send it
-        let starting_lenght = queued_messages.len();
-        for i in 0..starting_lenght {
+        let mut factor_of_position_reduction = 0_usize; //because I remove each message after I send it
+        let starting_length = queued_messages.len();
+        for i in 0..starting_length {
             //sending signal if wanted ////////////////////////////
             if let Some(position) = positional_number_of_the_signal_sent_opt {
                 if position == i {
@@ -395,8 +395,8 @@ impl MockWebSocketsServer {
         )
         .unwrap_err();
         let to_ui_response = UiUnmarshalError {
-            message: bad_message,
-            bad_data: marshal_error.to_string(),
+            message: marshal_error.to_string(),
+            bad_data: bad_message,
         }
         .tmb(0);
         let marshaled_response = UiTrafficConverter::new_marshal(to_ui_response);
@@ -467,8 +467,9 @@ mod tests {
     use crate::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiCheckPasswordRequest,
         UiCheckPasswordResponse, UiConfigurationChangedBroadcast, UiDescriptorRequest,
-        UiDescriptorResponse, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupResponse,
-        UiSetupResponseValue, UiUnmarshalError, NODE_UI_PROTOCOL,
+        UiDescriptorResponse, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupRequest,
+        UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiUnmarshalError,
+        NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
     use crate::utils::find_free_port;
@@ -487,37 +488,29 @@ mod tests {
                 ("param1".to_string(), "reason1".to_string()),
                 ("param2".to_string(), "reason2".to_string()),
             ],
-        }
-        .tmb(1);
+        };
         let second_expected_response = UiUnmarshalError {
-            message: "}: Bad request :{".to_string(),
-            bad_data: "Critical error unmarshalling unidentified message: \
+            message: "Critical error unmarshalling unidentified message: \
             Couldn't parse text as JSON: Error(\"expected value\", line: 1, column: 1)"
                 .to_string(),
+            bad_data: "}: Bad request :{".to_string(),
         }
         .tmb(0);
         let stop_handle = MockWebSocketsServer::new(port)
-            .queue_response(first_expected_response.clone())
+            .queue_response(first_expected_response.clone().tmb(1))
             .queue_response(second_expected_response.clone())
             .start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
+        let first_request = UiSetupRequest {
+            values: vec![UiSetupRequestValue {
+                name: "direction".to_string(),
+                value: Some("to UI".to_string()),
+            }],
+        };
+
         let first_actual_response: UiSetupResponse = connection
-            .transact_with_context_id(
-                UiSetupResponse {
-                    running: true,
-                    values: vec![UiSetupResponseValue {
-                        name: "direction".to_string(),
-                        value: "to UI".to_string(),
-                        status: Set,
-                    }],
-                    errors: vec![
-                        ("param1".to_string(), "reason1".to_string()),
-                        ("param2".to_string(), "reason2".to_string()),
-                    ],
-                },
-                1234,
-            )
+            .transact_with_context_id(first_request.clone(), 1234)
             .unwrap();
 
         connection.send_string("}: Bad request :{".to_string());
@@ -525,27 +518,11 @@ mod tests {
         let second_actual_response: UiUnmarshalError = connection.receive().unwrap();
 
         let requests = stop_handle.stop();
-        let actual_body: UiSetupResponse = UiSetupResponse::fmb(requests[0].clone().unwrap())
-            .unwrap()
-            .0;
-        assert_eq!(
-            actual_body,
-            UiSetupResponse {
-                running: true,
-                values: vec![UiSetupResponseValue {
-                    name: "direction".to_string(),
-                    value: "to UI".to_string(),
-                    status: Set,
-                }],
-                errors: vec![
-                    ("param1".to_string(), "reason1".to_string()),
-                    ("param2".to_string(), "reason2".to_string()),
-                ]
-            }
-        );
+        let actual_body = UiSetupRequest::fmb(requests[0].clone().unwrap()).unwrap().0;
+        assert_eq!(actual_body, first_request);
         assert_eq!(
             (first_actual_response, 1),
-            UiSetupResponse::fmb(first_expected_response).unwrap()
+            UiSetupResponse::fmb(first_expected_response.tmb(1)).unwrap()
         );
         assert_eq!(requests[1], Err("}: Bad request :{".to_string()));
         assert_eq!(
@@ -586,7 +563,7 @@ mod tests {
         // connection.receive() -> Broadcast 5
         // connection.receive() -> error: No more Broadcasts available
 
-        //Content of those messages is practicaly irelevant because it's not under the scope of this test.
+        //Content of those messages is practically irrelevant because it's not under the scope of this test.
         //Also, a lot of lines could be highlighted with text like this "TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED",
         //but it may have made the test (even) harder to read.
 
@@ -613,7 +590,7 @@ mod tests {
         //nonconversational stimulus
         let broadcast_trigger_three_with_no_limit = UiBroadcastTrigger::default();
 
-        //B) All messages "responding the opposit way" (in an exact order)
+        //B) All messages "responding the opposite way" (in an exact order)
         ////////////////////////////////////////////////////////////////////////////////////////////
         let conversation_number_one_response = UiCheckPasswordResponse { matches: false }.tmb(1);
         let conversation_number_two_response = UiCheckPasswordResponse { matches: true }.tmb(2);
@@ -670,7 +647,7 @@ mod tests {
             (u64, String),
         > = connection.receive();
 
-        let naive_attempt_number_two_now_to_receive_a_corversational_message: Result<
+        let naive_attempt_number_two_now_to_receive_a_conversational_message: Result<
             UiDescriptorResponse,
             (u64, String),
         > = connection.transact_with_context_id(conversation_hopeless_attempt_in_bad_time, 10000);
@@ -683,7 +660,7 @@ mod tests {
             .map(|_| connection.receive().unwrap())
             .collect::<Vec<UiNewPasswordBroadcast>>();
 
-        //here we should't be able to jump over to some other broadcast in the queue though there is one!;
+        //here we shouldn't be able to jump over to some other broadcast in the queue though there is one!;
         //instead we should see an error because next we meet a conversational message
         let naive_attempt_number_three_to_receive_another_broadcast_from_the_queue: Result<
             UiNodeCrashedBroadcast,
@@ -709,7 +686,7 @@ mod tests {
 
         let _ = stop_handle.stop();
         ////////////////////////////////////////////////////////////////////////////////////////////
-        //assertions for liberately caused errors
+        //assertions for deliberately caused errors
         let error_message_number_one = naive_attempt_number_one_to_receive_the_third_broadcast
             .unwrap_err()
             .1;
@@ -722,11 +699,11 @@ mod tests {
             error_message_number_one
         );
         let error_message_number_two =
-            naive_attempt_number_two_now_to_receive_a_corversational_message
+            naive_attempt_number_two_now_to_receive_a_conversational_message
                 .unwrap_err()
                 .1;
         assert!(error_message_number_two.contains("You tried to call up a fire-and-forget message from the queue by sending a conversational request; \
-        try adjust the queue or similar"),"this text was unexpected: {}",error_message_number_two);
+        try to adjust the queue or similar"),"this text was unexpected: {}",error_message_number_two);
         let error_message_number_three =
             naive_attempt_number_three_to_receive_another_broadcast_from_the_queue
                 .unwrap_err()

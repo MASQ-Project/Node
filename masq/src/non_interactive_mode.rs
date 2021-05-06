@@ -39,16 +39,13 @@ impl Main {
     }
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
-        let original = args.iter();
+        let original_args = args.iter();
         let one_item_shifted_forth = args.iter().skip(1);
-        let index = original.zip(one_item_shifted_forth).enumerate().find(
-            |(_position, (orig, shifted))| Self::both_do_not_start_with_two_dashes(orig, shifted),
-        );
-        if let Some((index, _)) = index {
-            Some(args.to_vec().into_iter().skip(index + 1).collect())
-        } else {
-            None
-        }
+        original_args
+            .zip(one_item_shifted_forth)
+            .enumerate()
+            .find(|(_position, (left, right))| Self::both_do_not_start_with_two_dashes(left, right))
+            .map(|(index, _)| args.to_vec().into_iter().skip(index + 1).collect())
     }
 
     fn both_do_not_start_with_two_dashes(
@@ -221,8 +218,8 @@ mod tests {
                 "subcommand",
                 "--param1",
                 "value1",
-                "param2",
-                "param3",
+                "--param2",
+                "--param3",
             ]
             .iter()
             .map(|str| str.to_string())
@@ -233,10 +230,12 @@ mod tests {
         let c_make_params = c_make_params_arc.lock().unwrap();
         assert_eq!(
             *c_make_params,
-            vec![vec!["subcommand", "--param1", "value1", "param2", "param3"]
-                .iter()
-                .map(|str| str.to_string())
-                .collect::<Vec<String>>(),]
+            vec![
+                vec!["subcommand", "--param1", "value1", "--param2", "--param3"]
+                    .iter()
+                    .map(|str| str.to_string())
+                    .collect::<Vec<String>>(),
+            ]
         );
         let mut p_make_params = p_make_params_arc.lock().unwrap();
         let (terminal_interface, broadcast_handle, ui_port) = p_make_params.pop().unwrap();

@@ -381,13 +381,16 @@ mod tests {
         let background_interface_clone = terminal_interface.clone();
         let mut stdout = ByteArrayWriter::new();
         let (tx, rx) = bounded(1);
+        let (tx_back, rx_back) = bounded(1);
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
+            rx_back.recv().unwrap();
             thread::sleep(Duration::from_millis(30));
         });
         rx.recv().unwrap();
         let now = Instant::now();
+        tx_back.send(()).unwrap();
 
         let result = handle_help_or_version("help", &mut stdout, &terminal_interface);
 
