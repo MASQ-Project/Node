@@ -374,35 +374,6 @@ impl MockWebSocketsServer {
             }
         }
     }
-
-    // fn handle_unrecognized_owned_message(
-    //     client: &mut Client<TcpStream>,
-    //     incoming: Result<MessageBody, String>,
-    //     do_log: bool,
-    //     index: u64,
-    // ) {
-    //     log(
-    //         do_log,
-    //         index,
-    //         "Responding to unrecognizable OwnedMessage::Text",
-    //     );
-    //     let bad_message = incoming.unwrap_err();
-    //     let marshal_error = UiTrafficConverter::new_unmarshal_from_ui(
-    //         &bad_message,
-    //         0, //irrelevant?
-    //     )
-    //     .unwrap_err();
-    //     let to_ui_response = UiUnmarshalError {
-    //         message: marshal_error.to_string(),
-    //         bad_data: bad_message.clone(), //TODO remove this clone; it was due to debugging
-    //     }
-    //     .tmb(0);
-    //     let marshaled_response = UiTrafficConverter::new_marshal(to_ui_response);
-    //     eprintln!("Debugging: This is message that's been identified as unrecognized {} and then a response: {}", bad_message,marshaled_response);
-    //     client
-    //         .send_message(&OwnedMessage::Text(marshaled_response))
-    //         .unwrap()
-    // }
 }
 
 impl MockWebSocketsServerStopHandle {
@@ -467,11 +438,10 @@ mod tests {
         CrashReason, FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiCheckPasswordRequest,
         UiCheckPasswordResponse, UiConfigurationChangedBroadcast, UiDescriptorRequest,
         UiDescriptorResponse, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupRequest,
-        UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiUnmarshalError,
-        NODE_UI_PROTOCOL,
+        UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
-    use crate::utils::{find_free_port, running_test};
+    use crate::utils::find_free_port;
 
     #[test]
     fn conversational_communication_happy_path_with_full_assertion() {
