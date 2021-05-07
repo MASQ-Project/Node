@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
+use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
@@ -64,7 +65,10 @@ impl UiConnection {
         self.client.writer_mut()
     }
 
-    pub fn receive<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
+    fn receive_raw<T: FromMessageBody>(
+        &mut self,
+        context_id: Option<u64>,
+    ) -> Result<T, (u64, String)> {
         let mut failure_state_holder: Option<WebSocketResult<OwnedMessage>> = None;
         let start_instant = Instant::now();
         let incoming_msg_json = loop {
@@ -79,7 +83,9 @@ impl UiConnection {
                 ));
             }
             match self.client.recv_message() {
-                Ok(OwnedMessage::Binary(numeric_code)) if numeric_code == vec![101] => {
+                Ok(OwnedMessage::Binary(bytes))
+                    if std::str::from_utf8(&bytes).unwrap() == "EMPTY QUEUE" =>
+                {
                     return Err((0, "The queue is empty; all messages are gone.".to_string()))
                 }
                 Ok(OwnedMessage::Text(json)) => break json,
@@ -90,6 +96,18 @@ impl UiConnection {
             .unwrap_or_else(|_| panic!("Deserialization problem with: {}: ", &incoming_msg_json));
         let opcode = incoming_msg.body.opcode.clone();
 
+        if let Some(testing_id) = context_id {
+            match incoming_msg.body.path {
+                Conversation(id) if id == testing_id => (),
+                Conversation(id) if id != testing_id => panic!(
+                    "Context ID of the request and the response don't match; message: \
+         {:?}, request id: {}, response id: {}",
+                    incoming_msg, testing_id, id
+                ),
+                _ => (),
+            }
+        }
+
         let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body);
         match result {
             Ok((payload, _)) => Ok(payload),
@@ -98,12 +116,16 @@ impl UiConnection {
         }
     }
 
+    pub fn receive<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
+        self.receive_raw::<T>(None)
+    }
+
     pub fn transact<S: ToMessageBody, R: FromMessageBody>(
         &mut self,
         payload: S,
     ) -> Result<R, (u64, String)> {
         self.send(payload);
-        self.receive::<R>()
+        self.receive_raw::<R>(None)
     }
 
     pub fn transact_with_context_id<S: ToMessageBody, R: FromMessageBody>(
@@ -112,7 +134,7 @@ impl UiConnection {
         context_id: u64,
     ) -> Result<R, (u64, String)> {
         self.send_with_context_id(payload, context_id);
-        self.receive::<R>()
+        self.receive_raw::<R>(Some(context_id))
     }
 
     pub fn shutdown(self) {

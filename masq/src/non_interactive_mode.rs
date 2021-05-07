@@ -44,16 +44,18 @@ impl Main {
         original_args
             .zip(one_item_shifted_forth)
             .enumerate()
-            .find(|(_position, (left, right))| Self::both_do_not_start_with_two_dashes(left, right))
-            .map(|(index, _)| args.to_vec().into_iter().skip(index + 1).collect())
+            .find(|(_index, (left, right))| Self::both_do_not_start_with_two_dashes(left, right))
+            .map(|(index, _)| args.to_owned().into_iter().skip(index + 1).collect())
     }
 
     fn both_do_not_start_with_two_dashes(
         one_program_arg: &&String,
         program_arg_next_to_the_previous: &&String,
     ) -> bool {
-        one_program_arg.starts_with("--").not()
-            && program_arg_next_to_the_previous.starts_with("--").not()
+        [one_program_arg, program_arg_next_to_the_previous]
+            .iter()
+            .any(|arg| arg.starts_with("--"))
+            .not()
     }
 
     fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, Option<TerminalWrapper>)

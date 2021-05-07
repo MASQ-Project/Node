@@ -1,15 +1,14 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::messages::{
-    FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiUnmarshalError, NODE_UI_PROTOCOL,
-};
+use crate::messages::{FromMessageBody, UiBroadcastTrigger, NODE_UI_PROTOCOL};
 use crate::ui_gateway::{MessageBody, MessagePath};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use lazy_static::lazy_static;
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::ops::Not;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -27,7 +26,7 @@ pub struct MockWebSocketsServer {
     port: u16,
     pub protocol: String,
     responses_arc: Arc<Mutex<Vec<OwnedMessage>>>,
-    signal_sender: Cell<Option<Sender<()>>>,
+    signal_sender: RefCell<Option<Sender<()>>>,
 }
 
 pub struct MockWebSocketsServerStopHandle {
@@ -46,7 +45,7 @@ impl MockWebSocketsServer {
             port,
             protocol: NODE_UI_PROTOCOL.to_string(),
             responses_arc: Arc::new(Mutex::new(vec![])),
-            signal_sender: Cell::new(None),
+            signal_sender: RefCell::new(None),
         }
     }
 
@@ -68,7 +67,7 @@ impl MockWebSocketsServer {
     }
 
     pub fn inject_signal_sender(self, sender: Sender<()>) -> Self {
-        self.signal_sender.set(Some(sender));
+        self.signal_sender.replace(Some(sender));
         self
     }
 
@@ -148,11 +147,13 @@ impl MockWebSocketsServer {
                                     context_id,
                                     do_log,
                                     index,
-                                ) == 1
+                                )
+                                .not()
                                 {
-                                    break;
+                                    break; //"disconnect" received
                                 }
                             }
+
                             MessagePath::FireAndForget
                                 if message_body.opcode == "broadcastTrigger" =>
                             {
@@ -174,12 +175,12 @@ impl MockWebSocketsServer {
                             }
                         }
                     } else {
-                        Self::handle_unrecognized_owned_message(
-                            &mut client,
-                            incoming,
+                        log(
                             do_log,
                             index,
-                        )
+                            "Going to panic: Unrecognizable form of a text message",
+                        );
+                        panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server")
                     }
                 }
                 log(do_log, index, "Checking for termination directive");
@@ -251,14 +252,14 @@ impl MockWebSocketsServer {
         context_id: u64,
         do_log: bool,
         index: u64,
-    ) -> u16 {
+    ) -> bool {
         let mut temporary_access_to_inner_responses_arc = inner_responses_arc.lock().unwrap();
         if temporary_access_to_inner_responses_arc.len() != 0 {
             match temporary_access_to_inner_responses_arc.remove(0) {
                 OwnedMessage::Text(outgoing) => {
                     if outgoing == "disconnect" {
                         log(do_log, index, "Executing 'disconnect' directive");
-                        return 1;
+                        return false;
                     }
                     if outgoing == "close" {
                         log(do_log, index, "Sending Close message");
@@ -300,14 +301,14 @@ impl MockWebSocketsServer {
                     client.send_message(&om).unwrap()
                 }
             }
-            //code that can be interpreted as an empty queue
         } else {
+            log(do_log, index, "Sending Close message");
             client
-                //freely chosen number
-                .send_message(&OwnedMessage::Binary(vec![101]))
+                //a response that's going to be interpreted as an empty queue
+                .send_message(&OwnedMessage::Binary(b"EMPTY QUEUE".to_vec()))
                 .unwrap()
         };
-        0
+        true
     }
 
     fn handle_broadcast_trigger(
@@ -318,44 +319,44 @@ impl MockWebSocketsServer {
         do_log: bool,
         index: u64,
     ) {
-        log(
-            do_log,
-            index,
-            "Responding to a request for FireAndForget message in direction to UI",
-        );
+        log(do_log, index, "Responding to a BroadcastTrigger");
         let queued_messages = &mut *inner_responses_arc.lock().unwrap();
-        let (positional_number_of_the_signal_sent_opt,signal_sender_opt, batch_size_of_broadcasts_to_be_released_at_once) =
-            match (UiBroadcastTrigger::fmb(message_body),self.signal_sender.take()) {
-            (Ok((trigger_message, _)), Some(sender)) => match trigger_message.position_to_send_the_signal_opt {
-                Some(position) => match trigger_message.number_of_broadcasts_in_one_batch {
-                    Some(demanded_batch_size) => (Some(position), Some(sender), demanded_batch_size),
-                    None => (Some(position), Some(sender), queued_messages.len())},
-                None => panic!("You provided a Sender<()> but forgot to provide the positional number of the broadcast where it should be sent; settable within the trigger message"),
-            },
-            (Ok((trigger_message, _)), None) => match trigger_message.position_to_send_the_signal_opt {
-                Some(_) => panic!("You require to send a signal but haven't provided Sender<()> by inject_signal_sender()"),
-                None => match trigger_message.number_of_broadcasts_in_one_batch {
-                    Some(demanded_batch_size) => (None, None, demanded_batch_size),
-                    None => (None, None, queued_messages.len())
-                }
+        let (signal_params, batch_size_of_broadcasts_to_be_released_at_once) =
+            match (UiBroadcastTrigger::fmb(message_body),self.signal_sender.clone().take()) {
+            (Ok((trigger_message, _)), Some(sender)) => match (trigger_message.position_to_send_the_signal_opt, trigger_message.number_of_broadcasts_in_one_batch){
+                (Some(position),Some(demanded_batch_size)) => (Some((position, sender)), demanded_batch_size),
+                (Some(position),None) => (Some((position, sender)), queued_messages.len()),
+                (None,_) => panic!("You provided a Sender<()> but forgot to provide the positional number of the broadcast where it should be sent; settable within the trigger message"),
+            }
+
+            (Ok((trigger_message, _)), None) => match (trigger_message.position_to_send_the_signal_opt,trigger_message.number_of_broadcasts_in_one_batch){
+                (Some(_),_) => panic!("You require to send a signal but haven't provided Sender<()> by inject_signal_sender()"),
+                (None,Some(demanded_batch_size)) => (None,demanded_batch_size),
+                (None,None) =>  (None, queued_messages.len())
             },
             (_,_) => panic!("BroadcastTrigger received but somehow malformed")
         };
-        let mut already_sent = 0_usize;
-        //////////////////////////////////////////////////////////////////////////////////////////////////////////
-        //here the own algorithm carrying out messaging starts
 
-        let mut factor_of_position_reduction = 0_usize; //because I remove each message after I send it
+        //////////////////////////////////////////////////////////////////////////////////////////////
+        //here the proper algorithm carrying out messaging starts
+        let mut already_sent = 0_usize;
         let starting_length = queued_messages.len();
         for i in 0..starting_length {
-            //sending signal if wanted ////////////////////////////
-            if let Some(position) = positional_number_of_the_signal_sent_opt {
-                if position == i {
-                    signal_sender_opt.as_ref().unwrap().send(()).unwrap()
+            //sending signal if wanted ///////////////////////////////
+            if let Some((position, signal_sender)) = signal_params.as_ref() {
+                if *position == i {
+                    log(
+                        do_log,
+                        index,
+                        "Sending a generic signal required by a BroadcastTrigger",
+                    );
+                    signal_sender.send(()).unwrap()
                 }
             }
-            //filtering broadcasts only from the queue ///////////////////////////////////
-            if let OwnedMessage::Text(json) = &queued_messages[i - factor_of_position_reduction] {
+            //generally: watching that we don't grab any conversational message from the queue accidentally
+            //first line: consider the minus after 'i' as a factor of positional reduction inside the queue
+            //caused by how I remove each message after I send it
+            if let OwnedMessage::Text(json) = &queued_messages[i - already_sent] {
                 if let Ok(msg) = UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
                     if msg.body.path == MessagePath::FireAndForget {
                         //////////////////////////////////////////////////////////////////////
@@ -364,11 +365,9 @@ impl MockWebSocketsServer {
                         if already_sent == batch_size_of_broadcasts_to_be_released_at_once {
                             break;
                         }
-                        factor_of_position_reduction += 1;
-                        /////////////////////////////////////////////////////////////////////////////////////////////////
-
-                        //let's end it; we ran into a conversational message in the queue
+                        //////////////////////////////////////////////////////////////////////////////////////////
                     } else {
+                        //let's end it; we ran into a conversational message in the queue
                         break;
                     }
                 }
@@ -376,34 +375,34 @@ impl MockWebSocketsServer {
         }
     }
 
-    fn handle_unrecognized_owned_message(
-        client: &mut Client<TcpStream>,
-        incoming: Result<MessageBody, String>,
-        do_log: bool,
-        index: u64,
-    ) {
-        log(
-            do_log,
-            index,
-            "Responding to unrecognizable OwnedMessage::Text",
-        );
-        let bad_message = incoming.unwrap_err();
-        let marshal_error = UiTrafficConverter::new_unmarshal_from_ui(
-            &bad_message,
-            0, //irrelevant?
-        )
-        .unwrap_err();
-        let to_ui_response = UiUnmarshalError {
-            message: marshal_error.to_string(),
-            bad_data: bad_message.clone(), //TODO remove this clone; it was due to debugging
-        }
-        .tmb(0);
-        let marshaled_response = UiTrafficConverter::new_marshal(to_ui_response);
-        eprintln!("Debugging: This is message that's been identified as unrecognized {} and then a response: {}", bad_message,marshaled_response);
-        client
-            .send_message(&OwnedMessage::Text(marshaled_response))
-            .unwrap()
-    }
+    // fn handle_unrecognized_owned_message(
+    //     client: &mut Client<TcpStream>,
+    //     incoming: Result<MessageBody, String>,
+    //     do_log: bool,
+    //     index: u64,
+    // ) {
+    //     log(
+    //         do_log,
+    //         index,
+    //         "Responding to unrecognizable OwnedMessage::Text",
+    //     );
+    //     let bad_message = incoming.unwrap_err();
+    //     let marshal_error = UiTrafficConverter::new_unmarshal_from_ui(
+    //         &bad_message,
+    //         0, //irrelevant?
+    //     )
+    //     .unwrap_err();
+    //     let to_ui_response = UiUnmarshalError {
+    //         message: marshal_error.to_string(),
+    //         bad_data: bad_message.clone(), //TODO remove this clone; it was due to debugging
+    //     }
+    //     .tmb(0);
+    //     let marshaled_response = UiTrafficConverter::new_marshal(to_ui_response);
+    //     eprintln!("Debugging: This is message that's been identified as unrecognized {} and then a response: {}", bad_message,marshaled_response);
+    //     client
+    //         .send_message(&OwnedMessage::Text(marshaled_response))
+    //         .unwrap()
+    // }
 }
 
 impl MockWebSocketsServerStopHandle {
@@ -472,12 +471,12 @@ mod tests {
         NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
-    use crate::utils::find_free_port;
+    use crate::utils::{find_free_port, running_test};
 
     #[test]
-    fn two_in_two_out() {
+    fn conversational_communication_happy_path_with_full_assertion() {
         let port = find_free_port();
-        let first_expected_response = UiSetupResponse {
+        let expected_response = UiSetupResponse {
             running: true,
             values: vec![UiSetupResponseValue {
                 name: "direction".to_string(),
@@ -489,45 +488,29 @@ mod tests {
                 ("param2".to_string(), "reason2".to_string()),
             ],
         };
-        let second_expected_response = UiUnmarshalError {
-            message: "Critical error unmarshalling unidentified message: \
-            Couldn't parse text as JSON: Error(\"expected value\", line: 1, column: 1)"
-                .to_string(),
-            bad_data: "}: Bad request :{".to_string(),
-        }
-        .tmb(0);
         let stop_handle = MockWebSocketsServer::new(port)
-            .queue_response(first_expected_response.clone().tmb(1))
-            .queue_response(second_expected_response.clone())
+            .queue_response(expected_response.clone().tmb(123))
             .start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
-        let first_request = UiSetupRequest {
+        let request = UiSetupRequest {
             values: vec![UiSetupRequestValue {
                 name: "direction".to_string(),
                 value: Some("to UI".to_string()),
             }],
         };
 
-        let first_actual_response: UiSetupResponse = connection
-            .transact_with_context_id(first_request.clone(), 1234)
+        let actual_response: UiSetupResponse = connection
+            .transact_with_context_id(request.clone(), 123)
             .unwrap();
 
-        connection.send_string("}: Bad request :{".to_string());
-
-        let second_actual_response: UiUnmarshalError = connection.receive().unwrap();
-
         let requests = stop_handle.stop();
-        let actual_body = UiSetupRequest::fmb(requests[0].clone().unwrap()).unwrap().0;
-        assert_eq!(actual_body, first_request);
+        let actual_body_gotten_by_the_server =
+            UiSetupRequest::fmb(requests[0].clone().unwrap()).unwrap().0;
+        assert_eq!(actual_body_gotten_by_the_server, request);
         assert_eq!(
-            (first_actual_response, 1),
-            UiSetupResponse::fmb(first_expected_response.tmb(1)).unwrap()
-        );
-        assert_eq!(requests[1], Err("}: Bad request :{".to_string()));
-        assert_eq!(
-            (second_actual_response, 0),
-            UiUnmarshalError::fmb(second_expected_response).unwrap()
+            (actual_response, 123),
+            UiSetupResponse::fmb(expected_response.tmb(123)).unwrap()
         );
     }
 
@@ -620,7 +603,8 @@ mod tests {
             .queue_response(broadcast_number_four)
             .queue_response(broadcast_number_five)
             .queue_response(conversation_number_three_response)
-            .queue_response(broadcast_number_six);
+            .queue_response(broadcast_number_six)
+            .write_logs();
         let stop_handle = server.start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
@@ -652,7 +636,7 @@ mod tests {
             (u64, String),
         > = connection.transact_with_context_id(conversation_hopeless_attempt_in_bad_time, 10000);
 
-        //sending another broadcast trigger (unlimited) to get the third, fourth and sixth message
+        //sending another broadcast trigger (unlimited) to get the fifth, sixth and seventh message
         connection.send(broadcast_trigger_two_with_no_limit);
         //finally, when using the trigger again, we can get three other messages
 
@@ -667,13 +651,13 @@ mod tests {
             (u64, String),
         > = connection.receive();
 
-        let _received_message_number_seven: UiDescriptorResponse = connection
+        let _received_message_number_eight: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_three_request, 3)
             .unwrap();
         //we want to get to the last broadcast
         connection.send(broadcast_trigger_three_with_no_limit);
 
-        let _received_message_number_eight: UiNodeCrashedBroadcast = connection.receive().unwrap();
+        let _received_message_number_ninth: UiNodeCrashedBroadcast = connection.receive().unwrap();
         //the queue should be empty now
 
         let naive_attempt_number_four: Result<UiNodeCrashedBroadcast, (u64, String)> =
