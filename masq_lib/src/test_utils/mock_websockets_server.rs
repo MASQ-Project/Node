@@ -442,6 +442,7 @@ mod tests {
     };
     use crate::test_utils::ui_connection::UiConnection;
     use crate::utils::find_free_port;
+    use std::time::Instant;
 
     #[test]
     fn conversational_communication_happy_path_with_full_assertion() {
@@ -635,9 +636,11 @@ mod tests {
         //the previous attempt eliminated the possibility of another broadcast
         //but what happens when new conversation tried
 
+        let now = Instant::now();
         let naive_attempt_number_five: Result<UiDescriptorResponse, (u64, String)> =
             connection.transact_with_context_id(UiDescriptorRequest {}, 0);
-
+        let second_time_stamp = now.elapsed();
+        eprintln!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx{:?}",second_time_stamp);
         let _ = stop_handle.stop();
         ////////////////////////////////////////////////////////////////////////////////////////////
         //assertions for deliberately caused errors
