@@ -67,7 +67,6 @@ impl MockWebSocketsServer {
         self
     }
 
-    // I didn't want to write a special test for this as it's already used in a test from command_processor() and works good
     pub fn inject_signal_sender(self, sender: Sender<()>) -> Self {
         self.signal_sender.set(Some(sender));
         self
@@ -396,10 +395,11 @@ impl MockWebSocketsServer {
         .unwrap_err();
         let to_ui_response = UiUnmarshalError {
             message: marshal_error.to_string(),
-            bad_data: bad_message,
+            bad_data: bad_message.clone(), //TODO remove this clone; it was due to debugging
         }
         .tmb(0);
         let marshaled_response = UiTrafficConverter::new_marshal(to_ui_response);
+        eprintln!("Debugging: This is message that's been identified as unrecognized {} and then a response: {}", bad_message,marshaled_response);
         client
             .send_message(&OwnedMessage::Text(marshaled_response))
             .unwrap()

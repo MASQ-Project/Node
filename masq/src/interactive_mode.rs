@@ -321,7 +321,7 @@ mod tests {
         assert_eq!(stream_holder.stdout.get_string(), "");
     }
 
-    //help and version commands are also tested in integration tests with the focus on a bigger context
+    //help and version commands are also tested in integration tests with a focus on a bigger context
 
     #[test]
     fn handle_help_or_version_ignores_uninteresting_entries() {
@@ -334,8 +334,10 @@ mod tests {
         assert_eq!(stdout.get_string(), "")
     }
 
+    //TODO take care of this dilemma
     #[test]
-    fn handle_help_or_version_provides_fine_lock_for_questioning_the_current_version() {
+    #[ignore]
+    fn handle_help_or_version_provides_fine_lock_for_questioning_the_current_version_old() {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
         let background_interface_clone = terminal_interface.clone();
         let mut stdout = ByteArrayWriter::new();
@@ -376,50 +378,93 @@ mod tests {
     }
 
     #[test]
-    fn handle_help_or_version_provides_fine_lock_for_help_call() {
+    fn handle_help_or_version_provides_fine_lock_for_questioning_the_current_version() {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
         let background_interface_clone = terminal_interface.clone();
         let mut stdout = ByteArrayWriter::new();
         let (tx, rx) = bounded(1);
-        let (tx_back, rx_back) = bounded(1);
-        let handle = thread::spawn(move || {
-            let _lock = background_interface_clone.lock();
-            tx.send(()).unwrap();
-            rx_back.recv().unwrap();
-            thread::sleep(Duration::from_millis(30));
-        });
-        rx.recv().unwrap();
-        let now = Instant::now();
-        tx_back.send(()).unwrap();
-
-        let result = handle_help_or_version("help", &mut stdout, &terminal_interface);
-
-        let time_period = now.elapsed();
-        handle.join().unwrap();
-        assert!(stdout
-            .get_string()
-            .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
-        assert!(
-            time_period > Duration::from_millis(30),
-            "Terminal should have been locked for 30ms, but allowed access after only {:?}ms.",
-            time_period
-        );
-        assert_eq!(result, true);
-
-        //a check against negative positivity
-        let mut stdout = ByteArrayWriter::new();
         let now = Instant::now();
 
         let _ = handle_help_or_version("help", &mut stdout, &terminal_interface);
 
-        let time_period = now.elapsed();
+        let time_period_when_loosen = now.elapsed();
+        let handle = thread::spawn(move || {
+            let _lock = background_interface_clone.lock();
+            tx.send(()).unwrap();
+            thread::sleep(time_period_when_loosen * 15);
+        });
+        rx.recv().unwrap();
+        let now = Instant::now();
+
+        let result = handle_help_or_version("help", &mut stdout, &terminal_interface);
+
+        let time_period_when_locked = now.elapsed();
+        handle.join().unwrap();
         assert!(
-            time_period < Duration::from_millis(5),
-            "longer time period than expected: should've been 5 ms max {:?}",
-            time_period
+            time_period_when_locked > 3 * time_period_when_loosen,
+            "{:?} is not longer than {:?}",
+            time_period_when_locked,
+            time_period_when_loosen
         );
-        assert!(stdout
-            .get_string()
-            .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
+        assert_eq!(result, true)
     }
+
+    //TODO remove this - it's not an actual test
+    #[test]
+    #[ignore]
+    fn simple_test_of_lock_reliability_with_deadlock() {
+        let interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let interface_clone = interface.clone();
+        let mut stdout = ByteArrayWriter::new();
+        let _lock = interface.lock();
+        let _ = handle_help_or_version("help", &mut stdout, &interface_clone);
+    }
+
+    // #[test]
+    // fn handle_help_or_version_provides_fine_lock_for_help_call() {
+    //     let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+    //     let background_interface_clone = terminal_interface.clone();
+    //     let mut stdout = ByteArrayWriter::new();
+    //     let (tx, rx) = bounded(1);
+    //     let (tx_back, rx_back) = bounded(1);
+    //     let handle = thread::spawn(move || {
+    //         let _lock = background_interface_clone.lock();
+    //         tx.send(()).unwrap();
+    //         rx_back.recv().unwrap();
+    //         thread::sleep(Duration::from_millis(30));
+    //     });
+    //     rx.recv().unwrap();
+    //     let now = Instant::now();
+    //     tx_back.send(()).unwrap();
+    //
+    //     let result = handle_help_or_version("help", &mut stdout, &terminal_interface);
+    //
+    //     let time_period = now.elapsed();
+    //     handle.join().unwrap();
+    //     assert!(stdout
+    //         .get_string()
+    //         .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
+    //     assert!(
+    //         time_period > Duration::from_millis(30),
+    //         "Terminal should have been locked for 30ms, but allowed access after only {:?}ms.",
+    //         time_period
+    //     );
+    //     assert_eq!(result, true);
+    //
+    //     //a check against negative positivity
+    //     let mut stdout = ByteArrayWriter::new();
+    //     let now = Instant::now();
+    //
+    //     let _ = handle_help_or_version("help", &mut stdout, &terminal_interface);
+    //
+    //     let time_period = now.elapsed();
+    //     assert!(
+    //         time_period < Duration::from_millis(5),
+    //         "longer time period than expected: should've been 5 ms max {:?}",
+    //         time_period
+    //     );
+    //     assert!(stdout
+    //         .get_string()
+    //         .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
+    // }
 }
