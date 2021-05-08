@@ -73,10 +73,7 @@ fn evaluate_hex_digit(digit: u8) -> Option<u8> {
         Some(pos) => Some(pos),
         None => match position_in_range(digit, b'A', b'F') {
             Some(pos) => Some(10 + pos),
-            None => match position_in_range(digit, b'a', b'f') {
-                Some(pos) => Some(10 + pos),
-                None => None,
-            },
+            None => position_in_range(digit, b'a', b'f').map(|pos| 10 + pos),
         },
     }
 }

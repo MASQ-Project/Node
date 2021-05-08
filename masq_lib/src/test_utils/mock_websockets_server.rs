@@ -578,8 +578,7 @@ mod tests {
             .queue_response(broadcast_number_four)
             .queue_response(broadcast_number_five)
             .queue_response(conversation_number_three_response)
-            .queue_response(broadcast_number_six)
-            .write_logs();
+            .queue_response(broadcast_number_six);
         let stop_handle = server.start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
@@ -644,7 +643,6 @@ mod tests {
         let naive_attempt_number_five: Result<UiDescriptorResponse, (u64, String)> =
             connection.transact_with_context_id(UiDescriptorRequest {}, 0);
         let second_time_stamp = now.elapsed();
-        eprintln!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX{:?}",second_time_stamp);
         let _ = stop_handle.stop();
         ////////////////////////////////////////////////////////////////////////////////////////////
         //assertions for deliberately caused errors
