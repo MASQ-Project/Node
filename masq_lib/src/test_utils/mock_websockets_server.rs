@@ -577,7 +577,8 @@ mod tests {
             .queue_response(broadcast_number_four)
             .queue_response(broadcast_number_five)
             .queue_response(conversation_number_three_response)
-            .queue_response(broadcast_number_six);
+            .queue_response(broadcast_number_six)
+            .write_logs();
         let stop_handle = server.start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
