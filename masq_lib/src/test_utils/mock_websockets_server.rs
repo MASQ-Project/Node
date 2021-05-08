@@ -640,7 +640,7 @@ mod tests {
         let naive_attempt_number_five: Result<UiDescriptorResponse, (u64, String)> =
             connection.transact_with_context_id(UiDescriptorRequest {}, 0);
         let second_time_stamp = now.elapsed();
-        eprintln!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx{:?}",second_time_stamp);
+        eprintln!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX{:?}",second_time_stamp);
         let _ = stop_handle.stop();
         ////////////////////////////////////////////////////////////////////////////////////////////
         //assertions for deliberately caused errors
