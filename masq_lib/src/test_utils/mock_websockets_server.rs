@@ -230,6 +230,10 @@ impl MockWebSocketsServer {
                 log(do_log, index, "No message waiting");
                 None
             }
+            Err(WebSocketError::IoError(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                log(do_log, index, "Connection reset; will try to continue");
+                None
+            }
             Err(e) => Some(Err(format!("Error serving WebSocket: {:?}", e))),
             Ok(OwnedMessage::Text(json)) => {
                 log(do_log, index, &format!("Received '{}'", json));
