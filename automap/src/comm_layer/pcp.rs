@@ -20,6 +20,9 @@ use std::sync::{Mutex, Arc};
 use std::{io, thread};
 use std::cell::RefCell;
 use std::ops::Deref;
+use masq_lib::logger::Logger;
+use pretty_hex::PrettyHex;
+use masq_lib::{error};
 
 const ROUTER_PORT: u16 = 5351;
 const CHANGE_HANDLER_PORT: u16 = 5350;
@@ -74,6 +77,7 @@ pub struct PcpTransactor {
     listen_port: u16,
     change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
     change_handler_stopper: Option<Sender<()>>,
+    logger: Logger,
 }
 
 impl Transactor for PcpTransactor {
@@ -131,10 +135,10 @@ impl Transactor for PcpTransactor {
 
     fn start_change_handler(&mut self, change_handler: ChangeHandler) -> Result<(), AutomapError> {
         if let Some (_change_handler_stopper) = &self.change_handler_stopper {
-            todo! ("Stop previous change handler or throw error")
+            return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
         let change_handler_config = match self.change_handler_config.borrow().deref() {
-            None => todo! (),
+            None => return Err(AutomapError::ChangeHandlerUnconfigured),
             Some (chc) => chc.clone(),
         };
         let ip_addr = IpAddr::V4(Ipv4Addr::new (224, 0, 0, 1));
@@ -156,6 +160,7 @@ impl Transactor for PcpTransactor {
         self.change_handler_stopper = Some (tx);
         let factories_arc = self.factories_arc.clone();
         let router_port = self.router_port;
+        let logger = self.logger.clone();
         thread::spawn (move || {
             Self::thread_guts (
                 &socket,
@@ -164,6 +169,7 @@ impl Transactor for PcpTransactor {
                 router_port,
                 &change_handler,
                 change_handler_config,
+                logger,
             )
         });
         Ok(())
@@ -172,7 +178,7 @@ impl Transactor for PcpTransactor {
     fn stop_change_handler(&mut self) {
         match self.change_handler_stopper.take() {
             Some (stopper) => {let _ = stopper.send(());},
-            None => todo!(),
+            None => (), // Objective already achieved
         }
     }
 
@@ -189,6 +195,7 @@ impl Default for PcpTransactor {
             listen_port: CHANGE_HANDLER_PORT,
             change_handler_config: RefCell::new (None),
             change_handler_stopper: None,
+            logger: Logger::new ("Automap"),
         }
     }
 }
@@ -227,7 +234,6 @@ impl PcpTransactor {
         let request_len = packet
             .marshal(&mut buffer)
             .expect("Bad packet construction");
-eprintln! ("Created remapping packet");
         let socket = match socket_result {
             Ok(s) => s,
             Err(e) => {
@@ -240,7 +246,6 @@ eprintln! ("Created remapping packet");
         socket
             .set_read_timeout(Some(Duration::from_secs(3)))
             .expect("set_read_timeout failed");
-eprintln! ("Sending mapping request to {}:{}", router_ip, router_port);
         match socket.send_to(&buffer[0..request_len], SocketAddr::new(router_ip, router_port)) {
             Ok(_) => (),
             Err(e) => {
@@ -249,29 +254,24 @@ eprintln! ("Sending mapping request to {}:{}", router_ip, router_port);
                 )))
             }
         };
-eprintln! ("Awaiting response");
         let response = match socket.recv_from(&mut buffer) {
             Ok((len, _peer_addr)) => {
-eprintln! ("Response bytes received");
                 match PcpPacket::try_from(&buffer[0..len]) {
                     Ok(pkt) => pkt,
                     Err(e) => return Err(AutomapError::PacketParseError(e)),
                 }
             },
             Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
-eprintln! ("Timeout");
                 return Err(AutomapError::ProtocolError(
                     "Timed out after 3 seconds".to_string(),
                 ))
             }
             Err(e) => {
-eprintln! ("Error");
                 return Err(AutomapError::SocketReceiveError(
                     AutomapErrorCause::Unknown(format!("{:?}", e)),
                 ))
             }
         };
-eprintln! ("Received remapping response");
         if response.direction != Direction::Response {
             return Err(AutomapError::ProtocolError(
                 "Map response labeled as request".to_string(),
@@ -294,7 +294,6 @@ eprintln! ("Received remapping response");
             .as_any()
             .downcast_ref::<MapOpcodeData>()
             .expect("Response parsing inoperative - opcode data");
-eprintln! ("Returning remapping data");
         Ok((result_code, epoch_time, opcode_data.clone()))
     }
 
@@ -322,18 +321,16 @@ eprintln! ("Returning remapping data");
         router_port: u16,
         change_handler: &ChangeHandler,
         change_handler_config: ChangeHandlerConfig,
+        logger: Logger,
     ) {
         let change_handler_lifetime = change_handler_config.lifetime;
         let mut buffer = [0u8; 100];
+        socket.set_read_timeout(Some(Duration::from_millis(250))).expect("Can't set read timeout");
         loop {
-eprintln! ("Change handler listening for Announce");
-            socket.set_read_timeout(Some(Duration::from_millis(250))).expect("Can't set read timeout");
             match socket.recv_from(&mut buffer) {
                 Ok((len, socket_addr)) => {
-eprintln! ("Change handler received something");
                     match PcpPacket::try_from(&buffer[0..len]) {
                         Ok(packet) => if packet.opcode == Opcode::Announce {
-                            eprintln! ("It was an Announce!");
                             Self::handle_announcement(
                                 factories_arc.clone(),
                                 socket_addr.ip(),
@@ -341,13 +338,14 @@ eprintln! ("Change handler received something");
                                 change_handler_config.hole_port,
                                 change_handler,
                                 change_handler_lifetime,
+                                &logger,
                             );
                         },
-                        Err(_) => todo!("Log here"),
+                        Err(_) => error!(logger, "Unparseable PCP packet:\n{}", PrettyHex::hex_dump(&&buffer[0..len])),
                     }
                 },
                 Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
-                Err(_) => todo!("Log here"),
+                Err(e) => error! (logger, "Error receiving PCP packet from router: {:?}", e),
             }
             match rx.try_recv() {
                 Ok(_) => break,
@@ -363,24 +361,20 @@ eprintln! ("Change handler received something");
         hole_port: u16,
         change_handler: &ChangeHandler,
         change_handler_lifetime: u32,
+        logger: &Logger,
     ) {
-eprintln! ("Change handler handling Announce");
-        let result = Self::mapping_transaction(
+        match Self::mapping_transaction(
             &factories_arc,
             router_ip,
             router_port,
             hole_port,
             change_handler_lifetime,
-        );
-eprintln! ("Result of remapping after Announce: {:?}", result);
-        match result {
+        ) {
             Ok ((_, _, opcode_data)) => {
-eprintln! ("Calling supplied change handler");
                 change_handler(AutomapChange::NewIp(opcode_data.external_ip_address))
             },
             Err (e) => {
-                eprintln! ("Error retrieving new information: {:?}", e);
-                todo!()
+                error! (logger, "Remapping after IP change failed, Node is useless: {:?}", e);
             },
         }
     }
@@ -406,6 +400,7 @@ mod tests {
     use std::time::Duration;
     use masq_lib::utils::{find_free_port, localhost};
     use std::ops::Deref;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -1004,32 +999,135 @@ mod tests {
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal (&mut buffer).unwrap();
         let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
-eprintln! ("Test is sending Announce");
         let sent_len = announce_socket.send (&buffer[0..len_to_send]).unwrap();
         assert_eq! (sent_len, len_to_send);
-eprintln! ("Test is listening for mapping request on {}:{}", localhost(), router_port);
-        let recv_len = mapping_socket.recv (&mut buffer).unwrap();
+        let (recv_len, remapping_socket_addr) = mapping_socket.recv_from (&mut buffer).unwrap();
         let packet = PcpPacket::try_from (&buffer[0..recv_len]).unwrap();
         assert_eq! (packet.opcode, Opcode::Map);
         assert_eq! (packet.lifetime, 321);
         let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
         assert_eq! (opcode_data.external_port, 1234);
         assert_eq! (opcode_data.internal_port, 1234);
-eprintln! ("Received and verified mapping request");
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
         let mut opcode_data = MapOpcodeData::default();
         opcode_data.external_ip_address = IpAddr::from_str("4.5.6.7").unwrap();
         packet.opcode_data = Box::new (opcode_data);
         let len_to_send = packet.marshal (&mut buffer).unwrap();
-eprintln!("Sending remapping response");
-        let sent_len = mapping_socket.send_to (&buffer[0..len_to_send], SocketAddr::new(localhost(), router_port)).unwrap();
+        let sent_len = mapping_socket.send_to (&buffer[0..len_to_send], remapping_socket_addr).unwrap();
         assert_eq! (sent_len, len_to_send);
         thread::sleep (Duration::from_millis(1)); // yield timeslice
         subject.stop_change_handler();
         assert! (subject.change_handler_stopper.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq! (*changes, vec![AutomapChange::NewIp(IpAddr::from_str ("4.5.6.7").unwrap())])
+    }
+
+    #[test]
+    fn start_change_handler_doesnt_work_if_change_handler_stopper_is_populated () {
+        let mut subject = PcpTransactor::default();
+        subject.change_handler_stopper = Some (unbounded().0);
+        let change_handler = move |_| {};
+
+        let result = subject.start_change_handler(Box::new (change_handler));
+
+        assert_eq! (result, Err (AutomapError::ChangeHandlerAlreadyRunning))
+    }
+
+    #[test]
+    fn start_change_handler_doesnt_work_if_change_handler_is_unconfigured () {
+        let mut subject = PcpTransactor::default();
+        subject.change_handler_config = RefCell::new (None);
+        let change_handler = move |_| {};
+
+        let result = subject.start_change_handler(Box::new (change_handler));
+
+        assert_eq! (result, Err (AutomapError::ChangeHandlerUnconfigured))
+    }
+
+    #[test]
+    fn stop_change_handler_handles_missing_change_handler_stopper() {
+        let mut subject = PcpTransactor::default();
+        subject.change_handler_stopper = None;
+
+        subject.stop_change_handler();
+
+        // no panic: test passes
+    }
+
+    #[test]
+    fn thread_guts_logs_if_error_receiving_pcp_packet() {
+        init_test_logging();
+        let (tx, rx) = unbounded();
+        let socket: Box<dyn UdpSocketWrapper> = Box::new (UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .recv_from_result (Err(io::Error::from (ErrorKind::BrokenPipe)), vec![]));
+        let change_handler: ChangeHandler = Box::new (move |_| {});
+        let logger = Logger::new ("Automap");
+        tx.send (()).unwrap();
+
+        PcpTransactor::thread_guts(
+            &socket,
+            &rx,
+            Arc::new (Mutex::new (Factories::default())),
+            0,
+            &change_handler,
+            ChangeHandlerConfig{hole_port: 0, lifetime: 0},
+            logger,
+        );
+
+        TestLogHandler::new().exists_log_containing ("ERROR: Automap: Error receiving PCP packet from router: Kind(BrokenPipe)");
+    }
+
+    #[test]
+    fn thread_guts_logs_if_unparseable_pcp_packet_arrives() {
+        init_test_logging();
+        let socket_addr = SocketAddr::from_str("1.1.1.1:1").unwrap();
+        let (tx, rx) = unbounded();
+        let socket: Box<dyn UdpSocketWrapper> = Box::new (UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .recv_from_result (Ok((5, socket_addr)), b"booga".to_vec()));
+        let change_handler: ChangeHandler = Box::new (move |_| {});
+        let logger = Logger::new ("Automap");
+        tx.send (()).unwrap();
+
+        PcpTransactor::thread_guts(
+            &socket,
+            &rx,
+            Arc::new (Mutex::new (Factories::default())),
+            0,
+            &change_handler,
+            ChangeHandlerConfig{hole_port: 0, lifetime: 0},
+            logger,
+        );
+
+        TestLogHandler::new().exists_log_containing ("ERROR: Automap: Unparseable PCP packet:");
+    }
+
+    // TODO: This is not really what we want, but I don't know exactly what we really do want. When
+    // this happens, the Node is useless until the port can be remapped. How do we handle that
+    // situation?
+    #[test]
+    fn handle_announcement_logs_if_remapping_fails() {
+        init_test_logging();
+        let mut factories = Factories::default();
+        factories.socket_factory = Box::new (UdpSocketFactoryMock::new()
+            .make_result(Err (io::Error::from (ErrorKind::AlreadyExists)))
+        );
+        let change_handler: ChangeHandler = Box::new (move |_| {});
+        let logger = Logger::new ("Automap");
+
+        PcpTransactor::handle_announcement(
+            Arc::new (Mutex::new (factories)),
+            localhost(),
+            0,
+            0,
+            &change_handler,
+            0,
+            &logger,
+        );
+
+        TestLogHandler::new().exists_log_containing ("ERROR: Automap: Remapping after IP change failed, Node is useless: SocketBindingError(\"Kind(AlreadyExists)\", 0.0.0.0:");
     }
 
     fn vanilla_request() -> PcpPacket {

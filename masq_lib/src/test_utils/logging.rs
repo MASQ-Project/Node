@@ -1,12 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::server_initializer::real_format_function;
-use crate::test_utils::to_millis;
 use chrono::DateTime;
 use log::set_logger;
 use log::Log;
 use log::Metadata;
 use log::Record;
-use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
+use crate::test_utils::fake_stream_holder::ByteArrayWriter;
 use regex::Regex;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -15,6 +13,7 @@ use std::sync::MutexGuard;
 use std::thread;
 use std::time::Instant;
 use std::time::{Duration, SystemTime};
+use crate::test_utils::utils::{real_format_function, to_millis};
 
 static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
 static TEST_LOGGER: TestLogger = TestLogger {};

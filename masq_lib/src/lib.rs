@@ -1,5 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+// These must be before the rest of the modules
+// in order to be able to use the macros.
 #[macro_use]
 pub mod multi_config;
 
@@ -8,6 +10,9 @@ pub mod messages;
 
 #[macro_use]
 pub mod utils;
+
+#[macro_use]
+pub mod logger;
 
 pub mod command;
 pub mod constants;

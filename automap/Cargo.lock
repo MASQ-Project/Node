@@ -127,6 +127,7 @@ dependencies = [
  "log 0.4.13",
  "masq_lib",
  "port_scanner",
+ "pretty-hex",
  "rand 0.7.3",
 ]
 
@@ -852,10 +853,12 @@ name = "masq_lib"
 version = "1.0.0"
 dependencies = [
  "actix",
+ "chrono",
  "clap",
  "crossbeam-channel 0.4.4",
  "itertools",
  "lazy_static",
+ "log 0.4.13",
  "regex",
  "serde",
  "serde_derive",
@@ -1104,6 +1107,12 @@ name = "ppv-lite86"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
+
+[[package]]
+name = "pretty-hex"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be91bcc43e73799dc46a6c194a55e7aae1d86cc867c860fd4a436019af21bd8c"
 
 [[package]]
 name = "proc-macro2"

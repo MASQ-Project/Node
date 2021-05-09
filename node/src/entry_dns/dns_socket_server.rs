@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use crate::sub_lib::socket_server::SocketServer;
 use masq_lib::command::StdStreams;
 use std::net::SocketAddr;
@@ -97,8 +97,8 @@ mod tests {
     use super::super::packet_facade::PacketFacade;
     use super::*;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;

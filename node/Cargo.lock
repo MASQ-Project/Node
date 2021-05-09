@@ -1533,10 +1533,12 @@ name = "masq_lib"
 version = "1.0.0"
 dependencies = [
  "actix",
+ "chrono",
  "clap",
  "crossbeam-channel 0.4.4",
  "itertools",
  "lazy_static",
+ "log 0.4.11",
  "regex",
  "serde",
  "serde_derive",

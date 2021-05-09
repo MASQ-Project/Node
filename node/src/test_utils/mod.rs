@@ -1,25 +1,41 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-#[macro_use]
-pub mod channel_wrapper_mocks;
-pub mod data_hunk;
-pub mod data_hunk_framer;
-pub mod little_tcp_server;
-pub mod logfile_name_guard;
-pub mod logging;
-pub mod neighborhood_test_utils;
-pub mod persistent_configuration_mock;
-pub mod recorder;
-pub mod stream_connector_mock;
-pub mod tcp_wrapper_mocks;
-pub mod tokio_wrapper_mocks;
+use std::collections::btree_set::BTreeSet;
+use std::collections::HashSet;
+use std::convert::From;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::io::ErrorKind;
+use std::io::Read;
+use std::iter::repeat;
+use std::net::{Shutdown, TcpStream};
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::mpsc;
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::Sender;
+use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
+
+use ethsign_crypto::Keccak256;
+use lazy_static::lazy_static;
+use regex::Regex;
+use rustc_hex::ToHex;
+
+use masq_lib::constants::HTTP_PORT;
+use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
+use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+use masq_lib::test_utils::utils::{DEFAULT_CHAIN_ID, to_millis};
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
 use crate::node_configurator::node_configurator_standard::app;
-use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
+use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -38,33 +54,19 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-use ethsign_crypto::Keccak256;
-use lazy_static::lazy_static;
-use masq_lib::constants::HTTP_PORT;
-use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
-use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
-use regex::Regex;
-use rustc_hex::ToHex;
-use std::collections::btree_set::BTreeSet;
-use std::collections::HashSet;
-use std::convert::From;
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::io::ErrorKind;
-use std::io::Read;
-use std::iter::repeat;
-use std::net::SocketAddr;
-use std::net::{Shutdown, TcpStream};
-use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread;
-use std::time::Duration;
-use std::time::Instant;
+
+#[macro_use]
+pub mod channel_wrapper_mocks;
+pub mod data_hunk;
+pub mod data_hunk_framer;
+pub mod little_tcp_server;
+pub mod logfile_name_guard;
+pub mod neighborhood_test_utils;
+pub mod persistent_configuration_mock;
+pub mod recorder;
+pub mod stream_connector_mock;
+pub mod tcp_wrapper_mocks;
+pub mod tokio_wrapper_mocks;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
@@ -131,10 +133,6 @@ pub fn assert_matches(string: &str, regex: &str) {
         string,
         regex
     );
-}
-
-pub fn to_millis(dur: &Duration) -> u64 {
-    (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
 }
 
 pub fn signal() -> (Signaler, Waiter) {
@@ -500,16 +498,18 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::sub_lib::cryptde::CryptData;
-    use crate::sub_lib::hop::LiveHop;
-    use crate::sub_lib::neighborhood::ExpectedService;
     use std::borrow::BorrowMut;
     use std::iter;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
+
+    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::hop::LiveHop;
+    use crate::sub_lib::neighborhood::ExpectedService;
+
+    use super::*;
 
     #[test]
     fn characterize_zero_hop_route() {

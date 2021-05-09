@@ -7,7 +7,7 @@ use crate::proxy_client::stream_establisher::{StreamEstablisher, StreamEstablish
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use crate::sub_lib::proxy_client::{error_socket_addr, ProxyClientSubs};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, InboundServerData};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -499,8 +499,8 @@ mod tests {
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_meaningless_stream_key;

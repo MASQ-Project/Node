@@ -4,7 +4,7 @@ use super::gossip::GossipBuilder;
 use super::gossip::Gossip_0v1;
 use super::neighborhood_database::NeighborhoodDatabase;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use crate::sub_lib::utils::time_t_timestamp;
 use std::cell::Cell;
 

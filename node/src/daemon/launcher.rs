@@ -6,7 +6,7 @@ use crate::daemon::launch_verifier::LaunchVerification::{
 };
 use crate::daemon::launch_verifier::{LaunchVerifier, LaunchVerifierReal};
 use crate::daemon::{LaunchSuccess, Launcher};
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use actix::Recipient;
 use crossbeam_channel::Sender;
 use itertools::Itertools;
@@ -194,7 +194,7 @@ mod tests {
     use super::*;
     use crate::daemon::launch_verifier::LaunchVerification::Launched;
     use crate::daemon::mocks::LaunchVerifierMock;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
     use actix::System;

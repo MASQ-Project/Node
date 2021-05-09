@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::masquerader::{MasqueradeError, Masquerader};
 use crate::sub_lib::framer::Framer;
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use serde::export::fmt::Debug;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -77,7 +77,7 @@ mod tests {
     use super::*;
     use crate::masquerader::MasqueradeError;
     use crate::sub_lib::framer::FramedChunk;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
     use std::ops::DerefMut;
     use std::sync::Arc;

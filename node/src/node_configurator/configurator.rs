@@ -24,7 +24,7 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::{Wallet, WalletError};
 use crate::test_utils::main_cryptde;
@@ -710,7 +710,7 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
 

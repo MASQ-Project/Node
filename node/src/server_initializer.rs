@@ -7,10 +7,8 @@ use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::NodeConfiguratorStandardPrivileged;
 use crate::node_configurator::NodeConfigurator;
 use crate::node_configurator::RealDirsWrapper;
-use crate::sub_lib;
 use crate::sub_lib::socket_server::SocketServer;
 use backtrace::Backtrace;
-use chrono::{DateTime, Local};
 use flexi_logger::LogSpecBuilder;
 use flexi_logger::Logger;
 use flexi_logger::{Cleanup, Criterion, LevelFilter, Naming};
@@ -25,9 +23,10 @@ use std::fmt::Debug;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
-use std::{io, thread};
+use std::{io};
 use tokio::prelude::Async;
 use tokio::prelude::Future;
+use masq_lib::test_utils::utils::real_format_function;
 
 pub struct ServerInitializer {
     dns_socket_server: Box<dyn SocketServer<(), Item = (), Error = ()>>,
@@ -273,13 +272,13 @@ fn panic_hook(panic_info: AltPanicInfo) {
     } else {
         "<message indecipherable>".to_string()
     };
-    let logger = sub_lib::logger::Logger::new("PanicHandler");
+    let logger = masq_lib::logger::Logger::new("PanicHandler");
     error!(logger, "{} - {}", location, message);
     let backtrace = Backtrace::new();
     error!(logger, "{:?}", backtrace);
 }
 
-// DeferredNow can't be constructed in a test; therefore this function is untestable...
+// DeferredNow can't be constructed in a test; therefore this function is untestable.
 fn format_function(
     write: &mut dyn io::Write,
     now: &mut DeferredNow,
@@ -288,31 +287,13 @@ fn format_function(
     real_format_function(write, now.now(), record)
 }
 
-// ...but this one isn't.
-pub fn real_format_function(
-    write: &mut dyn io::Write,
-    timestamp: &DateTime<Local>,
-    record: &Record,
-) -> Result<(), io::Error> {
-    let timestamp = timestamp.naive_local().format("%Y-%m-%dT%H:%M:%S%.3f");
-    let thread_id_str = format!("{:?}", thread::current().id());
-    let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
-    let level = record.level();
-    let name = record.module_path().unwrap_or("<unnamed>");
-    write.write_fmt(format_args!(
-        "{} Thd{}: {}: {}: ",
-        timestamp, thread_id, level, name
-    ))?;
-    write.write_fmt(*record.args())
-}
-
 #[cfg(test)]
 pub mod test_utils {
     use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
     use crate::server_initializer::LoggerInitializerWrapper;
     #[cfg(not(target_os = "windows"))]
-    use crate::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::init_test_logging;
     use log::LevelFilter;
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
@@ -429,7 +410,7 @@ pub mod tests {
     use crate::crash_test_dummy::CrashTestDummy;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{

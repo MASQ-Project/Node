@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use clap::App;
 use masq_lib::command::StdStreams;
 use masq_lib::messages::UiCrashRequest;
@@ -127,7 +127,7 @@ pub fn make_new_test_multi_config<'a>(
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {

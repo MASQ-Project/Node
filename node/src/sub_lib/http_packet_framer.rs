@@ -2,7 +2,7 @@
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::framer_utils;
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use crate::sub_lib::utils::to_string;
 use masq_lib::utils::index_of;
 use masq_lib::utils::index_of_from;

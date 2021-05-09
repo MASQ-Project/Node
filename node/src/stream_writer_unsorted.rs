@@ -1,5 +1,5 @@
 use crate::sub_lib::channel_wrappers::ReceiverWrapper;
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
@@ -106,8 +106,8 @@ impl StreamWriterUnsorted {
 mod tests {
     use super::*;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
-    use crate::test_utils::logging::init_test_logging;
-    use crate::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use std::io;
     use std::io::ErrorKind;

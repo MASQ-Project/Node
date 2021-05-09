@@ -3,7 +3,7 @@
 use crate::daemon::launch_verifier::LaunchVerification::{
     CleanFailure, DirtyFailure, InterventionRequired, Launched,
 };
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use masq_lib::messages::NODE_UI_PROTOCOL;
 use std::thread;
 use std::time::Duration;

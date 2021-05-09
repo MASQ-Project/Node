@@ -46,6 +46,8 @@ pub enum AutomapError {
     TransactionFailure(String),
     AllProtocolsFailed,
     AllRoutersFailed(AutomapProtocol),
+    ChangeHandlerAlreadyRunning,
+    ChangeHandlerUnconfigured,
 }
 
 impl AutomapError {
@@ -72,6 +74,8 @@ impl AutomapError {
             AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::AllProtocolsFailed => todo!(),
             AutomapError::AllRoutersFailed(_) => todo!(),
+            AutomapError::ChangeHandlerAlreadyRunning => todo!(),
+            AutomapError::ChangeHandlerUnconfigured => todo!(),
         }
     }
 }

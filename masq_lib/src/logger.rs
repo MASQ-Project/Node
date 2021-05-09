@@ -12,36 +12,42 @@ pub struct Logger {
     level_limit: Level,
 }
 
+#[macro_export]
 macro_rules! trace {
     ($logger: expr, $($arg:tt)*) => {
         $logger.trace(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! debug {
     ($logger: expr, $($arg:tt)*) => {
         $logger.debug(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! info {
     ($logger: expr, $($arg:tt)*) => {
         $logger.info(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! warning {
     ($logger: expr, $($arg:tt)*) => {
         $logger.warning(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! error {
     ($logger: expr, $($arg:tt)*) => {
         $logger.error(|| format!($($arg)*))
     };
 }
 
+#[macro_export]
 macro_rules! fatal {
     ($logger: expr, $($arg:tt)*) => {
         $logger.fatal(|| format!($($arg)*))

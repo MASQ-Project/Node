@@ -41,7 +41,6 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::test_utils::to_millis;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -54,6 +53,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use masq_lib::test_utils::utils::to_millis;
 
 #[derive(Default)]
 pub struct Recorder {
