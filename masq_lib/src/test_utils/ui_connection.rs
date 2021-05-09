@@ -72,7 +72,7 @@ impl UiConnection {
         let mut failure_state_holder: Option<WebSocketResult<OwnedMessage>> = None;
         let start_instant = Instant::now();
         let incoming_msg_json = loop {
-            if start_instant.elapsed() > Duration::from_millis(150) {
+            if start_instant.elapsed() > Duration::from_millis(200) {
                 //a way to inform that the queque was probably empty, without panicking
                 return Err((
                     0,

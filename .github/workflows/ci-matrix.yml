@@ -25,6 +25,7 @@ jobs:
       - name: Build ${{ matrix.os }}
         run: |
           rustup show
+          bash -cxev "rustup self update"
           rustup update stable
           rustup show
           rustup component add rustfmt
