@@ -99,7 +99,7 @@ impl UiConnection {
 
                 x => failure_state_holder = Some(x),
             }
-            thread::sleep(Duration::from_millis(50))
+            thread::sleep(Duration::from_millis(20))
         };
 
         let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
