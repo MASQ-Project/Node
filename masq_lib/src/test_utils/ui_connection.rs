@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
+use self::wrap_up_message as make_contextually_incorrect_but_polite_error_message_indicating_a_test_s_failure;
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
@@ -7,9 +8,12 @@ use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::io::Write;
 use std::net::TcpStream;
+use std::thread;
 use std::time::{Duration, Instant};
 use websocket::sync::Client;
 use websocket::{ClientBuilder, OwnedMessage, WebSocketResult};
+
+const NORMAL_WAITING_PERIOD: u64 = 1000;
 
 pub struct UiConnection {
     context_id: u64,
@@ -68,30 +72,36 @@ impl UiConnection {
     fn receive_raw<T: FromMessageBody>(
         &mut self,
         context_id: Option<u64>,
+        waiting_limit: u64,
     ) -> Result<T, (u64, String)> {
         let mut failure_state_holder: Option<WebSocketResult<OwnedMessage>> = None;
         let start_instant = Instant::now();
+
         let incoming_msg_json = loop {
-            if start_instant.elapsed() > Duration::from_millis(200) {
-                //a way to inform that the queque was probably empty, without panicking
-                return Err((
-                    0,
-                    format!(
-                        "Expected a corresponding response pulled out from the queue. Probably none of such exists. See more: {:?}",
-                        failure_state_holder
-                    ),
+            if start_instant.elapsed() > Duration::from_millis(waiting_limit) {
+                //a way to inform that the attempt failed, without blocking
+                return make_contextually_incorrect_but_polite_error_message_indicating_a_test_s_failure(
+                format!("Expected a response. Probably none is to come, waiting was too long (with time limit: \
+                 {} ms) or the cause is the following error: {:?}",waiting_limit,
+                         failure_state_holder
                 ));
             }
             match self.client.recv_message() {
                 Ok(OwnedMessage::Binary(bytes))
                     if std::str::from_utf8(&bytes).unwrap() == "EMPTY QUEUE" =>
                 {
-                    return Err((0, "The queue is empty; all messages are gone.".to_string()))
-                }
+                    return make_contextually_incorrect_but_polite_error_message_indicating_a_test_s_failure(
+                        "The queue is empty; all messages are gone.".to_string(),
+                    )
+                },
+
                 Ok(OwnedMessage::Text(json)) => break json,
+
                 x => failure_state_holder = Some(x),
             }
+            thread::sleep(Duration::from_millis(50))
         };
+
         let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
             .unwrap_or_else(|_| panic!("Deserialization problem with: {}: ", &incoming_msg_json));
         let opcode = incoming_msg.body.opcode.clone();
@@ -117,7 +127,14 @@ impl UiConnection {
     }
 
     pub fn receive<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
-        self.receive_raw::<T>(None)
+        self.receive_raw::<T>(None, NORMAL_WAITING_PERIOD)
+    }
+
+    pub fn receive_custom<T: FromMessageBody>(
+        &mut self,
+        waiting_period: u64,
+    ) -> Result<T, (u64, String)> {
+        self.receive_raw::<T>(None, waiting_period)
     }
 
     pub fn transact<S: ToMessageBody, R: FromMessageBody>(
@@ -125,7 +142,7 @@ impl UiConnection {
         payload: S,
     ) -> Result<R, (u64, String)> {
         self.send(payload);
-        self.receive_raw::<R>(None)
+        self.receive_raw::<R>(None, NORMAL_WAITING_PERIOD)
     }
 
     pub fn transact_with_context_id<S: ToMessageBody, R: FromMessageBody>(
@@ -134,10 +151,14 @@ impl UiConnection {
         context_id: u64,
     ) -> Result<R, (u64, String)> {
         self.send_with_context_id(payload, context_id);
-        self.receive_raw::<R>(Some(context_id))
+        self.receive_raw::<R>(Some(context_id), NORMAL_WAITING_PERIOD)
     }
 
     pub fn shutdown(self) {
         self.client.shutdown().unwrap()
     }
+}
+
+fn wrap_up_message<T: FromMessageBody>(message: String) -> Result<T, (u64, String)> {
+    Err((0, message))
 }

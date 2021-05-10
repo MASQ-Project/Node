@@ -603,12 +603,13 @@ mod tests {
         let naive_attempt_number_one_to_receive_the_third_broadcast: Result<
             UiNewPasswordBroadcast,
             (u64, String),
-        > = connection.receive();
+        > = connection.receive_custom(200);
 
+        connection.send(conversation_hopeless_attempt_in_bad_time);
         let naive_attempt_number_two_now_to_receive_a_conversational_message: Result<
             UiDescriptorResponse,
             (u64, String),
-        > = connection.transact_with_context_id(conversation_hopeless_attempt_in_bad_time, 10000);
+        > = connection.receive_custom(200);
 
         //sending another broadcast trigger (unlimited) to get the fifth, sixth and seventh message
         connection.send(broadcast_trigger_two_with_no_limit);
@@ -623,7 +624,7 @@ mod tests {
         let naive_attempt_number_three_to_receive_another_broadcast_from_the_queue: Result<
             UiNodeCrashedBroadcast,
             (u64, String),
-        > = connection.receive();
+        > = connection.receive_custom(200);
 
         let _received_message_number_eight: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_three_request, 3)
@@ -635,12 +636,14 @@ mod tests {
         //the queue should be empty now
 
         let naive_attempt_number_four: Result<UiNodeCrashedBroadcast, (u64, String)> =
-            connection.receive();
+            connection.receive_custom(200);
         //the previous attempt eliminated the possibility of another broadcast
         //but what happens when new conversation tried
 
+        connection.send(UiDescriptorRequest {});
         let naive_attempt_number_five: Result<UiDescriptorResponse, (u64, String)> =
-            connection.transact_with_context_id(UiDescriptorRequest {}, 0);
+            connection.receive_custom(200);
+
         let _ = stop_handle.stop();
         ////////////////////////////////////////////////////////////////////////////////////////////
         //assertions for deliberately caused errors
@@ -649,8 +652,7 @@ mod tests {
             .1;
         assert!(
             error_message_number_one.contains(
-                "Expected a corresponding response pulled out from the queue. \
-        Probably none of such exists. See more:"
+                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms) or the cause is the following error:"
             ),
             "this text was unexpected: {}",
             error_message_number_one
@@ -667,8 +669,7 @@ mod tests {
                 .1;
         assert!(
             error_message_number_three.contains(
-                "Expected a corresponding response pulled out from the queue. \
-        Probably none of such exists. See more:"
+                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms) or the cause is the following error:"
             ),
             "this text was unexpected: {}",
             error_message_number_three
@@ -676,8 +677,7 @@ mod tests {
         let error_message_number_four = naive_attempt_number_four.unwrap_err().1;
         assert!(
             error_message_number_four.contains(
-                "Expected a corresponding response pulled out from the queue. \
-        Probably none of such exists. See more:"
+                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms) or the cause is the following error:"
             ),
             "this text was unexpected: {}",
             error_message_number_four
