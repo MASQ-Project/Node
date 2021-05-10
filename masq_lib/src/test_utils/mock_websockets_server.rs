@@ -129,7 +129,9 @@ impl MockWebSocketsServer {
             log(do_log, index, "Entering background loop");
             loop {
                 log(do_log, index, "Checking for message from client");
-                if let Some(incoming)  = Self::handle_incoming_raw(client.recv_message(), do_log, index){
+                if let Some(incoming) =
+                    Self::handle_incoming_raw(client.recv_message(), do_log, index)
+                {
                     log(
                         do_log,
                         index,
@@ -639,7 +641,7 @@ mod tests {
         //the previous attempt eliminated the possibility of another broadcast
         //but what happens when new conversation tried
 
-        connection.send_with_context_id(UiDescriptorRequest {},5);
+        connection.send_with_context_id(UiDescriptorRequest {}, 5);
         let naive_attempt_number_five: Result<UiDescriptorResponse, (u64, String)> =
             connection.receive_custom(200);
 
