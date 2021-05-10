@@ -129,8 +129,7 @@ impl MockWebSocketsServer {
             log(do_log, index, "Entering background loop");
             loop {
                 log(do_log, index, "Checking for message from client");
-                let incoming_opt = Self::handle_incoming_raw(client.recv_message(), do_log, index);
-                if let Some(incoming) = incoming_opt {
+                if let Some(incoming)  = Self::handle_incoming_raw(client.recv_message(), do_log, index){
                     log(
                         do_log,
                         index,
@@ -540,10 +539,10 @@ mod tests {
             position_to_send_the_signal_opt: None,
         };
         //the following message is expected not to get answered
-        let conversation_hopeless_attempt_in_bad_time = UiDescriptorRequest {};
+        let conversation_number_three_request = UiDescriptorRequest {};
         //nonconversational stimulus
         let broadcast_trigger_two_with_no_limit = UiBroadcastTrigger::default();
-        let conversation_number_three_request = UiDescriptorRequest {};
+        let conversation_number_four_request = UiDescriptorRequest {};
         //nonconversational stimulus
         let broadcast_trigger_three_with_no_limit = UiBroadcastTrigger::default();
 
@@ -563,7 +562,7 @@ mod tests {
         let conversation_number_three_response = UiDescriptorResponse {
             node_descriptor: "ae15fe6".to_string(),
         }
-        .tmb(3);
+        .tmb(4);
         let broadcast_number_six = broadcast_number_two.clone();
         ////////////////////////////////////////////////////////////////////////////////////////////
         let port = find_free_port();
@@ -605,7 +604,7 @@ mod tests {
             (u64, String),
         > = connection.receive_custom(200);
 
-        connection.send(conversation_hopeless_attempt_in_bad_time);
+        connection.send_with_context_id(conversation_number_three_request, 3);
         let naive_attempt_number_two_now_to_receive_a_conversational_message: Result<
             UiDescriptorResponse,
             (u64, String),
@@ -627,7 +626,7 @@ mod tests {
         > = connection.receive_custom(200);
 
         let _received_message_number_eight: UiDescriptorResponse = connection
-            .transact_with_context_id(conversation_number_three_request, 3)
+            .transact_with_context_id(conversation_number_four_request, 4)
             .unwrap();
         //we want to get to the last broadcast
         connection.send(broadcast_trigger_three_with_no_limit);
@@ -640,7 +639,7 @@ mod tests {
         //the previous attempt eliminated the possibility of another broadcast
         //but what happens when new conversation tried
 
-        connection.send(UiDescriptorRequest {});
+        connection.send_with_context_id(UiDescriptorRequest {},5);
         let naive_attempt_number_five: Result<UiDescriptorResponse, (u64, String)> =
             connection.receive_custom(200);
 
