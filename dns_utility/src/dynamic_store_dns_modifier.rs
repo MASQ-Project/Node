@@ -350,8 +350,10 @@ impl StoreWrapper for StoreWrapperReal {
     ) -> bool {
         let pairs: Vec<(CFString, CFArray)> = dictionary
             .into_iter()
-            .flat_map(|(key, cfpl_value)|
-                CFPropertyList::downcast_into::<CFArray>(cfpl_value).map(|v|(CFString::from(&key[..]), v)))
+            .flat_map(|(key, cfpl_value)| {
+                CFPropertyList::downcast_into::<CFArray>(cfpl_value)
+                    .map(|v| (CFString::from(&key[..]), v))
+            })
             .collect();
         let dictionary_cfpl = CFDictionary::from_CFType_pairs(pairs.as_slice());
         self.store.set(path, dictionary_cfpl.into_untyped())
