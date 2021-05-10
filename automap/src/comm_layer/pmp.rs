@@ -182,13 +182,16 @@ mod tests {
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
     use crate::protocols::utils::{Direction, Packet, ParseError};
-    use std::io;
+    use std::{io, thread};
     use std::io::ErrorKind;
     use std::net::{Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use masq_lib::utils::AutomapProtocol;
+    use masq_lib::utils::{AutomapProtocol, find_free_port, localhost};
+    use std::cell::RefCell;
+    use crate::comm_layer::pcp_pmp_common::{ChangeHandlerConfig, UdpSocket};
+    use crate::control_layer::automap_control::AutomapChange;
 
     #[test]
     fn knows_its_method() {
@@ -525,6 +528,61 @@ mod tests {
         );
         let recv_from_params = recv_from_params_arc.lock().unwrap();
         assert_eq!(*recv_from_params, vec![()])
+    }
+
+    #[test]
+    fn change_handler_works() {
+        let change_handler_port = find_free_port();
+        let router_port = find_free_port();
+        let mut subject = PmpTransactor::default();
+        subject.router_port = router_port;
+        subject.listen_port = change_handler_port;
+        subject.change_handler_config = RefCell::new (Some (ChangeHandlerConfig {
+            hole_port: 1234,
+            lifetime: 321
+        }));
+        let changes_arc = Arc::new (Mutex::new (vec![]));
+        let changes_arc_inner = changes_arc.clone();
+        let change_handler = move |change| {
+            changes_arc_inner.lock().unwrap().push (change);
+        };
+
+        subject.start_change_handler(Box::new (change_handler)).unwrap();
+
+        assert!(subject.change_handler_stopper.is_some());
+        let change_handler_ip = IpAddr::from_str ("224.0.0.1").unwrap();
+        let announce_socket = UdpSocket::bind (SocketAddr::new (localhost(), 0)).unwrap();
+        announce_socket.set_read_timeout (Some (Duration::from_millis(1000))).unwrap();
+        announce_socket.set_broadcast(true).unwrap();
+        announce_socket.connect (SocketAddr::new (change_handler_ip, change_handler_port)).unwrap();
+        let mut packet = PmpPacket::default();
+        packet.opcode = Opcode::Get;
+        packet.result_code_opt = Some(ResultCode::Success);
+        packet.opcode_data = make_get_response (0, Ipv4Addr::from_str("1.2.3.4").unwrap())
+        let mut buffer = [0u8; 100];
+        let len_to_send = packet.marshal (&mut buffer).unwrap();
+        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
+        let sent_len = announce_socket.send (&buffer[0..len_to_send]).unwrap();
+        assert_eq! (sent_len, len_to_send);
+        let (recv_len, remapping_socket_addr) = mapping_socket.recv_from (&mut buffer).unwrap();
+        let packet = PmpPacket::try_from (&buffer[0..recv_len]).unwrap();
+        assert_eq! (packet.opcode, Opcode::MapTcp);
+        assert_eq! (packet.lifetime, 321);
+        let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
+        assert_eq! (opcode_data.external_port, 1234);
+        assert_eq! (opcode_data.internal_port, 1234);
+        let mut packet = PmpPacket::default();
+        packet.opcode = Opcode::MapTcp;
+        packet.result_code_opt = Some(ResultCode::Success);
+        packet.opcode_data = make_map_response (0, 1234, 0);
+        let len_to_send = packet.marshal (&mut buffer).unwrap();
+        let sent_len = mapping_socket.send_to (&buffer[0..len_to_send], remapping_socket_addr).unwrap();
+        assert_eq! (sent_len, len_to_send);
+        thread::sleep (Duration::from_millis(1)); // yield timeslice
+        subject.stop_change_handler();
+        assert! (subject.change_handler_stopper.is_none());
+        let changes = changes_arc.lock().unwrap();
+        assert_eq! (*changes, vec![AutomapChange::NewIp(IpAddr::from_str ("4.5.6.7").unwrap())])
     }
 
     fn make_subject(socket_factory: UdpSocketFactoryMock) -> PmpTransactor {

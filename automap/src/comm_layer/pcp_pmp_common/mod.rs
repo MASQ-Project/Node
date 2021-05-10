@@ -24,6 +24,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
 
+#[derive (Clone)]
+pub struct ChangeHandlerConfig {
+    pub hole_port: u16,
+    pub lifetime: u32,
+}
+
 pub trait UdpSocketWrapper: Send {
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
     fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;

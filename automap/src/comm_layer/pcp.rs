@@ -65,12 +65,6 @@ impl Default for Factories {
     }
 }
 
-#[derive (Clone)]
-pub struct ChangeHandlerConfig {
-    hole_port: u16,
-    lifetime: u32,
-}
-
 pub struct PcpTransactor {
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
