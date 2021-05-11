@@ -17,7 +17,7 @@ pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
 pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb\
 74b2eac7b8a3be8xzt";
 
-//This is the outermost layer which is intended for you to usually work with at other places.
+//This is the outermost layer which is intended for you to usually work with at other places
 
 pub struct TerminalWrapper {
     interface: Arc<Box<dyn MasqTerminal + Send + Sync>>,
@@ -165,8 +165,8 @@ impl<U: linefeed::Terminal> WriterLock for Writer<'_, '_, U> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//complication caused by the fact that linefeed::Interface cannot be mocked easily - thus I use little
-//abstraction with the real "Interface" object using generic terminals in it
+//complication caused by the fact that linefeed::Interface cannot be mocked directly so I created a superior
+//trait that finally allows me to have a full mock
 
 pub trait InterfaceWrapper {
     fn read_line(&self) -> std::io::Result<ReadResult>;
@@ -188,7 +188,7 @@ impl<U: linefeed::Terminal + 'static> InterfaceWrapper for Interface<U> {
         match self.lock_writer_append() {
             Ok(writer) => Ok(Box::new(writer)),
             //untested ...mocking here would require own definition of a terminal type;
-            //it isn't worth it (see above)
+            //it isn't worth it due to its complexity
             Err(error) => Err(error),
         }
     }
