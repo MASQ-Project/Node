@@ -103,8 +103,8 @@ impl command::Command for Main {
             Some(_) => Self::populate_non_interactive_dependencies(),
             None => match Self::populate_interactive_dependencies(StreamFactoryReal) {
                 Ok(tuple) => tuple,
-                Err(e) => {
-                    short_writeln!(streams.stderr, "Pre-configuration error: {}", e);
+                Err(error) => {
+                    short_writeln!(streams.stderr, "Pre-configuration error: {}", error);
                     return 1;
                 } //tested by an integration test
             },
@@ -115,11 +115,11 @@ impl command::Command for Main {
             ui_port,
         ) {
             Ok(processor) => processor,
-            Err(e) => {
+            Err(error) => {
                 short_writeln!(
                         streams.stderr,
                         "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.",
-                        e
+                        error
                     );
                 return 1;
             }

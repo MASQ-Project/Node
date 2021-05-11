@@ -25,7 +25,6 @@ pub trait NonInteractiveClap {
 pub struct NonInteractiveClapReal;
 
 //partly tested by integration tests
-#[allow(unreachable_code)]
 impl NonInteractiveClap for NonInteractiveClapReal {
     fn non_interactive_initial_clap_operations(&self, args: &[String]) -> u16 {
         let matches = handle_help_or_version_if_required(args);

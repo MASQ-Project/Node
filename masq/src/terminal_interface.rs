@@ -17,7 +17,7 @@ pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
 pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb\
 74b2eac7b8a3be8xzt";
 
-//This is the outermost layer which is intended for you to usually work with at other places in the codebase.
+//This is the outermost layer which is intended for you to usually work with at other places.
 
 pub struct TerminalWrapper {
     interface: Arc<Box<dyn MasqTerminal + Send + Sync>>,
@@ -52,18 +52,22 @@ impl TerminalWrapper {
                 IntegrationTestTerminal::default(),
             )))
         } else {
-            //we have no positive automatic test aimed on this (only negative, an integration test)
+            //we have no positive automatic test aimed on this (only negative and as an integration test)
             Self::configure_interface_generic(Box::new(DefaultTerminal::new))
         }
     }
 
-    fn configure_interface_generic<F, U>(terminal_creator_by_type: Box<F>) -> Result<Self, String>
+    fn configure_interface_generic<F, TerminalType>(
+        terminal_creator_of_certain_type: Box<F>,
+    ) -> Result<Self, String>
     where
-        F: FnOnce() -> std::io::Result<U>,
-        U: linefeed::Terminal + 'static,
+        F: FnOnce() -> std::io::Result<TerminalType>,
+        TerminalType: linefeed::Terminal + 'static,
     {
-        let interface =
-            interface_configurator(Box::new(Interface::with_term), terminal_creator_by_type)?;
+        let interface = interface_configurator(
+            Box::new(Interface::with_term),
+            terminal_creator_of_certain_type,
+        )?;
         Ok(Self::new(Box::new(interface)))
     }
 
@@ -87,43 +91,21 @@ fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
     Ok(MemoryTerminal::new())
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//The applied design here, including those functions with closures above that are also strongly affected by the look of interface_configurator()
-//is complicated (and clumsy, in a way) because there are tough obstacles to write simple tests here.
-//interface_configurator() substitutes something that might otherwise look, if simplified, like:
-//
-//A) let terminal = match DefaultTerminal::new() {*something*};
-//B) let interface = match Interface::start_with("masq",terminal){*something*};
-//C) if let Err(e) = interface.set_prompt(){*something*};
-//D) Ok(TerminalReal::new(interface))
-//
-//However, since we want to write safe tests we have to face here the following:
-//1) DefaultTerminal alone is a part which could be theoretically tested outside of this function, with certain troubles,
-//but because of the other following facts it quite makes sense for it to simply stay where it is.
-//2) It's quite hard to simulate a failure at Interface::start_with, though possible; you have to implement your own "terminal
-//type", which you'll then instruct to cause an error during a call of the function below. It requires an additional implementation
-//of linefeed::Terminal and creation of some other objects, suspended on it and dependent on each other, which leads up to an extremely
-//long sequence of declarations written from zero.
-//3) Sadly, when you're finally done with the previous you'll find that point C (with the method set_prompt()) is even impossible because
-//unlike the previous case you're about to meet an external struct, named 'Reader', with a private constructor (also declared publicly
-//but with all private fields) and which doesn't share its traits - and that's the end of the line.
-//
-//We've agreed that sometime in the future we'll probably want to react on those errors that can come out of set_prompt() more specifically.
-//Thus this "silly play with closures" may be justifiable.
-//
-//In short, I created a so to say skeleton which takes injections of closures where I can exactly say how the mock, the injected
-//function shall behave and what it shall produce. Like so, all possible situations can be finally covered.
+//so to say skeleton which takes injections of closures where I can exactly say how the mocked, injected
+//function shall behave and what it shall produce. Like so, all possible situations can be finally
+//covered.
 
-fn interface_configurator<FN1, FN2: ?Sized, T, I>(
-    interface_raw: Box<FN1>,
-    terminal_type: Box<FN2>,
+fn interface_configurator<InterfaceConstructor, TerminalConstructor: ?Sized, Terminal, Interface>(
+    interface_raw: Box<InterfaceConstructor>,
+    terminal_type: Box<TerminalConstructor>,
 ) -> Result<TerminalReal, String>
 where
-    FN1: FnOnce(&'static str, T) -> std::io::Result<I>,
-    FN2: FnOnce() -> std::io::Result<T>,
-    T: linefeed::Terminal + 'static,
-    I: InterfaceWrapper + Send + Sync + 'static,
+    InterfaceConstructor: FnOnce(&'static str, Terminal) -> std::io::Result<Interface>,
+    TerminalConstructor: FnOnce() -> std::io::Result<Terminal>,
+    Terminal: linefeed::Terminal + 'static,
+    Interface: InterfaceWrapper + Send + Sync + 'static,
 {
-    let terminal: T = match terminal_type() {
+    let terminal: Terminal = match terminal_type() {
         Ok(term) => term,
         Err(e) => return Err(format!("Local terminal recognition: {}", e)),
     };
@@ -132,13 +114,13 @@ where
             Ok(interface) => Box::new(interface),
             Err(e) => return Err(format!("Preparing terminal interface: {}", e)),
         };
-    if let Err(e) = set_all_settable(&mut *interface) {
+    if let Err(e) = set_all_settable_parameters(&mut *interface) {
         return Err(e);
     };
     Ok(TerminalReal::new(interface))
 }
 
-fn set_all_settable<I>(interface: &mut I) -> Result<(), String>
+fn set_all_settable_parameters<I>(interface: &mut I) -> Result<(), String>
 where
     I: InterfaceWrapper + Send + Sync + 'static + ?Sized,
 {
@@ -167,11 +149,7 @@ pub trait MasqTerminal {
 //you may be looking for the declaration of TerminalReal which is in another file
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//Writer in the context of a passive mock has no functionality but still must be provided because such an object is required by
-//certain procedures. Look at that like a method of a different object returns a struct that is in the production code, doesn't
-//need its own method calls but most importantly cannot be reconstructed because of the lack of a public constructor or public
-//trait in the external library. No way.
-
+//needed for being able to use both DefaultTerminal and MemoryTerminal (synchronization tests)
 pub trait WriterLock {
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
@@ -186,22 +164,9 @@ impl<U: linefeed::Terminal> WriterLock for Writer<'_, '_, U> {
     }
 }
 
-#[derive(Clone)]
-pub struct WriterInactive {}
-
-impl WriterLock for WriterInactive {
-    #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
-        "WriterInactive".to_string()
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//Though this looks like a waste it's needed for good coverage of certain test cases...
-//There is another possible way, to create our own 'terminal type', an object implementing
-//linefeed::Terminal and then to use Interface<T>, where T (within our tests) is our terminal type.
-//Sadly, that would require much longer implementation than this here, forced by the nature
-//of linefeed::Terminal
+//complication caused by the fact that linefeed::Interface cannot be mocked easily - thus I use little
+//abstraction with the real "Interface" object using generic terminals in it
 
 pub trait InterfaceWrapper {
     fn read_line(&self) -> std::io::Result<ReadResult>;

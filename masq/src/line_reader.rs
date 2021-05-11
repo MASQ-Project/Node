@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[derive(Debug, PartialEq)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
-    Error(String),
+    Error(Option<String>),
     Continue, //as ignore
     Break,
 }
@@ -40,7 +40,7 @@ impl MasqTerminal for TerminalReal {
                 let args = split_quoted_line(line);
                 TerminalEvent::CommandLine(args)
             }
-            Err(e) => TerminalEvent::Error(format!("Reading from the terminal: {}", e)),
+            Err(e) => TerminalEvent::Error(Some(format!("Reading from the terminal: {}", e))),
             Ok(ReadResult::Signal(Signal::Resize)) | Ok(ReadResult::Signal(Signal::Continue)) => {
                 TerminalEvent::Continue
             }
@@ -328,7 +328,9 @@ mod tests {
 
         assert_eq!(
             result,
-            TerminalEvent::Error("Reading from the terminal: invalid input parameter".to_string())
+            TerminalEvent::Error(Some(
+                "Reading from the terminal: invalid input parameter".to_string()
+            ))
         );
     }
 

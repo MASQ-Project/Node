@@ -85,9 +85,8 @@ fn pass_on_args_or_print_messages(
         }
 
         TerminalEventError(e) => {
-            short_writeln!(streams.stderr, "{}", e);
-            //we're gonna discard this empty String when out of this fn
-            TerminalEventError(String::new())
+            short_writeln!(streams.stderr, "{}", e.expect("expected Some()"));
+            TerminalEventError(None)
         }
     }
 }
@@ -113,7 +112,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     #[derive(Debug)]
     struct FakeCommand {
@@ -260,7 +259,7 @@ mod tests {
             .close_params(&close_params_arc)
             .inject_terminal_interface(TerminalWrapper::new(Box::new(
                 TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::Error("ConnectionRefused".to_string())),
+                    .read_line_result(TerminalEvent::Error(Some("ConnectionRefused".to_string()))),
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
@@ -313,10 +312,10 @@ mod tests {
 
         let result = pass_on_args_or_print_messages(
             &mut stream_holder.streams(),
-            Error("Invalid Input\n".to_string()),
+            Error(Some("Invalid Input\n".to_string())),
         );
 
-        assert_eq!(result, Error(String::new()));
+        assert_eq!(result, Error(None));
         assert_eq!(stream_holder.stderr.get_string(), "Invalid Input\n\n");
         assert_eq!(stream_holder.stdout.get_string(), "");
     }
@@ -332,49 +331,6 @@ mod tests {
 
         assert_eq!(result, false);
         assert_eq!(stdout.get_string(), "")
-    }
-
-    //TODO take care of this dilemma
-    #[test]
-    #[ignore]
-    fn handle_help_or_version_provides_fine_lock_for_questioning_the_current_version_old() {
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
-        let background_interface_clone = terminal_interface.clone();
-        let mut stdout = ByteArrayWriter::new();
-        let (tx, rx) = bounded(1);
-        let handle = thread::spawn(move || {
-            let _lock = background_interface_clone.lock();
-            tx.send(()).unwrap();
-            thread::sleep(Duration::from_millis(30));
-        });
-        rx.recv().unwrap();
-        let now = Instant::now();
-
-        let result = handle_help_or_version("version", &mut stdout, &terminal_interface);
-
-        let time_period = now.elapsed();
-        handle.join().unwrap();
-        assert!(stdout.get_string().contains("masq"));
-        assert!(
-            time_period > Duration::from_millis(30),
-            "Terminal should have been locked for 30ms, but allowed access after only {:?}ms.",
-            time_period
-        );
-        assert_eq!(result, true);
-
-        //a check against negative positivity
-        let mut stdout = ByteArrayWriter::new();
-        let now = Instant::now();
-
-        let _ = handle_help_or_version("version", &mut stdout, &terminal_interface);
-
-        let time_period = now.elapsed();
-        assert!(
-            time_period < Duration::from_millis(5),
-            "longer time period than expected; should've been 5 ms max: {:?}",
-            time_period
-        );
-        assert!(stdout.get_string().contains("masq"));
     }
 
     #[test]
@@ -408,63 +364,4 @@ mod tests {
         );
         assert_eq!(result, true)
     }
-
-    //TODO remove this - it's not an actual test
-    #[test]
-    #[ignore]
-    fn simple_test_of_lock_reliability_with_deadlock() {
-        let interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
-        let interface_clone = interface.clone();
-        let mut stdout = ByteArrayWriter::new();
-        let _lock = interface.lock();
-        let _ = handle_help_or_version("help", &mut stdout, &interface_clone);
-    }
-
-    // #[test]
-    // fn handle_help_or_version_provides_fine_lock_for_help_call() {
-    //     let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
-    //     let background_interface_clone = terminal_interface.clone();
-    //     let mut stdout = ByteArrayWriter::new();
-    //     let (tx, rx) = bounded(1);
-    //     let (tx_back, rx_back) = bounded(1);
-    //     let handle = thread::spawn(move || {
-    //         let _lock = background_interface_clone.lock();
-    //         tx.send(()).unwrap();
-    //         rx_back.recv().unwrap();
-    //         thread::sleep(Duration::from_millis(30));
-    //     });
-    //     rx.recv().unwrap();
-    //     let now = Instant::now();
-    //     tx_back.send(()).unwrap();
-    //
-    //     let result = handle_help_or_version("help", &mut stdout, &terminal_interface);
-    //
-    //     let time_period = now.elapsed();
-    //     handle.join().unwrap();
-    //     assert!(stdout
-    //         .get_string()
-    //         .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
-    //     assert!(
-    //         time_period > Duration::from_millis(30),
-    //         "Terminal should have been locked for 30ms, but allowed access after only {:?}ms.",
-    //         time_period
-    //     );
-    //     assert_eq!(result, true);
-    //
-    //     //a check against negative positivity
-    //     let mut stdout = ByteArrayWriter::new();
-    //     let now = Instant::now();
-    //
-    //     let _ = handle_help_or_version("help", &mut stdout, &terminal_interface);
-    //
-    //     let time_period = now.elapsed();
-    //     assert!(
-    //         time_period < Duration::from_millis(5),
-    //         "longer time period than expected: should've been 5 ms max {:?}",
-    //         time_period
-    //     );
-    //     assert!(stdout
-    //         .get_string()
-    //         .contains("command-line user interface to the MASQ Daemon and the MASQ Node"));
-    // }
 }

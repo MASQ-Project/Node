@@ -8,9 +8,7 @@ use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
 use crate::line_reader::TerminalEvent;
 use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClap};
-use crate::terminal_interface::{
-    InterfaceWrapper, MasqTerminal, TerminalWrapper, WriterInactive, WriterLock,
-};
+use crate::terminal_interface::{InterfaceWrapper, MasqTerminal, TerminalWrapper, WriterLock};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult};
@@ -534,6 +532,16 @@ impl TerminalPassiveMock {
     pub fn read_line_result(self, result: TerminalEvent) -> Self {
         self.read_line_result.lock().unwrap().push(result);
         self
+    }
+}
+
+#[derive(Clone)]
+pub struct WriterInactive {}
+
+impl WriterLock for WriterInactive {
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
+        "WriterInactive".to_string()
     }
 }
 
