@@ -109,11 +109,10 @@ where
         Err(e) => return Err(format!("Local terminal recognition: {}", e)),
     };
 
-    let mut interface: Box<dyn InterfaceWrapper> =
-        match interface_raw("masq", terminal) {
-            Ok(interface) => Box::new(interface),
-            Err(e) => return Err(format!("Preparing terminal interface: {}", e)),
-        };
+    let mut interface: Box<dyn InterfaceWrapper> = match interface_raw("masq", terminal) {
+        Ok(interface) => Box::new(interface),
+        Err(e) => return Err(format!("Preparing terminal interface: {}", e)),
+    };
 
     if let Err(e) = set_all_settable_parameters(&mut *interface) {
         return Err(e);
@@ -121,7 +120,7 @@ where
     Ok(TerminalReal::new(interface))
 }
 
-fn set_all_settable_parameters<I:?Sized>(interface: &mut I) -> Result<(), String>
+fn set_all_settable_parameters<I: ?Sized>(interface: &mut I) -> Result<(), String>
 where
     I: InterfaceWrapper,
 {
