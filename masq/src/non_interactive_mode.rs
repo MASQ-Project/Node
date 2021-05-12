@@ -78,19 +78,6 @@ impl Main {
             Some(foreground_terminal_interface),
         ))
     }
-
-    #[cfg(test)]
-    pub fn test_only_new(
-        non_interactive_clap_factory: Box<dyn NIClapFactory>,
-        command_factory: Box<dyn CommandFactory>,
-        processor_factory: Box<dyn CommandProcessorFactory>,
-    ) -> Self {
-        Self {
-            non_interactive_clap_factory,
-            command_factory,
-            processor_factory,
-        }
-    }
 }
 
 impl command::Command for Main {
@@ -106,7 +93,7 @@ impl command::Command for Main {
                 Ok(tuple) => tuple,
                 Err(error) => {
                     short_writeln!(streams.stderr, "Pre-configuration error: {}", error);
-                    return 1;
+                    return bool_into_numeric_code(false);
                 } //tested by an integration test
             },
         };
@@ -122,71 +109,69 @@ impl command::Command for Main {
                         "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.",
                         error
                     );
-                return 1;
+                return bool_into_numeric_code(false);
             }
         };
 
         let result = match subcommand_opt {
-            Some(command_parts) => {
-                match handle_command_common(
-                    &*self.command_factory,
-                    &mut *command_processor,
-                    command_parts,
-                    streams.stderr,
-                ) {
-                    Ok(_) => 0,
-                    Err(_) => 1,
-                }
-            }
-            None => go_interactive(
-                Box::new(handle_command_common),
+            Some(command_parts) => handle_command_common(
                 &*self.command_factory,
                 &mut *command_processor,
-                streams,
+                command_parts,
+                streams.stderr,
             ),
+            None => go_interactive(&*self.command_factory, &mut *command_processor, streams),
         };
         command_processor.close();
-        result
+        bool_into_numeric_code(result)
     }
 }
 
-fn handle_command_common(
-    command_factory: &(dyn CommandFactory + 'static),
-    processor: &mut (dyn CommandProcessor + 'static),
+fn bool_into_numeric_code(bool_flag: bool) -> u8 {
+    bool_flag.not() as u8
+}
+
+pub fn handle_command_common(
+    command_factory: &dyn CommandFactory,
+    processor: &mut dyn CommandProcessor,
     command_parts: Vec<String>,
     stderr: &mut dyn Write,
-) -> Result<(), ()> {
+) -> bool {
     let command = match command_factory.make(command_parts) {
         Ok(c) => c,
         Err(UnrecognizedSubcommand(msg)) => {
             short_writeln!(stderr, "Unrecognized command: '{}'", msg);
-            return Err(());
+            return false;
         }
         Err(CommandSyntax(msg)) => {
             short_writeln!(stderr, "{}", msg);
-            return Err(());
+            return false;
         }
     };
     if let Err(e) = processor.process(command) {
         short_writeln!(stderr, "{}", e);
-        Err(())
+        false
     } else {
-        Ok(())
+        true
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command_context::CommandContext;
     use crate::command_context::ContextError::Other;
+    use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
+    use crate::line_reader::TerminalEvent;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        MockCommand, NIClapFactoryMock, TestStreamFactory,
+        MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory,
     };
     use masq_lib::command::Command;
+    use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::sync::{Arc, Mutex};
@@ -517,5 +502,96 @@ mod tests {
                 "off".to_string()
             ])
         )
+    }
+
+    #[derive(Debug)]
+    struct FakeCommand {
+        output: String,
+    }
+
+    impl commands_common::Command for FakeCommand {
+        fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
+            intentionally_blank!()
+        }
+    }
+
+    impl FakeCommand {
+        pub fn new(output: &str) -> Self {
+            Self {
+                output: output.to_string(),
+            }
+        }
+    }
+
+    #[test]
+    fn interactive_mode_works_when_everything_is_copacetic() {
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let command_factory = CommandFactoryMock::new()
+            .make_params(&make_params_arc)
+            .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
+            .make_result(Ok(Box::new(FakeCommand::new("start command"))));
+        let terminal_mock = TerminalPassiveMock::new()
+            .read_line_result(TerminalEvent::CommandLine(vec!["setup".to_string()]))
+            .read_line_result(TerminalEvent::CommandLine(vec!["start".to_string()]))
+            .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()]));
+        let processor = CommandProcessorMock::new()
+            .process_result(Ok(()))
+            .process_result(Ok(()))
+            .inject_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
+        let processor_factory =
+            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
+        let mut subject = Main {
+            non_interactive_clap_factory: Box::new(NIClapFactoryMock),
+            command_factory: Box::new(command_factory),
+            processor_factory: Box::new(processor_factory),
+        };
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = subject.go(
+            &mut stream_holder.streams(),
+            &[
+                "command".to_string(),
+                "--param".to_string(),
+                "value".to_string(),
+            ],
+        );
+
+        assert_eq!(result, 0);
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq!(
+            *make_params,
+            vec![vec!["setup".to_string()], vec!["start".to_string()]]
+        );
+    }
+
+    #[test]
+    fn interactive_mode_works_for_stdin_read_error() {
+        let command_factory = CommandFactoryMock::new();
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
+        let processor = CommandProcessorMock::new()
+            .close_params(&close_params_arc)
+            .inject_terminal_interface(TerminalWrapper::new(Box::new(
+                TerminalPassiveMock::new().read_line_result(TerminalEvent::CLError(Some(
+                    "ConnectionRefused".to_string(),
+                ))),
+            )));
+        let processor_factory =
+            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
+        let mut subject = Main {
+            non_interactive_clap_factory: Box::new(NIClapFactoryMock),
+            command_factory: Box::new(command_factory),
+            processor_factory: Box::new(processor_factory),
+        };
+        let mut stream_holder = FakeStreamHolder::new();
+
+        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+
+        assert_eq!(result, 1);
+        assert_eq!(
+            stream_holder.stderr.get_string(),
+            "ConnectionRefused\n".to_string()
+        );
+        let close_params = close_params_arc.lock().unwrap();
+        assert_eq!(close_params.len(), 1);
     }
 }

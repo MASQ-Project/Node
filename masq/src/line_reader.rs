@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[derive(Debug, PartialEq)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
-    Error(Option<String>),
-    Continue, //as ignore
-    Break,
+    CLError(Option<String>),
+    CLContinue, //as ignore
+    CLBreak,
 }
 
 pub struct TerminalReal {
@@ -40,11 +40,11 @@ impl MasqTerminal for TerminalReal {
                 let args = split_quoted_line(line);
                 TerminalEvent::CommandLine(args)
             }
-            Err(e) => TerminalEvent::Error(Some(format!("Reading from the terminal: {}", e))),
+            Err(e) => TerminalEvent::CLError(Some(format!("Reading from the terminal: {}", e))),
             Ok(ReadResult::Signal(Signal::Resize)) | Ok(ReadResult::Signal(Signal::Continue)) => {
-                TerminalEvent::Continue
+                TerminalEvent::CLContinue
             }
-            _ => TerminalEvent::Break,
+            _ => TerminalEvent::CLBreak,
         }
     }
 
@@ -221,7 +221,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::Break);
+        assert_eq!(result, TerminalEvent::CLBreak);
     }
 
     #[test]
@@ -232,7 +232,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::Break);
+        assert_eq!(result, TerminalEvent::CLBreak);
     }
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::Break);
+        assert_eq!(result, TerminalEvent::CLBreak);
     }
 
     #[test]
@@ -281,7 +281,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::Break)
+        assert_eq!(result, TerminalEvent::CLBreak)
     }
 
     #[test]
@@ -292,7 +292,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::Break)
+        assert_eq!(result, TerminalEvent::CLBreak)
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::Continue);
+        assert_eq!(result, TerminalEvent::CLContinue);
     }
 
     #[test]
@@ -314,7 +314,7 @@ mod tests {
 
         let result = subject.read_line();
 
-        assert_eq!(result, TerminalEvent::Continue);
+        assert_eq!(result, TerminalEvent::CLContinue);
     }
 
     #[test]
@@ -328,7 +328,7 @@ mod tests {
 
         assert_eq!(
             result,
-            TerminalEvent::Error(Some(
+            TerminalEvent::CLError(Some(
                 "Reading from the terminal: invalid input parameter".to_string()
             ))
         );

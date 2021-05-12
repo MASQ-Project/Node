@@ -1,6 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
-use self::wrap_up_message as make_contextually_incorrect_but_polite_error_message_indicating_a_failure_of_a_test;
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
@@ -80,21 +79,26 @@ impl UiConnection {
         let incoming_msg_json = loop {
             if start_instant.elapsed() > Duration::from_millis(waiting_limit) {
                 //a way to inform that the attempt failed, without blocking
-                return make_contextually_incorrect_but_polite_error_message_indicating_a_failure_of_a_test(
+                return
+                    Err((0,
                 format!("Expected a response. Probably none is to come, waiting was too long (with time limit: {} ms){}", waiting_limit,
                         if let Some(error) = failure_state_holder{format!(" or the cause is the following error: {:?}",error)}else{"".to_string()}
-                ));
+                ))
+                );
             }
             match self.client.recv_message() {
                 Ok(OwnedMessage::Binary(bytes))
                     if std::str::from_utf8(&bytes).unwrap() == "EMPTY QUEUE" =>
                 {
-                    return make_contextually_incorrect_but_polite_error_message_indicating_a_failure_of_a_test(
-                        "The queue is empty; all messages are gone.".to_string(),
-                    )
-                },
+                    return Err((0, "The queue is empty; all messages are gone.".to_string()))
+                }
                 Ok(OwnedMessage::Text(json)) => break json,
-                Err(WebSocketError::IoError(io_e)) if io_e.kind() == ErrorKind::WouldBlock || io_e.kind() == ErrorKind::TimedOut => failure_state_holder = None,
+                Err(WebSocketError::IoError(io_e))
+                    if io_e.kind() == ErrorKind::WouldBlock
+                        || io_e.kind() == ErrorKind::TimedOut =>
+                {
+                    failure_state_holder = None
+                }
                 x => failure_state_holder = Some(x),
             }
             thread::sleep(Duration::from_millis(20))
@@ -155,8 +159,4 @@ impl UiConnection {
     pub fn shutdown(self) {
         self.client.shutdown().unwrap()
     }
-}
-
-fn wrap_up_message<T: FromMessageBody>(message: String) -> Result<T, (u64, String)> {
-    Err((0, message))
 }

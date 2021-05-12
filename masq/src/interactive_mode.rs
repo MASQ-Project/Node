@@ -2,47 +2,78 @@
 
 use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
+use crate::interactive_mode::CustomTrioForGoInteractive::{Break, Continue, Return};
 use crate::line_reader::TerminalEvent;
-use crate::line_reader::TerminalEvent::{
-    Break, CommandLine, Continue, Error as TerminalEventError,
-};
+use crate::line_reader::TerminalEvent::{CLBreak, CLContinue, CLError, CommandLine};
+use crate::non_interactive_mode::handle_command_common;
 use crate::schema::app;
 use crate::terminal_interface::TerminalWrapper;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 use std::io::Write;
 
-pub fn go_interactive<CF: ?Sized, CP: ?Sized, HC>(
-    handle_command: Box<HC>,
-    command_factory: &CF,
-    processor: &mut CP,
+enum CustomTrioForGoInteractive {
+    Break,
+    Continue,
+    Return(bool),
+}
+
+pub fn go_interactive(
+    command_factory: &dyn CommandFactory,
+    command_processor: &mut dyn CommandProcessor,
     streams: &mut StdStreams<'_>,
-) -> u8
-where
-    HC: Fn(&CF, &mut CP, Vec<String>, &mut dyn Write) -> Result<(), ()>,
-    CF: CommandFactory,
-    CP: CommandProcessor,
-{
+) -> bool {
     loop {
-        let read_line_result = processor.terminal_wrapper_ref().read_line();
-        let args = match pass_on_args_or_print_messages(streams, read_line_result) {
-            CommandLine(args) => args,
-            Break => break,
+        let read_line_result = command_processor.terminal_wrapper_ref().read_line();
+        match handle_terminal_event(
+            streams,
+            command_factory,
+            command_processor,
+            read_line_result,
+        ) {
             Continue => continue,
-            TerminalEventError(_) => return 1,
-        };
-        if args.is_empty() {
-            continue;
+            Break => break,
+            Return(ending_flag) => return ending_flag,
         }
-        if args[0] == "exit" {
-            break;
-        }
-        if handle_help_or_version(&args[0], streams.stdout, processor.terminal_wrapper_ref()) {
-            continue;
-        }
-        let _ = handle_command(command_factory, processor, args, streams.stderr);
     }
-    0
+    true
+}
+
+fn handle_terminal_event(
+    streams: &mut StdStreams<'_>,
+    command_factory: &dyn CommandFactory,
+    command_processor: &mut dyn CommandProcessor,
+    read_line_result: TerminalEvent,
+) -> CustomTrioForGoInteractive {
+    match pass_args_or_print_messages(streams, read_line_result) {
+        CommandLine(args) => handle_args(args, streams, command_factory, command_processor),
+        CLBreak => Break,
+        CLContinue => Continue,
+        CLError(_) => Return(false),
+    }
+}
+
+fn handle_args(
+    args: Vec<String>,
+    streams: &mut StdStreams<'_>,
+    command_factory: &dyn CommandFactory,
+    command_processor: &mut dyn CommandProcessor,
+) -> CustomTrioForGoInteractive {
+    if args.is_empty() {
+        return Continue;
+    }
+    if args[0] == "exit" {
+        return Break;
+    }
+    if handle_help_or_version(
+        &args[0],
+        streams.stdout,
+        command_processor.terminal_wrapper_ref(),
+    ) {
+        return Continue;
+    }
+    let _ = handle_command_common(command_factory, command_processor, args, streams.stderr);
+    Continue
 }
 
 fn handle_help_or_version(
@@ -64,145 +95,72 @@ fn handle_help_or_version(
     true
 }
 
-fn pass_on_args_or_print_messages(
+fn pass_args_or_print_messages(
     streams: &mut StdStreams<'_>,
     read_line_result: TerminalEvent,
 ) -> TerminalEvent {
     match read_line_result {
         CommandLine(args) => CommandLine(args),
-
-        Continue => {
+        CLContinue => {
             short_writeln!(
                 streams.stdout,
                 "Received a signal interpretable as continue"
             );
-            Continue
+            CLContinue
         }
-
-        Break => {
+        CLBreak => {
             short_writeln!(streams.stdout, "Terminated");
-            Break
+            CLBreak
         }
-
-        TerminalEventError(e) => {
+        CLError(e) => {
             short_writeln!(streams.stderr, "{}", e.expect("expected Some()"));
-            TerminalEventError(None)
+            CLError(None)
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::command_context::CommandContext;
     use crate::command_factory::CommandFactoryError;
-    use crate::commands::commands_common;
-    use crate::commands::commands_common::CommandError;
-    use crate::interactive_mode::{handle_help_or_version, pass_on_args_or_print_messages};
+    use crate::interactive_mode::{
+        go_interactive, handle_help_or_version, pass_args_or_print_messages,
+    };
     use crate::line_reader::TerminalEvent;
-    use crate::line_reader::TerminalEvent::{Break, Continue, Error};
-    use crate::non_interactive_mode::Main;
+    use crate::line_reader::TerminalEvent::{CLBreak, CLContinue, CLError};
     use crate::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{
-        CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock, NIClapFactoryMock,
-        TerminalActiveMock, TerminalPassiveMock,
+        CommandFactoryMock, CommandProcessorMock, TerminalActiveMock, TerminalPassiveMock,
     };
     use crossbeam_channel::bounded;
-    use masq_lib::command::Command;
-    use masq_lib::intentionally_blank;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Instant;
 
-    #[derive(Debug)]
-    struct FakeCommand {
-        output: String,
-    }
-
-    impl commands_common::Command for FakeCommand {
-        fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            intentionally_blank!()
-        }
-    }
-
-    impl FakeCommand {
-        pub fn new(output: &str) -> Self {
-            Self {
-                output: output.to_string(),
-            }
-        }
-    }
-
-    #[test]
-    fn interactive_mode_works_when_everything_is_copacetic() {
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_factory = CommandFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
-            .make_result(Ok(Box::new(FakeCommand::new("start command"))));
-        let terminal_mock = TerminalPassiveMock::new()
-            .read_line_result(TerminalEvent::CommandLine(vec!["setup".to_string()]))
-            .read_line_result(TerminalEvent::CommandLine(vec!["start".to_string()]))
-            .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()]));
-        let processor = CommandProcessorMock::new()
-            .process_result(Ok(()))
-            .process_result(Ok(()))
-            .inject_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main::test_only_new(
-            Box::new(NIClapFactoryMock {}),
-            Box::new(command_factory),
-            Box::new(processor_factory),
-        );
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(
-            &mut stream_holder.streams(),
-            &[
-                "command".to_string(),
-                "--param".to_string(),
-                "value".to_string(),
-            ],
-        );
-
-        assert_eq!(result, 0);
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(
-            *make_params,
-            vec![vec!["setup".to_string()], vec!["start".to_string()]]
-        );
-    }
-
     #[test]
     fn interactive_mode_works_for_unrecognized_command() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut stream_holder = FakeStreamHolder::new();
+        let mut streams = stream_holder.streams();
+        let terminal_interface = TerminalWrapper::new(Box::new(
+            TerminalPassiveMock::new()
+                .read_line_result(TerminalEvent::CommandLine(vec![
+                    "error".to_string(),
+                    "command".to_string(),
+                ]))
+                .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
+        ));
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Err(CommandFactoryError::UnrecognizedSubcommand(
                 "Booga!".to_string(),
             )));
-        let processor =
-            CommandProcessorMock::new().inject_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine(vec![
-                        "error".to_string(),
-                        "command".to_string(),
-                    ]))
-                    .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
-            )));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main::test_only_new(
-            Box::new(NIClapFactoryMock {}),
-            Box::new(command_factory),
-            Box::new(processor_factory),
-        );
-        let mut stream_holder = FakeStreamHolder::new();
+        let mut processor =
+            CommandProcessorMock::new().inject_terminal_interface(terminal_interface);
 
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+        let result = go_interactive(&command_factory, &mut processor, &mut streams);
 
-        assert_eq!(result, 0);
+        assert_eq!(result, true);
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
@@ -211,38 +169,33 @@ mod tests {
         assert_eq!(
             stream_holder.stderr.get_string(),
             "Unrecognized command: 'Booga!'\n".to_string()
-        );
+        )
     }
 
     #[test]
     fn interactive_mode_works_for_command_with_bad_syntax() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut stream_holder = FakeStreamHolder::new();
+        let mut streams = stream_holder.streams();
+        let terminal_interface = TerminalWrapper::new(Box::new(
+            TerminalPassiveMock::new()
+                .read_line_result(TerminalEvent::CommandLine(vec![
+                    "error".to_string(),
+                    "command".to_string(),
+                ]))
+                .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
+        ));
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Err(CommandFactoryError::CommandSyntax(
                 "Booga!".to_string(),
             )));
-        let processor =
-            CommandProcessorMock::new().inject_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::CommandLine(vec![
-                        "error".to_string(),
-                        "command".to_string(),
-                    ]))
-                    .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
-            )));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main::test_only_new(
-            Box::new(NIClapFactoryMock {}),
-            Box::new(command_factory),
-            Box::new(processor_factory),
-        );
-        let mut stream_holder = FakeStreamHolder::new();
+        let mut processor =
+            CommandProcessorMock::new().inject_terminal_interface(terminal_interface);
 
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+        let result = go_interactive(&command_factory, &mut processor, &mut streams);
 
-        assert_eq!(result, 0);
+        assert_eq!(result, true);
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
@@ -252,42 +205,35 @@ mod tests {
     }
 
     #[test]
-    fn interactive_mode_works_for_stdin_read_error() {
-        let command_factory = CommandFactoryMock::new();
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let processor = CommandProcessorMock::new()
-            .close_params(&close_params_arc)
-            .inject_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new()
-                    .read_line_result(TerminalEvent::Error(Some("ConnectionRefused".to_string()))),
-            )));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let mut subject = Main::test_only_new(
-            Box::new(NIClapFactoryMock {}),
-            Box::new(command_factory),
-            Box::new(processor_factory),
-        );
+    fn continue_and_break_orders_work_for_interactive_mode() {
         let mut stream_holder = FakeStreamHolder::new();
+        let mut streams = stream_holder.streams();
+        let terminal_interface = TerminalWrapper::new(Box::new(
+            TerminalPassiveMock::new()
+                .read_line_result(TerminalEvent::CLContinue)
+                .read_line_result(TerminalEvent::CLBreak),
+        ));
+        let command_factory = CommandFactoryMock::new();
+        let mut processor =
+            CommandProcessorMock::new().inject_terminal_interface(terminal_interface);
 
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+        let result = go_interactive(&command_factory, &mut processor, &mut streams);
 
-        assert_eq!(result, 1);
+        assert_eq!(result, true);
+        assert_eq!(stream_holder.stderr.get_string(), "".to_string());
         assert_eq!(
-            stream_holder.stderr.get_string(),
-            "ConnectionRefused\n".to_string()
-        );
-        let close_params = close_params_arc.lock().unwrap();
-        assert_eq!(close_params.len(), 1);
+            stream_holder.stdout.get_string(),
+            "Received a signal interpretable as continue\nTerminated\n".to_string()
+        )
     }
 
     #[test]
     fn pass_on_args_or_print_messages_announces_break_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_print_messages(&mut stream_holder.streams(), Break);
+        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLBreak);
 
-        assert_eq!(result, Break);
+        assert_eq!(result, CLBreak);
         assert_eq!(stream_holder.stderr.get_string(), "");
         assert_eq!(stream_holder.stdout.get_string(), "Terminated\n");
     }
@@ -296,9 +242,9 @@ mod tests {
     fn pass_on_args_or_print_messages_announces_continue_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_print_messages(&mut stream_holder.streams(), Continue);
+        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLContinue);
 
-        assert_eq!(result, Continue);
+        assert_eq!(result, CLContinue);
         assert_eq!(stream_holder.stderr.get_string(), "");
         assert_eq!(
             stream_holder.stdout.get_string(),
@@ -310,12 +256,12 @@ mod tests {
     fn pass_on_args_or_print_messages_announces_error_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = pass_on_args_or_print_messages(
+        let result = pass_args_or_print_messages(
             &mut stream_holder.streams(),
-            Error(Some("Invalid Input\n".to_string())),
+            CLError(Some("Invalid Input\n".to_string())),
         );
 
-        assert_eq!(result, Error(None));
+        assert_eq!(result, CLError(None));
         assert_eq!(stream_holder.stderr.get_string(), "Invalid Input\n\n");
         assert_eq!(stream_holder.stdout.get_string(), "");
     }
