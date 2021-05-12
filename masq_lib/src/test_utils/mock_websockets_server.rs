@@ -231,10 +231,10 @@ impl MockWebSocketsServer {
                 log(do_log, index, "No message waiting");
                 None
             }
-            Err(WebSocketError::IoError(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => {
-                log(do_log, index, "Connection reset; will try to continue");
-                None
-            }
+            // Err(WebSocketError::IoError(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+            //     log(do_log, index, "Connection reset; will try to continue");
+            //     None
+            // }
             Err(e) => Some(Err(format!("Error serving WebSocket: {:?}", e))),
             Ok(OwnedMessage::Text(json)) => {
                 log(do_log, index, &format!("Received '{}'", json));
@@ -652,7 +652,7 @@ mod tests {
             .1;
         assert!(
             error_message_number_one.contains(
-                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms) or the cause is the following error:"
+                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms)"
             ),
             "this text was unexpected: {}",
             error_message_number_one
@@ -669,7 +669,7 @@ mod tests {
                 .1;
         assert!(
             error_message_number_three.contains(
-                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms) or the cause is the following error:"
+                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms)"
             ),
             "this text was unexpected: {}",
             error_message_number_three
@@ -677,7 +677,7 @@ mod tests {
         let error_message_number_four = naive_attempt_number_four.unwrap_err().1;
         assert!(
             error_message_number_four.contains(
-                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms) or the cause is the following error:"
+                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms)"
             ),
             "this text was unexpected: {}",
             error_message_number_four

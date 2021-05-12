@@ -1,17 +1,17 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
-use self::wrap_up_message as make_contextually_incorrect_but_polite_error_message_indicating_a_test_s_failure;
+use self::wrap_up_message as make_contextually_incorrect_but_polite_error_message_indicating_a_failure_of_a_test;
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::net::TcpStream;
 use std::thread;
 use std::time::{Duration, Instant};
 use websocket::sync::Client;
-use websocket::{ClientBuilder, OwnedMessage, WebSocketResult};
+use websocket::{ClientBuilder, OwnedMessage, WebSocketError, WebSocketResult};
 
 const NORMAL_WAITING_PERIOD: u64 = 1000;
 
@@ -80,23 +80,21 @@ impl UiConnection {
         let incoming_msg_json = loop {
             if start_instant.elapsed() > Duration::from_millis(waiting_limit) {
                 //a way to inform that the attempt failed, without blocking
-                return make_contextually_incorrect_but_polite_error_message_indicating_a_test_s_failure(
-                format!("Expected a response. Probably none is to come, waiting was too long (with time limit: \
-                 {} ms) or the cause is the following error: {:?}",waiting_limit,
-                         failure_state_holder
+                return make_contextually_incorrect_but_polite_error_message_indicating_a_failure_of_a_test(
+                format!("Expected a response. Probably none is to come, waiting was too long (with time limit: {} ms){}", waiting_limit,
+                        if let Some(error) = failure_state_holder{format!(" or the cause is the following error: {:?}",error)}else{"".to_string()}
                 ));
             }
             match self.client.recv_message() {
                 Ok(OwnedMessage::Binary(bytes))
                     if std::str::from_utf8(&bytes).unwrap() == "EMPTY QUEUE" =>
                 {
-                    return make_contextually_incorrect_but_polite_error_message_indicating_a_test_s_failure(
+                    return make_contextually_incorrect_but_polite_error_message_indicating_a_failure_of_a_test(
                         "The queue is empty; all messages are gone.".to_string(),
                     )
                 },
-
                 Ok(OwnedMessage::Text(json)) => break json,
-
+                Err(WebSocketError::IoError(io_e)) if io_e.kind() == ErrorKind::WouldBlock || io_e.kind() == ErrorKind::TimedOut => failure_state_holder = None,
                 x => failure_state_holder = Some(x),
             }
             thread::sleep(Duration::from_millis(20))
