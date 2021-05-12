@@ -12,16 +12,16 @@ use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 use std::io::Write;
 
-pub fn go_interactive<CF, CP, HC>(
+pub fn go_interactive<CF: ?Sized, CP: ?Sized, HC>(
     handle_command: Box<HC>,
     command_factory: &CF,
     processor: &mut CP,
     streams: &mut StdStreams<'_>,
 ) -> u8
 where
-    HC: Fn(&CF, &mut CP, Vec<String>, &mut (dyn Write + Send)) -> Result<(), ()>,
-    CF: CommandFactory + ?Sized + 'static,
-    CP: CommandProcessor + ?Sized + 'static,
+    HC: Fn(&CF, &mut CP, Vec<String>, &mut dyn Write) -> Result<(), ()>,
+    CF: CommandFactory,
+    CP: CommandProcessor,
 {
     loop {
         let read_line_result = processor.terminal_wrapper_ref().read_line();

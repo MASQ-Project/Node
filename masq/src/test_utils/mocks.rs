@@ -434,6 +434,7 @@ impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory {
     }
 }
 
+//this set is invented just for a single special test; checking that the background thread doesn't outlive the foreground thread
 #[derive(Debug)]
 pub struct TestStreamsWithThreadLifeCheckerFactory {
     stream_factory: TestStreamFactory,
@@ -477,6 +478,7 @@ pub fn make_tools_for_test_streams_with_thread_life_checker() -> (
     )
 }
 
+//this is used in tests aimed at synchronization
 #[derive(Clone)]
 pub struct StdoutBlender {
     channel_half: Sender<String>,
@@ -506,8 +508,8 @@ impl Write for StdoutBlender {
     }
 }
 
-//light-weight mock (passive = without functions of the linefeed interface and mainly without functional locking
-//thus unusable for accurate sync tests
+//light-weight mock ("passive" = without functions of the linefeed interface and without functional locking
+//thus unusable for sync tests
 
 #[derive(Clone)]
 pub struct TerminalPassiveMock {
@@ -532,16 +534,6 @@ impl TerminalPassiveMock {
     pub fn read_line_result(self, result: TerminalEvent) -> Self {
         self.read_line_result.lock().unwrap().push(result);
         self
-    }
-}
-
-#[derive(Clone)]
-pub struct WriterInactive {}
-
-impl WriterLock for WriterInactive {
-    #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
-        "WriterInactive".to_string()
     }
 }
 
@@ -588,6 +580,16 @@ impl TerminalActiveMock {
             .borrow_mut()
             .push(format!("{}\n", line));
         self
+    }
+}
+
+#[derive(Clone)]
+pub struct WriterInactive {}
+
+impl WriterLock for WriterInactive {
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
+        "WriterInactive".to_string()
     }
 }
 

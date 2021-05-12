@@ -20,7 +20,7 @@ pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1a
 //This is the outermost layer which is intended for you to usually work with at other places
 
 pub struct TerminalWrapper {
-    interface: Arc<Box<dyn MasqTerminal + Send + Sync>>,
+    interface: Arc<Box<dyn MasqTerminal>>,
 }
 
 impl Clone for TerminalWrapper {
@@ -32,7 +32,7 @@ impl Clone for TerminalWrapper {
 }
 
 impl TerminalWrapper {
-    pub fn new(interface: Box<dyn MasqTerminal + Send + Sync>) -> Self {
+    pub fn new(interface: Box<dyn MasqTerminal>) -> Self {
         Self {
             interface: Arc::new(interface),
         }
@@ -92,37 +92,38 @@ fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //so to say skeleton which takes injections of closures where I can exactly say how the mocked, injected
-//function shall behave and what it shall produce. Like so, all possible situations can be finally
-//covered.
+//function shall behave and what it shall produce
 
-fn interface_configurator<InterfaceConstructor, TerminalConstructor: ?Sized, Terminal, Interface>(
+fn interface_configurator<InterfaceConstructor, TerminalConstructor, Terminal, Interface>(
     interface_raw: Box<InterfaceConstructor>,
     terminal_type: Box<TerminalConstructor>,
 ) -> Result<TerminalReal, String>
 where
     InterfaceConstructor: FnOnce(&'static str, Terminal) -> std::io::Result<Interface>,
     TerminalConstructor: FnOnce() -> std::io::Result<Terminal>,
-    Terminal: linefeed::Terminal + 'static,
-    Interface: InterfaceWrapper + Send + Sync + 'static,
+    Terminal: linefeed::Terminal,
+    Interface: InterfaceWrapper + 'static,
 {
     let terminal: Terminal = match terminal_type() {
         Ok(term) => term,
         Err(e) => return Err(format!("Local terminal recognition: {}", e)),
     };
-    let mut interface: Box<dyn InterfaceWrapper + Send + Sync + 'static> =
+
+    let mut interface: Box<dyn InterfaceWrapper> =
         match interface_raw("masq", terminal) {
             Ok(interface) => Box::new(interface),
             Err(e) => return Err(format!("Preparing terminal interface: {}", e)),
         };
+
     if let Err(e) = set_all_settable_parameters(&mut *interface) {
         return Err(e);
     };
     Ok(TerminalReal::new(interface))
 }
 
-fn set_all_settable_parameters<I>(interface: &mut I) -> Result<(), String>
+fn set_all_settable_parameters<I:?Sized>(interface: &mut I) -> Result<(), String>
 where
-    I: InterfaceWrapper + Send + Sync + 'static + ?Sized,
+    I: InterfaceWrapper,
 {
     if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
         return Err(format!("Setting prompt: {}", e));
@@ -134,7 +135,7 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub trait MasqTerminal {
+pub trait MasqTerminal: Send + Sync {
     fn lock(&self) -> Box<dyn WriterLock + '_>;
     fn read_line(&self) -> TerminalEvent;
     #[cfg(test)]
@@ -168,14 +169,14 @@ impl<U: linefeed::Terminal> WriterLock for Writer<'_, '_, U> {
 //complication caused by the fact that linefeed::Interface cannot be mocked directly so I created a superior
 //trait that finally allows me to have a full mock
 
-pub trait InterfaceWrapper {
+pub trait InterfaceWrapper: Send + Sync {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history_unique(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>>;
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
 }
 
-impl<U: linefeed::Terminal + 'static> InterfaceWrapper for Interface<U> {
+impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
     fn read_line(&self) -> std::io::Result<ReadResult> {
         self.read_line()
     }
@@ -323,7 +324,7 @@ mod tests {
     }
 
     fn producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error(
-    ) -> std::io::Result<impl linefeed::Terminal + 'static> {
+    ) -> std::io::Result<impl linefeed::Terminal> {
         Err(Error::from_raw_os_error(1)) as std::io::Result<DefaultTerminal>
     }
 
@@ -362,7 +363,7 @@ mod tests {
 
     fn producer_of_interface_raw_resulting_in_an_early_error(
         _name: &str,
-        _terminal: impl linefeed::Terminal + 'static,
+        _terminal: impl linefeed::Terminal,
     ) -> std::io::Result<impl InterfaceWrapper + Send + Sync + 'static> {
         Err(Error::from_raw_os_error(1)) as std::io::Result<InterfaceRawMock>
     }
@@ -387,7 +388,7 @@ mod tests {
 
     fn producer_of_interface_raw_causing_set_prompt_error(
         _name: &str,
-        _terminal: impl linefeed::Terminal + 'static,
+        _terminal: impl linefeed::Terminal,
     ) -> std::io::Result<impl InterfaceWrapper + Send + Sync + 'static> {
         Ok(InterfaceRawMock::new().set_prompt_result(Err(Error::from_raw_os_error(10))))
     }

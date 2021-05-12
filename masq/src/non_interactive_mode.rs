@@ -15,6 +15,7 @@ use crate::terminal_interface::TerminalWrapper;
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
+use std::io::Write;
 use std::ops::Not;
 
 pub struct Main {
@@ -153,7 +154,7 @@ fn handle_command_common(
     command_factory: &(dyn CommandFactory + 'static),
     processor: &mut (dyn CommandProcessor + 'static),
     command_parts: Vec<String>,
-    stderr: &mut (dyn std::io::Write + Send),
+    stderr: &mut dyn Write,
 ) -> Result<(), ()> {
     let command = match command_factory.make(command_parts) {
         Ok(c) => c,

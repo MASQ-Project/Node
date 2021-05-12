@@ -17,11 +17,11 @@ pub enum TerminalEvent {
 }
 
 pub struct TerminalReal {
-    pub interface: Box<dyn InterfaceWrapper + Send + Sync>,
+    pub interface: Box<dyn InterfaceWrapper>,
 }
 
 impl TerminalReal {
-    pub fn new(interface: Box<dyn InterfaceWrapper + Send + Sync>) -> Self {
+    pub fn new(interface: Box<dyn InterfaceWrapper>) -> Self {
         Self { interface }
     }
 }
