@@ -24,6 +24,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
 
+pub const ROUTER_PORT: u16 = 5351;
+pub const CHANGE_HANDLER_PORT: u16 = 5350;
+
 #[derive (Clone)]
 pub struct ChangeHandlerConfig {
     pub hole_port: u16,

@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper, ChangeHandlerConfig, ROUTER_PORT, CHANGE_HANDLER_PORT};
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Transactor,
 };
@@ -23,9 +23,6 @@ use std::ops::Deref;
 use masq_lib::logger::Logger;
 use pretty_hex::PrettyHex;
 use masq_lib::{error};
-
-const ROUTER_PORT: u16 = 5351;
-const CHANGE_HANDLER_PORT: u16 = 5350;
 
 trait MappingNonceFactory: Send {
     fn make(&self) -> [u8; 12];
@@ -395,6 +392,7 @@ mod tests {
     use masq_lib::utils::{find_free_port, localhost};
     use std::ops::Deref;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,

@@ -1,9 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal,
-    UdpSocketFactory, UdpSocketFactoryReal,
-};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, ChangeHandlerConfig, ROUTER_PORT, CHANGE_HANDLER_PORT};
 use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
@@ -12,14 +9,38 @@ use crate::protocols::utils::{Direction, Packet};
 use std::any::Any;
 use std::convert::TryFrom;
 use std::io::ErrorKind;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, SocketAddr, Ipv4Addr};
 use std::time::Duration;
 use crate::control_layer::automap_control::{ChangeHandler};
 use masq_lib::utils::AutomapProtocol;
+use std::cell::RefCell;
+use crossbeam_channel::{Sender, unbounded};
+use masq_lib::logger::Logger;
+use std::thread;
+use std::ops::Deref;
+use std::sync::{Arc, Mutex};
 
-pub struct PmpTransactor {
+struct Factories {
     socket_factory: Box<dyn UdpSocketFactory>,
     free_port_factory: Box<dyn FreePortFactory>,
+}
+
+impl Default for Factories {
+    fn default() -> Self {
+        Self {
+            socket_factory: Box::new(UdpSocketFactoryReal::new()),
+            free_port_factory: Box::new(FreePortFactoryReal::new()),
+        }
+    }
+}
+
+pub struct PmpTransactor {
+    factories_arc: Arc<Mutex<Factories>>,
+    router_port: u16,
+    listen_port: u16,
+    change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
+    change_handler_stopper: Option<Sender<()>>,
+    logger: Logger,
 }
 
 impl Transactor for PmpTransactor {
@@ -100,8 +121,46 @@ impl Transactor for PmpTransactor {
         AutomapProtocol::Pmp
     }
 
-    fn start_change_handler(&mut self, _change_handler: ChangeHandler) -> Result<(), AutomapError> {
-        todo!()
+    fn start_change_handler(&mut self, change_handler: ChangeHandler) -> Result<(), AutomapError> {
+        if let Some (_change_handler_stopper) = &self.change_handler_stopper {
+            return Err(AutomapError::ChangeHandlerAlreadyRunning);
+        }
+        let change_handler_config = match self.change_handler_config.borrow().deref() {
+            None => return Err(AutomapError::ChangeHandlerUnconfigured),
+            Some (chc) => chc.clone(),
+        };
+        let ip_addr = IpAddr::V4(Ipv4Addr::new (224, 0, 0, 1));
+        let socket_addr = SocketAddr::new (ip_addr, self.listen_port);
+        let socket_result = {
+            let factories = self.factories_arc.lock().expect ("Automap is poisoned!");
+            factories.socket_factory.make (socket_addr)
+        };
+        let socket = match socket_result {
+            Ok(s) => s,
+            Err(e) => {
+                return Err(AutomapError::SocketBindingError(
+                    format!("{:?}", e),
+                    socket_addr,
+                ))
+            }
+        };
+        let (tx, rx) = unbounded();
+        self.change_handler_stopper = Some (tx);
+        let factories_arc = self.factories_arc.clone();
+        let router_port = self.router_port;
+        let logger = self.logger.clone();
+        thread::spawn (move || {
+            Self::thread_guts (
+                &socket,
+                &rx,
+                factories_arc,
+                router_port,
+                &change_handler,
+                change_handler_config,
+                logger,
+            )
+        });
+        Ok(())
     }
 
     fn stop_change_handler(&mut self) {
@@ -116,8 +175,12 @@ impl Transactor for PmpTransactor {
 impl Default for PmpTransactor {
     fn default() -> Self {
         Self {
-            socket_factory: Box::new(UdpSocketFactoryReal::new()),
-            free_port_factory: Box::new(FreePortFactoryReal::new()),
+            factories_arc: Arc::new (Mutex::new (Factories::default())),
+            router_port: ROUTER_PORT,
+            listen_port: CHANGE_HANDLER_PORT,
+            change_handler_config: RefCell::new (None),
+            change_handler_stopper: None,
+            logger: Logger::new ("Automap"),
         }
     }
 }
@@ -274,7 +337,7 @@ mod tests {
             .recv_from_result(Ok((0, SocketAddr::new(router_ip, 5351))), vec![]);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let mut subject = PmpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
+        subject.factories_arc.lock().unwrap().socket_factory = Box::new (socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
 
@@ -558,7 +621,7 @@ mod tests {
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::Get;
         packet.result_code_opt = Some(ResultCode::Success);
-        packet.opcode_data = make_get_response (0, Ipv4Addr::from_str("1.2.3.4").unwrap())
+        packet.opcode_data = make_get_response (0, Ipv4Addr::from_str("1.2.3.4").unwrap());
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal (&mut buffer).unwrap();
         let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
@@ -567,7 +630,6 @@ mod tests {
         let (recv_len, remapping_socket_addr) = mapping_socket.recv_from (&mut buffer).unwrap();
         let packet = PmpPacket::try_from (&buffer[0..recv_len]).unwrap();
         assert_eq! (packet.opcode, Opcode::MapTcp);
-        assert_eq! (packet.lifetime, 321);
         let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
         assert_eq! (opcode_data.external_port, 1234);
         assert_eq! (opcode_data.internal_port, 1234);
@@ -587,8 +649,10 @@ mod tests {
 
     fn make_subject(socket_factory: UdpSocketFactoryMock) -> PmpTransactor {
         let mut subject = PmpTransactor::default();
-        subject.socket_factory = Box::new(socket_factory);
-        subject.free_port_factory = Box::new(FreePortFactoryMock::new().make_result(5566));
+        let mut factories = Factories::default ();
+        factories.socket_factory = Box::new (socket_factory);
+        factories.free_port_factory = Box::new(FreePortFactoryMock::new().make_result(5566));
+        subject.factories_arc = Arc::new (Mutex::new (factories));
         subject
     }
 
