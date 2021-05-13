@@ -517,11 +517,11 @@ pub struct TerminalPassiveMock {
 }
 
 impl MasqTerminal for TerminalPassiveMock {
-    fn lock(&self) -> Box<dyn WriterLock + '_> {
-        Box::new(WriterInactive {})
-    }
     fn read_line(&self) -> TerminalEvent {
         self.read_line_result.lock().unwrap().remove(0)
+    }
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
+        Box::new(WriterInactive {})
     }
 }
 
@@ -546,13 +546,13 @@ pub struct TerminalActiveMock {
 }
 
 impl MasqTerminal for TerminalActiveMock {
-    fn lock(&self) -> Box<dyn WriterLock + '_> {
-        Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
-    }
     fn read_line(&self) -> TerminalEvent {
         let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
         self.reference.write(&format!("{}*/-", line));
         TerminalEvent::CommandLine(vec![line])
+    }
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
+        Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
@@ -604,7 +604,7 @@ impl InterfaceWrapper for InterfaceRawMock {
     fn read_line(&self) -> std::io::Result<ReadResult> {
         self.read_line_result.lock().unwrap().remove(0)
     }
-    fn add_history_unique(&self, line: String) {
+    fn add_history(&self, line: String) {
         self.add_history_unique_params.lock().unwrap().push(line)
     }
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + 'static>> {

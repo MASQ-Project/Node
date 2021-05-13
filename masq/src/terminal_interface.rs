@@ -13,11 +13,12 @@ use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::intentionally_blank;
 use std::sync::Arc;
 
+//I'm using the system stdout handles for writing which has been a standard way in the project for a long time;
+//so instead writing into linefeed 's Writer directly I'm making use of just its locking functionality
+
 pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
 pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb\
 74b2eac7b8a3be8xzt";
-
-//This is the outermost layer which is intended for you to usually work with at other places
 
 pub struct TerminalWrapper {
     interface: Arc<Box<dyn MasqTerminal>>,
@@ -70,9 +71,6 @@ impl TerminalWrapper {
         )?;
         Ok(Self::new(Box::new(interface)))
     }
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////
-    //test only
 
     #[cfg(test)]
     pub fn configure_interface() -> Result<Self, String> {
@@ -135,8 +133,8 @@ where
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub trait MasqTerminal: Send + Sync {
-    fn lock(&self) -> Box<dyn WriterLock + '_>;
     fn read_line(&self) -> TerminalEvent;
+    fn lock(&self) -> Box<dyn WriterLock + '_>;
     #[cfg(test)]
     fn test_interface(&self) -> MemoryTerminal {
         intentionally_blank!()
@@ -170,7 +168,7 @@ impl<U: linefeed::Terminal> WriterLock for Writer<'_, '_, U> {
 
 pub trait InterfaceWrapper: Send + Sync {
     fn read_line(&self) -> std::io::Result<ReadResult>;
-    fn add_history_unique(&self, line: String);
+    fn add_history(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>>;
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
 }
@@ -180,8 +178,8 @@ impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
         self.read_line()
     }
 
-    fn add_history_unique(&self, line: String) {
-        self.add_history_unique(line);
+    fn add_history(&self, line: String) {
+        self.add_history(line);
     }
 
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>> {
@@ -208,9 +206,6 @@ mod tests {
     use std::sync::Barrier;
     use std::thread;
     use std::time::Duration;
-
-    //In those two following tests I'm using the system stdout handles which is the standard way in the project but thanks to
-    //the lock provided by TerminalWrapper it'll protect one writing to the stream from any influence of another.
 
     #[test]
     fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {

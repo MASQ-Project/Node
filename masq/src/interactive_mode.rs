@@ -2,7 +2,7 @@
 
 use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
-use crate::interactive_mode::CustomTrioForGoInteractive::{Break, Continue, Return};
+use crate::interactive_mode::CustomStatesForGoInteractive::{Break, Continue, Return};
 use crate::line_reader::TerminalEvent;
 use crate::line_reader::TerminalEvent::{CLBreak, CLContinue, CLError, CommandLine};
 use crate::non_interactive_mode::handle_command_common;
@@ -12,7 +12,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 use std::io::Write;
 
-enum CustomTrioForGoInteractive {
+enum CustomStatesForGoInteractive {
     Break,
     Continue,
     Return(bool),
@@ -44,7 +44,7 @@ fn handle_terminal_event(
     command_factory: &dyn CommandFactory,
     command_processor: &mut dyn CommandProcessor,
     read_line_result: TerminalEvent,
-) -> CustomTrioForGoInteractive {
+) -> CustomStatesForGoInteractive {
     match pass_args_or_print_messages(streams, read_line_result) {
         CommandLine(args) => handle_args(args, streams, command_factory, command_processor),
         CLBreak => Break,
@@ -58,7 +58,7 @@ fn handle_args(
     streams: &mut StdStreams<'_>,
     command_factory: &dyn CommandFactory,
     command_processor: &mut dyn CommandProcessor,
-) -> CustomTrioForGoInteractive {
+) -> CustomStatesForGoInteractive {
     if args.is_empty() {
         return Continue;
     }
@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(stream_holder.stdout.get_string(), "");
     }
 
-    //help and version commands are also tested in integration tests with a focus on a bigger context
+    //help and version commands are also tested in integration tests with focus on bigger context
 
     #[test]
     fn handle_help_or_version_ignores_uninteresting_entries() {

@@ -27,16 +27,10 @@ impl TerminalReal {
 }
 
 impl MasqTerminal for TerminalReal {
-    fn lock(&self) -> Box<dyn WriterLock + '_> {
-        self.interface
-            .lock_writer_append()
-            .expect("lock writer append failed")
-    }
-
     fn read_line(&self) -> TerminalEvent {
         match self.interface.read_line() {
             Ok(ReadResult::Input(line)) => {
-                add_history_unique(self, line.clone());
+                add_history(self, line.clone());
                 let args = split_quoted_line(line);
                 TerminalEvent::CommandLine(args)
             }
@@ -46,6 +40,12 @@ impl MasqTerminal for TerminalReal {
             }
             _ => TerminalEvent::CLBreak,
         }
+    }
+
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
+        self.interface
+            .lock_writer_append()
+            .expect("lock writer append failed")
     }
 
     #[cfg(test)]
@@ -60,8 +60,8 @@ impl MasqTerminal for TerminalReal {
     }
 }
 
-fn add_history_unique(terminal: &TerminalReal, line: String) {
-    terminal.interface.add_history_unique(line)
+fn add_history(terminal: &TerminalReal, line: String) {
+    terminal.interface.add_history(line)
 }
 
 fn split_quoted_line(input: String) -> Vec<String> {
@@ -95,8 +95,8 @@ fn split_quoted_line(input: String) -> Vec<String> {
 
 pub struct IntegrationTestTerminal {
     lock: Arc<Mutex<()>>,
-    stdin: Arc<Mutex<Box<dyn Read + Send + 'static>>>,
-    stdout: Arc<Mutex<Box<dyn Write + Send + 'static>>>,
+    stdin: Arc<Mutex<Box<dyn Read + Send>>>,
+    stdout: Arc<Mutex<Box<dyn Write + Send>>>,
 }
 
 impl Default for IntegrationTestTerminal {
@@ -110,12 +110,6 @@ impl Default for IntegrationTestTerminal {
 }
 
 impl MasqTerminal for IntegrationTestTerminal {
-    fn lock(&self) -> Box<dyn WriterLock + '_> {
-        Box::new(IntegrationTestWriter {
-            temporary_mutex_guard: self.lock.lock().expect("providing MutexGuard failed"),
-        })
-    }
-
     fn read_line(&self) -> TerminalEvent {
         let mut buffer = [0; 1024];
         let number_of_bytes = self
@@ -136,16 +130,22 @@ impl MasqTerminal for IntegrationTestTerminal {
             MASQ_PROMPT
         );
         drop(_lock);
-        let finalized_command_line = std::str::from_utf8(&buffer[0..number_of_bytes])
+        let finalized_command_line = std::str::from_utf8(&buffer[..number_of_bytes])
             .expect("conversion into str failed")
             .to_string();
         TerminalEvent::CommandLine(split_quoted_line(finalized_command_line))
+    }
+
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
+        Box::new(IntegrationTestWriter {
+            mutex_guard_simulating_locking: self.lock.lock().expect("providing MutexGuard failed"),
+        })
     }
 }
 
 struct IntegrationTestWriter<'a> {
     #[allow(dead_code)]
-    temporary_mutex_guard: MutexGuard<'a, ()>,
+    mutex_guard_simulating_locking: MutexGuard<'a, ()>,
 }
 
 impl WriterLock for IntegrationTestWriter<'_> {}
