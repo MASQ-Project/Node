@@ -88,6 +88,9 @@ cmake-build-debug/
 
 ## Plugin-specific files:
 
+# Azure:
+**/.idea/azureSettings.xml
+
 # IntelliJ
 out/
 
