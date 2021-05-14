@@ -1,11 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use lazy_static::lazy_static;
+#[cfg(not(target_os = "windows"))]
 use nix::sys::signal;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use std::sync::Mutex;
+#[cfg(not(target_os = "windows"))]
 use std::time::Duration;
 
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
