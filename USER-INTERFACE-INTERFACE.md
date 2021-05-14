@@ -115,7 +115,10 @@ all of them, or some compromise scheme, serves to fix the context and bind toget
 response or responses.
 
 In `MASQNode-UIv2`, all responses to a particular conversational request will always have the same opcode
-as that request.
+as that request. In situations where responses to a particular request can have different meanings (for
+example, in the case where the request is a subscription to a class of messages), all the responses will
+have the same opcode, but another common field in the responses may be chosen to act as a secondary opcode
+to distinguish them from one another.
 
 Some messages are always isolated, and never part of any conversation, like the Broadcast in step 5 above. 
 These messages will be identifiable by their `opcode`, and their `contextId` should be ignored. (In the 
