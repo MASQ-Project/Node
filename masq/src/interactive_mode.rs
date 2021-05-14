@@ -45,7 +45,7 @@ fn handle_terminal_event(
     command_processor: &mut dyn CommandProcessor,
     read_line_result: TerminalEvent,
 ) -> CustomStatesForGoInteractive {
-    match pass_args_or_print_messages(streams, read_line_result) {
+    match pass_args_or_print_messages(streams, read_line_result,command_processor.terminal_wrapper_ref()) {
         CommandLine(args) => handle_args(args, streams, command_factory, command_processor),
         CLBreak => Break,
         CLContinue => Continue,
@@ -98,7 +98,9 @@ fn handle_help_or_version(
 fn pass_args_or_print_messages(
     streams: &mut StdStreams<'_>,
     read_line_result: TerminalEvent,
+    terminal_interface: &TerminalWrapper
 ) -> TerminalEvent {
+    let _lock = terminal_interface.lock();
     match read_line_result {
         CommandLine(args) => CommandLine(args),
         CLContinue => {
@@ -230,8 +232,9 @@ mod tests {
     #[test]
     fn pass_on_args_or_print_messages_announces_break_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
+        let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLBreak);
+        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLBreak,&interface);
 
         assert_eq!(result, CLBreak);
         assert_eq!(stream_holder.stderr.get_string(), "");
@@ -241,8 +244,9 @@ mod tests {
     #[test]
     fn pass_on_args_or_print_messages_announces_continue_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
+        let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLContinue);
+        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLContinue,&interface);
 
         assert_eq!(result, CLContinue);
         assert_eq!(stream_holder.stderr.get_string(), "");
@@ -255,10 +259,11 @@ mod tests {
     #[test]
     fn pass_on_args_or_print_messages_announces_error_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
+        let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
         let result = pass_args_or_print_messages(
             &mut stream_holder.streams(),
-            CLError(Some("Invalid Input\n".to_string())),
+            CLError(Some("Invalid Input\n".to_string())),&interface
         );
 
         assert_eq!(result, CLError(None));
@@ -309,5 +314,37 @@ mod tests {
             time_period_when_loosen
         );
         assert_eq!(result, true)
+    }
+
+    #[test]
+    fn pass_args_or_print_messages_work_under_fine_lock() {
+        let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let background_interface_clone = terminal_interface.clone();
+        let mut stream_holder = FakeStreamHolder::new();
+        let mut streams = stream_holder.streams();
+        let (tx, rx) = bounded(1);
+        let now = Instant::now();
+
+        let _ = pass_args_or_print_messages( &mut streams, TerminalEvent::CLContinue,&terminal_interface);
+
+        let time_period_when_loosen = now.elapsed();
+        let handle = thread::spawn(move || {
+            let _lock = background_interface_clone.lock();
+            tx.send(()).unwrap();
+            thread::sleep(time_period_when_loosen * 15);
+        });
+        rx.recv().unwrap();
+        let now = Instant::now();
+
+        let _ = pass_args_or_print_messages( &mut streams, TerminalEvent::CLContinue,&terminal_interface);
+
+        let time_period_when_locked = now.elapsed();
+        handle.join().unwrap();
+        assert!(
+            time_period_when_locked > 3 * time_period_when_loosen,
+            "{:?} is not longer than {:?}",
+            time_period_when_locked,
+            time_period_when_loosen
+        );
     }
 }

@@ -109,6 +109,15 @@ pub fn exit_process(code: i32, message: &str) {
     }
 }
 
+pub fn exit_process_with_sigterm(message:&str) {
+    if unsafe { RUNNING_TEST } {
+        panic!("{}", message);
+    } else {
+        eprintln!("{}", message);
+      //  nix::sys::signal::raise(nix::sys::signal::SIGTERM).expect("sigterm failure");
+    }
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
