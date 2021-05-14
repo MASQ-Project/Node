@@ -87,9 +87,7 @@ impl UiConnection {
                 );
             }
             match self.client.recv_message() {
-                Ok(OwnedMessage::Binary(bytes))
-                    if std::str::from_utf8(&bytes).unwrap() == "EMPTY QUEUE" =>
-                {
+                Ok(OwnedMessage::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
                     return Err((0, "The queue is empty; all messages are gone.".to_string()))
                 }
                 Ok(OwnedMessage::Text(json)) => break json,

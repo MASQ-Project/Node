@@ -231,10 +231,6 @@ impl MockWebSocketsServer {
                 log(do_log, index, "No message waiting");
                 None
             }
-            // Err(WebSocketError::IoError(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => {
-            //     log(do_log, index, "Connection reset; will try to continue");
-            //     None
-            // }
             Err(e) => Some(Err(format!("Error serving WebSocket: {:?}", e))),
             Ok(OwnedMessage::Text(json)) => {
                 log(do_log, index, &format!("Received '{}'", json));
@@ -580,6 +576,7 @@ mod tests {
             .queue_response(conversation_number_three_response)
             .queue_response(broadcast_number_six);
         let stop_handle = server.start();
+        let waiting_for_message_time_out = if cfg!(macos) { 250 } else { 150 };
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
         let _received_message_number_one: UiCheckPasswordResponse = connection
@@ -603,13 +600,13 @@ mod tests {
         let naive_attempt_number_one_to_receive_the_third_broadcast: Result<
             UiNewPasswordBroadcast,
             (u64, String),
-        > = connection.receive_custom(200);
+        > = connection.receive_custom(waiting_for_message_time_out);
 
         connection.send_with_context_id(conversation_number_three_request, 3);
         let naive_attempt_number_two_now_to_receive_a_conversational_message: Result<
             UiDescriptorResponse,
             (u64, String),
-        > = connection.receive_custom(200);
+        > = connection.receive_custom(waiting_for_message_time_out);
 
         //sending another broadcast trigger (unlimited) to get the fifth, sixth and seventh message
         connection.send(broadcast_trigger_two_with_no_limit);
@@ -624,7 +621,7 @@ mod tests {
         let naive_attempt_number_three_to_receive_another_broadcast_from_the_queue: Result<
             UiNodeCrashedBroadcast,
             (u64, String),
-        > = connection.receive_custom(200);
+        > = connection.receive_custom(waiting_for_message_time_out);
 
         let _received_message_number_eight: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_four_request, 4)
@@ -636,24 +633,24 @@ mod tests {
         //the queue should be empty now
 
         let naive_attempt_number_four: Result<UiNodeCrashedBroadcast, (u64, String)> =
-            connection.receive_custom(200);
+            connection.receive_custom(waiting_for_message_time_out);
         //the previous attempt eliminated the possibility of another broadcast
         //but what happens when new conversation tried
 
         connection.send_with_context_id(UiDescriptorRequest {}, 5);
         let naive_attempt_number_five: Result<UiDescriptorResponse, (u64, String)> =
-            connection.receive_custom(200);
+            connection.receive_custom(waiting_for_message_time_out);
 
         let _ = stop_handle.stop();
         ////////////////////////////////////////////////////////////////////////////////////////////
         //assertions for deliberately caused errors
+        let expected_time_out_message = &format!("Expected a response. Probably none is to come, waiting was too long (with time limit: {} ms)",waiting_for_message_time_out);
+
         let error_message_number_one = naive_attempt_number_one_to_receive_the_third_broadcast
             .unwrap_err()
             .1;
         assert!(
-            error_message_number_one.contains(
-                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms)"
-            ),
+            error_message_number_one.contains(expected_time_out_message),
             "this text was unexpected: {}",
             error_message_number_one
         );
@@ -668,17 +665,13 @@ mod tests {
                 .unwrap_err()
                 .1;
         assert!(
-            error_message_number_three.contains(
-                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms)"
-            ),
+            error_message_number_three.contains(expected_time_out_message),
             "this text was unexpected: {}",
             error_message_number_three
         );
         let error_message_number_four = naive_attempt_number_four.unwrap_err().1;
         assert!(
-            error_message_number_four.contains(
-                "Expected a response. Probably none is to come, waiting was too long (with time limit: 200 ms)"
-            ),
+            error_message_number_four.contains(expected_time_out_message),
             "this text was unexpected: {}",
             error_message_number_four
         );

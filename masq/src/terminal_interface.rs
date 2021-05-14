@@ -14,7 +14,7 @@ use masq_lib::intentionally_blank;
 use std::sync::Arc;
 
 //I'm using the system stdout handles for writing which has been a standard way in the project for a long time;
-//so instead writing into linefeed 's Writer directly I'm making use of just its locking functionality
+//so instead of writing into linefeed's Writer directly I'm making use of just its locking functionality
 
 pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
 pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb\

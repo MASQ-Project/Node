@@ -128,7 +128,11 @@ impl command::Command for Main {
 }
 
 fn bool_into_numeric_code(bool_flag: bool) -> u8 {
-    bool_flag.not() as u8
+    if bool_flag {
+        0
+    } else {
+        1
+    }
 }
 
 pub fn handle_command_common(
@@ -174,6 +178,7 @@ mod tests {
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use std::any::Any;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -513,6 +518,9 @@ mod tests {
         fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
             intentionally_blank!()
         }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
     }
 
     impl FakeCommand {
@@ -526,6 +534,7 @@ mod tests {
     #[test]
     fn interactive_mode_works_when_everything_is_copacetic() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let process_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
@@ -537,6 +546,7 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .process_result(Ok(()))
             .process_result(Ok(()))
+            .process_params(&process_params_arc)
             .inject_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
@@ -555,13 +565,24 @@ mod tests {
                 "value".to_string(),
             ],
         );
-
         assert_eq!(result, 0);
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
             vec![vec!["setup".to_string()], vec!["start".to_string()]]
         );
+        let mut process_params = process_params_arc.lock().unwrap();
+        let (first_command, second_command) = (process_params.remove(0), process_params.remove(0));
+        let first_command = first_command
+            .as_any()
+            .downcast_ref::<FakeCommand>()
+            .unwrap();
+        assert_eq!(first_command.output, "setup command".to_string());
+        let second_command = second_command
+            .as_any()
+            .downcast_ref::<FakeCommand>()
+            .unwrap();
+        assert_eq!(second_command.output, "start command".to_string())
     }
 
     #[test]
