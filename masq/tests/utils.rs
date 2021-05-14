@@ -89,18 +89,18 @@ pub struct StopHandle {
 
 #[allow(dead_code)]
 impl StopHandle {
-    pub fn stop(self) -> (String, String, i32) {
+    pub fn stop(self) -> (String, String, Option<i32>) {
         let output = self.child.wait_with_output();
         match output {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                let exit_code = output.status.code().unwrap();
+                let exit_code = output.status.code();
                 (stdout, stderr, exit_code)
             }
             Err(e) => {
                 eprintln!("Couldn't get output from {}: {:?}", self.name, e);
-                (String::new(), String::new(), -1)
+                (String::new(), String::new(), Some(-1))
             }
         }
     }

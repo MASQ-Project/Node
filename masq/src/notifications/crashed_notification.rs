@@ -3,7 +3,10 @@
 use crate::terminal_interface::TerminalWrapper;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::short_writeln;
-use masq_lib::utils::{exit_process_with_sigterm};
+#[cfg(target_os = "windows")]
+use masq_lib::utils::exit_process;
+#[cfg(not(target_os = "windows"))]
+use masq_lib::utils::exit_process_with_sigterm;
 use std::io::Write;
 
 pub struct CrashNotifier {}
@@ -16,10 +19,16 @@ impl CrashNotifier {
     ) {
         let _lock = term_interface.lock();
         if response.crash_reason == CrashReason::DaemonCrashed {
-            exit_process_with_sigterm("\nThe Daemon is no longer running; masq is terminating.\n")
+            #[cfg(target_os = "windows")]
+            exit_process(
+                1,
+                "\nThe Daemon is no longer running; masq is terminating.\n",
+            );
 
-          //  exit_process(1, "The Daemon is no longer running; masq is terminating.\n");
+            #[cfg(not(target_os = "windows"))]
+            exit_process_with_sigterm("\nThe Daemon is no longer running; masq is terminating.\n")
         }
+
         short_writeln!(
             stdout,
             "\nThe Node running as process {} terminated{}\nThe Daemon is once more accepting setup changes.\n",
@@ -50,7 +59,6 @@ impl CrashNotifier {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

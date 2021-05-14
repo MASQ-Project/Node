@@ -20,7 +20,7 @@ masq is a command-line user interface to the MASQ Daemon and the MASQ Node"
         "Should see a clippings out of the help for masq, but got this: {}",
         stdout,
     );
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code.unwrap(), 0);
 }
 
 #[test]
@@ -36,5 +36,5 @@ fn masq_non_interactive_version_command_integration() {
         "Should see the version of masq printed to stdout, but got this: {}",
         stdout
     );
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code.unwrap(), 0);
 }

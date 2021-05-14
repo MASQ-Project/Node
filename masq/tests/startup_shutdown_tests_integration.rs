@@ -21,11 +21,11 @@ fn masq_without_daemon_integration() {
         "we got: {}",
         stderr
     );
-    assert_eq!(exit_code, 1);
+    assert_eq!(exit_code.unwrap(), 1);
 }
 
 #[test]
-fn masq_terminates_immediately_when_clap_gets_furious_at_what_came_from_the_command_line_integration(
+fn masq_terminates_immediately_when_clap_gets_furious_because_of_requests_which_it_does_not_recognize_integration(
 ) {
     let masq_handle = MasqProcess::new().start_noninteractive(vec!["uninvented-command"]);
 
@@ -36,7 +36,7 @@ fn masq_terminates_immediately_when_clap_gets_furious_at_what_came_from_the_comm
         "we got: {}",
         stderr
     );
-    assert_eq!(exit_code, 1);
+    assert_eq!(exit_code.unwrap(), 1);
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
 
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
-    assert_eq!(exit_code, 1);
+    assert_eq!(exit_code.unwrap(), 1);
     let regex = Regex::new(r"\x1B\[\?\d\d[lh]").unwrap();
     assert_eq!(regex.replace_all(&stdout, ""), "", "{}", stdout);
     #[cfg(not(target_os = "windows"))]
@@ -57,6 +57,30 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
         stderr.contains(expected_error_message),
         "unlike what we expected stderr was: {}",
         stderr
+    );
+}
+
+#[test]
+fn masq_terminates_in_reaction_to_loss_of_the_connection_with_daemon_or_node_integration() {
+    let port = find_free_port();
+    let daemon_handle = DaemonProcess::new().start(port);
+    thread::sleep(Duration::from_millis(300));
+    let mut masq_handle = MasqProcess::new().start_interactive(port, true);
+    let mut stdin_handle = masq_handle.create_stdin_handle();
+    stdin_handle.type_command("setup");
+    thread::sleep(Duration::from_millis(300));
+
+    daemon_handle.kill();
+
+    let (stdout, stderr, exit_code) = masq_handle.stop();
+    #[cfg(not(target_os = "windows"))]
+    assert_eq!(exit_code, None);
+    #[cfg(target_os = "windows")]
+    assert_eq!(exit_code.unwrap(), 1);
+    assert!(stdout.contains("neighborhood-mode      standard                                                         Default"));
+    assert_eq!(
+        stderr,
+        "\nThe Daemon is no longer running; masq is terminating.\n\n"
     );
 }
 
@@ -85,7 +109,7 @@ fn handles_startup_and_shutdown_integration() {
         "{}",
         stdout
     );
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code.unwrap(), 0);
 
     let masq_handle =
         MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "start"]);
@@ -99,7 +123,7 @@ fn handles_startup_and_shutdown_integration() {
         "{}",
         stdout
     );
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code.unwrap(), 0);
 
     let masq_handle =
         MasqProcess::new().start_noninteractive(vec!["--ui-port", &port.to_string(), "shutdown"]);
@@ -113,7 +137,7 @@ fn handles_startup_and_shutdown_integration() {
         "{}",
         stdout
     );
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code.unwrap(), 0);
 
     daemon_handle.kill();
 }

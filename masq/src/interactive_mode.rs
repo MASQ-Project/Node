@@ -45,7 +45,11 @@ fn handle_terminal_event(
     command_processor: &mut dyn CommandProcessor,
     read_line_result: TerminalEvent,
 ) -> CustomStatesForGoInteractive {
-    match pass_args_or_print_messages(streams, read_line_result,command_processor.terminal_wrapper_ref()) {
+    match pass_args_or_print_messages(
+        streams,
+        read_line_result,
+        command_processor.terminal_wrapper_ref(),
+    ) {
         CommandLine(args) => handle_args(args, streams, command_factory, command_processor),
         CLBreak => Break,
         CLContinue => Continue,
@@ -98,7 +102,7 @@ fn handle_help_or_version(
 fn pass_args_or_print_messages(
     streams: &mut StdStreams<'_>,
     read_line_result: TerminalEvent,
-    terminal_interface: &TerminalWrapper
+    terminal_interface: &TerminalWrapper,
 ) -> TerminalEvent {
     let _lock = terminal_interface.lock();
     match read_line_result {
@@ -234,7 +238,7 @@ mod tests {
         let mut stream_holder = FakeStreamHolder::new();
         let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLBreak,&interface);
+        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLBreak, &interface);
 
         assert_eq!(result, CLBreak);
         assert_eq!(stream_holder.stderr.get_string(), "");
@@ -246,7 +250,8 @@ mod tests {
         let mut stream_holder = FakeStreamHolder::new();
         let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLContinue,&interface);
+        let result =
+            pass_args_or_print_messages(&mut stream_holder.streams(), CLContinue, &interface);
 
         assert_eq!(result, CLContinue);
         assert_eq!(stream_holder.stderr.get_string(), "");
@@ -263,7 +268,8 @@ mod tests {
 
         let result = pass_args_or_print_messages(
             &mut stream_holder.streams(),
-            CLError(Some("Invalid Input\n".to_string())),&interface
+            CLError(Some("Invalid Input\n".to_string())),
+            &interface,
         );
 
         assert_eq!(result, CLError(None));
@@ -325,7 +331,11 @@ mod tests {
         let (tx, rx) = bounded(1);
         let now = Instant::now();
 
-        let _ = pass_args_or_print_messages( &mut streams, TerminalEvent::CLContinue,&terminal_interface);
+        let _ = pass_args_or_print_messages(
+            &mut streams,
+            TerminalEvent::CLContinue,
+            &terminal_interface,
+        );
 
         let time_period_when_loosen = now.elapsed();
         let handle = thread::spawn(move || {
@@ -336,7 +346,11 @@ mod tests {
         rx.recv().unwrap();
         let now = Instant::now();
 
-        let _ = pass_args_or_print_messages( &mut streams, TerminalEvent::CLContinue,&terminal_interface);
+        let _ = pass_args_or_print_messages(
+            &mut streams,
+            TerminalEvent::CLContinue,
+            &terminal_interface,
+        );
 
         let time_period_when_locked = now.elapsed();
         handle.join().unwrap();
