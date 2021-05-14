@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, ChangeHandlerConfig, ROUTER_PORT, CHANGE_HANDLER_PORT};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, ChangeHandlerConfig, ROUTER_PORT, CHANGE_HANDLER_PORT, UdpSocketWrapper};
 use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
@@ -11,14 +11,16 @@ use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr, Ipv4Addr};
 use std::time::Duration;
-use crate::control_layer::automap_control::{ChangeHandler};
+use crate::control_layer::automap_control::{ChangeHandler, AutomapChange};
 use masq_lib::utils::AutomapProtocol;
 use std::cell::RefCell;
-use crossbeam_channel::{Sender, unbounded};
+use crossbeam_channel::{Sender, unbounded, Receiver};
 use masq_lib::logger::Logger;
 use std::thread;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use pretty_hex::PrettyHex;
+use masq_lib::{error};
 
 struct Factories {
     socket_factory: Box<dyn UdpSocketFactory>,
@@ -58,7 +60,7 @@ impl Transactor for PmpTransactor {
                 external_ip_address_opt: None,
             }),
         };
-        let response = self.transact(router_ip, request)?;
+        let response = Self::transact(&self.factories_arc, router_ip, request)?;
         match response
             .result_code_opt
             .expect("transact allowed absent result code")
@@ -94,7 +96,7 @@ impl Transactor for PmpTransactor {
                 lifetime,
             }),
         };
-        let response = self.transact(router_ip, request)?;
+        let response = Self::transact(&self.factories_arc, router_ip, request)?;
         match response
             .result_code_opt
             .expect("transact allowed absent result code")
@@ -190,19 +192,22 @@ impl PmpTransactor {
         Self::default()
     }
 
-    fn transact(&self, router_ip: IpAddr, request: PmpPacket) -> Result<PmpPacket, AutomapError> {
+    fn transact(factories_arc: &Arc<Mutex<Factories>>, router_ip: IpAddr, request: PmpPacket) -> Result<PmpPacket, AutomapError> {
         let mut buffer = [0u8; 1100];
         let len = request
             .marshal(&mut buffer)
             .expect("Bad packet construction");
-        let address = make_local_socket_address(router_ip, self.free_port_factory.make());
-        let socket = match self.socket_factory.make(address) {
-            Ok(s) => s,
-            Err(e) => {
-                return Err(AutomapError::SocketBindingError(
-                    format!("{:?}", e),
-                    address,
-                ))
+        let socket = {
+            let factories = factories_arc.lock().expect ("Factories are dead");
+            let address = make_local_socket_address(router_ip, factories.free_port_factory.make());
+            match factories.socket_factory.make(address) {
+                Ok(s) => s,
+                Err(e) => {
+                    return Err(AutomapError::SocketBindingError(
+                        format!("{:?}", e),
+                        address,
+                    ))
+                }
             }
         };
         socket
@@ -231,6 +236,82 @@ impl PmpTransactor {
             Err(e) => return Err(AutomapError::PacketParseError(e)),
         };
         Ok(response)
+    }
+
+    fn thread_guts (
+        socket: &Box<dyn UdpSocketWrapper>,
+        rx: &Receiver<()>,
+        factories_arc: Arc<Mutex<Factories>>,
+        router_port: u16,
+        change_handler: &ChangeHandler,
+        change_handler_config: ChangeHandlerConfig,
+        logger: Logger,
+    ) {
+        let change_handler_lifetime = change_handler_config.lifetime;
+        let mut buffer = [0u8; 100];
+        socket.set_read_timeout(Some(Duration::from_millis(250))).expect("Can't set read timeout");
+        loop {
+            match socket.recv_from(&mut buffer) {
+                Ok((len, socket_addr)) => {
+                    match PmpPacket::try_from(&buffer[0..len]) {
+                        Ok(packet) => if packet.opcode == Opcode::Get {
+                            let public_ip = match packet.opcode_data.as_any().downcast_ref::<GetOpcodeData>() {
+                                Some (opcode_data) => match opcode_data.external_ip_address_opt {
+                                    Some (ip) => ip,
+                                    None => todo! ("Log something alarming and continue"),
+                                },
+                                None => todo! ("Log something alarming and continue")
+                            };
+                            Self::handle_announcement(
+                                factories_arc.clone(),
+                                socket_addr.ip(),
+                                public_ip,
+                                change_handler_config.hole_port,
+                                change_handler,
+                                change_handler_lifetime,
+                                &logger,
+                            );
+                        },
+                        Err(_) => error!(logger, "Unparseable PMP packet:\n{}", PrettyHex::hex_dump(&&buffer[0..len])),
+                    }
+                },
+                Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
+                Err(e) => error! (logger, "Error receiving PCP packet from router: {:?}", e),
+            }
+            match rx.try_recv() {
+                Ok(_) => break,
+                Err(_) => (),
+            }
+        }
+    }
+
+    fn handle_announcement (
+        factories_arc: Arc<Mutex<Factories>>,
+        router_ip: IpAddr,
+        public_ip: Ipv4Addr,
+        hole_port: u16,
+        change_handler: &ChangeHandler,
+        change_handler_lifetime: u32,
+        logger: &Logger,
+    ) {
+        let mut packet = PmpPacket::default();
+        packet.opcode = Opcode::MapTcp;
+        packet.direction = Direction::Request;
+        let mut opcode_data = MapOpcodeData::default();
+        opcode_data.lifetime = change_handler_lifetime;
+        opcode_data.internal_port = hole_port;
+        opcode_data.external_port = hole_port;
+        opcode_data.epoch_opt = None;
+        packet.opcode_data = Box::new (opcode_data);
+        match Self::transact (&factories_arc, router_ip, packet) {
+            Ok (_response) => {
+                // TODO: handle failure response
+                change_handler(AutomapChange::NewIp(IpAddr::V4(public_ip)))
+            }
+            Err (e) => {
+                error! (logger, "Remapping after IP change failed, Node is useless: {:?}", e);
+            },
+        }
     }
 }
 
