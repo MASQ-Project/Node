@@ -157,7 +157,7 @@ impl Transactor for PmpTransactor {
         let logger = self.logger.clone();
         thread::spawn(move || {
             Self::thread_guts(
-                &socket,
+                socket.as_ref(),
                 &rx,
                 factories_arc,
                 router_port,
@@ -170,11 +170,8 @@ impl Transactor for PmpTransactor {
     }
 
     fn stop_change_handler(&mut self) {
-        match self.change_handler_stopper.take() {
-            Some(stopper) => {
-                let _ = stopper.send(());
-            }
-            None => (), // Objective already achieved
+        if let Some(stopper) = self.change_handler_stopper.take() {
+            let _= stopper.send(());
         }
     }
 
@@ -254,7 +251,7 @@ impl PmpTransactor {
     }
 
     fn thread_guts(
-        socket: &Box<dyn UdpSocketWrapper>,
+        socket: &dyn UdpSocketWrapper,
         rx: &Receiver<()>,
         factories_arc: Arc<Mutex<Factories>>,
         router_port: u16,
@@ -313,15 +310,11 @@ impl PmpTransactor {
                     }
                 }
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
-                {
-                    ()
-                }
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
-            match rx.try_recv() {
-                Ok(_) => break,
-                Err(_) => (),
+            if rx.try_recv().is_ok() {
+                break;
             }
         }
     }
@@ -335,14 +328,17 @@ impl PmpTransactor {
         change_handler_lifetime: u32,
         logger: &Logger,
     ) {
-        let mut packet = PmpPacket::default();
-        packet.opcode = Opcode::MapTcp;
-        packet.direction = Direction::Request;
-        let mut opcode_data = MapOpcodeData::default();
-        opcode_data.lifetime = change_handler_lifetime;
-        opcode_data.internal_port = hole_port;
-        opcode_data.external_port = hole_port;
-        opcode_data.epoch_opt = None;
+        let mut packet = PmpPacket {
+            opcode: Opcode::MapTcp,
+            direction: Direction::Request,
+            ..Default::default()
+        };
+        let opcode_data = MapOpcodeData {
+            epoch_opt: None,
+            internal_port: hole_port,
+            external_port: hole_port,
+            lifetime: change_handler_lifetime,
+        };
         packet.opcode_data = Box::new(opcode_data);
         eprintln!(
             "Prod: Sending mapping request to {} and waiting for response",

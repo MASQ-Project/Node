@@ -56,7 +56,7 @@ impl AutomapControl for AutomapControlReal {
                     .transactors
                     .iter_mut()
                     .find(|t| t.method() == protocol)
-                    .expect(&format!("Missing Transactor for {}", protocol));
+                    .unwrap_or_else(|| panic!("Missing Transactor for {}", protocol));
                 transactor.start_change_handler(box_change_handler)?;
                 self.inner_opt = Some(AutomapControlRealInner {
                     router_ip,
@@ -72,7 +72,7 @@ impl AutomapControl for AutomapControlReal {
                     .iter_mut()
                     .fold(init, |so_far, transactor| match so_far {
                         Some(_) => so_far,
-                        None => match AutomapControlReal::try_transactor(port, transactor) {
+                        None => match AutomapControlReal::try_transactor(port, transactor.as_ref()) {
                             Ok((_, router_ip, public_ip)) => {
                                 Some((transactor, router_ip, public_ip))
                             }
@@ -108,6 +108,12 @@ impl AutomapControl for AutomapControlReal {
     }
 }
 
+impl Default for AutomapControlReal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AutomapControlReal {
     pub fn new() -> Self {
         Self {
@@ -129,13 +135,13 @@ impl AutomapControlReal {
             .transactors
             .iter()
             .find(|t| t.method() == protocol)
-            .expect(&format!("Missing Transactor for {}", protocol));
-        AutomapControlReal::try_transactor(port, transactor)
+            .unwrap_or_else(|| panic!("Missing Transactor for {}", protocol));
+        AutomapControlReal::try_transactor(port, transactor.as_ref())
     }
 
     fn try_transactor(
         port: u16,
-        transactor: &Box<dyn Transactor>,
+        transactor: &dyn Transactor,
     ) -> Result<(AutomapProtocol, IpAddr, IpAddr), AutomapError> {
         let router_ips = transactor.find_routers()?;
         match router_ips
@@ -151,7 +157,7 @@ impl AutomapControlReal {
 
     fn try_router(
         port: u16,
-        transactor: &Box<dyn Transactor>,
+        transactor: &dyn Transactor,
         router_ip: IpAddr,
     ) -> Result<(AutomapProtocol, IpAddr, IpAddr), AutomapError> {
         let public_ip = transactor.get_public_ip(router_ip)?;
@@ -166,15 +172,15 @@ impl AutomapControlReal {
         Ok((transactor.method(), router_ip, public_ip))
     }
 
-    fn find_transactor(&self, protocol: AutomapProtocol) -> &Box<dyn Transactor> {
-        &self.transactors[self.find_transactor_index(protocol)]
+    fn find_transactor(&self, protocol: AutomapProtocol) -> &dyn Transactor {
+        self.transactors[self.find_transactor_index(protocol)].as_ref()
     }
 
     fn find_transactor_index(&self, protocol: AutomapProtocol) -> usize {
         (0..self.transactors.len())
             .into_iter()
             .find(|idx| self.transactors[*idx].method() == protocol)
-            .expect(&format!("No Transactor for {}", protocol))
+            .unwrap_or_else(|| panic!("No Transactor for {}", protocol))
     }
 }
 
@@ -691,7 +697,7 @@ mod tests {
                 .add_permanent_mapping_result(Ok(300)),
         );
 
-        let result = AutomapControlReal::try_transactor(1234, &transactor);
+        let result = AutomapControlReal::try_transactor(1234, transactor.as_ref());
 
         assert_eq!(result, Ok((AutomapProtocol::Igdp, *ROUTER_IP, *PUBLIC_IP)));
         let add_permanent_mapping_params = add_permanent_mapping_params_arc.lock().unwrap();
@@ -712,7 +718,7 @@ mod tests {
                 .add_mapping_result(Ok(300)),
         );
 
-        let result = AutomapControlReal::try_transactor(1234, &transactor);
+        let result = AutomapControlReal::try_transactor(1234, transactor.as_ref());
 
         assert_eq!(result, Ok((AutomapProtocol::Igdp, router_ip3, *PUBLIC_IP)));
     }
@@ -731,7 +737,7 @@ mod tests {
                 .add_mapping_result(Ok(300)),
         );
 
-        let result = AutomapControlReal::try_transactor(1234, &transactor);
+        let result = AutomapControlReal::try_transactor(1234, transactor.as_ref());
 
         assert_eq!(
             result,

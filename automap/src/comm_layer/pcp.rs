@@ -170,7 +170,7 @@ impl Transactor for PcpTransactor {
         let logger = self.logger.clone();
         thread::spawn(move || {
             Self::thread_guts(
-                &socket,
+                socket.as_ref(),
                 &rx,
                 factories_arc,
                 router_port,
@@ -183,11 +183,8 @@ impl Transactor for PcpTransactor {
     }
 
     fn stop_change_handler(&mut self) {
-        match self.change_handler_stopper.take() {
-            Some(stopper) => {
-                let _ = stopper.send(());
-            }
-            None => (), // Objective already achieved
+        if let Some (stopper) = self.change_handler_stopper.take() {
+            let _ = stopper.send (());
         }
     }
 
@@ -303,6 +300,7 @@ impl PcpTransactor {
         Ok((result_code, epoch_time, opcode_data.clone()))
     }
 
+    #[allow (clippy::type_complexity)]
     fn employ_factories(
         factories_arc: &Arc<Mutex<Factories>>,
         router_ip: IpAddr,
@@ -324,7 +322,7 @@ impl PcpTransactor {
     }
 
     fn thread_guts(
-        socket: &Box<dyn UdpSocketWrapper>,
+        socket: &dyn UdpSocketWrapper,
         rx: &Receiver<()>,
         factories_arc: Arc<Mutex<Factories>>,
         router_port: u16,
@@ -360,15 +358,11 @@ impl PcpTransactor {
                     ),
                 },
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
-                {
-                    ()
-                }
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
-            match rx.try_recv() {
-                Ok(_) => break,
-                Err(_) => (),
+            if rx.try_recv ().is_ok() {
+                break;
             }
         }
     }
@@ -1120,7 +1114,7 @@ mod tests {
         tx.send(()).unwrap();
 
         PcpTransactor::thread_guts(
-            &socket,
+            socket.as_ref(),
             &rx,
             Arc::new(Mutex::new(Factories::default())),
             0,
@@ -1152,7 +1146,7 @@ mod tests {
         tx.send(()).unwrap();
 
         PcpTransactor::thread_guts(
-            &socket,
+            socket.as_ref(),
             &rx,
             Arc::new(Mutex::new(Factories::default())),
             0,
