@@ -5,9 +5,9 @@ use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
+use crate::control_layer::automap_control::ChangeHandler;
 use crate::protocols::utils::ParseError;
 use masq_lib::utils::AutomapProtocol;
-use crate::control_layer::automap_control::ChangeHandler;
 
 pub mod igdp;
 pub mod pcp;

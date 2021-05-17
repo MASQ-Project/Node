@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use masq_lib::logger::Logger;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use masq_lib::logger::Logger;
 use masq_lib::utils::index_of;
 use serde::de::Visitor;
 use serde::Deserialize;

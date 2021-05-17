@@ -2,7 +2,6 @@
 use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
-use masq_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -12,6 +11,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiCrashRequest, UiDescriptorRequest, UiDescriptorResponse,
 };

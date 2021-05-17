@@ -8,7 +8,6 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use masq_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
@@ -19,6 +18,7 @@ use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
@@ -201,8 +201,6 @@ mod tests {
         Transactions,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{
@@ -215,6 +213,8 @@ mod tests {
     use futures::future::Future;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::messages::ToMessageBody;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::cell::RefCell;

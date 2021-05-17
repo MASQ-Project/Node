@@ -1,12 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::PortConfiguration;
 use crate::stream_messages::AddStreamMsg;
-use masq_lib::logger::Logger;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::tokio_wrappers::TokioListenerWrapper;
 use crate::sub_lib::tokio_wrappers::TokioListenerWrapperReal;
 use actix::Recipient;
+use masq_lib::logger::Logger;
 use std::io;
 use std::marker::Send;
 use std::net::IpAddr;
@@ -137,15 +137,15 @@ mod tests {
     use super::*;
     use crate::node_test_utils::NullDiscriminatorFactory;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLog;
-    use masq_lib::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLog;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
     use std::io::Error;

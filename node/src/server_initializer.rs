@@ -18,15 +18,15 @@ use lazy_static::lazy_static;
 use masq_lib::command::Command;
 use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::test_utils::utils::real_format_function;
 use std::any::Any;
 use std::fmt::Debug;
+use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
-use std::{io};
 use tokio::prelude::Async;
 use tokio::prelude::Future;
-use masq_lib::test_utils::utils::real_format_function;
 
 pub struct ServerInitializer {
     dns_socket_server: Box<dyn SocketServer<(), Item = (), Error = ()>>,
@@ -292,9 +292,9 @@ pub mod test_utils {
     use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
     use crate::server_initializer::LoggerInitializerWrapper;
+    use log::LevelFilter;
     #[cfg(not(target_os = "windows"))]
     use masq_lib::test_utils::logging::init_test_logging;
-    use log::LevelFilter;
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
@@ -410,12 +410,12 @@ pub mod tests {
     use crate::crash_test_dummy::CrashTestDummy;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;

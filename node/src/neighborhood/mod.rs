@@ -26,7 +26,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use masq_lib::logger::Logger;
 use crate::sub_lib::neighborhood::ExpectedService;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
@@ -60,6 +59,7 @@ use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::logger::Logger;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -1242,8 +1242,6 @@ mod tests {
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::versioned_data::VersionedData;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, make_global_cryptde_node_record, make_node_record, make_node_record_f,
@@ -1264,6 +1262,8 @@ mod tests {
     use actix::System;
     use itertools::Itertools;
     use masq_lib::constants::TLS_PORT;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };

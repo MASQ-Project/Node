@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use masq_lib::logger::Logger;
 use crate::sub_lib::socket_server::SocketServer;
 use masq_lib::command::StdStreams;
+use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
@@ -97,9 +97,9 @@ mod tests {
     use super::super::packet_facade::PacketFacade;
     use super::*;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
     use std::clone::Clone;

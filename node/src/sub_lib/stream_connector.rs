@@ -1,9 +1,9 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use masq_lib::logger::Logger;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapperReal;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapperReal;
+use masq_lib::logger::Logger;
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -154,10 +154,10 @@ impl StreamConnector for StreamConnectorReal {
 mod tests {
     use super::*;
     use crate::test_utils::little_tcp_server::LittleTcpServer;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
     use futures::future::lazy;
     use futures::future::ok;
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::utils::{find_free_port, localhost};
     use std::net::{IpAddr, Shutdown};
     use std::str::FromStr;

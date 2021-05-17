@@ -5,7 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Direction {
-    Request, // 0
+    Request,  // 0
     Response, // 1
 }
 

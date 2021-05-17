@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use masq_lib::logger::Logger;
 use actix::Recipient;
 use bytes::BytesMut;
 use futures::future::FutureResult;
@@ -11,6 +10,7 @@ use futures::Sink;
 use futures::Stream;
 use itertools::Itertools;
 use masq_lib::constants::UNMARSHAL_ERROR;
+use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL};
 use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::MessageTarget::ClientId;
@@ -447,8 +447,6 @@ impl WebSocketSupervisorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::wait_for;
     use crate::test_utils::{assert_contains, await_value};
@@ -459,6 +457,8 @@ mod tests {
     use masq_lib::messages::{
         FromMessageBody, UiShutdownRequest, UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL,
     };
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::ui_connection::UiConnection;
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::NodeFromUiMessage;

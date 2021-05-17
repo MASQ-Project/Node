@@ -39,7 +39,7 @@ impl Opcode {
 
     pub fn parse_data(&self, buf: &[u8]) -> Result<Box<dyn PcpOpcodeData>, ParseError> {
         match self {
-            Opcode::Announce => Ok(Box::new (UnrecognizedData::new())),
+            Opcode::Announce => Ok(Box::new(UnrecognizedData::new())),
             Opcode::Map => Ok(Box::new(MapOpcodeData::try_from(buf)?)),
             Opcode::Peer => Err(ParseError::UnexpectedOpcode("Peer".to_string())),
             Opcode::Other(_) => Ok(Box::new(UnrecognizedData::new())),
@@ -496,7 +496,7 @@ mod tests {
             lifetime: 0x78563412,
             client_ip_opt: None,
             epoch_time_opt: Some(0xFFEEDDCC),
-            opcode_data: Box::new (UnrecognizedData::new()),
+            opcode_data: Box::new(UnrecognizedData::new()),
             options: vec![],
         };
 

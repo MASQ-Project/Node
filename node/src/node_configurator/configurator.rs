@@ -24,7 +24,6 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PlainData;
-use masq_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::wallet::{Wallet, WalletError};
 use crate::test_utils::main_cryptde;
@@ -35,6 +34,7 @@ use masq_lib::constants::{
     ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
     NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
+use masq_lib::logger::Logger;
 use rustc_hex::ToHex;
 use std::str::FromStr;
 
@@ -710,9 +710,9 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     use super::*;
     use crate::blockchain::bip32::Bip32ECKeyPair;

@@ -1,12 +1,12 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use lazy_static::lazy_static;
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::fmt::{Display, Formatter};
-use std::fmt;
 
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
 const FIND_FREE_PORT_HIGHEST: u16 = 65535;
@@ -155,9 +155,14 @@ mod tests {
 
     #[test]
     fn automap_protocol_display_works() {
-        let result = format! ("PCP: {}; PMP: {}; IGDP: {}", AutomapProtocol::Pcp, AutomapProtocol::Pmp, AutomapProtocol::Igdp);
+        let result = format!(
+            "PCP: {}; PMP: {}; IGDP: {}",
+            AutomapProtocol::Pcp,
+            AutomapProtocol::Pmp,
+            AutomapProtocol::Igdp
+        );
 
-        assert_eq! (&result, "PCP: PCP; PMP: PMP; IGDP: IGDP");
+        assert_eq!(&result, "PCP: PCP; PMP: PMP; IGDP: IGDP");
     }
 
     #[test]

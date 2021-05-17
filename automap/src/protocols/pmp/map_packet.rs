@@ -23,7 +23,7 @@ impl OpcodeData for MapOpcodeData {
         let mut position = 0;
         match direction {
             Direction::Request => {
-                u16_into(buf, 0, 0x00);
+                u16_into(buf, 0, 0x0000);
                 position += 2;
             }
             Direction::Response => {

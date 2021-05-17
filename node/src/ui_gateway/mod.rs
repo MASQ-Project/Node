@@ -6,7 +6,6 @@ mod websocket_supervisor;
 pub mod websocket_supervisor_mock;
 
 use crate::daemon::DaemonBindMessage;
-use masq_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
@@ -18,6 +17,7 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 
 pub const CRASH_KEY: &str = "UIGATEWAY";

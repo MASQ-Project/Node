@@ -1,10 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::{fs, io, thread};
-use std::path::PathBuf;
+use chrono::{DateTime, Local};
 use log::Record;
+use std::path::PathBuf;
 use std::time::Duration;
-use chrono::{Local, DateTime};
+use std::{fs, io, thread};
 
 pub const DEFAULT_CHAIN_ID: u8 = 3u8; //For testing only
 pub const TEST_DEFAULT_CHAIN_NAME: &str = "ropsten"; //For testing only

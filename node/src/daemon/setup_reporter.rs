@@ -15,7 +15,6 @@ use crate::node_configurator::node_configurator_standard::standard::{
 use crate::node_configurator::{
     app_head, data_directory_from_context, determine_config_file_path, DirsWrapper, RealDirsWrapper,
 };
-use masq_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
@@ -23,6 +22,7 @@ use clap::value_t;
 use itertools::Itertools;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::multi_config::{
@@ -895,10 +895,10 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]

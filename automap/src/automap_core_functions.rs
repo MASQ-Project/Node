@@ -53,7 +53,11 @@ impl AutomapParameters {
             }
         });
         if protocols.is_empty() {
-            protocols = vec![AutomapProtocol::Pcp, AutomapProtocol::Pmp, AutomapProtocol::Igdp]
+            protocols = vec![
+                AutomapProtocol::Pcp,
+                AutomapProtocol::Pmp,
+                AutomapProtocol::Igdp,
+            ]
         }
         if hole_port == 0 {
             hole_port = find_free_port();

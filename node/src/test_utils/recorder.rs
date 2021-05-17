@@ -46,6 +46,7 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
+use masq_lib::test_utils::utils::to_millis;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
 use std::sync::Arc;
@@ -53,7 +54,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use masq_lib::test_utils::utils::to_millis;
 
 #[derive(Default)]
 pub struct Recorder {
