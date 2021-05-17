@@ -1,14 +1,16 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use lazy_static::lazy_static;
-#[cfg(not(target_os = "windows"))]
-use nix::sys::signal;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use std::sync::Mutex;
+
 #[cfg(not(target_os = "windows"))]
-use std::time::Duration;
+mod not_win_cfg {
+   pub use std::time::Duration;
+   pub use nix::sys::signal;
+}
 
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
 const FIND_FREE_PORT_HIGHEST: u16 = 65535;
@@ -119,9 +121,9 @@ pub fn exit_process_with_sigterm(message: &str) {
         panic!("{}", message);
     } else {
         eprintln!("{}", message);
-        signal::raise(signal::SIGTERM).expect("sigterm failure");
-        //making sure that this thread won't cause a panic in the shutdown sequence
-        std::thread::sleep(Duration::from_millis(300))
+        not_win_cfg::signal::raise(not_win_cfg::signal::SIGTERM).expect("sigterm failure");
+        //This function must not return; so wait for death.
+        std::thread::sleep(not_win_cfg::Duration::from_millis(300))
     }
 }
 

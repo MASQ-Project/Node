@@ -1,17 +1,21 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(not(test))]
-use crate::line_reader::IntegrationTestTerminal;
 use crate::line_reader::{TerminalEvent, TerminalReal};
-#[cfg(test)]
-use linefeed::memory::MemoryTerminal;
-#[cfg(not(test))]
-use linefeed::DefaultTerminal;
 use linefeed::{Interface, ReadResult, Writer};
 use masq_lib::constants::MASQ_PROMPT;
-#[cfg(test)]
-use masq_lib::intentionally_blank;
 use std::sync::Arc;
+
+#[cfg(not(test))]
+mod not_test_cfg {
+    pub use linefeed::DefaultTerminal;
+    pub use crate::line_reader::IntegrationTestTerminal;
+}
+
+#[cfg(test)]
+mod test_cfg {
+    pub use masq_lib::intentionally_blank;
+    pub use linefeed::memory::MemoryTerminal;
+}
 
 //I'm using the system stdout handles for writing which has been a standard way in the project for a long time;
 //so instead of writing into linefeed's Writer directly I'm making use of just its locking functionality
@@ -50,11 +54,11 @@ impl TerminalWrapper {
         if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
             Ok(TerminalWrapper::new(Box::new(
-                IntegrationTestTerminal::default(),
+                not_test_cfg::IntegrationTestTerminal::default(),
             )))
         } else {
             //we have no positive automatic test aimed on this (only negative and as an integration test)
-            Self::configure_interface_generic(Box::new(DefaultTerminal::new))
+            Self::configure_interface_generic(Box::new(not_test_cfg::DefaultTerminal::new))
         }
     }
 
@@ -78,15 +82,15 @@ impl TerminalWrapper {
     }
 
     #[cfg(test)]
-    pub fn test_interface(&self) -> MemoryTerminal {
+    pub fn test_interface(&self) -> test_cfg::MemoryTerminal {
         self.interface.test_interface()
     }
 }
 
 #[cfg(test)]
 #[allow(clippy::unnecessary_wraps)]
-fn result_wrapper_for_in_memory_terminal() -> std::io::Result<MemoryTerminal> {
-    Ok(MemoryTerminal::new())
+fn result_wrapper_for_in_memory_terminal() -> std::io::Result<test_cfg::MemoryTerminal> {
+    Ok(test_cfg::MemoryTerminal::new())
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //so to say skeleton which takes injections of closures where I can exactly say how the mocked, injected
@@ -136,12 +140,12 @@ pub trait MasqTerminal: Send + Sync {
     fn read_line(&self) -> TerminalEvent;
     fn lock(&self) -> Box<dyn WriterLock + '_>;
     #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal {
-        intentionally_blank!()
+    fn test_interface(&self) -> test_cfg::MemoryTerminal {
+        test_cfg::intentionally_blank!()
     }
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
-        intentionally_blank!()
+        test_cfg::intentionally_blank!()
     }
 }
 //you may be looking for the declaration of TerminalReal which is in another file
@@ -151,7 +155,7 @@ pub trait MasqTerminal: Send + Sync {
 pub trait WriterLock {
     #[cfg(test)]
     fn tell_me_who_you_are(&self) -> String {
-        intentionally_blank!()
+        test_cfg::intentionally_blank!()
     }
 }
 
@@ -324,9 +328,9 @@ mod tests {
 
     #[test]
     fn configure_interface_allows_us_starting_in_memory_terminal() {
-        let term_mock = MemoryTerminal::new();
+        let term_mock = test_cfg::MemoryTerminal::new();
         let term_mock_clone = term_mock.clone();
-        let terminal_type = move || -> std::io::Result<MemoryTerminal> { Ok(term_mock_clone) };
+        let terminal_type = move || -> std::io::Result<test_cfg::MemoryTerminal> { Ok(term_mock_clone) };
 
         let result =
             interface_configurator(Box::new(Interface::with_term), Box::new(terminal_type));
