@@ -7,14 +7,14 @@ use std::sync::Arc;
 
 #[cfg(not(test))]
 mod not_test_cfg {
-    pub use linefeed::DefaultTerminal;
     pub use crate::line_reader::IntegrationTestTerminal;
+    pub use linefeed::DefaultTerminal;
 }
 
 #[cfg(test)]
 mod test_cfg {
-    pub use masq_lib::intentionally_blank;
     pub use linefeed::memory::MemoryTerminal;
+    pub use masq_lib::intentionally_blank;
 }
 
 //I'm using the system stdout handles for writing which has been a standard way in the project for a long time;
@@ -330,7 +330,8 @@ mod tests {
     fn configure_interface_allows_us_starting_in_memory_terminal() {
         let term_mock = test_cfg::MemoryTerminal::new();
         let term_mock_clone = term_mock.clone();
-        let terminal_type = move || -> std::io::Result<test_cfg::MemoryTerminal> { Ok(term_mock_clone) };
+        let terminal_type =
+            move || -> std::io::Result<test_cfg::MemoryTerminal> { Ok(term_mock_clone) };
 
         let result =
             interface_configurator(Box::new(Interface::with_term), Box::new(terminal_type));

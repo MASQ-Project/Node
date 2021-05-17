@@ -8,8 +8,8 @@ use std::sync::Mutex;
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
-   pub use std::time::Duration;
-   pub use nix::sys::signal;
+    pub use nix::sys::signal;
+    pub use std::time::Duration;
 }
 
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
