@@ -24,9 +24,18 @@ jobs:
           key: ${{ runner.os }}-0001
       - name: Build ${{ matrix.os }}
         run: |
-          rustup show
-          rustup update stable
-          rustup show
+          rustup check
+          case "$OSTYPE" in
+            msys)
+              echo "Windows doesn't like it when rustup updates itself"
+              rustup update --no-self-update stable
+              ;;
+            *)
+              echo "Linux and macOS don't need manual suppression of rustup self update"
+              rustup update stable
+              ;;
+          esac
+          rustup check
           rustup component add rustfmt
           rustup component add clippy
           ./ci/all.sh
