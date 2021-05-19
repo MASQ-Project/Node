@@ -25,7 +25,16 @@ jobs:
       - name: Build ${{ matrix.os }}
         run: |
           rustup check
-          bash -cxev "rustup update stable"
+          case "$OSTYPE" in
+            Darwin | darwin*)
+              echo "Skipping preliminary rustup self update because macOS doesn't like it"
+              ;;
+            *)
+              echo "Windows and Linux don't mind preliminary rustup self update, and Windows needs it"
+              rustup self update
+              ;;
+          esac
+          rustup update stable
           rustup check
           rustup component add rustfmt
           rustup component add clippy
