@@ -4,12 +4,13 @@
 
 ## Source
 The MASQ project was forked from Substratum's Node project in order to carry on development after Substratum ceased 
-operations in October of 2019. All credit for the original idea, the original design, and the first two years of MASQ's
-development belongs to Substratum.
+operations in October of 2019. In 2021, Substratum's Node repositories were removed from GitHub, so the fork link
+with MASQ was broken, but all credit for the original idea, the original design, and the first two years of MASQ's
+development belongs to Substratum. 
 
 ## Purpose
-The MASQ Network is an open-source network that allows anyone to allocate spare computing resources to make the internet
-a free and fair place for the entire world. It is a worldwide collection of nodes that securely delivers content without
+The MASQ Network is an open-source network that allows anyone to allocate spare computing resources to make the Internet
+a free and fair place for the entire world. It is a worldwide collection of Nodes that securely delivers content without
 the need of a VPN or Tor.
 
 Because there's no single authority delivering or monitoring content, censorship and geo-restricted sites won't be an
@@ -18,115 +19,103 @@ sees the exact same content.
 
 **MASQ Node** is the foundation of the MASQ Network.
 
-It is what the average user runs to earn MASQ and dedicate some of their computers' resources towards the network.
+It is what the average user runs to earn MASQ tokens and dedicate some of their computers' resources towards the Network.
 People who run a MASQ Node can be rewarded with cryptocurrency for each time they serve content.
 
-MASQ Nodes work together to relay CORES packages and content on the network.
-When a user requests a site, nodes use artificial intelligence to find the most expedient and secure way to get the
-information to that user. Multiple nodes work to fulfill a single request in order to maintain a necessary level of anonymity.
+MASQ Nodes work together to relay CORES packages and content on the Network.
+When a user requests a site, Nodes use a routing algorithm to find the most expedient and secure way to get the
+information to that user. Multiple Nodes work to fulfill a single request in order to maintain a necessary level of
+anonymity.
 
-## Tools / Environment Setup
-MASQ Node software is written in Rust.
-We use `rustup` to install what we need (e.g. `rustc`, `cargo`, etc). If you don't already have it, you can get it from
-[the `rustup` installation page](https://www.rustup.rs/).
+## Running the MASQ Node
 
-To keep our source code consistently formatted, we use `rustfmt`, which is a plugin for `cargo`. If you want to use our
-build scripts to build the code, you'll need to [install this plugin in your Rust environment](https://github.com/rust-lang/rustfmt).
-(We use the stable version, not the nightly version.)
+### Downloading Official Releases
 
-Some Linux distributions (notably Ubuntu ≥16.04 Desktop) have an incompatibility with MASQ Node. If you think
-you might be affected, see 
-[The Port 53 Problem](https://github.com/MASQ-Project/Node/blob/master/node/docs/PORT_53.md) 
-for more information.
+We haven't set up any official releases yet; but when we do, instructions will appear here.
 
-If you're using Windows, you'll need to run the build scripts using `git-bash`. If you've cloned this repository, you
-probably already have `git-bash`; but if you don't, look at
-[How To Install `git-bash` On Windows](http://www.techoism.com/how-to-install-git-bash-on-windows/).
+### Downloading the Latest Build
 
-Also, you will need an Internet connection when you build so that `cargo` can pull down dependencies.
+If you want to try out the latest build, go to
+[our GitHub Actions continuous integration page](https://github.com/MASQ-Project/Node/actions) to see a list of builds.
+Look for the latest (uppermost) successful build: it'll have a white checkmark in a green circle next to it.
 
-## How To
-We build and run tests for MASQ Node using `bash` scripts located in the `ci` directory of each sub-project.
-To clean, build, and run tests for all sub-projects in one step, start at the top level of the project (the directory
-is probably called `Node`).
+![green check example](images/GreenCheck.png)
 
-#### If you're using Linux or macOS 
-First, please note that at a few points during the process, the build will stop and ask you for your password. This is 
-because some of the integration tests need to run with root privilege, to change DNS settings, open low-numbered ports, 
-etc. (It is possible but not easy to build without giving root privilege or running integration tests; if this turns
-out to be something people want to do, we'll make it easier.)
+Click on that link and scroll to the end of the page. You'll see a set of three artifact packages, one for each platform
+MASQ supports.
 
-Open a standard terminal window and type:
-```
-$ ci/all.sh
-```
+![artifact packages examples](images/ArtifactPackages.png)
 
-#### If you're using Windows
-MASQ Node utilizes a Web3 crate to facilitate Blockchain communications. The Web3 crate depends on OpenSSL for TLS
-when connecting over HTTPS. Some setup for a proper Windows build environment may be needed. You have two choices: a) install
-OpenSSL and allow it to be dynamically linked at compile time b) download an OpenSSL binary and set `OPENSSL_STATIC`
-and allow it to be statically linked at compile time.
-See the [Rust OpenSSL Documentation](https://docs.rs/openssl/0.10.20/openssl/) for more information on configuring this 
-environment variable. If it is not set, dynamic linking is assumed. The binaries we distribute are statically linked.
+Click the one that matches your platform; your browser will download a `.zip` file. Inside the `.zip` file are many
+things useful to developers, but you'll be interested in the executable binaries in `/generated/bin`.
 
-Open a `git-bash` window as administrator and type:
-```
-$ ci/all.sh
-```
+![contents of generated/bin](images/GeneratedBin.png)
 
-_Wondering where all our tests are? The convention in Rust is to write unit tests in same file as the source, in a module
-at the end._
+Make a directory somewhere on your system from which you'll run MASQ. You'll want to extract one or more files from
+`/generated/bin` in the `.zip` file into that directory.
 
-### Run MASQ Node locally
+The most important file is `MASQNode`, or `MASQNode.exe` if you're using Windows. Definitely extract that one. It
+contains the code for both the MASQ Node and the MASQ Daemon.
 
-Once you've successfully built the `node` executable, you can run MASQ Node from the command line.
+If you're using a graphical user interface for MASQ, that's all you'll need. If you're not, you'll probably also want
+`masq`, which is a command-line user interface.
 
-Currently, your DNS must be set to `127.0.0.1` in order to route traffic through MASQ Node; then it must be set back to
-whatever it was before when you're done with MASQ Node and you want to get back on the normal Internet.
+If the regular network-proxy setup doesn't work for you, you might want `dns_utility` as well to make it easy to
+subvert your system's DNS configuration.
 
+Finally, `automap` is a test utility used to check MASQ's automatic firewall penetration functionality against your
+particular router. Unless you've volunteered to help the MASQ dev team run tests, you won't need this.
 
-The MASQ Node software includes a 
-[multi-platform DNS utility](https://github.com/MASQ-Project/Node/tree/master/dns_utility) that you can use
-to subvert your DNS settings to `127.0.0.1`, like this:
-```
-$ cd <path to workspace>
-$ sudo Node/dns_utility/target/release/dns_utility subvert
-```
-If you have trouble with `dns_utility` or you'd rather make your DNS configuration changes manually, look for 
-[instructions for your platform](https://github.com/MASQ-Project/Node/tree/master/node/docs).
+### Running from the Command Line
 
-Once your DNS is successfully subverted, you can start the MASQ Node itself.  Currently, there are two major ways
-the MASQ Node can run: zero-hop and decentralized.
+These instructions assume you have the MASQ Node executable but not the MASQ GUI. (If you do, consult the GUI
+documentation about starting the Node.)
 
-A zero-hop MASQ Node is very easy to start, and it's self-contained: every zero-hop MASQ Node has an entire
-MASQ Network inside it.  However, it doesn't communicate with any other MASQ Nodes.  Every network transaction
-is zero-hop: your MASQ Node is the Client node, the Originating node, and the Exit node all at once.  A zero-hop MASQ Node
-is good for exploring the system and verifying its compatibility with your hardware, but it doesn't relay traffic through
-any other MASQ Nodes.
+There are a number of ways to run the Node, but the way you'll probably want to use is to make sure the MASQ Daemon
+is started first. If the Daemon is not running in the background already, open a terminal window and start it by typing
 
-A decentralized MASQ Node is considerably more difficult to start, because you have to give it much more information
-to get it running; however, it can route your traffic through other MASQ Nodes running elsewhere in the world to get
-it to and from your destination.
+`$ sudo nohup ./MASQNode --initialization &`
 
-__Important Note:__ Please remember that at the moment neither zero-hop MASQ Nodes nor decentralized MASQ Nodes
-are secure or private in any sense of the word.  Please don't use them for any kind of sensitive traffic at this stage.
+if you're working in Linux or macOS, or
 
-#### Supplying Configuration To MASQ Node
+`$ start /b MASQNode --initialization`
 
-There are three ways to get configuration information into a MASQ Node on startup. In decreasing level of priority,
-these are:
+if you're using Windows.
 
-1. the command line
-2. the shell environment
-3. the configuration file
+The Daemon's responsibility is to configure and start the Node. When it comes up, it sets up an initialization area
+that contains configuration data for the node: some of it defaulted, some of it loaded from the environment, some
+loaded from a configuration file, if present, and the rest of it uninitialized. Before the Node is started, the
+configuration data in the Daemon's initialization area should be adjusted so that the Node has what it needs when it
+comes up.
+
+If you have no GUI, the simplest way to do this is with the `masq` command-line user interface. Once you have the 
+Daemon running, type
+
+`$ masq`
+
+at a handy command prompt. To learn how to use `masq` to set up and start the Node, type `help` at the `masq>` prompt,
+and pay special attention to the `setup` and `start` commands.
+
+If this is the first time you're starting the Node, you may also be interested in `set-password`, `create-wallets`, and
+`generate-wallets`.
+
+#### Supplying Configuration To MASQ Daemon
+
+There are four ways to get configuration information into the initialization area of the MASQ Daemon on startup. 
+In decreasing level of priority, these are:
+
+1. `masq`
+2. the Daemon's shell environment
+3. a configuration file
+4. defaults
 
 Any piece of configuration information can be provided through any of these channels, with one exception: the path to
 the configuration file cannot be taken from the configuration file. (It can be provided there, but it will never be
-taken from there.) Configuration information provided in the environment will supersede conflicting information
-provided in the configuration file, and information provided on the command line will supersede conflicting information
-from both of the other sources.
+taken from there.) Configuration information provided in the configuration file will supersede defaults, information 
+provided in the environment will supersede conflicting information provided in the configuration file, and information 
+provided via the UI will supersede conflicting information from all the other sources.
 
-##### Command line
+##### UI
 
 This is the easiest. In this file, all our documentation of the configuration options shows you how to provide them on
 the command line. Keep in mind, though, that command lines tend to be preserved by the operating system for display to
@@ -419,7 +408,7 @@ will take another innocent exit node out of circulation and make it even harder 
 # Disclosure
 
 We run tests on every push to `master` on these platforms:
-- Ubuntu 16.04 Desktop 64-bit
+- Ubuntu 20.04 LTS Desktop 64-bit
 - MacOS High Sierra
 - Windows 10 64-bit
 
@@ -428,6 +417,122 @@ recommend using a 64-bit version to build.
 
 We do plan to release binaries that will run on 32-bit Windows, but they will likely be built on 64-bit Windows.
 
-Copyright (c) 2019-2020, MASQ Network
+Copyright (c) 2019-2021, MASQ Network
 
 Copyright (c) 2017-2019, Substratum LLC and/or its affiliates. All rights reserved.
+
+-----------
+
+
+## Tools / Environment Setup
+MASQ Node software is written in Rust.
+We use `rustup` to install what we need (e.g. `rustc`, `cargo`, etc). If you don't already have it, you can get it from
+[the `rustup` installation page](https://www.rustup.rs/).
+
+To keep our source code consistently formatted, we use `rustfmt`, which is a plugin for `cargo`. If you want to use our
+build scripts to build the code, you'll need to [install this plugin in your Rust environment](https://github.com/rust-lang/rustfmt).
+(We use the stable version, not the nightly version.)
+
+Some Linux distributions (notably Ubuntu ≥16.04 Desktop) have a slight incompatibility with MASQ Node. If you think
+you might be affected, see
+[The Port 53 Problem](https://github.com/MASQ-Project/Node/blob/master/node/docs/PORT_53.md)
+for more information.
+
+If you're using Windows, you'll need to run the build scripts using `git-bash`. If you've cloned this repository, you
+probably already have `git-bash`; but if you don't, look at
+[How To Install `git-bash` On Windows](http://www.techoism.com/how-to-install-git-bash-on-windows/).
+
+Also, you will need an Internet connection when you build so that `cargo` can pull down dependencies.
+
+## How To
+We build and run tests for MASQ Node using `bash` scripts located in the `ci` directory of each sub-project.
+To clean, build, and run tests for all sub-projects in one step, start at the top level of the project (the directory
+is probably called `Node`).
+
+#### If you're using Linux or macOS
+First, please note that at a few points during the process, the build will stop and ask you for your password. This is
+because some of the integration tests need to run with root privilege, to change DNS settings, open low-numbered ports,
+etc. (It is possible but not easy to build without giving root privilege or running integration tests; if this turns
+out to be something people want to do, we'll make it easier.)
+
+Open a standard terminal window and type:
+```
+$ ci/all.sh
+```
+
+#### If you're using Windows
+MASQ Node utilizes the Web3 crate to facilitate Blockchain communications. The Web3 crate depends on OpenSSL for TLS
+when connecting over HTTPS. Some setup for a proper Windows build environment may be needed. You have two choices: a) install
+OpenSSL and allow it to be dynamically linked at compile time b) download an OpenSSL binary and set `OPENSSL_STATIC`
+and allow it to be statically linked at compile time.
+See the [Rust OpenSSL Documentation](https://docs.rs/openssl/0.10.20/openssl/) for more information on configuring this
+environment variable. If it is not set, dynamic linking is assumed. The binaries we distribute are statically linked.
+
+Open a `git-bash` window as administrator and type:
+```
+$ ci/all.sh
+```
+
+_Wondering where all our tests are? The convention in Rust is to write unit tests in same file as the source, in a module
+at the end._
+
+### Run MASQ Node locally
+
+Once you've successfully built the `MASQNode` or `MASQNode.exe` (for Windows) executable, you have a choice.
+
+You can start the Node directly, which will give you more immediate control, but wrangling the Node is complex
+and annoying.
+
+However, the intended mode of operation is to start the MASQ Daemon and have _it_ start the Node. This method brings
+more layers of indirection into the picture, but it's friendlier.
+
+In either case, you'll need to tell your system to redirect network requests through the MASQ Node. There are two ways
+to do this as well.
+
+You can set the Node up as a system or application proxy in your network stack. Some applications (for example,
+Mozilla Firefox) can be individually proxied so that they work through the MASQ Network while the rest of the system
+uses the raw Internet. However, if you're not using one of those applications, you'll need to modify the system
+network proxy settings so that every application uses the MASQ Network. This is the preferred choice, but the Node's
+proxy functionality is not yet bulletproof, so some scenarios may cause problems.
+
+Alternatively, you can subvert your system's DNS settings so that it uses the MASQ Node as its DNS server. This is a
+much less standard way of achieving the desired result, and came about only as a roundabout way of keeping an ill-advised
+promise made by the marketing for Substratum. The code for this option is much more mature, but your machine's network
+subsystem wasn't designed to be used this way, and once the Node's proxy functionality is hardened, the DNS-subversion
+functionality will be removed.
+
+
+
+
+Once you've successfully built the `MASQNode` or `MASQNode.exe` executable, you can run MASQ Node from the command line.
+
+Currently, your DNS must be set to `127.0.0.1` in order to route traffic through MASQ Node; then it must be set back to
+whatever it was before when you're done with MASQ Node and you want to get back on the normal Internet.
+
+
+The MASQ Node software includes a
+[multi-platform DNS utility](https://github.com/MASQ-Project/Node/tree/master/dns_utility) that you can use
+to subvert your DNS settings to `127.0.0.1`, like this:
+```
+$ cd <path to workspace>
+$ sudo Node/dns_utility/target/release/dns_utility subvert
+```
+If you have trouble with `dns_utility` or you'd rather make your DNS configuration changes manually, look for
+[instructions for your platform](https://github.com/MASQ-Project/Node/tree/master/node/docs).
+
+Once your DNS is successfully subverted, you can start the MASQ Node itself.  Currently, there are two major ways
+the MASQ Node can run: zero-hop and decentralized.
+
+A zero-hop MASQ Node is very easy to start, and it's self-contained: every zero-hop MASQ Node has an entire
+MASQ Network inside it.  However, it doesn't communicate with any other MASQ Nodes.  Every network transaction
+is zero-hop: your MASQ Node is the Client node, the Originating node, and the Exit node all at once.  A zero-hop MASQ Node
+is good for exploring the system and verifying its compatibility with your hardware, but it doesn't relay traffic through
+any other MASQ Nodes.
+
+A decentralized MASQ Node is considerably more difficult to start, because you have to give it much more information
+to get it running; however, it can route your traffic through other MASQ Nodes running elsewhere in the world to get
+it to and from your destination.
+
+__Important Note:__ Please remember that at the moment neither zero-hop MASQ Nodes nor decentralized MASQ Nodes
+are secure or private in any sense of the word.  Please don't use them for any kind of sensitive traffic at this stage.
+
