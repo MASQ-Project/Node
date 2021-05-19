@@ -577,7 +577,7 @@ mod tests {
             .queue_response(broadcast_number_six)
             .write_logs();
         let stop_handle = server.start();
-        let waiting_for_message_time_out = if cfg!(macos) { 250 } else { 150 };
+        let waiting_for_message_time_out = if cfg!(target_os = "macos") { 250 } else { 150 };
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
         let _received_message_number_one: UiCheckPasswordResponse = connection
