@@ -26,15 +26,15 @@ jobs:
         run: |
           rustup check
           case "$OSTYPE" in
-            Darwin | darwin*)
-              echo "Skipping preliminary rustup self update because macOS doesn't like it"
+            msys)
+              echo "Windows doesn't like it when rustup updates itself"
+              rustup update --no-self-update stable
               ;;
             *)
-              echo "Windows and Linux don't mind preliminary rustup self update, and Windows needs it"
-              rustup self update
+              echo "Linux and macOS don't need manual suppression of rustup self update"
+              rustup update stable
               ;;
           esac
-          rustup update stable
           rustup check
           rustup component add rustfmt
           rustup component add clippy
