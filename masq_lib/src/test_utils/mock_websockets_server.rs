@@ -574,8 +574,7 @@ mod tests {
             .queue_response(broadcast_number_four)
             .queue_response(broadcast_number_five)
             .queue_response(conversation_number_three_response)
-            .queue_response(broadcast_number_six)
-            .write_logs();
+            .queue_response(broadcast_number_six);
         let stop_handle = server.start();
         let waiting_for_message_time_out = if cfg!(target_os = "macos") { 250 } else { 150 };
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
