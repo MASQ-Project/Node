@@ -181,7 +181,7 @@ impl MockWebSocketsServer {
                             index,
                             "Going to panic: Unrecognizable form of a text message",
                         );
-                        panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server")
+                        panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}",incoming)
                     }
                 }
                 log(do_log, index, "Checking for termination directive");
