@@ -289,17 +289,7 @@ mod tests {
         assert_eq!(stream_holder.stdout.get_string(), "");
     }
 
-    //help and version commands are also tested in integration tests with focus on bigger context
-
-    #[test]
-    fn handle_help_or_version_ignores_uninteresting_entries() {
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
-        let mut stdout = ByteArrayWriter::new();
-
-        let _ = handle_help_or_version("something", &mut stdout, &terminal_interface);
-
-        assert_eq!(stdout.get_string(), "")
-    }
+    //help and version commands are tested in integration tests with focus on a bigger context
 
     #[test]
     fn handle_help_or_version_provides_fine_lock_for_help_text() {
