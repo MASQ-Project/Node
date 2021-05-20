@@ -25,7 +25,7 @@ fn masq_without_daemon_integration() {
 }
 
 #[test]
-fn masq_terminates_immediately_when_clap_gets_furious_because_of_requests_which_it_does_not_recognize_integration(
+fn masq_terminates_immediately_when_clap_gets_furious_for_requests_which_it_does_not_recognize_integration(
 ) {
     let masq_handle = MasqProcess::new().start_noninteractive(vec!["uninvented-command"]);
 
@@ -61,7 +61,7 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
 }
 
 #[test]
-fn masq_terminates_in_reaction_to_loss_of_the_connection_with_daemon_or_node_integration() {
+fn masq_terminates_based_on_the_loss_of_connection_to_the_daemon_integration() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(300));

@@ -6,7 +6,7 @@ use masq_lib::constants::MASQ_PROMPT;
 use std::sync::Arc;
 
 #[cfg(not(test))]
-mod not_test_cfg {
+mod prod_cfg {
     pub use crate::line_reader::IntegrationTestTerminal;
     pub use linefeed::DefaultTerminal;
 }
@@ -54,11 +54,11 @@ impl TerminalWrapper {
         if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
             Ok(TerminalWrapper::new(Box::new(
-                not_test_cfg::IntegrationTestTerminal::default(),
+                prod_cfg::IntegrationTestTerminal::default(),
             )))
         } else {
             //we have no positive automatic test aimed on this (only negative and as an integration test)
-            Self::configure_interface_generic(Box::new(not_test_cfg::DefaultTerminal::new))
+            Self::configure_interface_generic(Box::new(prod_cfg::DefaultTerminal::new))
         }
     }
 

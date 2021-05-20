@@ -95,7 +95,7 @@ fn handle_help_or_version(
         "version" => app()
             .write_version(&mut stdout)
             .expect("masq version set incorrectly"),
-        _ => return,
+        _ => unreachable!("should have been treated before"),
     }
     short_writeln!(stdout, "");
 }
@@ -133,7 +133,7 @@ fn print_protected(
             short_writeln!(streams.stderr, "{}", e.expect("expected Some()"));
             CLError(None)
         }
-        _ => unreachable!("should never happen"),
+        _ => unreachable!("matched elsewhere"),
     }
 }
 
