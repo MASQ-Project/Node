@@ -117,32 +117,33 @@ provided via the UI will supersede conflicting information from all the other so
 
 ##### UI
 
-This is the easiest. In this file, all our documentation of the configuration options shows you how to provide them on
-the command line. Keep in mind, though, that command lines tend to be preserved by the operating system for display to
-users who want to see process lists. Therefore, the command line may not be the best place to specify sensitive or
-secret configuration information. (Nothing prevents you from doing this, though, so be careful.)
+This is the easiest. In this file, our documentation of the configuration options shows you how to provide them to 
+`masq` on the command line, either in interactive mode or in noninteractive mode. Keep in mind, though, that command 
+lines tend to be preserved by the operating system for display to users who want to see process lists. Therefore, the
+command line may not be the best place to specify sensitive or secret configuration information. (Nothing prevents you 
+from doing this, though, so be careful.)
 
 ##### Shell Environment
 
-If you see that the command line accepts a parameter such as `--clandestine-port 1234`, then you can supply that same
+If you see that the UI accepts a command such as `setup --clandestine-port 1234`, then you can supply that same
 parameter in the environment by setting the `MASQ_CLANDESTINE_PORT` environment variable to `1234`. Note that you need
-to remove the initial `--` prefix, convert the name to all uppercase, and add a `MASQ_` prefix to namespace the parameter
-against other applications that might look for a similar variable.
+to remove the initial `--` prefix, convert the name to all uppercase, change hyphens to underscores, and add a `MASQ_` 
+prefix to namespace the parameter against other applications that might look for a similar variable.
 
 ##### Configuration File
 
 The configuration file, by default, resides in the data directory (see the `--data-directory` parameter for further
 information) and is named `config.toml`. If you leave the configuration file unspecified, this is where MASQ Node
 will look for it. If it's found, it will be used; if it's not, MASQ Node will act as though it had been found but empty.
-But if you want to use a different file, specify it either as `--config-file` on the command line or as `MASQ_CONFIG_FILE`
+But if you want to use a different file, specify it either as `--config-file` in the Daemon setup or as `MASQ_CONFIG_FILE`
 in the environment. If you specify a relative filename, MASQ Node will look for the configuration file in the data
 directory; if you specify an absolute filename, MASQ Node will not use the data directory to find the configuration
 file.
 
 The configuration file should be in TOML format. TOML is a competitor to other formats like JSON and YAML, but the
-MASQ Node uses only scalar settings, not arrays or tables. If you see that the command line accepts a parameter such
-as `--clandestine-port 1234`, then you can supply that same parameter in the configuration file by adding the following
-line to it:
+MASQ Node uses only scalar settings, not arrays or tables. If you see that Daemon setup accepts a command such
+as `setup --clandestine-port 1234`, then you can supply that same parameter in the configuration file by adding the
+following line to it:
 
 ```
 clandestine-port = "1234"
@@ -160,40 +161,104 @@ can read whatever's in it, whether MASQ Node is running or not. Therefore, the c
 best place to specify sensitive or secret configuration information. (Nothing prevents you from doing this, though, so 
 be careful.)
 
-#### Running a Zero-Hop MASQ Node locally
+#### Running a Decentralized MASQ Node Locally
 
-Here's all you need to start your zero-hop MASQ Node:
-```
-$ sudo Node/node/target/release/MASQNode --dns-servers 1.1.1.1
-```
-In the above example, we're using Cloudflare's DNS, `1.1.1.1`, but you can use your preferred DNS.
-If you can't choose just one favorite DNS, you can also specify multiple ones, separated by a comma but no space (`,`).
+##### Wallets
 
-_Why do we specify `--dns-servers`? MASQ Nodes still need to talk to the greater Internet.
-See [the ProxyClient README](https://github.com/MASQ-Project/Node/tree/master/node/src/proxy_client)
-for more information._
-
-#### Running a Decentralized MASQ Node locally
-
-Decentralized operation is much more complex than zero-hop operation, so there are many more options that are available.
-
-In order to run decentralized, MASQ Node needs at least an earning wallet (an Ethereum wallet into which other nodes
-will make payments for the services your node provides). If you plan to use your node to consume data with a browser
+In order to run decentralized, MASQ Node needs at least an earning wallet (an Ethereum wallet into which other Nodes
+will make payments for the services your node provides). If you plan to use your Node to consume data with a browser
 or other network application, it will also need to be configured with a funded consuming wallet (an Ethereum wallet
-from which it will make payments for the services other nodes provide).
+from which it will make payments for the services other Nodes provide). If you want, you can use the same wallet for
+both earning and consuming, although this will allow an attacker to connect your network-forming Gossip traffic with your
+data traffic, if he wants.
 
-##### Service Mode
+##### Password
 
-When started in Service mode, MASQ Node will come up, join the MASQ Network, and start
-serving and consuming clandestine data until you stop it. Since Service mode requires listening on low-numbered
-restricted ports, starting MASQ Node in Service mode requires administrative privilege (`sudo` on Linux and macOS, a
-command window started as Administrator in Windows).
+The Node keeps a database on disk where it stores various things, like persistent configuration data and accounting
+information.  In some cases, this information is sensitive, and if an attacker confiscated your computer and found
+the sensitive data, you or others could be put at risk. Therefore, all the security-sensitive data in the database is
+encrypted with a symmetric key. We call that key a password, and you're required to set it before you store any
+sensitive data in the database. There are no rules for how long the password must be or what it must contain--security
+of your data is your responsibility, not ours--but it needs to be present so that the database can be properly encrypted
+with it.
 
-* `--help` Displays command help and stops. Does not require administrative privilege. Cannot be specified in the
-environment or config file.
+MASQ never stores the password anywhere on disk, only in memory; so A) you'll need to supply the password every time
+the Node starts, B) no one can tell you the password if you forget it, and C) forgetting it will mean that your
+database is useless, and you'll have to start it over.
 
-* `--version` Displays the currently-running version of MASQ Node and stops. Does not require 
-administrative privilege. Cannot be specified in the environment or config file.
+##### Interactive `masq` vs Noninteractive `masq`
+
+The `masq` command-line interface can run two ways. If you just type
+
+```
+$ masq
+```
+
+at a command prompt, you'll be shown a `masq>` prompt, and the system will await a series of `masq` commands from you.
+But if you type something like
+
+```
+$ masq setup --log-level debug --clandestine-port 1234
+```
+
+then `masq` will start up, execute the command you gave it, and immediately terminate.
+
+This way, you can use interactive `masq` to give an impromptu series of commands to the Daemon and/or the Node, or you
+can write shell scripts to control the Daemon and/or the Node for special purposes, with those scripts containing
+noninteractive `masq` commands.
+
+##### Daemon vs. Node
+
+The MASQ Daemon and the MASQ Node are two different programs that share the same binary. If you start that binary with
+the `--initialization` parameter, it will become the Daemon; if you start it without the `--initialization` parameter,
+it will become the Node.
+
+MASQ is designed to be very difficult to hack, but it's intended to go up against government-level attackers, so there's
+always the possibility that they could have the funding to do something we didn't anticipate. If an attacker figures out
+how to hack into a computer running MASQ, we think it's very important that at least he doesn't find himself hacked
+into a process running with administrative privilege.
+
+Also, it's important that the user interface, whether command-line or graphical, be able to direct the Node to start
+without having administrative privilege. However, because of the network ports the Node has to initialize, it must at
+least start up with administrative privilege. It drops all special privileges before it reads any data from the network,
+though, so any attacker who manages to hack it over the network won't see those special privileges.
+
+These two requirements led to the development of the MASQ Daemon. The Daemon should start up with administrative
+privilege at system-boot time, and keep running--with that privilege--until the computer shuts down. In return for
+being a long-running privileged process, the Daemon is forbidden from A) accessing the network in any way, and B)
+communicating with the Node in any way other than starting its process. As long as these limitations are respected,
+even someone who successfully hacks into the Node will not be able to hack into the privileged Daemon.
+
+So when the user interface (whether command-line or graphical) starts up, it connects first to the Daemon. There is a
+set of commands the UI can use to communicate with the Daemon, but this set is comparatively small. As long as the
+UI issues commands from that set, it will stay connected to the Daemon. Eventually, though, the UI will probably issue
+a command the Daemon doesn't understand. At that point, if the Node is running the Daemon will instruct the UI to
+drop its Daemon connection, create a new connection to the Node instead, and re-issue the unrecognized command so that
+the Node can execute it.
+
+Thereafter, the UI will be connected to the Node. It will not connect again to the Daemon unless the Node shuts down
+or crashes; then the UI will fall back to the Daemon (if it's still running) or exit (if it's not).
+
+##### `masq` Subcommands
+
+These subcommands should work either interactively (typed at the `masq>` prompt) or noninteractively (given at the
+shell prompt as part of a `masq` command).
+
+* `--help` (noninteractive) or `help` (interactive): Displays command help.
+
+* `--version` (noninteractive) or `version` (interactive) Displays the currently-running version of `masq`.
+
+* `change-password` <old-password> <new-password>: Changes the existing database password from <old-password> to
+<new-password>. If a specified password has spaces, put it in quotes.
+
+* `set-password` <new-password>: Sets an initial password on a database that does not already have a password.
+If the password has spaces, put it in quotes.
+
+* `setup`: Modifies the Daemon's initialization area and displays it. There are many possible options for the `setup`
+command; see below.
+  
+
+  
 
 * `--blockchain-service-url <URL>` A required URL that should point to an Infura, Geth, or Parity HTTP endpoint. Eventually, 
 MASQ Node will direct blockchain traffic through the MASQ Network when the parameter is not specified, allowing other 
