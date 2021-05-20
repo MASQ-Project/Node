@@ -117,7 +117,7 @@ impl command::Command for Main {
             Some(command_parts) => handle_command_common(
                 &*self.command_factory,
                 &mut *command_processor,
-                command_parts,
+                &command_parts,
                 streams.stderr,
             ),
             None => go_interactive(&*self.command_factory, &mut *command_processor, streams),
@@ -138,7 +138,7 @@ fn bool_into_numeric_code(bool_flag: bool) -> u8 {
 pub fn handle_command_common(
     command_factory: &dyn CommandFactory,
     processor: &mut dyn CommandProcessor,
-    command_parts: Vec<String>,
+    command_parts: &[String],
     stderr: &mut dyn Write,
 ) -> bool {
     let command = match command_factory.make(command_parts) {
@@ -413,7 +413,7 @@ mod tests {
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
-            .make_result(Ok(Box::new(SetupCommand::new(vec![]).unwrap())));
+            .make_result(Ok(Box::new(SetupCommand::new(&[]).unwrap())));
         let process_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
             .process_params(&process_params_arc)

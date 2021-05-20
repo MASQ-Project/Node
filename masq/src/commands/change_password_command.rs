@@ -20,7 +20,7 @@ pub struct ChangePasswordCommand {
 }
 
 impl ChangePasswordCommand {
-    pub fn new_set(pieces: Vec<String>) -> Result<Self, String> {
+    pub fn new_set(pieces: &[String]) -> Result<Self, String> {
         match set_password_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => Ok(Self {
                 old_password: None,
@@ -33,7 +33,7 @@ impl ChangePasswordCommand {
         }
     }
 
-    pub fn new_change(pieces: Vec<String>) -> Result<Self, String> {
+    pub fn new_change(pieces: &[String]) -> Result<Self, String> {
         match change_password_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => Ok(Self {
                 old_password: Some(
@@ -130,7 +130,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec!["set-password".to_string(), "abracadabra".to_string()])
+            .make(&["set-password".to_string(), "abracadabra".to_string()])
             .unwrap();
 
         let result = subject.execute(&mut context);
@@ -165,7 +165,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec![
+            .make(&[
                 "change-password".to_string(),
                 "abracadabra".to_string(),
                 "boringPassword".to_string(),
@@ -198,10 +198,7 @@ mod tests {
     fn change_password_command_fails_if_only_one_argument_supplied() {
         let factory = CommandFactoryReal::new();
 
-        let result = factory.make(vec![
-            "change-password".to_string(),
-            "abracadabra".to_string(),
-        ]);
+        let result = factory.make(&["change-password".to_string(), "abracadabra".to_string()]);
 
         let msg = match result {
             Err(CommandFactoryError::CommandSyntax(s)) => s,
@@ -217,7 +214,7 @@ mod tests {
 
     #[test]
     fn change_password_new_set_handles_error_of_missing_both_arguments() {
-        let result = ChangePasswordCommand::new_set(vec!["set-password".to_string()]);
+        let result = ChangePasswordCommand::new_set(&["set-password".to_string()]);
 
         let msg = match result {
             Err(s) => s,
@@ -233,7 +230,7 @@ mod tests {
 
     #[test]
     fn change_password_new_change_handles_error_of_missing_both_arguments() {
-        let result = ChangePasswordCommand::new_change(vec!["change-password".to_string()]);
+        let result = ChangePasswordCommand::new_change(&["change-password".to_string()]);
 
         let msg = match result {
             Err(s) => s,

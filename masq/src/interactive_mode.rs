@@ -2,7 +2,7 @@
 
 use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
-use crate::interactive_mode::CustomStatesForGoInteractive::{Break, Continue, Return};
+use crate::interactive_mode::CustomEventForGoInteractive::{Break, Continue, Return};
 use crate::line_reader::TerminalEvent;
 use crate::line_reader::TerminalEvent::{CLBreak, CLContinue, CLError, CommandLine};
 use crate::non_interactive_mode::handle_command_common;
@@ -12,7 +12,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 use std::io::Write;
 
-enum CustomStatesForGoInteractive {
+enum CustomEventForGoInteractive {
     Break,
     Continue,
     Return(bool),
@@ -44,13 +44,13 @@ fn handle_terminal_event(
     command_factory: &dyn CommandFactory,
     command_processor: &mut dyn CommandProcessor,
     read_line_result: TerminalEvent,
-) -> CustomStatesForGoInteractive {
+) -> CustomEventForGoInteractive {
     match pass_args_or_print_messages(
         streams,
         read_line_result,
         command_processor.terminal_wrapper_ref(),
     ) {
-        CommandLine(args) => handle_args(args, streams, command_factory, command_processor),
+        CommandLine(args) => handle_args(&args, streams, command_factory, command_processor),
         CLBreak => Break,
         CLContinue => Continue,
         CLError(_) => Return(false),
@@ -58,23 +58,25 @@ fn handle_terminal_event(
 }
 
 fn handle_args(
-    args: Vec<String>,
+    args: &[String],
     streams: &mut StdStreams<'_>,
     command_factory: &dyn CommandFactory,
     command_processor: &mut dyn CommandProcessor,
-) -> CustomStatesForGoInteractive {
+) -> CustomEventForGoInteractive {
     if args.is_empty() {
         return Continue;
     }
-    if args[0] == "exit" {
-        return Break;
-    }
-    if handle_help_or_version(
-        &args[0],
-        streams.stdout,
-        command_processor.terminal_wrapper_ref(),
-    ) {
-        return Continue;
+    match args[0].as_str() {
+        str if str == "exit" => return Break,
+        str if str == "help" || str == "version" => {
+            handle_help_or_version(
+                str,
+                streams.stdout,
+                command_processor.terminal_wrapper_ref(),
+            );
+            return Continue;
+        }
+        _ => (),
     }
     let _ = handle_command_common(command_factory, command_processor, args, streams.stderr);
     Continue
@@ -84,7 +86,7 @@ fn handle_help_or_version(
     arg: &str,
     mut stdout: &mut dyn Write,
     terminal_interface: &TerminalWrapper,
-) -> bool {
+) {
     let _lock = terminal_interface.lock();
     match arg {
         "help" => app()
@@ -93,10 +95,9 @@ fn handle_help_or_version(
         "version" => app()
             .write_version(&mut stdout)
             .expect("masq version set incorrectly"),
-        _ => return false,
+        _ => return,
     }
     short_writeln!(stdout, "");
-    true
 }
 
 fn pass_args_or_print_messages(
@@ -104,9 +105,23 @@ fn pass_args_or_print_messages(
     read_line_result: TerminalEvent,
     terminal_interface: &TerminalWrapper,
 ) -> TerminalEvent {
-    let _lock = terminal_interface.lock();
     match read_line_result {
         CommandLine(args) => CommandLine(args),
+        others => print_protected(others, terminal_interface, streams),
+    }
+}
+
+fn print_protected(
+    event_with_message: TerminalEvent,
+    terminal_interface: &TerminalWrapper,
+    streams: &mut StdStreams<'_>,
+) -> TerminalEvent {
+    let _lock = terminal_interface.lock();
+    match event_with_message {
+        CLBreak => {
+            short_writeln!(streams.stdout, "Terminated");
+            CLBreak
+        }
         CLContinue => {
             short_writeln!(
                 streams.stdout,
@@ -114,14 +129,11 @@ fn pass_args_or_print_messages(
             );
             CLContinue
         }
-        CLBreak => {
-            short_writeln!(streams.stdout, "Terminated");
-            CLBreak
-        }
         CLError(e) => {
             short_writeln!(streams.stderr, "{}", e.expect("expected Some()"));
             CLError(None)
         }
+        _ => unreachable!("should never happen"),
     }
 }
 
@@ -284,14 +296,13 @@ mod tests {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
         let mut stdout = ByteArrayWriter::new();
 
-        let result = handle_help_or_version("something", &mut stdout, &terminal_interface);
+        let _ = handle_help_or_version("something", &mut stdout, &terminal_interface);
 
-        assert_eq!(result, false);
         assert_eq!(stdout.get_string(), "")
     }
 
     #[test]
-    fn handle_help_or_version_provides_fine_lock_for_questioning_the_current_version() {
+    fn handle_help_or_version_provides_fine_lock_for_help_text() {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
         let background_interface_clone = terminal_interface.clone();
         let mut stdout = ByteArrayWriter::new();
@@ -309,7 +320,7 @@ mod tests {
         rx.recv().unwrap();
         let now = Instant::now();
 
-        let result = handle_help_or_version("help", &mut stdout, &terminal_interface);
+        let _ = handle_help_or_version("help", &mut stdout, &terminal_interface);
 
         let time_period_when_locked = now.elapsed();
         handle.join().unwrap();
@@ -319,7 +330,6 @@ mod tests {
             time_period_when_locked,
             time_period_when_loosen
         );
-        assert_eq!(result, true)
     }
 
     #[test]

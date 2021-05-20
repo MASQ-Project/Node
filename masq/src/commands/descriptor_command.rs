@@ -75,7 +75,7 @@ mod tests {
             node_descriptor: "Node descriptor".to_string(),
         }
         .tmb(0)));
-        let subject = factory.make(vec!["descriptor".to_string()]).unwrap();
+        let subject = factory.make(&["descriptor".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 

@@ -31,8 +31,8 @@ pub struct CommandFactoryMock {
 }
 
 impl CommandFactory for CommandFactoryMock {
-    fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError> {
-        self.make_params.lock().unwrap().push(pieces);
+    fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError> {
+        self.make_params.lock().unwrap().push(pieces.to_vec());
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -541,35 +541,24 @@ impl TerminalPassiveMock {
 
 pub struct TerminalActiveMock {
     in_memory_terminal: Interface<MemoryTerminal>,
-    reference: MemoryTerminal,
     user_input: Arc<Mutex<Vec<String>>>,
 }
 
 impl MasqTerminal for TerminalActiveMock {
     fn read_line(&self) -> TerminalEvent {
         let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
-        self.reference.write(&format!("{}*/-", line));
         TerminalEvent::CommandLine(vec![line])
     }
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
-    #[cfg(test)]
-    fn test_interface(&self) -> MemoryTerminal {
-        self.reference.clone()
-    }
 }
 
 impl TerminalActiveMock {
     pub fn new() -> Self {
-        let memory_terminal_instance = MemoryTerminal::new();
         Self {
-            in_memory_terminal: Interface::with_term(
-                "test only terminal",
-                memory_terminal_instance.clone(),
-            )
-            .unwrap(),
-            reference: memory_terminal_instance,
+            in_memory_terminal: Interface::with_term("test only terminal", MemoryTerminal::new())
+                .unwrap(),
             user_input: Arc::new(Mutex::new(vec![])),
         }
     }

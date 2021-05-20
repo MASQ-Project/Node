@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[derive(Debug, PartialEq)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
-    CLError(Option<String>),
-    CLContinue, //as ignore
+    CLError(Option<String>), //'None' when already printed out
+    CLContinue,              //as ignore
     CLBreak,
 }
 

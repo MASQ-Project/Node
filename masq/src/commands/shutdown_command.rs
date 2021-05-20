@@ -199,7 +199,7 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let subject = factory.make(vec!["shutdown".to_string()]).unwrap();
+        let subject = factory.make(&["shutdown".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 

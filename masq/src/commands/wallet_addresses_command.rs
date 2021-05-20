@@ -15,7 +15,7 @@ pub struct WalletAddressesCommand {
 }
 
 impl WalletAddressesCommand {
-    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
+    pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match wallet_addresses_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
@@ -87,7 +87,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec!["wallet-addresses".to_string(), "bonkers".to_string()])
+            .make(&["wallet-addresses".to_string(), "bonkers".to_string()])
             .unwrap();
 
         let result = subject.execute(&mut context);
@@ -119,10 +119,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec![
-                "wallet-addresses".to_string(),
-                "some password".to_string(),
-            ])
+            .make(&["wallet-addresses".to_string(), "some password".to_string()])
             .unwrap();
 
         let result = subject.execute(&mut context);
@@ -139,11 +136,9 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
-        let subject = WalletAddressesCommand::new(vec![
-            "wallet-addresses".to_string(),
-            "bonkers".to_string(),
-        ])
-        .unwrap();
+        let subject =
+            WalletAddressesCommand::new(&["wallet-addresses".to_string(), "bonkers".to_string()])
+                .unwrap();
 
         let result = subject.execute(&mut context);
 

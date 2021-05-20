@@ -22,14 +22,14 @@ pub enum CommandFactoryError {
 }
 
 pub trait CommandFactory {
-    fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError>;
+    fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError>;
 }
 
 #[derive(Default)]
 pub struct CommandFactoryReal;
 
 impl CommandFactory for CommandFactoryReal {
-    fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError> {
+    fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError> {
         let boxed_command: Box<dyn Command> = match pieces[0].as_str() {
             "change-password" => match ChangePasswordCommand::new_change(pieces) {
                 Ok(command) => Box::new(command),
@@ -97,7 +97,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec!["booga".to_string(), "agoob".to_string()])
+            .make(&["booga".to_string(), "agoob".to_string()])
             .err()
             .unwrap();
 
@@ -109,7 +109,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let command = subject
-            .make(vec![
+            .make(&[
                 "change-password".to_string(),
                 "abracadabra".to_string(),
                 "boringPassword".to_string(),
@@ -132,10 +132,7 @@ mod tests {
     fn factory_complains_about_change_password_with_one_parameter() {
         let subject = CommandFactoryReal::new();
         let result = subject
-            .make(vec![
-                "change-password".to_string(),
-                "abracadabra".to_string(),
-            ])
+            .make(&["change-password".to_string(), "abracadabra".to_string()])
             .err()
             .unwrap();
 
@@ -156,7 +153,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec!["check-password".to_string(), "bonkers".to_string()])
+            .make(&["check-password".to_string(), "bonkers".to_string()])
             .unwrap();
 
         let check_password_command: &CheckPasswordCommand = result.as_any().downcast_ref().unwrap();
@@ -172,7 +169,7 @@ mod tests {
     fn complains_about_check_password_command_with_bad_syntax() {
         let subject = CommandFactoryReal::new();
 
-        let result = subject.make(vec![
+        let result = subject.make(&[
             "check-password".to_string(),
             "bonkers".to_string(),
             "invalid".to_string(),
@@ -197,7 +194,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let command = subject
-            .make(vec!["set-password".to_string(), "abracadabra".to_string()])
+            .make(&["set-password".to_string(), "abracadabra".to_string()])
             .unwrap();
 
         assert_eq!(
@@ -217,7 +214,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let command = subject
-            .make(vec![
+            .make(&[
                 "set-configuration".to_string(),
                 "--gas-price".to_string(),
                 "20".to_string(),
@@ -241,7 +238,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec!["set-configuration".to_string()])
+            .make(&["set-configuration".to_string()])
             .err()
             .unwrap();
 
@@ -261,7 +258,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec!["setup".to_string(), "--booga".to_string()])
+            .make(&["setup".to_string(), "--booga".to_string()])
             .err()
             .unwrap();
 
@@ -284,7 +281,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec![
+            .make(&[
                 "configuration".to_string(),
                 "--invalid".to_string(),
                 "booga".to_string(),
@@ -311,7 +308,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec![
+            .make(&[
                 "generate-wallets".to_string(),
                 "--invalid".to_string(),
                 "password".to_string(),
@@ -338,7 +335,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec!["wallet-addresses".to_string(), "bonkers".to_string()])
+            .make(&["wallet-addresses".to_string(), "bonkers".to_string()])
             .unwrap();
 
         let wallet_address_command: &WalletAddressesCommand =
@@ -355,7 +352,7 @@ mod tests {
     fn testing_command_factory_with_bad_command() {
         let subject = CommandFactoryReal::new();
 
-        let result = subject.make(vec!["wallet-addresses".to_string()]);
+        let result = subject.make(&["wallet-addresses".to_string()]);
 
         match result {
             Err(CommandFactoryError::CommandSyntax(msg)) => {

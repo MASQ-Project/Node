@@ -52,8 +52,8 @@ impl Command for SetupCommand {
 }
 
 impl SetupCommand {
-    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
-        let matches = match setup_subcommand().get_matches_from_safe(&pieces) {
+    pub fn new(pieces: &[String]) -> Result<Self, String> {
+        let matches = match setup_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn setup_command_with_syntax_error() {
-        let msg = SetupCommand::new(vec!["setup".to_string(), "--booga".to_string()])
+        let msg = SetupCommand::new(&["setup".to_string(), "--booga".to_string()])
             .err()
             .unwrap();
 
@@ -180,7 +180,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec![
+            .make(&[
                 "setup".to_string(),
                 "--neighborhood-mode".to_string(),
                 "zero-hop".to_string(),
@@ -235,7 +235,7 @@ neighborhood-mode      zero-hop                                                 
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec![
+            .make(&[
                 "setup".to_string(),
                 "--neighborhood-mode".to_string(),
                 "zero-hop".to_string(),
