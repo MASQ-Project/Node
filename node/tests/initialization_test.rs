@@ -3,7 +3,9 @@
 pub mod utils;
 
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use masq_lib::messages::{ToMessageBody, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL};
+use masq_lib::messages::{
+    ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiShutdownRequest, NODE_UI_PROTOCOL,
+};
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::utils::find_free_port;
@@ -78,8 +80,10 @@ fn initialization_sequence_integration() {
     };
     let context_id = 1234;
 
+    //<UiFinancialsRequest, UiFinancialsResponse>
+    //this is because newly a conversational message which can't reach the Node is returned in the way how it looked when it came
     let not_running_financials_response = initialization_client
-        .transact_with_context_id::<UiFinancialsRequest, UiRedirect>(
+        .transact_with_context_id::<UiFinancialsRequest, UiFinancialsResponse>(
             financials_request.clone(),
             context_id,
         )

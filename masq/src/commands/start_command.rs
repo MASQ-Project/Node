@@ -67,7 +67,7 @@ mod tests {
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
-        let subject = factory.make(vec!["start".to_string()]).unwrap();
+        let subject = factory.make(&["start".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 

@@ -143,37 +143,27 @@ impl MASQNodeCluster {
     }
 
     pub fn get_real_node_by_name(&self, name: &str) -> Option<MASQRealNode> {
-        match self.real_nodes.get(name) {
-            Some(node_ref) => Some(node_ref.clone()),
-            None => None,
-        }
+        self.real_nodes.get(name).cloned()
     }
 
     pub fn get_real_node_by_key(&self, key: &PublicKey) -> Option<MASQRealNode> {
-        match self
-            .real_nodes
+        self.real_nodes
             .values()
             .find(|node| node.main_public_key() == key)
-        {
-            Some(node_ref) => Some(node_ref.clone()),
-            None => None,
-        }
+            .cloned()
     }
 
     pub fn get_mock_node_by_name(&self, name: &str) -> Option<MASQMockNode> {
-        match self.mock_nodes.get(name) {
-            Some(node_ref) => Some(node_ref.clone()),
-            None => None,
-        }
+        self.mock_nodes.get(name).cloned()
     }
 
     pub fn get_node_by_name(&self, name: &str) -> Option<Box<dyn MASQNode>> {
         match self.real_nodes.get(name) {
             Some(node_ref) => Some(Box::new(node_ref.clone())),
-            None => match self.mock_nodes.get(name) {
-                Some(node_ref) => Some(Box::new(node_ref.clone())),
-                None => None,
-            },
+            None => self
+                .mock_nodes
+                .get(name)
+                .map(|node_ref| Box::new(node_ref.clone()) as Box<dyn MASQNode>),
         }
     }
 

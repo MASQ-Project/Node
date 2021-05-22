@@ -137,17 +137,13 @@ impl Handler<NodeQueryMessage> for Neighborhood {
             NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
         };
 
-        MessageResult(match node_record_ref_opt {
-            Some(node_record_ref) => Some(NodeQueryResponseMetadata::new(
+        MessageResult(node_record_ref_opt.map(|node_record_ref| {
+            NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
-                match node_record_ref.node_addr_opt() {
-                    Some(node_addr_ref) => Some(node_addr_ref),
-                    None => None,
-                },
+                node_record_ref.node_addr_opt(),
                 node_record_ref.rate_pack().clone(),
-            )),
-            None => None,
-        })
+            )
+        }))
     }
 }
 
@@ -164,17 +160,13 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
             NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
         };
 
-        let node_descriptor = match node_record_ref_opt {
-            Some(node_record_ref) => Some(NodeQueryResponseMetadata::new(
+        let node_descriptor = node_record_ref_opt.map(|node_record_ref| {
+            NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
-                match node_record_ref.node_addr_opt() {
-                    Some(node_addr) => Some(node_addr),
-                    None => None,
-                },
+                node_record_ref.node_addr_opt(),
                 node_record_ref.rate_pack().clone(),
-            )),
-            None => None,
-        };
+            )
+        });
 
         let response = DispatcherNodeQueryResponse {
             result: node_descriptor,

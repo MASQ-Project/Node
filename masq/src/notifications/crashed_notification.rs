@@ -1,24 +1,40 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::terminal_interface::TerminalWrapper;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::short_writeln;
+#[cfg(target_os = "windows")]
 use masq_lib::utils::exit_process;
+#[cfg(not(target_os = "windows"))]
+use masq_lib::utils::exit_process_with_sigterm;
 use std::io::Write;
 
 pub struct CrashNotifier {}
 
 impl CrashNotifier {
-    pub fn handle_broadcast(response: UiNodeCrashedBroadcast, stdout: &mut dyn Write) {
+    pub fn handle_broadcast(
+        response: UiNodeCrashedBroadcast,
+        stdout: &mut dyn Write,
+        term_interface: &TerminalWrapper,
+    ) {
+        let _lock = term_interface.lock();
         if response.crash_reason == CrashReason::DaemonCrashed {
-            exit_process(1, "The Daemon is no longer running; masq is terminating.\n");
+            #[cfg(target_os = "windows")]
+            exit_process(
+                1,
+                "\nThe Daemon is no longer running; masq is terminating.\n",
+            );
+
+            #[cfg(not(target_os = "windows"))]
+            exit_process_with_sigterm("\nThe Daemon is no longer running; masq is terminating.\n")
         }
+
         short_writeln!(
             stdout,
             "\nThe Node running as process {} terminated{}\nThe Daemon is once more accepting setup changes.\n",
             response.process_id,
             Self::dress_message (response.crash_reason)
         );
-        write!(stdout, "masq> ").expect("write! failed");
         stdout.flush().expect("flush failed");
     }
 
@@ -47,6 +63,7 @@ impl CrashNotifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::mocks::TerminalPassiveMock;
     use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::utils::running_test;
 
@@ -59,10 +76,11 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::ChildWaitFailure("Couldn't wait".to_string()),
         };
+        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
@@ -75,10 +93,11 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::Unrecognized("Just...failed!\n\n".to_string()),
         };
+        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
@@ -91,15 +110,16 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::NoInformation,
         };
+        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
 
-        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\nmasq> ".to_string());
+        assert_eq! (stdout.get_string(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\n".to_string());
         assert_eq!(stderr.get_string(), "".to_string());
     }
 
     #[test]
-    #[should_panic(expected = "1: The Daemon is no longer running; masq is terminating.")]
+    #[should_panic(expected = "The Daemon is no longer running; masq is terminating.")]
     pub fn handles_daemon_crash() {
         running_test();
         let mut stdout = ByteArrayWriter::new();
@@ -107,7 +127,8 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::DaemonCrashed,
         };
+        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        CrashNotifier::handle_broadcast(msg, &mut stdout);
+        CrashNotifier::handle_broadcast(msg, &mut stdout, &term_interface);
     }
 }

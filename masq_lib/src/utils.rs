@@ -6,6 +6,12 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use std::sync::Mutex;
 
+#[cfg(not(target_os = "windows"))]
+mod not_win_cfg {
+    pub use nix::sys::signal;
+    pub use std::time::Duration;
+}
+
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
 const FIND_FREE_PORT_HIGHEST: u16 = 65535;
 static mut RUNNING_TEST: bool = false;
@@ -109,6 +115,18 @@ pub fn exit_process(code: i32, message: &str) {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
+pub fn exit_process_with_sigterm(message: &str) {
+    if unsafe { RUNNING_TEST } {
+        panic!("{}", message);
+    } else {
+        eprintln!("{}", message);
+        not_win_cfg::signal::raise(not_win_cfg::signal::SIGTERM).expect("sigterm failure");
+        //This function must not return; so wait for death.
+        std::thread::sleep(not_win_cfg::Duration::from_secs(600))
+    }
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
@@ -116,6 +134,13 @@ macro_rules! short_writeln {
     );
     ( $form: expr, $($arg:tt)*) => {
          writeln!($form, $($arg)*).expect("writeln failed")
+    };
+}
+
+#[macro_export]
+macro_rules! intentionally_blank {
+    () => {
+        panic!("Required method left unimplemented: should never be called.")
     };
 }
 
