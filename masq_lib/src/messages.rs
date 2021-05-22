@@ -168,6 +168,13 @@ macro_rules! conversation_message {
 // These messages are sent only to and/or by the Daemon, not the Node
 ///////////////////////////////////////////////////////////////////////
 
+// if a fire-and-forget message for the Node was detected but the Node is down
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiUndeliveredFireAndForget {
+    pub opcode: String,
+}
+fire_and_forget_message!(UiUndeliveredFireAndForget, "undelivered");
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiCrashRequest {
     pub actor: String,
@@ -367,7 +374,7 @@ pub struct UiStartResponse {
 }
 conversation_message!(UiStartResponse, "start");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum CrashReason {
     ChildWaitFailure(String),
     NoInformation,
@@ -375,7 +382,7 @@ pub enum CrashReason {
     DaemonCrashed,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiNodeCrashedBroadcast {
     #[serde(rename = "processId")]
     pub process_id: u32,
@@ -566,11 +573,11 @@ pub struct UiRecoverWalletsRequest {
     #[serde(rename = "earningWallet")]
     pub earning_wallet: String, // either derivation path (default to "m/44'/60'/0'/0/1") or address
 }
-conversation_message!(UiRecoverWalletsRequest, "recoverWallet");
+conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiRecoverWalletsResponse {}
-conversation_message!(UiRecoverWalletsResponse, "recoverWallet");
+conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiSetConfigurationRequest {
@@ -608,6 +615,17 @@ pub struct UiWalletAddressesResponse {
     pub earning_wallet_address: String,
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//                            Test only messages
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct UiBroadcastTrigger {
+    pub number_of_broadcasts_in_one_batch: Option<usize>,
+    pub position_to_send_the_signal_opt: Option<usize>,
+}
+fire_and_forget_message!(UiBroadcastTrigger, "broadcastTrigger");
 
 #[cfg(test)]
 mod tests {

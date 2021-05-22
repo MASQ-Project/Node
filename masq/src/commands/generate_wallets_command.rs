@@ -22,7 +22,7 @@ pub struct GenerateWalletsCommand {
 }
 
 impl GenerateWalletsCommand {
-    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
+    pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match generate_wallets_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
@@ -160,7 +160,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec![
+            .make(&[
                 "generate-wallets".to_string(),
                 "--db-password".to_string(),
                 "password".to_string(),
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn constructor_handles_bad_syntax() {
-        let result = GenerateWalletsCommand::new(vec![
+        let result = GenerateWalletsCommand::new(&[
             "bipplety".to_string(),
             "bopplety".to_string(),
             "boop".to_string(),
@@ -214,7 +214,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec![
+            .make(&[
                 "generate-wallets".to_string(),
                 "--db-password".to_string(),
                 "password".to_string(),

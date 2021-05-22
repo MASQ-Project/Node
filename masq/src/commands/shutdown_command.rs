@@ -57,11 +57,14 @@ impl Command for ShutdownCommand {
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
                 short_writeln!(
                     context.stderr(),
-                    "MASQNode is not running; therefore it cannot be shut down."
+                    "MASQNode is not running; therefore it cannot be shut down"
                 );
                 return Err(Payload(code, message));
             }
-            Err(impossible) => panic!("Should never happen: {:?}", impossible),
+
+            Err(unknown_error) => {
+                panic!("Unexpected error: please report to us: {}", unknown_error)
+            }
         }
         match context.active_port() {
             None => {
@@ -196,7 +199,7 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let subject = factory.make(vec!["shutdown".to_string()]).unwrap();
+        let subject = factory.make(&["shutdown".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -223,7 +226,7 @@ mod tests {
         );
         assert_eq!(
             stderr_arc.lock().unwrap().get_string(),
-            "MASQNode is not running; therefore it cannot be shut down.\n"
+            "MASQNode is not running; therefore it cannot be shut down\n"
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
     }
