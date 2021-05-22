@@ -172,6 +172,14 @@ from which it will make payments for the services other Nodes provide). If you w
 both earning and consuming, although this will allow an attacker to connect your network-forming Gossip traffic with your
 data traffic, if he wants.
 
+MASQ only ever has to put money into your earning wallet, which means the Node only has to know its address. However,
+MASQ needs to pay money out of your consuming wallet; therefore the Node needs to know more about that one. Currently,
+we use the mnemonic seed, an optional "25th word" that serves the purpose of a password, and the derivation path.
+
+If you route other people's traffic without having an earning wallet set up, a default earning wallet will be
+used, in which case the funds you earn will go to MASQ instead of to you: so unless you're in a philanthropic mood,
+you should be sure to set up or specify your earning wallet before you route data.
+
 ##### Password
 
 The Node keeps a database on disk where it stores various things, like persistent configuration data and accounting
@@ -239,122 +247,21 @@ the Node can execute it.
 Thereafter, the UI will be connected to the Node. It will not connect again to the Daemon unless the Node shuts down
 or crashes; then the UI will fall back to the Daemon (if it's still running) or exit (if it's not).
 
-##### `masq` Subcommands
+##### Handy `masq` Subcommands
 
-These subcommands should work either interactively (typed at the `masq>` prompt) or noninteractively (given at the
-shell prompt as part of a `masq` command).
+`masq` has quite a few subcommands that you can use, both interactively and noninteractively. The best way to find
+out about these subcommands is to type
 
-* `--help` (noninteractive) or `help` (interactive): Displays command help.
+`$ masq --help`
 
-* `--version` (noninteractive) or `version` (interactive) Displays the currently-running version of `masq`.
+noninteractively at a shell-command prompt, or
 
-* `change-password` <old-password> <new-password>: Changes the existing database password from <old-password> to
-<new-password>. If a specified password has spaces, put it in quotes.
+`masq> help`
 
-* `set-password` <new-password>: Sets an initial password on a database that does not already have a password.
-If the password has spaces, put it in quotes.
+interactively at a `masq` prompt.
 
-* `setup`: Modifies the Daemon's initialization area and displays it. There are many possible options for the `setup`
-command; see below.
-  
 
-  
 
-* `--blockchain-service-url <URL>` A required URL that should point to an Infura, Geth, or Parity HTTP endpoint. Eventually, 
-MASQ Node will direct blockchain traffic through the MASQ Network when the parameter is not specified, allowing other 
-nodes to talk to the blockchain on your behalf.
-
-* `--chain <dev | mainnet | ropsten>` The blockchain network MASQ Node will configure itself to use. You must ensure the 
-Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.
-
-* `--ip <IP ADDRESS>` This is the public IP address of your MASQ Node: that is, the IP address at which other
-MASQ Nodes can contact yours. If you're in a fairly standard residential situation, then this will be the IP
-address issued to your router by your ISP, and in order to receive data you'll need to create holes in your router's
-firewall to enable incoming data to reach you on your clandestine ports (see below).  In the future, this will be taken
-care of for you (if you haven't turned off UPnP on your router), but right now it's manual.
-
-* `--dns-servers <IP ADDRESS>,...` This is the same list of DNS servers needed for zero-hop operation. Whenever your
-MASQ Node is used as an exit node, it will contact these DNS servers to find the host the client is trying to reach.
-
-* `--neighbors <PUBLIC KEY>:<IP ADDRESS>:<PORT>[;<PORT>;...][,<PUBLIC KEY>:<IP ADDRESS>:<PORT>[;<PORT>;...],...`
-This is how you tell MASQ Node about its initial neighbors. You can specify as many neighbors as you like, with the
-descriptors separated by commas but no spaces. The `<PUBLIC KEY>` in a descriptor is the Base64-encoded public key of the
-neighbor in question. The `<IP ADDRESS>` is the public IP address of that neighbor, and the `<PORT>` numbers are the
-clandestine ports on which the neighbor is listening.  If the neighbor node is one you're running yourself, you'll see it
-print this information to the console when it comes up.  If it's somewhere else on the Internet, you'll probably receive
-this information in an email or chat message to copy/paste onto your command line.
-
-* `--clandestine-port <PORT>`
-This is an optional parameter. If you don't specify a clandestine port, your node will use the same clandestine port it
-used last time it ran, if that port is still available. If the port is no longer available, MASQ Node will refuse to
-start until either it is available or until you specify a `--clandestine-port`, whereupon it will use the new port
-every time it starts. If it's a new installation, it will select a random unused clandestine port between 1025 and 9999,
-and use that every time. Whenever you specify `--clandestine-port`, the port you specify will keep being used until
-you reinstall or specify a different one. You can specify any port between 1025 and 65535. Whatever the clandestine port
-is, it will be printed in the log and to the console as part of the node descriptor when MASQ Node starts up. Note: 
-This is a temporary parameter; the concept of a special clandestine port will go away someday, and node descriptors will
-look different.
-
-* `--log-level <off | error | warn | info | debug | trace>`
-MASQ Node has the potential to log a lot of data. (A _lot_ of data: a busy node can fill your disk in a few 
-minutes.) This parameter allows you to specify how much of that potential will be realized. `trace` will encourage 
-MASQ Node to reach its full potential, and should probably only be used when you're going to run MASQ Node 
-for a few seconds to try one thing that's been giving you problems, and then shut it off to look at the logs. `error` 
-logs only the most serious of errors, and the other values are in-between compromise points. Default is `warn`.
-
-* `--ui-port <PORT>`
-This is how you tell MASQ Node which port it should listen on for local WebSocket connections to the UI gateway. 
-This allows MASQ Node to be controlled and inspected by other programs, such as the MASQ Node UI. The default 
-port is 5333; in most cases, this will not need to be changed.
-
-* `--data-directory <DIRECTORY>`
-This is the directory in which MASQ Node will keep the state that needs to persist from run to run. If it's not specified, the
-default is `$XDG_DATA_HOME/MASQ/<chain-name>` or `$HOME/.local/share/MASQ/<chain-name>` on Linux, 
-`%APPDATA%\MASQ\<chain-name>` on Windows, and `$HOME/Library/Application Support/MASQ/<chain-name>` on macOS where 
-`chain-name` is either `ropsten` or `mainnet` (see `--chain` parameter for more information). If it is specified but doesn't 
-exist, MASQ Node will try to create the directory and abort if it fails. If persistent state exists in the directory, 
-but it was created by a version of MASQ Node that is incompatible with the version you're trying to start, MASQ Node 
-will abort. If this is the case, either remove the existing state and restart MASQ Node, or specify a different 
-`--data-directory` directory.
-
-* `--config-file <FILENAME OR PATH>`
-Rather than specifying the same parameter values over and over when you start MASQ Node in Service mode, you can put parameters that
-rarely or never change in a TOML file as strings or numeric values. The entries in the config file should have
-exactly the same names they would have on the command line, without the `--` prefix. For example, instead of specifying
-
-  `--dns-servers 1.1.1.1,8.8.8.8`
-
-  on the command line, you could put
-
-  `dns-servers = "1.1.1.1,8.8.8.8"`
-
-  in the config file.
-
-  If you name the file `config.toml` and put it in
-either the default data directory or the directory specified by `--data-directory` (see above), MASQ Node will find and
-employ it automatically. If it has a different name or location, specify that with `--config-file`. If the path you
-specify is relative, it will be interpreted starting with the active data directory. If it's absolute, it will be
-evaluated without reference to the data directory. If you specify a `--config-file` and MASQ Node can't find it, it will
-abort its startup with an error.
-
-* `--consuming-private-key <64-CHARACTER HEX KEY>`
-This allows you to specify the private key of your consuming wallet without having it related to your earning wallet by
-derivation path. While this method is fully functional, it should be used only for automated testing. It cannot be
-used if the database already contains a wallet pair. If you do use it, keep in mind
-that your consuming wallet private key is sensitive information: anyone who gets hold of it can drain all your funds.
-It's best to specify it in the environment (as MASQ_CONSUMING_PRIVATE_KEY) rather than on the command line or in the
-config file. You won't be allowed to use this parameter if you've already specified a consuming wallet derivation path
-in Generate or Recover mode; and if you do use this parameter, you must specify exactly the same private key every time
-you run your MASQ Node. If you always use `--consuming-private-key` and `--earning-wallet` with an address, you can use MASQ Node in
-Service mode without having to go through Generate or Recover mode first, and without supplying a wallet password.
-
-* `--earning-wallet <WALLET-ADDRESS>` 
-This is an Ethereum address ("0x" followed by 40 hexadecimal digits) which MASQ Node will use to identify your earning 
-wallet. While this method is fully functional, it should be used only for automated testing. It cannot be
-used if the database already contains a wallet pair.
-
-* `--gas-price <GAS-PRICE>`
-The gas price is the amount of Gwei you will pay per unit of gas used in a transaction.
 
 If you don't have an earning wallet set up at all, and you don't specify this either, a default earning wallet will be
 used, in which case the funds you earn will go to MASQ instead of to you: so unless you're in a philanthropic mood,
