@@ -27,6 +27,11 @@ When a user requests a site, Nodes use a routing algorithm to find the most expe
 information to that user. Multiple Nodes work to fulfill a single request in order to maintain a necessary level of
 anonymity.
 
+__Important Note:__ Please remember that at the moment the MASQ Node is in development and is not clandestine. Your
+traffic can't be decrypted, and it is difficult to trace to you; but it is currently very easy for someone sniffing
+your Internet connection to tell that you're using MASQ. Please don't use it for any kind of sensitive traffic at this 
+stage.
+
 ## Running the MASQ Node
 
 ### Downloading Official Releases
@@ -83,7 +88,7 @@ if you're working in Linux or macOS, or
 if you're using Windows.
 
 The Daemon's responsibility is to configure and start the Node. When it comes up, it sets up an initialization area
-that contains configuration data for the node: some of it defaulted, some of it loaded from the environment, some
+that contains configuration data for the Node: some of it defaulted, some of it loaded from the environment, some
 loaded from a configuration file, if present, and the rest of it uninitialized. Before the Node is started, the
 configuration data in the Daemon's initialization area should be adjusted so that the Node has what it needs when it
 comes up.
@@ -166,7 +171,7 @@ be careful.)
 ##### Wallets
 
 In order to run decentralized, MASQ Node needs at least an earning wallet (an Ethereum wallet into which other Nodes
-will make payments for the services your node provides). If you plan to use your Node to consume data with a browser
+will make payments for the services your Node provides). If you plan to use your Node to consume data with a browser
 or other network application, it will also need to be configured with a funded consuming wallet (an Ethereum wallet
 from which it will make payments for the services other Nodes provide). If you want, you can use the same wallet for
 both earning and consuming, although this will allow an attacker to connect your network-forming Gossip traffic with your
@@ -260,25 +265,29 @@ noninteractively at a shell-command prompt, or
 
 interactively at a `masq` prompt.
 
+##### Neighbors
 
+If you're starting the very first MASQ Node in a MASQ network, then you don't have to tell your Node about
+any preexisting network; instead, other people who want to join that MASQ Network will have to tell their Nodes
+about your Node, which means you'll need to give them your Node descriptor.
 
+Otherwise, you'll need to specify `--neighbors` as part of your `masq setup` so that your Node will know how to join 
+the network that is already in place.
 
-If you don't have an earning wallet set up at all, and you don't specify this either, a default earning wallet will be
-used, in which case the funds you earn will go to MASQ instead of to you: so unless you're in a philanthropic mood,
-you should be sure to set up or specify your earning wallet.
+However, if your machine has already recently been on the MASQ Network, and you're starting the Node up again, there's 
+a chance that at least some of the Nodes that were recently your neighbors are still up and can be recontacted; in that 
+case, the Daemon will read the Node descriptors of your former neighbors out of the database and pre-populate the
+`--neighbors` setup with them, and you might not have to enter anything manually.
+
+##### Enabling Contact
 
 In order to run decentralized, the MASQ Node _must_ know the IP address others can use to contact it. Therefore,
-you must supply `--ip`. If you don't supply `--ip`, your node will come up in zero-hop mode and never route through
-any other nodes.
+you must supply `--ip`.
 
-If you're starting the very first MASQ Node in your MASQ network, then you don't have to tell your node about 
-any preexisting network; but otherwise, you'll need to specify `--neighbors` so that your node will know how to join the
-network that is already in place.
-
-Your home network is behind your internet provider's router and a public IP address. Other nodes in the MASQ Network
-will contact your node through your public IP address, requiring at least one port to be forwarded on your router. The 
-MASQ Node Gossip protocol "gossips" to other nodes the clandestine port you are listening on, and it is that port 
-you will need to open. When your node is started it will write its descriptor to the console and the log, giving the clandestine
+Your home network is behind your internet provider's router and a public IP address. Other Nodes in the MASQ Network
+will contact your Node through your public IP address, requiring at least one port to be forwarded on your router. The 
+MASQ Node Gossip protocol "gossips" to other Nodes the clandestine port you are listening on, and it is that port 
+you will need to open. When your Node is started it will write its descriptor to the console and the log, giving the clandestine
 port it is using; you will need to forward that port from your router to your computer's IP address.
 
 Forwarding ports on your router is somewhat technical. At a minimum, you should know how to log in to your router in 
@@ -292,17 +301,34 @@ More information on the operation, care, and feeding of the Neighborhood is avai
 [in the neighborhood_subproject](https://github.com/MASQ-Project/Node/tree/master/node/src/neighborhood).
 
 
-### Terminating a MASQ Node (Zero-Hop or Decentralized)
+### Terminating a MASQ Node
 
-To terminate the MASQ Node, just press Ctrl-C in the terminal window. Then you'll still need to revert your
-machine's DNS settings:
-```
-$ sudo Node/dns_utility/target/release/dns_utility revert
-```
-This should have you using the Internet normally again.
+Terminating a MASQ Node may be more of a process than you expect. There are three things to consider.
 
-However, if you've been running decentralized, you'll probably want to close the holes in your router's firewall. Don't
-leave them open against the next time you run: your node will pick different clandestine ports the next time.
+The most obvious is the MASQ Node itself. Terminating that is easy: just send it a shutdown message, with the GUI if 
+you have it, or with `masq` like this:
+
+```
+$ masq shutdown
+```
+
+noninteractively, or if you're interactive,
+
+```
+masq> shutdown
+```
+
+However, if you were using your Node to access the Internet--that is, to consume--your computer's network stack is now
+missing an important component, and it won't work anymore until you reconfigure it to operate without the Node.
+If you configured your proxy settings to use the Node as an HTTP proxy, you'll want to disable them, or revert them
+back to what they were before you started the Node. If you're using DNS subversion, you'll want to revert that:
+
+```
+$ sudo dns_utility revert
+```
+
+Third, you'll probably want to close the hole or holes in your router's firewall. Don't leave them open against the 
+next time you run: it's dangerous to leave open holes in your firewall to ports you're not actively using on purpose.
 
 ## Errors
 
@@ -313,8 +339,8 @@ If it were a Web server it could send data describing the errors to your browser
 things; instead, it's crowded into a place in the protocol stack where neither the browser nor the server expects it
 to exist.
 
-Therefore, certain error messages are a bit awkward to display, especially if they involve TLS connections. Let's look
-at how MASQ Node deals with certain kinds of errors.
+Therefore, certain error messages are a bit awkward to display in the browser, especially if they involve TLS 
+connections. Let's look at how MASQ Node deals with certain kinds of errors.
 
 ### HTTP
 
@@ -356,10 +382,10 @@ Since the concerns of the MASQ Node aren't precisely the same as the concerns of
 can't always be made exact, so here are some specific TLS Alert values that MASQ Node produces in specific 
 situations.
 
-* Routing Failure - `internal_error`: If your node is not yet "warmed up" enough in the MASQ Network to see a
+* Routing Failure - `internal_error`: If your Node is not yet "warmed up" enough in the MASQ Network to see a
 large enough neighborhood to be able to create a clandestine route that meets your specifications, it will raise a
 TLS `internal_error` Alert. This will probably be displayed by your browser as some sort of protocol error--which,
-strictly speaking, it is. If this happens, just wait awhile for your node and the MASQ Network to Gossip with
+strictly speaking, it is. If this happens, just wait awhile for your Node and the MASQ Network to Gossip with
 each other and spread around the necessary information. Then try reloading the page.
 
 * DNS Resolution Failure - `unrecognized_name`: Even though you contact websites at names like `google.com` and
@@ -367,15 +393,15 @@ each other and spread around the necessary information. Then try reloading the p
 Before it's useful for retrieving data, your server name has to be translated into an IP address. This is the job of a
 DNS server. Much of Internet censorship consists of crippling the DNS servers you have available to you so that they
 can't give you the correct IP address for the server name you're seeking. MASQ Node captures the DNS queries your
-browser makes and forwards them across the MASQ Network to some other node that hopefully has access to a
+browser makes and forwards them across the MASQ Network to some other Node that hopefully has access to a
 non-censored DNS server that _does_ know the IP address you want. But this is a complex task and it may fail. For
 example, perhaps you typed the server name wrong, and _nobody_ knows an IP address it matches. Or perhaps your
-MASQ Node guessed wrong, and the exit node to which it forwarded your DNS query is also handicapped by a censored DNS
+MASQ Node guessed wrong, and the exit Node to which it forwarded your DNS query is also handicapped by a censored DNS
 and can't find it either. In either case, MASQ Node will send your browser a TLS `unrecognized_name` alert, which
 your browser will probably present to you as some form of can't-find-host error. If you reload the page, MASQ Node
-will try to select a different exit node, if available--one that hasn't failed to resolve a DNS query--for the next 
+will try to select a different exit Node, if available--one that hasn't failed to resolve a DNS query--for the next 
 attempt, which might bring you better fortune. Of course, if you _have_ typed the name wrong, just reloading the page
-will take another innocent exit node out of circulation and make it even harder for you to get where you want to go.
+will take another innocent exit Node out of circulation and make it even harder for you to get where you want to go.
 
 # Disclosure
 
@@ -392,119 +418,4 @@ We do plan to release binaries that will run on 32-bit Windows, but they will li
 Copyright (c) 2019-2021, MASQ Network
 
 Copyright (c) 2017-2019, Substratum LLC and/or its affiliates. All rights reserved.
-
------------
-
-
-## Tools / Environment Setup
-MASQ Node software is written in Rust.
-We use `rustup` to install what we need (e.g. `rustc`, `cargo`, etc). If you don't already have it, you can get it from
-[the `rustup` installation page](https://www.rustup.rs/).
-
-To keep our source code consistently formatted, we use `rustfmt`, which is a plugin for `cargo`. If you want to use our
-build scripts to build the code, you'll need to [install this plugin in your Rust environment](https://github.com/rust-lang/rustfmt).
-(We use the stable version, not the nightly version.)
-
-Some Linux distributions (notably Ubuntu ≥16.04 Desktop) have a slight incompatibility with MASQ Node. If you think
-you might be affected, see
-[The Port 53 Problem](https://github.com/MASQ-Project/Node/blob/master/node/docs/PORT_53.md)
-for more information.
-
-If you're using Windows, you'll need to run the build scripts using `git-bash`. If you've cloned this repository, you
-probably already have `git-bash`; but if you don't, look at
-[How To Install `git-bash` On Windows](http://www.techoism.com/how-to-install-git-bash-on-windows/).
-
-Also, you will need an Internet connection when you build so that `cargo` can pull down dependencies.
-
-## How To
-We build and run tests for MASQ Node using `bash` scripts located in the `ci` directory of each sub-project.
-To clean, build, and run tests for all sub-projects in one step, start at the top level of the project (the directory
-is probably called `Node`).
-
-#### If you're using Linux or macOS
-First, please note that at a few points during the process, the build will stop and ask you for your password. This is
-because some of the integration tests need to run with root privilege, to change DNS settings, open low-numbered ports,
-etc. (It is possible but not easy to build without giving root privilege or running integration tests; if this turns
-out to be something people want to do, we'll make it easier.)
-
-Open a standard terminal window and type:
-```
-$ ci/all.sh
-```
-
-#### If you're using Windows
-MASQ Node utilizes the Web3 crate to facilitate Blockchain communications. The Web3 crate depends on OpenSSL for TLS
-when connecting over HTTPS. Some setup for a proper Windows build environment may be needed. You have two choices: a) install
-OpenSSL and allow it to be dynamically linked at compile time b) download an OpenSSL binary and set `OPENSSL_STATIC`
-and allow it to be statically linked at compile time.
-See the [Rust OpenSSL Documentation](https://docs.rs/openssl/0.10.20/openssl/) for more information on configuring this
-environment variable. If it is not set, dynamic linking is assumed. The binaries we distribute are statically linked.
-
-Open a `git-bash` window as administrator and type:
-```
-$ ci/all.sh
-```
-
-_Wondering where all our tests are? The convention in Rust is to write unit tests in same file as the source, in a module
-at the end._
-
-### Run MASQ Node locally
-
-Once you've successfully built the `MASQNode` or `MASQNode.exe` (for Windows) executable, you have a choice.
-
-You can start the Node directly, which will give you more immediate control, but wrangling the Node is complex
-and annoying.
-
-However, the intended mode of operation is to start the MASQ Daemon and have _it_ start the Node. This method brings
-more layers of indirection into the picture, but it's friendlier.
-
-In either case, you'll need to tell your system to redirect network requests through the MASQ Node. There are two ways
-to do this as well.
-
-You can set the Node up as a system or application proxy in your network stack. Some applications (for example,
-Mozilla Firefox) can be individually proxied so that they work through the MASQ Network while the rest of the system
-uses the raw Internet. However, if you're not using one of those applications, you'll need to modify the system
-network proxy settings so that every application uses the MASQ Network. This is the preferred choice, but the Node's
-proxy functionality is not yet bulletproof, so some scenarios may cause problems.
-
-Alternatively, you can subvert your system's DNS settings so that it uses the MASQ Node as its DNS server. This is a
-much less standard way of achieving the desired result, and came about only as a roundabout way of keeping an ill-advised
-promise made by the marketing for Substratum. The code for this option is much more mature, but your machine's network
-subsystem wasn't designed to be used this way, and once the Node's proxy functionality is hardened, the DNS-subversion
-functionality will be removed.
-
-
-
-
-Once you've successfully built the `MASQNode` or `MASQNode.exe` executable, you can run MASQ Node from the command line.
-
-Currently, your DNS must be set to `127.0.0.1` in order to route traffic through MASQ Node; then it must be set back to
-whatever it was before when you're done with MASQ Node and you want to get back on the normal Internet.
-
-
-The MASQ Node software includes a
-[multi-platform DNS utility](https://github.com/MASQ-Project/Node/tree/master/dns_utility) that you can use
-to subvert your DNS settings to `127.0.0.1`, like this:
-```
-$ cd <path to workspace>
-$ sudo Node/dns_utility/target/release/dns_utility subvert
-```
-If you have trouble with `dns_utility` or you'd rather make your DNS configuration changes manually, look for
-[instructions for your platform](https://github.com/MASQ-Project/Node/tree/master/node/docs).
-
-Once your DNS is successfully subverted, you can start the MASQ Node itself.  Currently, there are two major ways
-the MASQ Node can run: zero-hop and decentralized.
-
-A zero-hop MASQ Node is very easy to start, and it's self-contained: every zero-hop MASQ Node has an entire
-MASQ Network inside it.  However, it doesn't communicate with any other MASQ Nodes.  Every network transaction
-is zero-hop: your MASQ Node is the Client node, the Originating node, and the Exit node all at once.  A zero-hop MASQ Node
-is good for exploring the system and verifying its compatibility with your hardware, but it doesn't relay traffic through
-any other MASQ Nodes.
-
-A decentralized MASQ Node is considerably more difficult to start, because you have to give it much more information
-to get it running; however, it can route your traffic through other MASQ Nodes running elsewhere in the world to get
-it to and from your destination.
-
-__Important Note:__ Please remember that at the moment neither zero-hop MASQ Nodes nor decentralized MASQ Nodes
-are secure or private in any sense of the word.  Please don't use them for any kind of sensitive traffic at this stage.
 
