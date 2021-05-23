@@ -58,15 +58,15 @@ complex, it is test-driven just like production code; however, where it's compar
 are no specific tests for the test code, because we test it by using it for testing.
 
 #### Production Code
-Our production Rust code is currently in two main places: in the `node` directory and in the `dns_utility`
-directory. The `dns_utility` is heavily platform-dependent, and any changes to it should be assiduously
-tested on all three platforms, while `node` contains comparatively little platform-dependent code.
+Our production Rust code is currently in these directories:
 
-`dns_utility` has always been its own separate thing, but `node` started out as a collection of separate
-projects, and was over a series of steps brought together into one project. If you look, you can still
-see evidence of this in the arrangement of the code.
+* `automap` - code for working with the local LAN router
+* `dns_utility` - code for subverting and reverting the machine's DNS configuration
+* `masq` - a command-line interface to the Daemon and the Node
+* `masq_lib` - code that is used in two or more subprojects
+* `node` - code providing functionality for the Daemon and the Node
 
-Other top-level directories, such as `mock_rest_server`, `multinode_integration_tests`, and `port_exposer`,
+Other top-level directories, such as `multinode_integration_tests` and `port_exposer`,
 are testing infrastructure and never appear in distributions.
 
 Both the top-level project directory and each of the subsidiary source directories have a subdirectory
@@ -74,14 +74,14 @@ named `ci`, for Continuous Integration. In these directories are an arrangement 
 Our original objective was to have a set of commands that could build and test the code exactly the
 same way on a development pairing station and on a CI server, so that when a build failed in CI, it
 would be easy to run exactly the same build locally and see it fail the same way. We weren't completely
-successful in this, especially once we moved from Jenkins to Azure Pipelines for our CI, but we can
-still run `ci/all.sh` both on the local dev station and in Pipelines.
+successful in this, especially as we moved from Jenkins through Travis CI and Azure Pipelines to 
+GitHub Actions for our CI, but we can still run `ci/all.sh` both on the local dev station and in Actions.
 
 #### Comments
 Our general attitude toward comments is that in real life they decay rapidly, so we use them only where
 they seem absolutely necessary. In most cases, our tests will serve as better documentation than
 comments anyway. To find out how to use a particular function, search for where it's used in tests,
-and observe how it's provisioned and called, and what results are asserted on it.
+and observe how it's provisioned and called, and how the results from it are asserted on.
 
 In places where we expose publicly-accessible APIs (which we don't yet, at the time of this writing),
 we will have much more complete API documentation in the code, with the objective that both the
@@ -122,7 +122,7 @@ while we develop it, but be sure to run the top-level `ci/all.sh` before we crea
 to make sure all the styling issues are taken care of and won't break the CI build.
 
 ### Version-Control Branching
-When you start work on an issue, you should merge Node's `master` branch into your sandbox
+When you start work on an issue, you should pull Node's `master` branch into your sandbox
 to make sure you're starting with the latest version you can.
 
 Then you should create a feature branch named after your issue. For example, if you're working on
@@ -140,47 +140,22 @@ problems at the end.
 
 Once you're ready for a run through Node's CI, merge in `master` one more time, create a 
 pull request from your branch, and watch CI run on it. Fix any problems CI points up. Once you have 
-a clean CI build, move your card from Development in Progress to Awaiting Review, where it will
-attract the attention of a reviewer.
+a clean CI build, attract the attention of a reviewer and the QA lead so that your contribution can be
+checked and moved into Done.
 
 ### Reviews and Reviewing
 Certain MASQ developers are also empowered as reviewers. They will review PR submissions for
 test coverage, design, maintainability, conformance to established conventions and standards, and so on.
 
 Before a review can begin, the pull request under review must have `master` merged into it and pass
-a CI build. Once that happens, the next available reviewer will take the card from Awaiting Review
-and move it to Review In Progress. The reviewer will then peruse the pull request and make comments
-as appropriate.
+a CI build. Once that happens, you should attract he attention of a reviewer and persuade him to look at your PR,
+and also get the QA lead to start quality assurance on it.
 
-If the pull request passes review, the reviewer will _not_ approve it, but will move the
-card from Review In Progress to Awaiting Quality Assurance.
+If the pull request passes review, the reviewer will approve it. If it passes testing, the QA lead will approve it.
+Keep close track of both of these processes so that you can answer any questions and resolve any issues.
 
-If the pull request does not pass review, the reviewer will ensure that the card is properly assigned
-to the appropriate developer or pair, and move it from Review In Progress back into Awaiting Development.
-
-As a courtesy, the reviewer should also notify the developer that the review is complete.
+If the pull request does not pass review or testing, you'll be notified and the card will be moved back into
+Awaiting Development, from whence you can reclaim it if you like.
 
 ## Quality Assurance
 [Somebody who knows QA should fill this in]
-
-### Version-Control Branching
-A tester should take the top card from the Awaiting Quality Assurance column, move it into Quality
-Assurance In Progress, and begin QA work on it.
-
-If the card fails QA, the tester will ensure that the card is properly assigned to the appropriate
-developer or pair, and move it from Quality Assurance In Progress back into Awaiting Development.
-The tester will also communicate the reasons for failure to the developer, and continue the
-conversation until he's confident the developer understands the problem or problems.
-
-If the card passes QA, [problems here; suggestions welcome]
-```
-The card needs to have master merged in again, and only if there were no changes in master
-should the card proceed to Done Since Standup. If there were changes, but there are no merge
-conflicts, the card needs to go through CI again, then be spot-checked by QA to make sure that
-master changes didn't break it before going on to Done Since Standup. If there are merge conflicts,
-somehow they need to be resolved (Reviewer? Developer? Both?) before the card goes back through CI
-and spot check and moves into Done Since Standup.
-
-How do we accomplish this without forcing QA folks to set up git sandboxes and maybe even
-development environments? Suggestions welcome.
-```
