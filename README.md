@@ -74,7 +74,8 @@ particular router. Unless you've volunteered to help the MASQ dev team run tests
 ### Running from the Command Line
 
 These instructions assume you have the MASQ Node executable but not the MASQ GUI. (If you do, consult the GUI
-documentation about starting the Node.)
+documentation about starting the Node.) You'll want to run the MASQ programs from wherever you expanded the
+`/generated/bin` path from the `.zip` file you downloaded.
 
 There are a number of ways to run the Node, but the way you'll probably want to use is to make sure the MASQ Daemon
 is started first. If the Daemon is not running in the background already, open a terminal window and start it by typing
@@ -204,14 +205,14 @@ database is useless, and you'll have to start it over.
 The `masq` command-line interface can run two ways. If you just type
 
 ```
-$ masq
+$ ./masq
 ```
 
 at a command prompt, you'll be shown a `masq>` prompt, and the system will await a series of `masq` commands from you.
 But if you type something like
 
 ```
-$ masq setup --log-level debug --clandestine-port 1234
+$ ./masq setup --log-level debug --clandestine-port 1234
 ```
 
 then `masq` will start up, execute the command you gave it, and immediately terminate.
@@ -257,7 +258,7 @@ or crashes; then the UI will fall back to the Daemon (if it's still running) or 
 `masq` has quite a few subcommands that you can use, both interactively and noninteractively. The best way to find
 out about these subcommands is to type
 
-`$ masq --help`
+`$ ./masq --help`
 
 noninteractively at a shell-command prompt, or
 
@@ -309,7 +310,7 @@ The most obvious is the MASQ Node itself. Terminating that is easy: just send it
 you have it, or with `masq` like this:
 
 ```
-$ masq shutdown
+$ ./masq shutdown
 ```
 
 noninteractively, or if you're interactive,
@@ -324,7 +325,7 @@ If you configured your proxy settings to use the Node as an HTTP proxy, you'll w
 back to what they were before you started the Node. If you're using DNS subversion, you'll want to revert that:
 
 ```
-$ sudo dns_utility revert
+$ sudo ./dns_utility revert
 ```
 
 Third, you'll probably want to close the hole or holes in your router's firewall. Don't leave them open against the 
