@@ -19,7 +19,7 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.10";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.0.11";
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -343,9 +343,11 @@ pub mod test_utils {
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'a> {
-        pub prepare_parameters: Arc<Mutex<Vec<String>>>,
-        pub prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-        pub transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
+        prepare_parameters: Arc<Mutex<Vec<String>>>,
+        prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
+        transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
+        execute_results: RefCell<Vec<rusqlite::Result<usize>>>,
+        execute_parameters: RefCell<Arc<Mutex<Vec<String>>>>,
     }
 
     unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
@@ -358,6 +360,16 @@ pub mod test_utils {
 
         pub fn transaction_result(self, result: Result<Transaction<'a>, Error>) -> Self {
             self.transaction_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn execute_result(self, result: rusqlite::Result<usize>) -> Self {
+            self.execute_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn execute_params(self, params: Arc<Mutex<Vec<String>>>) -> Self {
+            self.execute_parameters.replace(params);
             self
         }
     }
@@ -373,6 +385,15 @@ pub mod test_utils {
 
         fn transaction<'x: 'y, 'y>(&'x mut self) -> Result<Transaction<'y>, Error> {
             self.transaction_results.borrow_mut().remove(0)
+        }
+
+        fn execute(&self, statement: &str) -> rusqlite::Result<usize> {
+            self.execute_parameters
+                .borrow_mut()
+                .lock()
+                .unwrap()
+                .push(statement.to_string());
+            self.execute_results.borrow_mut().remove(0)
         }
     }
 

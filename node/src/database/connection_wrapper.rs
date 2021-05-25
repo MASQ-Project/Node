@@ -1,11 +1,12 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
-use rusqlite::{Connection, Error, Statement, Transaction};
+use rusqlite::{Connection, Error, Statement, Transaction, NO_PARAMS};
 use std::fmt::Debug;
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, rusqlite::Error>;
+    fn execute(&self, statement: &str) -> rusqlite::Result<usize>;
 }
 
 #[derive(Debug)]
@@ -19,6 +20,9 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     }
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, Error> {
         self.conn.transaction()
+    }
+    fn execute(&self, statement: &str) -> rusqlite::Result<usize> {
+        self.conn.execute(statement, NO_PARAMS)
     }
 }
 
