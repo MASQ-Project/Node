@@ -81,22 +81,70 @@ impl DbMigratorReal {
         mut conn: Box<dyn ConnectionWrapper + 'a>,
     ) -> Result<(), String> {
         Self::schema_initial_validation_check(outdated_schema);
-        let list_iterator = Self::list_validation_check(list_of_updates);
-        let updates_to_process =
-            list_iterator.skip_while(|entry| entry.version_compatibility() != outdated_schema);
-        if updates_to_process.clone().count() == 0 {
-            panic!("Your database schema claims to be newer than the official newest one")
-        }
-        for u in updates_to_process {
-            if let Err(e) = u.migrate(&mut conn) {
-                return Err(format!(
-                    "Updating database from version {} failed due to: {:?}",
-                    u.version_compatibility(),
-                    e
-                ));
+        let updates_to_process = Self::list_validation_check(list_of_updates)
+            .skip_while(|entry| entry.version_compatibility().ne(outdated_schema));
+        let remaining =
+            Self::check_the_number_of_those_remaining(updates_to_process.clone().count());
+
+        let mut peekable_list = updates_to_process.peekable();
+
+        for _ in 0..remaining {
+            let (record, versions_in_question) =
+                Self::cosmetics_on_dirty_references(peekable_list.next(), peekable_list.peek());
+
+            if let Err(e) = record.migrate(&mut conn) {
+                return self.prepare_mailing_of_bad_news(&versions_in_question, e);
             }
+            self.log_success(&versions_in_question)
         }
         Ok(())
+    }
+
+    //TODO add assertions for the logger!!
+
+    fn cosmetics_on_dirty_references<'a>(
+        first: Option<&'a &dyn MigrateDatabase>,
+        second: Option<&&&dyn MigrateDatabase>,
+    ) -> (&'a &'a dyn MigrateDatabase, String) {
+        let first = first.expect("item disappeared");
+        let second_by_its_name = if let Some(next) = second {
+            next.version_compatibility()
+        } else {
+            CURRENT_SCHEMA_VERSION
+        };
+        (
+            first,
+            format!(
+                "from version {} to {}",
+                first.version_compatibility(),
+                second_by_its_name
+            ),
+        )
+    }
+
+    fn check_the_number_of_those_remaining(number: usize) -> usize {
+        if number == 0 {
+            panic!("Your database claims to be of a newer version than the ever newest released")
+        } else {
+            number
+        }
+    }
+
+    fn prepare_mailing_of_bad_news(
+        &self,
+        versions: &str,
+        error: rusqlite::Error,
+    ) -> Result<(), String> {
+        let error_message = format!("Updating database {} failed due to: {:?}", versions, error);
+        warning!(self.logger, "{}", &error_message);
+        Err(error_message)
+    }
+
+    fn log_success(&self, versions: &str) {
+        info!(
+            self.logger,
+            "Database was successfully updated {}", versions
+        )
     }
 
     //to avoid creating an unnecessary global variable
@@ -204,7 +252,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Your database schema claims to be newer than the official newest one"
+        expected = "Your database claims to be of a newer version than the ever newest released"
     )]
     fn make_updates_panics_if_the_given_schema_is_of_higher_number_than_the_latest_official() {
         let ending_digit: char = CURRENT_SCHEMA_VERSION.chars().last().unwrap();
@@ -381,7 +429,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Updating database from version 0.0.10 failed due to: InvalidQuery".to_string())
+            Err(
+                "Updating database from version 0.0.10 to 0.0.11 failed due to: InvalidQuery"
+                    .to_string()
+            )
         );
         assert_eq!(
             *execution_params_arc.lock().unwrap().pop().unwrap(),
