@@ -6,7 +6,14 @@ use std::fmt::Debug;
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, rusqlite::Error>;
+
     fn execute(&self, statement: &str) -> rusqlite::Result<usize>;
+
+    //this method is handy with its roll-back transaction but also allows asserting on the sql statements to be transacted
+    fn execute_upon_transaction<'a: 'b, 'b>(
+        &'a mut self,
+        statements: &[&str],
+    ) -> rusqlite::Result<Transaction<'b>>;
 }
 
 #[derive(Debug)]
@@ -21,8 +28,20 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, Error> {
         self.conn.transaction()
     }
+
     fn execute(&self, statement: &str) -> rusqlite::Result<usize> {
         self.conn.execute(statement, NO_PARAMS)
+    }
+
+    fn execute_upon_transaction<'a: 'b, 'b>(
+        &'a mut self,
+        statements: &[&str],
+    ) -> rusqlite::Result<Transaction<'b>> {
+        let transaction = self.transaction()?;
+        for stm in statements {
+            transaction.execute(stm, NO_PARAMS)?;
+        }
+        Ok(transaction)
     }
 }
 

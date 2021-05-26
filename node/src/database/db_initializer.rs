@@ -3,6 +3,7 @@ use crate::blockchain::blockchain_interface::{
     chain_name_from_id, contract_creation_block_from_chain_id,
 };
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+use crate::database::db_migration::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
@@ -59,8 +60,14 @@ impl DbInitializer for DbInitializerReal {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
                 let config = self.extract_configurations(&conn);
-                match self.check_version(config.get("schema_version")) {
-                    Ok(_) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+                match self.check_version(
+                    conn,
+                    config.get("schema_version"),
+                    path,
+                    chain_id,
+                    create_if_necessary,
+                ) {
+                    Ok(conn) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
                     Err(e) => Err(e),
                 }
             }
@@ -253,7 +260,14 @@ impl DbInitializerReal {
         .collect::<HashMap<String, Option<String>>>()
     }
 
-    fn check_version(&self, version: Option<&Option<String>>) -> Result<(), InitializationError> {
+    fn check_version(
+        &self,
+        conn: Connection,
+        version: Option<&Option<String>>,
+        path: &Path,
+        chain_id: u8,
+        create_if_necessary: bool,
+    ) -> Result<Connection, InitializationError> {
         match version {
             None => Err(InitializationError::IncompatibleVersion(format!(
                 "Need {}, found nothing",
@@ -263,14 +277,20 @@ impl DbInitializerReal {
                 "Need {}, found nothing",
                 CURRENT_SCHEMA_VERSION
             ))),
-            Some(Some(v_ref)) => {
-                if *v_ref == CURRENT_SCHEMA_VERSION {
-                    Ok(())
+            Some(Some(v_from_db)) => {
+                if *v_from_db == CURRENT_SCHEMA_VERSION {
+                    Ok(conn)
                 } else {
-                    Err(InitializationError::IncompatibleVersion(format!(
-                        "Need {}, found {}",
-                        CURRENT_SCHEMA_VERSION, v_ref
-                    )))
+                    let wrapped_connection = ConnectionWrapperReal::new(conn);
+                    let migrator = DbMigratorReal::new();
+                    match migrator.migrate_database(v_from_db, Box::new(wrapped_connection)) {
+                        Ok(_) => unimplemented!(), //ideally recursion: initialize
+                        Err(_) => unimplemented!(),
+                    }
+                    // Err(InitializationError::IncompatibleVersion(format!(
+                    //     "Need {}, found {}",
+                    //     CURRENT_SCHEMA_VERSION, v_from_db
+                    // )))
                 }
             }
         }
@@ -342,23 +362,25 @@ pub mod test_utils {
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Default)]
-    pub struct ConnectionWrapperMock<'a> {
+    pub struct ConnectionWrapperMock<'b, 'a: 'b> {
         prepare_parameters: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-        transaction_results: RefCell<Vec<Result<Transaction<'a>, Error>>>,
+        transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
         execute_results: RefCell<Vec<rusqlite::Result<usize>>>,
         execute_parameters: RefCell<Arc<Mutex<Vec<String>>>>,
+        execute_upon_transaction_results: RefCell<Vec<rusqlite::Result<Transaction<'b>>>>,
+        execute_upon_transaction_params: RefCell<Arc<Mutex<Vec<Vec<String>>>>>,
     }
 
-    unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
+    unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
 
-    impl<'a> ConnectionWrapperMock<'a> {
+    impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
             self.prepare_results.borrow_mut().push(result);
             self
         }
 
-        pub fn transaction_result(self, result: Result<Transaction<'a>, Error>) -> Self {
+        pub fn transaction_result(self, result: Result<Transaction<'b>, Error>) -> Self {
             self.transaction_results.borrow_mut().push(result);
             self
         }
@@ -372,9 +394,24 @@ pub mod test_utils {
             self.execute_parameters.replace(params);
             self
         }
+
+        pub fn execute_upon_transaction_result(
+            self,
+            result: rusqlite::Result<Transaction<'b>>,
+        ) -> Self {
+            self.execute_upon_transaction_results
+                .borrow_mut()
+                .push(result);
+            self
+        }
+
+        pub fn execute_upon_transaction_params(self, params: Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+            self.execute_upon_transaction_params.replace(params);
+            self
+        }
     }
 
-    impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
+    impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
         fn prepare(&self, query: &str) -> Result<Statement, Error> {
             self.prepare_parameters
                 .lock()
@@ -394,6 +431,23 @@ pub mod test_utils {
                 .unwrap()
                 .push(statement.to_string());
             self.execute_results.borrow_mut().remove(0)
+        }
+
+        fn execute_upon_transaction<'x: 'y, 'y>(
+            &'x mut self,
+            statement: &[&str],
+        ) -> rusqlite::Result<Transaction<'y>> {
+            self.execute_upon_transaction_params
+                .borrow_mut()
+                .lock()
+                .unwrap()
+                .push(
+                    statement
+                        .iter()
+                        .map(|item| item.to_string())
+                        .collect::<Vec<String>>(),
+                );
+            self.execute_upon_transaction_results.borrow_mut().remove(0)
         }
     }
 
