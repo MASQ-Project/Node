@@ -3,7 +3,7 @@ use crate::blockchain::blockchain_interface::{
     chain_name_from_id, contract_creation_block_from_chain_id,
 };
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-use crate::database::db_migration::{DbMigrator, DbMigratorReal};
+use crate::database::db_migrations::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
@@ -25,8 +25,9 @@ pub const CURRENT_SCHEMA_VERSION: &str = "0.0.11";
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
     Nonexistent,
-    IncompatibleVersion(String),
+    UndetectableVersion(String),
     SqliteError(rusqlite::Error),
+    DbMigrationError(String),
 }
 
 pub trait DbInitializer {
@@ -60,14 +61,17 @@ impl DbInitializer for DbInitializerReal {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
                 let config = self.extract_configurations(&conn);
+                let migrator = Box::new(DbMigratorReal::default());
                 match self.check_version(
                     conn,
                     config.get("schema_version"),
-                    path,
-                    chain_id,
-                    create_if_necessary,
+                    (path, chain_id),
+                    migrator,
                 ) {
-                    Ok(conn) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+                    Ok(OkFromCV::ConnectionWrapper(cw)) => Ok(cw),
+                    Ok(OkFromCV::Connection(conn)) => {
+                        Ok(Box::new(ConnectionWrapperReal::new(conn)))
+                    }
                     Err(e) => Err(e),
                 }
             }
@@ -174,6 +178,13 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
+            "mapping_protocol",
+            None,
+            false,
+            "protocol for port mapping on the router",
+        );
+        Self::set_config_value(
+            conn,
             "schema_version",
             Some(CURRENT_SCHEMA_VERSION),
             false,
@@ -264,33 +275,31 @@ impl DbInitializerReal {
         &self,
         conn: Connection,
         version: Option<&Option<String>>,
-        path: &Path,
-        chain_id: u8,
-        create_if_necessary: bool,
-    ) -> Result<Connection, InitializationError> {
+        arguments_for_initialize_db: (&Path, u8),
+        migrator: Box<dyn DbMigrator>,
+    ) -> Result<OkFromCV, InitializationError> {
         match version {
-            None => Err(InitializationError::IncompatibleVersion(format!(
+            None => Err(InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
                 CURRENT_SCHEMA_VERSION
             ))),
-            Some(None) => Err(InitializationError::IncompatibleVersion(format!(
+            Some(None) => Err(InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
                 CURRENT_SCHEMA_VERSION
             ))),
             Some(Some(v_from_db)) => {
                 if *v_from_db == CURRENT_SCHEMA_VERSION {
-                    Ok(conn)
+                    Ok(OkFromCV::Connection(conn))
                 } else {
+                    eprintln!("Database is obsolete and its updating is necessary");
+                    let (dir_path, chain_id) = arguments_for_initialize_db;
                     let wrapped_connection = ConnectionWrapperReal::new(conn);
-                    let migrator = DbMigratorReal::new();
                     match migrator.migrate_database(v_from_db, Box::new(wrapped_connection)) {
-                        Ok(_) => unimplemented!(), //ideally recursion: initialize
-                        Err(_) => unimplemented!(),
+                        Ok(_) => self
+                            .initialize(dir_path, chain_id, false)
+                            .map(|result| OkFromCV::ConnectionWrapper(result)),
+                        Err(e) => Err(InitializationError::DbMigrationError(e)),
                     }
-                    // Err(InitializationError::IncompatibleVersion(format!(
-                    //     "Need {}, found {}",
-                    //     CURRENT_SCHEMA_VERSION, v_from_db
-                    // )))
                 }
             }
         }
@@ -333,6 +342,11 @@ impl DbInitializerReal {
         )
         .unwrap_or_else(|e| panic!("Can't preload config table with {}: {:?}", readable, e));
     }
+}
+
+enum OkFromCV {
+    Connection(Connection),
+    ConnectionWrapper(Box<dyn ConnectionWrapper>),
 }
 
 pub fn connection_or_panic(
@@ -501,6 +515,7 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
+    use crate::database::test_utils::DbMigratorMock;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
@@ -511,6 +526,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
 
     #[test]
@@ -668,6 +684,7 @@ mod tests {
         verify(&mut config_vec, "earning_wallet_address", None);
         verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
         verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
+        verify(&mut config_vec, "mapping_protocol", None);
         verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
         verify(
@@ -712,7 +729,7 @@ mod tests {
 
         assert_eq!(
             result.err().unwrap(),
-            InitializationError::IncompatibleVersion(format!(
+            InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
                 CURRENT_SCHEMA_VERSION
             )),
@@ -720,35 +737,54 @@ mod tests {
     }
 
     #[test]
-    fn existing_database_with_the_wrong_version_is_rejected() {
+    fn existing_database_with_the_wrong_version_goes_to_migrator_and_is_happily_migrated_to_upper_versions(
+    ) {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "existing_database_with_the_wrong_version_is_rejected",
+            "existing_database_with_the_wrong_version_goes_to_migrator_and_is_happily_migrated_to_upper_versions",
         );
         {
-            DbInitializerReal::new()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
-                .unwrap();
-            let mut flags = OpenFlags::empty();
-            flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-            let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-            conn.execute(
-                "update config set value = '0.0.0' where name = 'schema_version'",
-                NO_PARAMS,
-            )
-            .unwrap();
+            let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
+            revive_tables_of_the_deceased_version_0_0_10(&conn)
         }
         let subject = DbInitializerReal::new();
 
-        let result = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, true);
+        let result = subject
+            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .unwrap();
 
-        assert_eq!(
-            result.err().unwrap(),
-            InitializationError::IncompatibleVersion(format!(
-                "Need {}, found 0.0.0",
-                CURRENT_SCHEMA_VERSION
-            )),
+        let schema: String = result
+            .prepare("select name, value, encrypted from config where name = 'schema_version'")
+            .unwrap()
+            .query_row(NO_PARAMS, |row| Ok(row.get(1).unwrap()))
+            .unwrap();
+        assert_eq!(schema, CURRENT_SCHEMA_VERSION)
+    }
+
+    #[test]
+    fn check_version_starts_db_migration_and_makes_sure_that_a_possible_error_from_database_operations_is_messaged_politely(
+    ) {
+        let home_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "check_version_starts_db_migration_and_makes_sure_that_a_possible_error_from_database_operations_is_messaged_politely",
         );
+        let migrate_database_params = Arc::new(Mutex::new(vec![]));
+        let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
+        let subject = DbInitializerReal::new();
+        let migrator = Box::new(DbMigratorMock::default().migrate_database_params(migrate_database_params.clone()).migrate_database_result(Err("Updating database from version 0.0.10 to 0.0.11 failed: Transaction couldn't be processed".to_string())));
+
+        let result = subject.check_version(
+            conn,
+            Some(&Some("0.0.10".to_string())),
+            (&home_dir, 2),
+            migrator,
+        );
+
+        let error = match result {
+            Ok(_) => panic!("expected Err got Ok"),
+            Err(e) => e,
+        };
+        assert_eq!(error,InitializationError::DbMigrationError("Updating database from version 0.0.10 to 0.0.11 failed: Transaction couldn't be processed".to_string()))
     }
 
     #[test]
@@ -883,5 +919,40 @@ mod tests {
         permissions.set_readonly(true);
         fs::set_permissions(&parent_dir, permissions).unwrap();
         data_dir
+    }
+
+    fn revive_tables_of_the_deceased_version_0_0_10(conn: &Connection) {
+        &[
+            "create table if not exists config (
+            name text not null,
+            value text,
+            encrypted integer not null )",
+            "create unique index if not exists idx_config_name on config (name)",
+            "insert into config (name, value, encrypted) values ('example_encrypted', null, 1)",
+            "insert into config (name, value, encrypted) values ('clandestine_port', '2897', 0)",
+            "insert into config (name, value, encrypted) values ('consuming_wallet_derivation_path', null, 0)",
+            "insert into config (name, value, encrypted) values ('consuming_wallet_public_key', null, 0)",
+            "insert into config (name, value, encrypted) values ('earning_wallet_address', null, 0)",
+            "insert into config (name, value, encrypted) values ('schema_version', '0.0.10', 0)",
+            "insert into config (name, value, encrypted) values ('seed', null, 0)",
+            "insert into config (name, value, encrypted) values ('start_block', 8688171, 0)",
+            "insert into config (name, value, encrypted) values ('gas_price', '1', 0)",
+            "insert into config (name, value, encrypted) values ('past_neighbors', null, 1)",
+            "create table if not exists payable (
+                wallet_address text primary key,
+                balance integer not null,
+                last_paid_timestamp integer not null,
+                pending_payment_transaction text null
+            )",
+            "create unique index if not exists idx_payable_wallet_address on payable (wallet_address)",
+            "create table if not exists receivable (
+                wallet_address text primary key,
+                balance integer not null,
+                last_received_timestamp integer not null
+            )",
+            "create unique index if not exists idx_receivable_wallet_address on receivable (wallet_address)",
+            "create table banned ( wallet_address text primary key )",
+            "create unique index idx_banned_wallet_address on banned (wallet_address)"
+       ].iter().for_each(|statement|{conn.execute(statement,NO_PARAMS).unwrap();});
     }
 }

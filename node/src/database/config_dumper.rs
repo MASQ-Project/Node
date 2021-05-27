@@ -211,6 +211,7 @@ mod tests {
            "earningWalletAddress": null,
            "exampleEncrypted": null,
            "gasPrice": "1",
+           "mappingProtocol": null,
            "pastNeighbors": null,
            "schemaVersion": CURRENT_SCHEMA_VERSION,
            "seed": null,

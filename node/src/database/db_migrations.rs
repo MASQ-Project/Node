@@ -5,39 +5,10 @@ use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
 use regex::Regex;
 use std::fmt::Debug;
-use std::ops::Not;
+use std::ops::{Deref, Not};
 use std::slice::Iter;
 
 const THE_EARLIEST_ENTRY_IN_THE_LIST_OF_DB_MIGRATIONS: &str = "0.0.10";
-
-trait MigrateDatabase: Debug + 'static {
-    fn migrate<'a>(&self, conn: &mut Box<dyn ConnectionWrapper + 'a>) -> rusqlite::Result<()>;
-    fn version_compatibility(&self) -> &str;
-}
-
-//define your update here
-//use either 'execute' for a single operation or 'transaction' for multiple ones
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug)]
-#[allow(non_camel_case_types)]
-struct Migrate_0_0_10_to_0_0_11;
-
-impl MigrateDatabase for Migrate_0_0_10_to_0_0_11 {
-    fn migrate<'a>(&self, conn: &mut Box<dyn ConnectionWrapper + 'a>) -> rusqlite::Result<()> {
-        let transaction = conn.execute_upon_transaction(&[
-            "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)",
-            "UPDATE config SET value = '0.0.11' WHERE name = 'current_schema'",
-        ])?;
-        transaction.commit()
-    }
-
-    fn version_compatibility(&self) -> &str {
-        "0.0.10"
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -67,6 +38,35 @@ impl Default for DbMigratorReal {
     }
 }
 
+trait MigrateDatabase: Debug {
+    fn migrate<'a>(&self, conn: &mut Box<dyn ConnectionWrapper + 'a>) -> rusqlite::Result<()>;
+    fn version_compatibility(&self) -> &str;
+}
+
+//define your update here
+//use either 'execute' for a single operation or 'transaction' for multiple ones
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+struct Migrate_0_0_10_to_0_0_11;
+
+impl MigrateDatabase for Migrate_0_0_10_to_0_0_11 {
+    fn migrate<'a>(&self, conn: &mut Box<dyn ConnectionWrapper + 'a>) -> rusqlite::Result<()> {
+        let transaction = conn.execute_upon_transaction(&[
+            "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)",
+            "UPDATE config SET value = '0.0.11' WHERE name = 'schema_version'",
+        ])?;
+        transaction.commit()
+    }
+
+    fn version_compatibility(&self) -> &str {
+        "0.0.10"
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 impl DbMigratorReal {
     pub fn new() -> Self {
         Self {
@@ -74,23 +74,25 @@ impl DbMigratorReal {
         }
     }
 
+    //to avoid creating an unnecessary global variable
+    fn list_of_existing_updates<'a>() -> &'a [&'a dyn MigrateDatabase] {
+        &[&Migrate_0_0_10_to_0_0_11]
+    }
+
     fn make_updates<'a>(
         &self,
         outdated_schema: &str,
-        list_of_updates: &'a [&'a dyn MigrateDatabase],
+        list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
         mut conn: Box<dyn ConnectionWrapper + 'a>,
     ) -> Result<(), String> {
-        Self::schema_initial_validation_check(outdated_schema);
-        let updates_to_process = Self::list_validation_check(list_of_updates)
-            .skip_while(|entry| entry.version_compatibility().ne(outdated_schema));
-        let remaining =
-            Self::check_the_number_of_those_remaining(updates_to_process.clone().count());
-
-        let mut peekable_list = updates_to_process.peekable();
-
+        let (updates_to_process, remaining) =
+            Self::aggregated_checks(outdated_schema, list_of_updates);
+        let mut peekable_list = updates_to_process.iter().peekable();
         for _ in 0..remaining {
-            let (record, versions_in_question) =
-                Self::cosmetics_on_dirty_references(peekable_list.next(), peekable_list.peek());
+            let (record, versions_in_question) = Self::process_items_from_beneath_dirty_references(
+                peekable_list.next(),
+                peekable_list.peek(),
+            );
 
             if let Err(e) = record.migrate(&mut conn) {
                 return self.prepare_mailing_of_bad_news(&versions_in_question, e);
@@ -100,13 +102,24 @@ impl DbMigratorReal {
         Ok(())
     }
 
-    //TODO add assertions for the logger!!
+    fn aggregated_checks<'a>(
+        outdated_schema: &str,
+        list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
+    ) -> (Vec<&'a (dyn MigrateDatabase + 'a)>, usize) {
+        Self::schema_initial_validation_check(outdated_schema);
+        let updates_to_process = Self::list_validation_check(list_of_updates)
+            .skip_while(|entry| entry.version_compatibility().ne(outdated_schema))
+            .map(|e| e.deref())
+            .collect::<Vec<&(dyn MigrateDatabase + 'a)>>();
+        let remaining = Self::check_the_number_of_those_remaining(updates_to_process.len());
+        (updates_to_process, remaining)
+    }
 
-    fn cosmetics_on_dirty_references<'a>(
+    fn process_items_from_beneath_dirty_references<'a>(
         first: Option<&'a &dyn MigrateDatabase>,
         second: Option<&&&dyn MigrateDatabase>,
-    ) -> (&'a &'a dyn MigrateDatabase, String) {
-        let first = first.expect("item disappeared");
+    ) -> (&'a dyn MigrateDatabase, String) {
+        let first = *first.expect("item disappeared");
         let second_by_its_name = if let Some(next) = second {
             next.version_compatibility()
         } else {
@@ -122,11 +135,11 @@ impl DbMigratorReal {
         )
     }
 
-    fn check_the_number_of_those_remaining(number: usize) -> usize {
-        if number == 0 {
+    fn check_the_number_of_those_remaining(count: usize) -> usize {
+        if count == 0 {
             panic!("Your database claims to be of a newer version than the ever newest released")
         } else {
-            number
+            count
         }
     }
 
@@ -135,25 +148,17 @@ impl DbMigratorReal {
         versions: &str,
         error: rusqlite::Error,
     ) -> Result<(), String> {
-        let error_message = format!("Updating database {} failed due to: {:?}", versions, error);
+        let error_message = format!("Updating database {} failed: {:?}", versions, error);
         warning!(self.logger, "{}", &error_message);
         Err(error_message)
     }
 
     fn log_success(&self, versions: &str) {
-        info!(
-            self.logger,
-            "Database was successfully updated {}", versions
-        )
-    }
-
-    //to avoid creating an unnecessary global variable
-    fn list_of_existing_updates<'a>() -> &'a [&'a dyn MigrateDatabase] {
-        &[&Migrate_0_0_10_to_0_0_11]
+        info!(self.logger, "Database successfully updated {}", versions)
     }
 
     fn list_validation_check<'a>(
-        list_of_updates: &'a [&'a (dyn MigrateDatabase + 'static)],
+        list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
     ) -> Iter<'a, &'a dyn MigrateDatabase> {
         let iterator = list_of_updates.iter();
         let iterator_shifted = list_of_updates.iter().skip(1);
@@ -215,8 +220,10 @@ mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
-    use crate::database::db_migration::DbMigratorReal;
-    use crate::database::db_migration::{MigrateDatabase, Migrate_0_0_10_to_0_0_11};
+    use crate::database::db_migrations::DbMigratorReal;
+    use crate::database::db_migrations::{MigrateDatabase, Migrate_0_0_10_to_0_0_11};
+    use crate::database::test_utils::assurance_query_for_config_table;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::BASE_TEST_DIR;
     use rusqlite::{Connection, NO_PARAMS};
@@ -380,6 +387,7 @@ mod tests {
 
     #[test]
     fn transacting_migration_happy_path() {
+        init_test_logging();
         //params are tested in the next test where I don't use ConnectionWrapperReal
         let connection = Connection::open_in_memory().unwrap();
         connection
@@ -402,10 +410,14 @@ mod tests {
         let result = subject.make_updates(outdated_schema, list, Box::new(connection_wrapper));
 
         assert!(result.is_ok());
+        TestLogHandler::new().exists_log_containing(
+            "INFO: DbMigrator: Database successfully updated from version 0.0.10 to 0.0.11",
+        );
     }
 
     #[test]
     fn transacting_migration_sad_path() {
+        init_test_logging();
         let execution_params_arc = Arc::new(Mutex::new(vec![]));
         let params_arc_clone = execution_params_arc.clone();
         let connection = Connection::open_in_memory().unwrap();
@@ -429,19 +441,18 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(
-                "Updating database from version 0.0.10 to 0.0.11 failed due to: InvalidQuery"
-                    .to_string()
-            )
+            Err("Updating database from version 0.0.10 to 0.0.11 failed: InvalidQuery".to_string())
         );
         assert_eq!(
             *execution_params_arc.lock().unwrap().pop().unwrap(),
             vec![
                 "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)"
                     .to_string(),
-                "UPDATE config SET value = '0.0.11' WHERE name = 'current_schema'".to_string()
+                "UPDATE config SET value = '0.0.11' WHERE name = 'schema_version'".to_string()
             ]
         );
+        TestLogHandler::new()
+            .exists_log_containing("WARN: DbMigrator: Updating database from version 0.0.10 to 0.0.11 failed: InvalidQuery");
     }
 
     #[test]
@@ -460,7 +471,7 @@ mod tests {
                 NO_PARAMS,
             )
             .unwrap();
-        connection.execute("INSERT INTO config (name, value, encrypted) VALUES ('current_schema', '0.0.10', 0)",NO_PARAMS).unwrap();
+        connection.execute("INSERT INTO config (name, value, encrypted) VALUES ('schema_version', '0.0.10', 0)",NO_PARAMS).unwrap();
         let connection_wrapper = ConnectionWrapperReal::new(connection);
         let outdated_schema = "0.0.10";
         let list = &[&Migrate_0_0_10_to_0_0_11 as &(dyn MigrateDatabase + 'static)];
@@ -478,23 +489,13 @@ mod tests {
         let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
                 &connection,
-                "select name, value, encrypted from config where name = 'current_schema'",
+                "select name, value, encrypted from config where name = 'schema_version'",
             );
         assert_eq!(mp_name, "mapping_protocol".to_string());
         assert_eq!(mp_value, None);
         assert_eq!(mp_encrypted, 0);
-        assert_eq!(cs_name, "current_schema".to_string());
+        assert_eq!(cs_name, "schema_version".to_string());
         assert_eq!(cs_value, Some("0.0.11".to_string()));
         assert_eq!(cs_encrypted, 0)
-    }
-
-    fn assurance_query_for_config_table(
-        conn: &Connection,
-        stm: &str,
-    ) -> (String, Option<String>, u16) {
-        conn.query_row(stm, NO_PARAMS, |r| {
-            Ok((r.get(0).unwrap(), r.get(1).unwrap(), r.get(2).unwrap()))
-        })
-        .unwrap()
     }
 }
