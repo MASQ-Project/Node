@@ -168,6 +168,8 @@ pub mod standard {
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::str::FromStr;
+    use automap_lib::comm_layer::igdp::IgdpTransactor;
+    use automap_lib::comm_layer::Transactor;
 
     pub fn make_service_mode_multi_config<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -376,7 +378,7 @@ pub mod standard {
                 }
             }
         }
-        config.consuming_wallet = consuming_wallet_opt;
+        config.consuming_wallet_opt = consuming_wallet_opt;
         config.earning_wallet = match earning_wallet_opt {
             Some(earning_wallet) => earning_wallet,
             None => DEFAULT_EARNING_WALLET.clone(),
@@ -424,7 +426,7 @@ pub mod standard {
                 },
             }
         };
-        match make_neighborhood_mode(multi_config, neighbor_configs) {
+        match make_neighborhood_mode(multi_config, neighbor_configs, unprivileged_config.automap_public_ip_opt.clone()) {
             Ok(mode) => Ok(NeighborhoodConfig { mode }),
             Err(e) => Err(e),
         }
@@ -528,11 +530,12 @@ pub mod standard {
     fn make_neighborhood_mode(
         multi_config: &MultiConfig,
         neighbor_configs: Vec<NodeDescriptor>,
+        automap_public_ip_opt: Option<IpAddr>,
     ) -> Result<NeighborhoodMode, ConfiguratorError> {
         let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
         match neighborhood_mode_opt {
             Some(ref s) if s == "standard" => {
-                neighborhood_mode_standard(multi_config, neighbor_configs)
+                neighborhood_mode_standard(multi_config, neighbor_configs, automap_public_ip_opt)
             }
             Some(ref s) if s == "originate-only" => {
                 if neighbor_configs.is_empty() {
@@ -575,14 +578,16 @@ pub mod standard {
                 "--neighborhood-mode {} has not been properly provided for in the code",
                 s
             ),
-            None => neighborhood_mode_standard(multi_config, neighbor_configs),
+            None => neighborhood_mode_standard(multi_config, neighbor_configs, automap_public_ip_opt),
         }
     }
 
     fn neighborhood_mode_standard(
         multi_config: &MultiConfig,
         neighbor_configs: Vec<NodeDescriptor>,
+        automap_public_ip_opt: Option<IpAddr>,
     ) -> Result<NeighborhoodMode, ConfiguratorError> {
+        todo! ("Use automap_public_ip_opt");
         let ip = match value_m!(multi_config, "ip", IpAddr) {
             Some(ip) => ip,
             None => {
@@ -1672,13 +1677,13 @@ mod tests {
         let consuming_keypair =
             Bip32ECKeyPair::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
         assert_eq!(
-            bootstrapper_config.consuming_wallet,
+            bootstrapper_config.consuming_wallet_opt,
             Some(Wallet::from(consuming_keypair)),
         );
 
         let public_key = PublicKey::new(&[1, 2, 3]);
         let payer = bootstrapper_config
-            .consuming_wallet
+            .consuming_wallet_opt
             .unwrap()
             .as_payer(&public_key, &contract_address(DEFAULT_CHAIN_ID));
         let cryptdenull = CryptDENull::from(&public_key, DEFAULT_CHAIN_ID);
@@ -1830,7 +1835,7 @@ mod tests {
             Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
         );
         assert_eq!(
-            config.consuming_wallet,
+            config.consuming_wallet_opt,
             Some(Wallet::from(
                 Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap()
             )),
@@ -1888,7 +1893,7 @@ mod tests {
             IpAddr::from_str("1.2.3.4").unwrap(),
         );
         assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone(),);
-        assert_eq!(config.consuming_wallet, None,);
+        assert_eq!(config.consuming_wallet_opt, None,);
     }
 
     #[test]
@@ -2070,7 +2075,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.consuming_wallet, None);
+        assert_eq!(config.consuming_wallet_opt, None);
         assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone());
     }
 
@@ -2296,7 +2301,7 @@ mod tests {
         let expected_consuming_wallet = Wallet::from(
             Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3").unwrap(),
         );
-        assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
+        assert_eq!(config.consuming_wallet_opt, Some(expected_consuming_wallet));
         assert_eq!(
             config.earning_wallet,
             Wallet::from_str("0xcafedeadbeefbabefacecafedeadbeefbabeface").unwrap()
@@ -2327,7 +2332,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.consuming_wallet, None);
+        assert_eq!(config.consuming_wallet_opt, None);
         assert_eq!(
             config.earning_wallet,
             Wallet::from_str("0xcafedeadbeefbabefacecafedeadbeefbabeface").unwrap()
@@ -2375,7 +2380,7 @@ mod tests {
         let expected_consuming_wallet = Wallet::from(
             Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3").unwrap(),
         );
-        assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
+        assert_eq!(config.consuming_wallet_opt, Some(expected_consuming_wallet));
         assert_eq!(
             config.earning_wallet,
             Wallet::from_str("0xcafedeadbeefbabefacecafedeadbeefbabeface").unwrap()
@@ -2454,9 +2459,9 @@ mod tests {
 
         let captured_output = stdout_writer.get_string();
         let expected_output = "";
-        assert!(config.consuming_wallet.is_some());
+        assert!(config.consuming_wallet_opt.is_some());
         assert_eq!(
-            format!("{}", config.consuming_wallet.unwrap()),
+            format!("{}", config.consuming_wallet_opt.unwrap()),
             "0x8e4d2317e56c8fd1fc9f13ba2aa62df1c5a542a7".to_string()
         );
         assert_eq!(captured_output, expected_output);
@@ -2793,7 +2798,7 @@ mod tests {
         let gas_price = 4u64;
         let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
         config.earning_wallet = Wallet::new(earning_address);
-        config.consuming_wallet = Some(Wallet::from(keypair));
+        config.consuming_wallet_opt = Some(Wallet::from(keypair));
         config.blockchain_bridge_config.gas_price = gas_price;
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2824,7 +2829,7 @@ mod tests {
             "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
         let consuming_private_key = PlainData::from_str(consuming_private_key_text).unwrap();
         let keypair = Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap();
-        config.consuming_wallet = Some(Wallet::from(keypair));
+        config.consuming_wallet_opt = Some(Wallet::from(keypair));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(Some(earning_address.to_string())))
@@ -2845,7 +2850,7 @@ mod tests {
         running_test();
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = None;
-        config.consuming_wallet = None;
+        config.consuming_wallet_opt = None;
         config.earning_wallet = DEFAULT_EARNING_WALLET.clone();
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()

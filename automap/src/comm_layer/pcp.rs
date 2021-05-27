@@ -136,7 +136,7 @@ impl Transactor for PcpTransactor {
         }
     }
 
-    fn method(&self) -> AutomapProtocol {
+    fn protocol(&self) -> AutomapProtocol {
         AutomapProtocol::Pcp
     }
 
@@ -446,7 +446,7 @@ mod tests {
     fn knows_its_method() {
         let subject = PcpTransactor::default();
 
-        let method = subject.method();
+        let method = subject.protocol();
 
         assert_eq!(method, AutomapProtocol::Pcp);
     }

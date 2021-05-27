@@ -77,7 +77,7 @@ pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper: Option<Recipient<IncipientCoresPackage>>,
     hopper_no_lookup: Option<Recipient<NoLookupIncipientCoresPackage>>,
-    is_connected: bool,
+    is_connected_to_min_hop_count_radius: bool,
     connected_signal: Option<Recipient<StartMessage>>,
     _to_ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor: Box<dyn GossipAcceptor>,
@@ -367,11 +367,11 @@ impl Neighborhood {
             hopper_no_lookup: None,
             connected_signal: None,
             _to_ui_message_sub: None,
-            is_connected: false,
+            is_connected_to_min_hop_count_radius: false,
             gossip_acceptor,
             gossip_producer,
             neighborhood_database,
-            consuming_wallet_opt: config.consuming_wallet.clone(),
+            consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             next_return_route_id: 0,
             initial_neighbors,
             chain_id: config.blockchain_bridge_config.chain_id,
@@ -672,7 +672,7 @@ impl Neighborhood {
     }
 
     fn check_connectedness(&mut self) {
-        if self.is_connected {
+        if self.is_connected_to_min_hop_count_radius {
             return;
         }
         let msg = RouteQueryMessage {
@@ -682,7 +682,7 @@ impl Neighborhood {
             return_component_opt: Some(Component::ProxyServer),
         };
         if self.handle_route_query_message(msg).is_some() {
-            self.is_connected = true;
+            self.is_connected_to_min_hop_count_radius = true;
             self.connected_signal
                 .as_ref()
                 .expect("Accountant was not bound")
@@ -2789,7 +2789,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        assert_eq!(subject.is_connected, false);
+        assert_eq!(subject.is_connected_to_min_hop_count_radius, false);
     }
 
     #[test]
@@ -2801,7 +2801,7 @@ mod tests {
         subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {
             replacement_database,
         });
-        subject.is_connected = true;
+        subject.is_connected_to_min_hop_count_radius = true;
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -2813,7 +2813,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        assert_eq!(subject.is_connected, true);
+        assert_eq!(subject.is_connected_to_min_hop_count_radius, true);
     }
 
     #[test]
@@ -2837,7 +2837,7 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
         ));
-        subject.is_connected = false;
+        subject.is_connected_to_min_hop_count_radius = false;
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -2849,7 +2849,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        assert_eq!(subject.is_connected, true);
+        assert_eq!(subject.is_connected_to_min_hop_count_radius, true);
     }
 
     struct NeighborReplacementGossipAcceptor {
@@ -4376,7 +4376,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = nc;
         config.earning_wallet = earning_wallet;
-        config.consuming_wallet = consuming_wallet_opt;
+        config.consuming_wallet_opt = consuming_wallet_opt;
         config.data_directory = home_dir;
         config
     }

@@ -76,6 +76,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
             tx,
         );
 
+        // TODO This looks like an embarrassing hack. Why not just return the StreamHandlerPoolSubs from prepare_initial_messages?
         rx.recv().expect("Internal error: actor-system init thread died before initializing StreamHandlerPool subscribers")
     }
 }
@@ -95,7 +96,7 @@ impl ActorSystemFactoryReal {
             main_cryptde,
             alias_cryptde,
             config.neighborhood_config.mode.is_decentralized(),
-            if config.consuming_wallet.is_none() {
+            if config.consuming_wallet_opt.is_none() {
                 None
             } else {
                 Some(0)
@@ -191,6 +192,8 @@ impl ActorSystemFactoryReal {
                 neighborhood_subs,
             })
             .expect("Dispatcher is dead");
+
+// TODO: Open firewall port here
 
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
@@ -821,7 +824,7 @@ mod tests {
         };
         let mut config = BootstrapperConfig::new();
         config.blockchain_bridge_config = bbconfig;
-        config.consuming_wallet = None;
+        config.consuming_wallet_opt = None;
         let subject = ActorFactoryReal {};
         subject.make_and_start_blockchain_bridge(&config, &DbInitializerMock::new());
     }
@@ -852,11 +855,12 @@ mod tests {
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet: Some(make_wallet("consuming")),
+            consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
+            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &[]),
@@ -917,11 +921,12 @@ mod tests {
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet: Some(make_wallet("consuming")),
+            consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
+            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
             },
@@ -977,8 +982,8 @@ mod tests {
             config.neighborhood_config
         );
         assert_eq!(
-            neighborhood_config.consuming_wallet,
-            config.consuming_wallet
+            neighborhood_config.consuming_wallet_opt,
+            config.consuming_wallet_opt
         );
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
@@ -993,7 +998,7 @@ mod tests {
             }
         );
         assert_eq!(
-            bootstrapper_config.consuming_wallet,
+            bootstrapper_config.consuming_wallet_opt,
             Some(make_wallet("consuming"))
         );
         let _stream_handler_pool_subs = rx.recv().unwrap();
@@ -1026,11 +1031,12 @@ mod tests {
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet: Some(make_wallet("consuming")),
+            consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
+            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
             },
@@ -1086,11 +1092,12 @@ mod tests {
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet: None,
+            consuming_wallet_opt: None,
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
+            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &[]),

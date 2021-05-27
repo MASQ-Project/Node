@@ -116,7 +116,7 @@ impl BlockchainBridge {
         persistent_config: Box<dyn PersistentConfiguration>,
     ) -> BlockchainBridge {
         BlockchainBridge {
-            consuming_wallet: config.consuming_wallet.clone(),
+            consuming_wallet: config.consuming_wallet_opt.clone(),
             blockchain_interface,
             logger: Logger::new("BlockchainBridge"),
             persistent_config,
@@ -699,7 +699,7 @@ mod tests {
 
     fn bc_from_wallet(consuming_wallet: Option<Wallet>) -> BootstrapperConfig {
         let mut bc = BootstrapperConfig::new();
-        bc.consuming_wallet = consuming_wallet;
+        bc.consuming_wallet_opt = consuming_wallet;
         bc
     }
 }

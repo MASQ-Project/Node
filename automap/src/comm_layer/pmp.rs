@@ -123,7 +123,7 @@ impl Transactor for PmpTransactor {
         Ok(())
     }
 
-    fn method(&self) -> AutomapProtocol {
+    fn protocol(&self) -> AutomapProtocol {
         AutomapProtocol::Pmp
     }
 
@@ -391,7 +391,7 @@ mod tests {
     fn knows_its_method() {
         let subject = PmpTransactor::new();
 
-        let method = subject.method();
+        let method = subject.protocol();
 
         assert_eq!(method, AutomapProtocol::Pmp);
     }

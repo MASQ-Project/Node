@@ -151,7 +151,7 @@ impl Transactor for IgdpTransactor {
                 lifetime,
                 "",
             ) {
-            Ok(_) => Ok(lifetime / 2),
+            Ok(_) => Ok(lifetime / 2), // TODO For lifetime == 0, return a really big number instead
             Err(e)
                 if (&format!("{:?}", e) == "OnlyPermanentLeasesSupported")
                     || (&format!("{:?}", e)
@@ -186,7 +186,7 @@ impl Transactor for IgdpTransactor {
         }
     }
 
-    fn method(&self) -> AutomapProtocol {
+    fn protocol(&self) -> AutomapProtocol {
         AutomapProtocol::Igdp
     }
 
@@ -376,7 +376,7 @@ mod tests {
     fn knows_its_method() {
         let subject = IgdpTransactor::new();
 
-        let method = subject.method();
+        let method = subject.protocol();
 
         assert_eq!(method, AutomapProtocol::Igdp);
     }
@@ -508,7 +508,7 @@ mod tests {
             .add_permanent_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777)
             .unwrap();
 
-        assert_eq!(result, 0);
+        assert_eq!(result, u32::MAX);
         let add_port_params = add_port_params_arc.lock().unwrap();
         assert_eq!(
             *add_port_params,

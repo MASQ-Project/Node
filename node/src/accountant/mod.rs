@@ -230,7 +230,7 @@ impl Accountant {
     ) -> Accountant {
         Accountant {
             config: config.accountant_config.clone(),
-            consuming_wallet: config.consuming_wallet.clone(),
+            consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: config.earning_wallet.clone(),
             payable_dao: payable_dao_factory.make(),
             receivable_dao: receivable_dao_factory.make(),
@@ -2905,7 +2905,7 @@ pub mod tests {
     ) -> BootstrapperConfig {
         let mut bc = BootstrapperConfig::new();
         bc.accountant_config = ac;
-        bc.consuming_wallet = Some(consuming_wallet);
+        bc.consuming_wallet_opt = Some(consuming_wallet);
         bc.earning_wallet = earning_wallet;
         bc
     }

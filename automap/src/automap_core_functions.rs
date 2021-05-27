@@ -122,7 +122,7 @@ fn test_common(
         return status;
     }
     info!("");
-    info!("=============={}===============", &transactor.method());
+    info!("=============={}===============", &transactor.protocol());
     let (router_ip, status) = find_router(status, transactor);
     let (public_ip, status) = seek_public_ip(status, router_ip, transactor);
     if status.fatal {

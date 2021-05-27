@@ -45,7 +45,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -302,8 +302,9 @@ pub struct BootstrapperConfig {
     // These fields must be set without privilege: otherwise the database will be created as root
     pub db_password_opt: Option<String>,
     pub clandestine_port_opt: Option<u16>,
-    pub consuming_wallet: Option<Wallet>,
+    pub consuming_wallet_opt: Option<Wallet>,
     pub earning_wallet: Wallet,
+    pub automap_public_ip_opt: Option<IpAddr>,
     pub neighborhood_config: NeighborhoodConfig,
 }
 
@@ -346,7 +347,8 @@ impl BootstrapperConfig {
             db_password_opt: None,
             clandestine_port_opt: None,
             earning_wallet: accountant::DEFAULT_EARNING_WALLET.clone(),
-            consuming_wallet: None,
+            consuming_wallet_opt: None,
+            automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
             },
@@ -358,7 +360,7 @@ impl BootstrapperConfig {
         self.clandestine_port_opt = unprivileged.clandestine_port_opt;
         self.neighborhood_config = unprivileged.neighborhood_config;
         self.earning_wallet = unprivileged.earning_wallet;
-        self.consuming_wallet = unprivileged.consuming_wallet;
+        self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
         self.db_password_opt = unprivileged.db_password_opt;
     }
 }
@@ -368,6 +370,7 @@ pub struct Bootstrapper {
     listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
     actor_system_factory: Box<dyn ActorSystemFactory>,
     logger_initializer: Box<dyn LoggerInitializerWrapper>,
+    router_manager: Box<dyn RouterManager>,
     config: BootstrapperConfig,
 }
 

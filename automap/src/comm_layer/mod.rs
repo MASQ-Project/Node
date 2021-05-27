@@ -92,7 +92,7 @@ pub trait Transactor {
     fn add_permanent_mapping(&self, router_ip: IpAddr, hole_port: u16)
         -> Result<u32, AutomapError>;
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
-    fn method(&self) -> AutomapProtocol;
+    fn protocol(&self) -> AutomapProtocol;
     fn start_change_handler(&mut self, change_handler: ChangeHandler) -> Result<(), AutomapError>;
     fn stop_change_handler(&mut self);
     fn as_any(&self) -> &dyn Any;
@@ -100,7 +100,7 @@ pub trait Transactor {
 
 impl Debug for dyn Transactor {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} Transactor", self.method())
+        write!(f, "{} Transactor", self.protocol())
     }
 }
 
