@@ -209,22 +209,33 @@ impl AutomapControlReal {
     }
 
     fn find_working_protocol<T>(&mut self, experiment: TransactorExperiment<T>) -> Result<T, AutomapError> {
-        // TODO: Run through each transactor, not just the first
-        let transactor = &self.transactors[0];
-        let router_ips = transactor.find_routers().expect ("Test-drive me");
-        // TODO: Run through each router, not just the first
-        let router_ip = router_ips[0];
-        let option = experiment (transactor.as_ref(), router_ip);
+        let init: Option<T> = None;
+        let option = self.transactors.iter().fold(init, |so_far, transactor| {
+            match so_far {
+                Some (t) => Some (t),
+                None => {
+                    let router_ips = match transactor.find_routers() {
+                        Err(_) => return None,
+                        Ok(router_ips) if router_ips.is_empty() => return None,
+                        Ok(router_ips) => router_ips,
+                    };
+                    // TODO: Run through each router, not just the first
+                    let router_ip = router_ips[0];
+                    let option = experiment(transactor.as_ref(), router_ip);
+                    if option.is_some() {
+                        self.inner_opt = Some(AutomapControlRealInner {
+                            router_ip,
+                            protocol: transactor.protocol(),
+                            port: 0, // TODO: Doesn't belong in this struct
+                        });
+                    }
+                    option
+                }
+            }
+        });
         match option {
-            Some (t) => {
-                self.inner_opt = Some (AutomapControlRealInner {
-                    router_ip,
-                    protocol: transactor.protocol(),
-                    port: 0, // TODO: Doesn't belong in this struct
-                });
-                Ok (t)
-            },
-            None => Err(AutomapError::AllProtocolsFailed) // TODO SPIKE
+            None => Err(AutomapError::AllProtocolsFailed),
+            Some (t) => Ok (t),
         }
     }
 }
@@ -413,23 +424,12 @@ mod tests {
 
     #[test]
     fn find_working_protocol_works_for_pcp_success() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &set_change_handler_params_arc,
+            &Arc::new(Mutex::new(vec![])),
+            &Arc::new(Mutex::new(vec![])),
+            &Arc::new(Mutex::new(vec![])),
         );
-        let outer_handler_data = Arc::new(Mutex::new("".to_string()));
-        let inner_handler_data = outer_handler_data.clone();
-        let change_handler = Box::new(move |change: AutomapChange| {
-            inner_handler_data
-                .lock()
-                .unwrap()
-                .push_str(&format!("{:?}", change))
-        });
         let experiment: TransactorExperiment<String> = Box::new (|t, router_ip| {
             match t.get_public_ip(router_ip) {
                 Err (_) => None,
@@ -440,6 +440,36 @@ mod tests {
         let result = subject.find_working_protocol (experiment);
 
         assert_eq!(result, Ok("Success!".to_string()));
+        assert_eq!(subject.inner_opt.unwrap(), AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            protocol: AutomapProtocol::Pcp,
+            port: 0
+        });
+    }
+
+    #[test]
+    fn find_working_protocol_works_for_pmp_success() {
+        let mut subject = make_general_success_subject(
+            AutomapProtocol::Pmp,
+            &Arc::new(Mutex::new(vec![])),
+            &Arc::new(Mutex::new(vec![])),
+            &Arc::new(Mutex::new(vec![])),
+        );
+        let experiment: TransactorExperiment<String> = Box::new (|t, router_ip| {
+            match t.get_public_ip(router_ip) {
+                Err (_) => None,
+                Ok (_) => Some ("Success!".to_string()),
+            }
+        });
+
+        let result = subject.find_working_protocol (experiment);
+
+        assert_eq!(result, Ok("Success!".to_string()));
+        assert_eq!(subject.inner_opt.unwrap(), AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            protocol: AutomapProtocol::Pmp,
+            port: 0
+        });
     }
 
     #[test]
