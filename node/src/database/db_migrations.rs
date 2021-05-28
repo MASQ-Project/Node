@@ -84,7 +84,7 @@ impl DbMigratorReal {
         list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
         mut conn: Box<dyn ConnectionWrapper + 'a>,
     ) -> Result<(), String> {
-        let updates_to_process = Self::aggregated_checks(outdated_schema, list_of_updates);
+        let updates_to_process = Self::aggregated_checks(outdated_schema, list_of_updates)?;
         let mut peekable_list = updates_to_process.iter().peekable();
         for _ in 0..peekable_list.len() {
             let (record, versions_in_question) = Self::process_items_from_beneath_dirty_references(
@@ -103,14 +103,14 @@ impl DbMigratorReal {
     fn aggregated_checks<'a>(
         outdated_schema: &str,
         list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
-    ) -> Vec<&'a (dyn MigrateDatabase + 'a)> {
+    ) -> Result<Vec<&'a (dyn MigrateDatabase + 'a)>, String> {
         Self::schema_initial_validation_check(outdated_schema);
         let updates_to_process = Self::list_validation_check(list_of_updates)
             .skip_while(|entry| entry.version_compatibility().ne(outdated_schema))
             .map(|e| e.deref())
             .collect::<Vec<&(dyn MigrateDatabase + 'a)>>();
-        Self::check_the_number_of_those_remaining(updates_to_process.len());
-        updates_to_process
+        let _ = Self::check_the_number_of_those_remaining(updates_to_process.len())?;
+        Ok(updates_to_process)
     }
 
     fn process_items_from_beneath_dirty_references<'a>(
@@ -133,9 +133,10 @@ impl DbMigratorReal {
         )
     }
 
-    fn check_the_number_of_those_remaining(count: usize) {
-        if count == 0 {
-            panic!("Your database claims to be of a newer version than the last time released")
+    fn check_the_number_of_those_remaining(count: usize) -> Result<(), String> {
+        match count {
+            0 => Err(format!("Your database claims to be of a more advanced version than {} which is the last time released",CURRENT_SCHEMA_VERSION)),
+            _ => Ok(())
         }
     }
 
@@ -254,9 +255,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Your database claims to be of a newer version than the last time released"
-    )]
     fn make_updates_panics_if_the_given_schema_is_of_higher_number_than_the_latest_official() {
         let ending_digit: char = CURRENT_SCHEMA_VERSION.chars().last().unwrap();
         let higher_number = ending_digit.to_digit(10).unwrap() + 1;
@@ -270,11 +268,13 @@ mod tests {
         );
         let subject = DbMigratorReal::default();
 
-        let _ = subject.make_updates(
+        let result = subject.make_updates(
             too_advanced.as_str(),
             DbMigratorReal::list_of_existing_updates(),
             Box::new(ConnectionWrapperMock::default()),
         );
+
+        assert_eq!(result,Err(format!("Your database claims to be of a more advanced version than {} which is the last time released",CURRENT_SCHEMA_VERSION)))
     }
 
     #[test]
