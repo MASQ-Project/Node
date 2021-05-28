@@ -468,6 +468,8 @@ pub struct UiConfigurationResponse {
     pub consuming_wallet_derivation_path_opt: Option<String>,
     #[serde(rename = "earningWalletAddressOpt")]
     pub earning_wallet_address_opt: Option<String>,
+    #[serde(rename = "portMappingProtocol")]
+    pub port_mapping_protocol_opt: Option<u16>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
     #[serde(rename = "startBlock")]

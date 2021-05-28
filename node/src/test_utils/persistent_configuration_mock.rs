@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::database::MappingProtocol;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -34,6 +35,9 @@ pub struct PersistentConfigurationMock {
     earning_wallet_address_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_wallet_info_params: Arc<Mutex<Vec<(PlainData, String, String, String)>>>,
     set_wallet_info_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    mapping_protocol_results: RefCell<Vec<Result<Option<MappingProtocol>, PersistentConfigError>>>,
+    set_mapping_protocol_params: Arc<Mutex<Vec<MappingProtocol>>>,
+    set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
     past_neighbors_results:
         RefCell<Vec<Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>>>,
@@ -164,6 +168,21 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.set_start_block_params.lock().unwrap().push(value);
         Self::result_from(&self.set_start_block_results)
+    }
+
+    fn mapping_protocol(&self) -> Result<Option<MappingProtocol>, PersistentConfigError> {
+        self.mapping_protocol_results.borrow_mut().pop().unwrap()
+    }
+
+    fn set_mapping_protocol(
+        &mut self,
+        value: MappingProtocol,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_mapping_protocol_params.lock().unwrap().push(value);
+        self.set_mapping_protocol_results
+            .borrow_mut()
+            .pop()
+            .unwrap()
     }
 }
 
@@ -307,6 +326,30 @@ impl PersistentConfigurationMock {
 
     pub fn set_gas_price_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_gas_price_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn mapping_protocol_result(
+        self,
+        result: Result<Option<MappingProtocol>, PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.mapping_protocol_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_mapping_protocol_params(
+        mut self,
+        params: &Arc<Mutex<Vec<MappingProtocol>>>,
+    ) -> PersistentConfigurationMock {
+        self.set_mapping_protocol_params = params.clone();
+        self
+    }
+
+    pub fn set_mapping_protocol_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_mapping_protocol_results.borrow_mut().push(result);
         self
     }
 
