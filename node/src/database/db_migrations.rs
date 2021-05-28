@@ -43,8 +43,7 @@ trait MigrateDatabase: Debug {
     fn version_compatibility(&self) -> &str;
 }
 
-//define your update here
-//use either 'execute' for a single operation or 'transaction' for multiple ones
+//define your update here and ad it to the list: 'list_of_existing_updates()'
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
@@ -85,10 +84,9 @@ impl DbMigratorReal {
         list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
         mut conn: Box<dyn ConnectionWrapper + 'a>,
     ) -> Result<(), String> {
-        let (updates_to_process, remaining) =
-            Self::aggregated_checks(outdated_schema, list_of_updates);
+        let updates_to_process = Self::aggregated_checks(outdated_schema, list_of_updates);
         let mut peekable_list = updates_to_process.iter().peekable();
-        for _ in 0..remaining {
+        for _ in 0..peekable_list.len() {
             let (record, versions_in_question) = Self::process_items_from_beneath_dirty_references(
                 peekable_list.next(),
                 peekable_list.peek(),
@@ -105,14 +103,14 @@ impl DbMigratorReal {
     fn aggregated_checks<'a>(
         outdated_schema: &str,
         list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
-    ) -> (Vec<&'a (dyn MigrateDatabase + 'a)>, usize) {
+    ) -> Vec<&'a (dyn MigrateDatabase + 'a)> {
         Self::schema_initial_validation_check(outdated_schema);
         let updates_to_process = Self::list_validation_check(list_of_updates)
             .skip_while(|entry| entry.version_compatibility().ne(outdated_schema))
             .map(|e| e.deref())
             .collect::<Vec<&(dyn MigrateDatabase + 'a)>>();
-        let remaining = Self::check_the_number_of_those_remaining(updates_to_process.len());
-        (updates_to_process, remaining)
+        Self::check_the_number_of_those_remaining(updates_to_process.len());
+        updates_to_process
     }
 
     fn process_items_from_beneath_dirty_references<'a>(
@@ -135,11 +133,9 @@ impl DbMigratorReal {
         )
     }
 
-    fn check_the_number_of_those_remaining(count: usize) -> usize {
+    fn check_the_number_of_those_remaining(count: usize) {
         if count == 0 {
-            panic!("Your database claims to be of a newer version than the ever newest released")
-        } else {
-            count
+            panic!("Your database claims to be of a newer version than the last time released")
         }
     }
 
@@ -183,7 +179,7 @@ impl DbMigratorReal {
             .iter()
             .zip(Self::str_version_numeric_transcription(second_set).iter())
             .map(|(first_set_digits, second_set_digits)| first_set_digits <= second_set_digits)
-            .all(|element| element == true)
+            .all(|element| element)
     }
 
     fn str_version_numeric_transcription(version: &str) -> Vec<u32> {
@@ -204,11 +200,11 @@ impl DbMigratorReal {
         if Self::compare_set_of_numbers(
             outdated_schema,
             THE_EARLIEST_ENTRY_IN_THE_LIST_OF_DB_MIGRATIONS,
-        ) && outdated_schema != THE_EARLIEST_ENTRY_IN_THE_LIST_OF_DB_MIGRATIONS
+        ) && outdated_schema.ne(THE_EARLIEST_ENTRY_IN_THE_LIST_OF_DB_MIGRATIONS)
         {
             panic!("Database version is too low and incompatible with any official version: database corrupted")
         };
-        if outdated_schema == CURRENT_SCHEMA_VERSION {
+        if outdated_schema.eq(CURRENT_SCHEMA_VERSION) {
             panic!("Ordered to update the database but already up to date")
         };
         //check for a too high version is placed further
@@ -259,7 +255,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Your database claims to be of a newer version than the ever newest released"
+        expected = "Your database claims to be of a newer version than the last time released"
     )]
     fn make_updates_panics_if_the_given_schema_is_of_higher_number_than_the_latest_official() {
         let ending_digit: char = CURRENT_SCHEMA_VERSION.chars().last().unwrap();
