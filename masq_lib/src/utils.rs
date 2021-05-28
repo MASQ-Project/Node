@@ -33,6 +33,16 @@ impl Display for AutomapProtocol {
     }
 }
 
+impl AutomapProtocol {
+    pub fn values () -> Vec<AutomapProtocol> {
+        vec![
+            AutomapProtocol::Pcp,
+            AutomapProtocol::Pmp,
+            AutomapProtocol::Igdp,
+        ]
+    }
+}
+
 fn next_port(port: u16) -> u16 {
     match port {
         p if p < FIND_FREE_PORT_HIGHEST => p + 1,
@@ -163,6 +173,17 @@ mod tests {
         );
 
         assert_eq!(&result, "PCP: PCP; PMP: PMP; IGDP: IGDP");
+    }
+
+    #[test]
+    fn automap_protocol_values_works() {
+        let result = AutomapProtocol::values();
+
+        assert_eq!(result, vec![
+            AutomapProtocol::Pcp,
+            AutomapProtocol::Pmp,
+            AutomapProtocol::Igdp
+        ])
     }
 
     #[test]
