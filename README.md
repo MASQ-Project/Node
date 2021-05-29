@@ -2,9 +2,8 @@
 
 ![ci-matrix](https://github.com/MASQ-Project/Node/workflows/ci-matrix/badge.svg)
 
->MASQ Node combines the benefits of VPN and Tor technology, to create a superior next-generation privacy software, where users are rewarded for supporting an uncensored, global web.
->
->Users gain privacy and anonymity, while helping promote Internet Freedom.
+MASQ Node combines the benefits of VPN and Tor technology, to create a superior next-generation privacy software, where users are rewarded for supporting an uncensored, global web.
+Users gain privacy and anonymity, while helping promote Internet Freedom.
 
 ## Purpose
 **MASQ Node** forms the foundation of the MASQ Network.
@@ -37,8 +36,8 @@ development belongs to Substratum.
 
 ## Running the MASQ Node
 
-### MASQ Node User Guide
-A content rich knowledge base and testing guides are being refined for users with various levels of technical ability.
+### MASQ Node Knowledge Base
+A knowledge base and testing resources are being refined for users with various levels of technical ability.
 Please go to [our Knowledge Base](https://docs.masq.ai/masq)
 
 There you can find further information, guides and configuration examples for running MASQ Node from:
@@ -46,7 +45,7 @@ There you can find further information, guides and configuration examples for ru
 - CLI
 - Docker image
 
-You can also join the official [Discord channel](https://discord.gg/cdUsjBQrgq) and speak to the team if you are interesting in testing stages
+If you are interested in testing stages, speak to the team in the official [Discord channel](https://discord.gg/cdUsjBQrgq)
 
 ### Downloading Official Releases
 
