@@ -316,7 +316,7 @@ mod tests {
         handle.join().unwrap();
         assert!(
             time_period_when_locked > 3 * time_period_when_loosen,
-            "{:?} is not longer than {:?}",
+            "{:?} is not longer than 3* {:?}",
             time_period_when_locked,
             time_period_when_loosen
         );
@@ -341,7 +341,7 @@ mod tests {
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
-            thread::sleep(time_period_when_loosen * 15);
+            thread::sleep(time_period_when_loosen * 50);
         });
         rx.recv().unwrap();
         let now = Instant::now();
@@ -354,9 +354,10 @@ mod tests {
 
         let time_period_when_locked = now.elapsed();
         handle.join().unwrap();
+        eprintln!("{:?}{:?}", time_period_when_locked, time_period_when_loosen);
         assert!(
-            2 * time_period_when_locked > 5 * time_period_when_loosen,
-            "{:?} is not longer than {:?}",
+            time_period_when_locked > 3 * time_period_when_loosen,
+            "{:?} is not longer than 3* {:?}",
             time_period_when_locked,
             time_period_when_loosen
         );
