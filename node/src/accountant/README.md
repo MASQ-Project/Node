@@ -1,4 +1,4 @@
-# Accountant
+# `accountant`
 Maintenance of Accounts Payable and Accounts Receivable for MASQ Node.
 
 ## Purpose
