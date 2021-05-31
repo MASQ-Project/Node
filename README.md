@@ -2,14 +2,13 @@
 
 ![ci-matrix](https://github.com/MASQ-Project/Node/workflows/ci-matrix/badge.svg)
 
-## Source
-The MASQ project was forked from Substratum's Node project in order to carry on development after Substratum ceased 
-operations in October of 2019. In 2021, Substratum's Node repositories were removed from GitHub, so the fork link
-with MASQ was broken, but all credit for the original idea, the original design, and the first two years of MASQ's
-development belongs to Substratum. 
+MASQ Node combines the benefits of VPN and Tor technology, to create a superior next-generation privacy software, where users are rewarded for supporting an uncensored, global web.
+Users gain privacy and anonymity, while helping promote Internet Freedom.
 
 ## Purpose
-The MASQ Network is an open-source network that allows anyone to allocate spare computing resources to make the Internet
+**MASQ Node** forms the foundation of the MASQ Network.
+
+The MASQ Network is an open-source decentralized mesh-network (dMN) that allows any user to allocate spare computing resources to make the Internet
 a free and fair place for the entire world. It is a worldwide collection of Nodes that securely delivers content without
 the need of a VPN or Tor.
 
@@ -17,14 +16,11 @@ Because there's no single authority delivering or monitoring content, censorship
 issue on the MASQ Network. It doesn't matter where you live or what content you're accessing, everyone in the world
 sees the exact same content.
 
-**MASQ Node** is the foundation of the MASQ Network.
+MASQ Node software is what the average user runs to earn $MASQ utility tokens and dedicate some of their computers' resources towards the Network - users can be rewarded with $MASQ for each time they serve content.
 
-It is what the average user runs to earn MASQ tokens and dedicate some of their computers' resources towards the Network.
-People who run a MASQ Node can be rewarded with cryptocurrency for each time they serve content.
-
-MASQ Nodes work together to relay CORES packages and content on the Network.
+MASQ Nodes work together through the mesh network to relay CORES packages and content.
 When a user requests a site, Nodes use a routing algorithm to find the most expedient and secure way to get the
-information to that user. Multiple Nodes work to fulfill a single request in order to maintain a necessary level of
+information to that user. Multiple Nodes work together to route a single request in order to maintain a necessary level of
 anonymity.
 
 __Important Note:__ Please remember that at the moment the MASQ Node is in development and is not clandestine. Your
@@ -32,7 +28,24 @@ traffic can't be decrypted, and it is difficult to trace to you; but it is curre
 your Internet connection to tell that you're using MASQ. Please don't use it for any kind of sensitive traffic at this 
 stage.
 
+## Source
+The MASQ project was forked from Substratum's Node project in order to carry on development after Substratum ceased 
+operations in October of 2019. In 2021, Substratum's Node repositories were removed from GitHub, so the fork link
+with MASQ was broken, but all credit for the original idea, the original design, and the first two years of MASQ's
+development belongs to Substratum. 
+
 ## Running the MASQ Node
+
+### MASQ Node Knowledge Base
+A knowledge base and testing resources are being refined for users with various levels of technical ability.
+Please go to [our Knowledge Base](https://docs.masq.ai/masq)
+
+There you can find further information, guides and configuration examples for running MASQ Node from:
+- GUI (currently NEO v0.1)
+- CLI
+- Docker image
+
+If you are interested in testing stages, speak to the team in the official [Discord channel](https://discord.gg/cdUsjBQrgq)
 
 ### Downloading Official Releases
 
@@ -74,7 +87,7 @@ particular router. Unless you've volunteered to help the MASQ dev team run tests
 ### Running from the Command Line
 
 These instructions assume you have the MASQ Node executable but not the MASQ GUI. (If you do, consult the GUI
-documentation about starting the Node.) You'll want to run the MASQ programs from wherever you expanded the
+documentation about starting the Node on our [Testing Guides](https://docs.masq.ai/testing-guide) You'll want to run the MASQ programs from wherever you expanded the
 `/generated/bin` path from the `.zip` file you downloaded.
 
 There are a number of ways to run the Node, but the way you'll probably want to use is to make sure the MASQ Daemon
@@ -243,10 +256,10 @@ being a long-running privileged process, the Daemon is forbidden from A) accessi
 communicating with the Node in any way other than starting its process. As long as these limitations are respected,
 even someone who successfully hacks into the Node will not be able to hack into the privileged Daemon.
 
-So when the user interface (whether command-line or graphical) starts up, it connects first to the Daemon. There is a
+When the user interface (whether command-line or graphical) starts up, it connects first to the Daemon. There is a
 set of commands the UI can use to communicate with the Daemon, but this set is comparatively small. As long as the
-UI issues commands from that set, it will stay connected to the Daemon. Eventually, though, the UI will probably issue
-a command the Daemon doesn't understand. At that point, if the Node is running the Daemon will instruct the UI to
+UI issues commands from that set, it will stay connected to the Daemon. At some point, the UI will probably issue
+a command the Daemon doesn't understand - if the Node is running then the Daemon will instruct the UI to
 drop its Daemon connection, create a new connection to the Node instead, and re-issue the unrecognized command so that
 the Node can execute it.
 
@@ -350,9 +363,9 @@ fact that it is insecure means that MASQ Node (and every other process that hand
 data stream and make your browser display whatever they want it to, which may or may not be related to what the server
 on the other end of the connection intended.
 
-When errors occur, this is very useful for MASQ Node. If you request something from an HTTP server, and for some
-reason MASQ Node cannot relay your request to that server, or cannot relay the response from the server back to
-you, it will instead impersonate the server and create a counterfeit response describing the error, and display that
+When errors occur, this is very useful for MASQ Node. If you request something from an HTTP server (and for some
+reason MASQ Node cannot relay your request to that server) or cannot relay the response from the server back to
+you, MASQ Node will instead impersonate the server and create a counterfeit response describing the error. This will be displayed
 to you instead of the server response it can't give you. (Don't worry: MASQ Node's impersonation of the server
 is deliberately very bad, so you can easily tell that the error is not coming from the server. You won't be misled).
 The error message will describe the problem and suggest ways it might be alleviated.
@@ -390,7 +403,7 @@ strictly speaking, it is. If this happens, just wait awhile for your Node and th
 each other and spread around the necessary information. Then try reloading the page.
 
 * DNS Resolution Failure - `unrecognized_name`: Even though you contact websites at names like `google.com` and
-`facebook.com`, the real Internet operates on the basis of IP addresses (like `172.217.6.14` and `31.13.66.35`).
+`twitter.com`, the real Internet operates on the basis of IP addresses (like `172.217.6.14` and `31.13.66.35`).
 Before it's useful for retrieving data, your server name has to be translated into an IP address. This is the job of a
 DNS server. Much of Internet censorship consists of crippling the DNS servers you have available to you so that they
 can't give you the correct IP address for the server name you're seeking. MASQ Node captures the DNS queries your
@@ -408,7 +421,7 @@ will take another innocent exit Node out of circulation and make it even harder 
 
 We run tests on every push to `master` on these platforms:
 - Ubuntu 20.04 LTS Desktop 64-bit
-- MacOS High Sierra
+- MacOS High Sierra (currently testing on Big Sur)
 - Windows 10 64-bit
 
 MASQ Node doesn't reliably build on 32-bit Windows due to issues with the build tools for that platform. We 
