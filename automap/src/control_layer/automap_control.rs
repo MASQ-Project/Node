@@ -3,7 +3,7 @@
 use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
-use crate::comm_layer::{AutomapError, Transactor, AutomapErrorCause};
+use crate::comm_layer::{AutomapError, Transactor};
 use masq_lib::utils::AutomapProtocol;
 use std::net::IpAddr;
 use std::collections::HashSet;
@@ -210,17 +210,19 @@ impl AutomapControlReal {
 
     fn find_working_protocol<T>(&mut self, experiment: TransactorExperiment<T>) -> Result<T, AutomapError> {
         let init: Option<(AutomapProtocol, IpAddr, T)> = None;
-        let option = self.transactors.iter().fold(init, |so_far, transactor| {
+        let protocol_router_ip_and_experimental_outcome_opt = self.transactors.iter()
+            .fold(init, |so_far, transactor| {
             match so_far {
                 Some (tuple) => Some (tuple),
                 None => {
                     let router_ips = match transactor.find_routers() {
                         Err(_) => return None,
-                        Ok(router_ips) if router_ips.is_empty() => unimplemented! (),
+                        Ok(router_ips) if router_ips.is_empty() => return None,
                         Ok(router_ips) => router_ips,
                     };
                     let init: Option<(IpAddr, T)> = None;
-                    let option = router_ips.into_iter().fold (init, |so_far, router_ip| {
+                    let router_ip_and_experimental_outcome_opt = router_ips.into_iter()
+                        .fold (init, |so_far, router_ip| {
                         match so_far {
                             Some (tuple) => Some (tuple),
                             None => {
@@ -229,14 +231,12 @@ impl AutomapControlReal {
                             }
                         }
                     });
-                    match option {
-                        None => unimplemented! (),
-                        Some ((router_ip, t)) => Some ((transactor.protocol(), router_ip, t))
-                    }
+                    router_ip_and_experimental_outcome_opt
+                        .map (|(router_ip, t)| (transactor.protocol(), router_ip, t))
                 }
             }
         });
-        match option {
+        match protocol_router_ip_and_experimental_outcome_opt {
             Some ((protocol, router_ip, t)) => {
                 self.inner_opt = Some(AutomapControlRealInner {
                     router_ip,
@@ -253,7 +253,7 @@ impl AutomapControlReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::Transactor;
+    use crate::comm_layer::{Transactor, AutomapErrorCause};
     use lazy_static::lazy_static;
     use std::any::Any;
     use std::cell::RefCell;
@@ -490,7 +490,34 @@ mod tests {
 
     #[test]
     fn find_working_protocol_works_when_a_protocol_says_no_routers() {
-        unimplemented! ()
+        let mut subject = make_no_routers_subject();
+        let experiment: TransactorExperiment<String> =
+            Box::new (|t, router_ip| Some ("Success!".to_string()));
+
+        let result = subject.find_working_protocol (experiment);
+
+        assert_eq!(result, Err (AutomapError::AllProtocolsFailed));
+        assert_eq!(subject.inner_opt, None);
+    }
+
+    #[test]
+    fn find_working_protocol_works_when_routers_are_found_but_the_experiment_fails_on_all_protocols() {
+        let mut subject = make_null_subject();
+        subject.transactors = subject.transactors.into_iter().map (|transactor| {
+            make_params_success_transactor (
+                transactor.protocol(),
+                &Arc::new(Mutex::new(vec![])),
+                &Arc::new(Mutex::new(vec![])),
+                &Arc::new(Mutex::new(vec![])),
+            )
+        }).collect();
+        let experiment: TransactorExperiment<String> =
+            Box::new (|t, router_ip| None);
+
+        let result = subject.find_working_protocol (experiment);
+
+        assert_eq!(result, Err (AutomapError::AllProtocolsFailed));
+        assert_eq!(subject.inner_opt, None);
     }
 
     #[test]
@@ -1046,6 +1073,13 @@ mod tests {
         )
     }
 
+    fn make_no_router_transactor(protocol: AutomapProtocol) -> Box<dyn Transactor> {
+        Box::new(
+            TransactorMock::new(protocol)
+                .find_routers_result(Ok(vec![])),
+        )
+    }
+
     fn make_null_subject() -> AutomapControlReal {
         let mut subject = AutomapControlReal::new(None, Box::new (|_x| {}));
         subject.transactors = subject
@@ -1054,6 +1088,18 @@ mod tests {
             .map(|t| {
                 let tm: Box<dyn Transactor> = Box::new(TransactorMock::new(t.protocol()));
                 tm
+            })
+            .collect();
+        subject
+    }
+
+    fn make_no_routers_subject() -> AutomapControlReal {
+        let mut subject = AutomapControlReal::new(None, Box::new (|_x| {}));
+        subject.transactors = subject
+            .transactors
+            .into_iter()
+            .map(|t| {
+                make_no_router_transactor(t.protocol())
             })
             .collect();
         subject
