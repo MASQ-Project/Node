@@ -332,6 +332,7 @@ impl PcpTransactor {
     ) {
         let change_handler_lifetime = change_handler_config.lifetime;
         let mut buffer = [0u8; 100];
+        // TODO: Try a select on the socket and the channel so we don't have a tight loop
         socket
             .set_read_timeout(Some(Duration::from_millis(250)))
             .expect("Can't set read timeout");
