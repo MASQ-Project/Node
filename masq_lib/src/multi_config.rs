@@ -100,8 +100,7 @@ impl<'a> MultiConfig<'a> {
                     || (e.kind == clap::ErrorKind::VersionDisplayed) =>
             {
                 short_writeln!(streams.stdout, "{}", e.message);
-                exit_process(0, "");
-                panic!("This line should never execute, but tells Rust there's no return");
+                exit_process(0, "")
             }
             Err(e) => return Err(Self::make_configurator_error(e)),
         };
