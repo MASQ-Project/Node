@@ -38,16 +38,15 @@ pub struct ServerInitializer {
 impl Command for ServerInitializer {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let mut result: Result<(), ConfiguratorError> = Ok(());
-        let exit_code = if args.contains(&"--help".to_string())
+        let result = if args.contains(&"--help".to_string())
             || args.contains(&"--version".to_string())
         {
             self.privilege_dropper
                 .drop_privileges(&RealUser::new(None, None, None).populate(&RealDirsWrapper {}));
-            result = Self::combine_results(
+            Self::combine_results(
                 result,
                 NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams),
-            );
-            0
+            )
         } else {
             result = Self::combine_results(
                 result,
@@ -68,22 +67,27 @@ impl Command for ServerInitializer {
                 .chown(&config.data_directory, &real_user);
             self.privilege_dropper.drop_privileges(&real_user);
 
-            result = Self::combine_results(
-                result,
-                self.dns_socket_server
-                    .as_mut()
-                    .initialize_as_unprivileged(args, streams),
-            );
-            result = Self::combine_results(
-                result,
-                self.bootstrapper
-                    .as_mut()
-                    .initialize_as_unprivileged(args, streams),
-            );
-            1
+            //skipping the other half if we've got some error already
+            if result.is_err() {
+                result
+            } else {
+                result = Self::combine_results(
+                    result,
+                    self.dns_socket_server
+                        .as_mut()
+                        .initialize_as_unprivileged(args, streams),
+                );
+                result = Self::combine_results(
+                    result,
+                    self.bootstrapper
+                        .as_mut()
+                        .initialize_as_unprivileged(args, streams),
+                );
+                result
+            }
         };
-        if let Some(err) = result.err() {
-            err.param_errors.into_iter().for_each(|param_error| {
+        if let Err(conf_err) = result {
+            conf_err.param_errors.into_iter().for_each(|param_error| {
                 short_writeln!(
                     streams.stderr,
                     "Problem with parameter {}: {}",
@@ -93,7 +97,7 @@ impl Command for ServerInitializer {
             });
             1
         } else {
-            exit_code
+            0
         }
     }
 }
@@ -833,26 +837,52 @@ pub mod tests {
     }
 
     #[test]
-    fn go_should_combine_errors() {
+    fn go_should_combine_errors_but_also_skipp_its_second_half_if_the_first_half_alone_originated_an_error() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
+        let (result, holder) = make_server_initializer_for_cumulative_error_testing(
+            Err(ConfiguratorError::required("dns-iap", "dns-iap-reason")),
+            Ok(()),
+            Err(ConfiguratorError::required("boot-iap", "boot-iap-reason")),
+            Err(ConfiguratorError::required("boot-iau", "boot-iau-reason")), //this error should be ignored
+        );
+        assert_eq!(result, 1);
+        assert_eq!(
+            holder.stderr.get_string(),
+            "Problem with parameter dns-iap: dns-iap-reason\n\
+Problem with parameter boot-iap: boot-iap-reason\n"
+        );
+    }
+
+    #[test]
+    fn go_should_combine_errors_and_print_errors_if_gathered_in_the_second_half(
+    ) {
+        let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
+        let (result, holder) = make_server_initializer_for_cumulative_error_testing(
+            Ok(()),
+            Err(ConfiguratorError::required("dns-iau", "dns-iau-reason")),
+            Ok(()),
+            Err(ConfiguratorError::required("boot-iau", "boot-iau-reason"))
+        );
+        assert_eq!(result, 1);
+        assert_eq!(
+            holder.stderr.get_string(),
+            "Problem with parameter dns-iau: dns-iau-reason\n\
+Problem with parameter boot-iau: boot-iau-reason\n"
+        );
+    }
+
+    fn make_server_initializer_for_cumulative_error_testing(
+        dns_privileged: Result<(), ConfiguratorError>,
+        dns_unprivileged: Result<(), ConfiguratorError>,
+        bootstrapper_privileged: Result<(), ConfiguratorError>,
+        bootstrapper_unprivileged: Result<(), ConfiguratorError>,
+    ) -> (u8, FakeStreamHolder) {
         let dns_socket_server = SocketServerMock::new(())
-            .initialize_as_privileged_result(Err(ConfiguratorError::required(
-                "dns-iap",
-                "dns-iap-reason",
-            )))
-            .initialize_as_unprivileged_result(Err(ConfiguratorError::required(
-                "dns-iau",
-                "dns-iau-reason",
-            )));
+            .initialize_as_privileged_result(dns_privileged)
+            .initialize_as_unprivileged_result(dns_unprivileged);
         let bootstrapper = SocketServerMock::new(BootstrapperConfig::new())
-            .initialize_as_privileged_result(Err(ConfiguratorError::required(
-                "boot-iap",
-                "boot-iap-reason",
-            )))
-            .initialize_as_unprivileged_result(Err(ConfiguratorError::required(
-                "boot-iau",
-                "boot-iau-reason",
-            )));
+            .initialize_as_privileged_result(bootstrapper_privileged)
+            .initialize_as_unprivileged_result(bootstrapper_unprivileged);
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
@@ -865,14 +895,6 @@ pub mod tests {
         holder.stderr = stderr;
 
         let result = subject.go(&mut holder.streams(), &args);
-
-        assert_eq!(result, 1);
-        assert_eq!(
-            holder.stderr.get_string(),
-            "Problem with parameter dns-iap: dns-iap-reason\n\
-Problem with parameter boot-iap: boot-iap-reason\n\
-Problem with parameter dns-iau: dns-iau-reason\n\
-Problem with parameter boot-iau: boot-iau-reason\n"
-        );
+        (result, holder)
     }
 }
