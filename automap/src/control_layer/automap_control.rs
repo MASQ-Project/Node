@@ -693,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn early_add_mapping_starts_change_handler_and_delegates_to_transactor () {
+    fn early_add_mapping_timed_starts_change_handler_and_delegates_to_transactor () {
         let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
@@ -720,6 +720,16 @@ mod tests {
         actual_change_handler(change.clone());
         let change_handler_log = change_handler_log_arc.lock().unwrap();
         assert_eq! (*change_handler_log, vec![change])
+    }
+
+    #[test]
+    fn late_add_mapping_timed_does_not_start_change_handler_but_delegates_to_transactor () {
+        todo! ("Complete me")
+    }
+
+    #[test]
+    fn late_add_mapping_permanent_does_not_start_change_handler_but_delegates_to_transactor () {
+        todo! ("Complete me")
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////
