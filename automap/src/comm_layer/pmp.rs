@@ -805,6 +805,11 @@ mod tests {
         )
     }
 
+    #[test]
+    fn change_handler_rejects_data_from_non_router_ip_addresses() {
+        todo! ("Complete me")
+    }
+
     fn make_subject(socket_factory: UdpSocketFactoryMock) -> PmpTransactor {
         let mut subject = PmpTransactor::default();
         let mut factories = Factories::default();

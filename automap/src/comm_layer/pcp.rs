@@ -1070,6 +1070,11 @@ mod tests {
     }
 
     #[test]
+    fn change_handler_rejects_data_from_non_router_ip_addresses() {
+        todo! ("Complete me")
+    }
+
+    #[test]
     fn start_change_handler_doesnt_work_if_change_handler_stopper_is_populated() {
         let mut subject = PcpTransactor::default();
         subject.change_handler_stopper = Some(unbounded().0);
