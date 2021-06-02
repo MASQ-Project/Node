@@ -2,7 +2,7 @@
 use crate::dns_modifier::DnsModifier;
 use crate::dns_modifier_factory::DnsModifierFactory;
 use crate::dns_modifier_factory::DnsModifierFactoryReal;
-use masq_lib::command::{StdStreams, CommandNumeric};
+use masq_lib::command::{CommandNumeric, StdStreams};
 use masq_lib::short_writeln;
 use std::io::Write;
 
