@@ -9,7 +9,7 @@ use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::server_initializer::{LoggerInitializerWrapperReal, ServerInitializer};
 use actix::System;
 use futures::future::Future;
-use masq_lib::command::{Command, StdStreams};
+use masq_lib::command::{CommandConfigError, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
 
 #[derive(Debug, PartialEq)]
@@ -73,6 +73,16 @@ impl RunModes {
             }
         }
     }
+
+    // if let Err(conf_err) = result {
+    // conf_err.param_errors.into_iter().for_each(|param_error| {
+    // short_writeln!(
+    // streams.stderr,
+    // "Problem with parameter {}: {}",
+    // param_error.parameter,
+    // param_error.reason
+    // )
+    // });
 
     fn args_contain_help_or_version(args: &[String]) -> bool {
         args.contains(&"--help".to_string())
@@ -151,7 +161,7 @@ impl Runner for RunnerReal {
         let system = System::new("main");
 
         let mut server_initializer = ServerInitializer::new();
-        server_initializer.go(streams, args);
+        server_initializer.go(streams, args)?;
 
         actix::spawn(server_initializer.map_err(|_| {
             System::current().stop_with_code(1);
@@ -183,7 +193,7 @@ impl Runner for RunnerReal {
             Box::new(RecipientsFactoryReal::new()),
             Box::new(RerunnerReal::new()),
         );
-        initializer.go(streams, args);
+        initializer.go(streams, args)?;
         Ok(1)
     }
 

@@ -17,8 +17,7 @@ use flexi_logger::{Cleanup, Criterion, LevelFilter, Naming};
 use flexi_logger::{DeferredNow, Duplicate, Record};
 use futures::try_ready;
 use lazy_static::lazy_static;
-use masq_lib::command::Command;
-use masq_lib::command::StdStreams;
+use masq_lib::command::{CommandConfigError, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
 use std::fmt::Debug;
@@ -35,12 +34,14 @@ pub struct ServerInitializer {
     privilege_dropper: Box<dyn PrivilegeDropper>,
 }
 
-impl Command for ServerInitializer {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
+impl CommandConfigError for ServerInitializer {
+    fn go(
+        &mut self,
+        streams: &mut StdStreams<'_>,
+        args: &[String],
+    ) -> Result<(), ConfiguratorError> {
         let mut result: Result<(), ConfiguratorError> = Ok(());
-        let result = if args.contains(&"--help".to_string())
-            || args.contains(&"--version".to_string())
-        {
+        if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
             self.privilege_dropper
                 .drop_privileges(&RealUser::new(None, None, None).populate(&RealDirsWrapper {}));
             Self::combine_results(
@@ -85,19 +86,6 @@ impl Command for ServerInitializer {
                 );
                 result
             }
-        };
-        if let Err(conf_err) = result {
-            conf_err.param_errors.into_iter().for_each(|param_error| {
-                short_writeln!(
-                    streams.stderr,
-                    "Problem with parameter {}: {}",
-                    param_error.parameter,
-                    param_error.reason
-                )
-            });
-            1
-        } else {
-            0
         }
     }
 }
@@ -721,8 +709,8 @@ pub mod tests {
             stdout,
             stderr,
         };
+        subject.go(streams, &[]).unwrap();
 
-        subject.go(streams, &[]);
         let res = subject.wait();
 
         assert!(res.is_err());
@@ -803,8 +791,9 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
         };
 
-        subject.go(streams, &[]);
+        let result = subject.go(streams, &[]);
 
+        assert!(result.is_ok());
         let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
         assert_eq!(*drop_privileges_params, vec![real_user]);
     }
@@ -833,11 +822,14 @@ pub mod tests {
         };
         let args = vec!["MASQ Node".to_string(), parameter.to_string()];
 
-        subject.go(&mut FakeStreamHolder::new().streams(), &args);
+        subject
+            .go(&mut FakeStreamHolder::new().streams(), &args)
+            .unwrap();
     }
 
     #[test]
-    fn go_should_combine_errors_but_also_skipp_its_second_half_if_the_first_half_alone_originated_an_error() {
+    fn go_should_combine_errors_but_also_skipp_its_second_half_if_the_first_half_alone_originated_an_error(
+    ) {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
         let (result, holder) = make_server_initializer_for_cumulative_error_testing(
             Err(ConfiguratorError::required("dns-iap", "dns-iap-reason")),
@@ -845,30 +837,29 @@ pub mod tests {
             Err(ConfiguratorError::required("boot-iap", "boot-iap-reason")),
             Err(ConfiguratorError::required("boot-iau", "boot-iau-reason")), //this error should be ignored
         );
-        assert_eq!(result, 1);
         assert_eq!(
-            holder.stderr.get_string(),
-            "Problem with parameter dns-iap: dns-iap-reason\n\
-Problem with parameter boot-iap: boot-iap-reason\n"
+            result,
+            Err(ConfiguratorError::required("dns-iap", "dns-iap-reason")
+                .another_required("boot-iap", "boot-iap-reason"))
         );
+        assert!(holder.stderr.get_string().is_empty())
     }
 
     #[test]
-    fn go_should_combine_errors_and_print_errors_if_gathered_in_the_second_half(
-    ) {
+    fn go_should_combine_errors_and_print_errors_if_gathered_in_the_second_half() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
         let (result, holder) = make_server_initializer_for_cumulative_error_testing(
             Ok(()),
             Err(ConfiguratorError::required("dns-iau", "dns-iau-reason")),
             Ok(()),
-            Err(ConfiguratorError::required("boot-iau", "boot-iau-reason"))
+            Err(ConfiguratorError::required("boot-iau", "boot-iau-reason")),
         );
-        assert_eq!(result, 1);
         assert_eq!(
-            holder.stderr.get_string(),
-            "Problem with parameter dns-iau: dns-iau-reason\n\
-Problem with parameter boot-iau: boot-iau-reason\n"
+            result,
+            Err(ConfiguratorError::required("dns-iau", "dns-iau-reason")
+                .another_required("boot-iau", "boot-iau-reason"))
         );
+        assert!(holder.stderr.get_string().is_empty())
     }
 
     fn make_server_initializer_for_cumulative_error_testing(
@@ -876,7 +867,7 @@ Problem with parameter boot-iau: boot-iau-reason\n"
         dns_unprivileged: Result<(), ConfiguratorError>,
         bootstrapper_privileged: Result<(), ConfiguratorError>,
         bootstrapper_unprivileged: Result<(), ConfiguratorError>,
-    ) -> (u8, FakeStreamHolder) {
+    ) -> (Result<(), ConfiguratorError>, FakeStreamHolder) {
         let dns_socket_server = SocketServerMock::new(())
             .initialize_as_privileged_result(dns_privileged)
             .initialize_as_unprivileged_result(dns_unprivileged);

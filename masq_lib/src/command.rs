@@ -1,4 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::shared_schema::ConfiguratorError;
 use std::io;
 
 pub struct StdStreams<'a> {
@@ -7,6 +8,14 @@ pub struct StdStreams<'a> {
     pub stderr: &'a mut (dyn io::Write + Send),
 }
 
-pub trait Command {
+pub trait CommandNumeric {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8;
+}
+
+pub trait CommandConfigError {
+    fn go(
+        &mut self,
+        streams: &mut StdStreams<'_>,
+        args: &[String],
+    ) -> Result<(), ConfiguratorError>;
 }

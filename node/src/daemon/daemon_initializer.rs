@@ -15,7 +15,8 @@ use actix::{Actor, System, SystemRunner};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use flexi_logger::LevelFilter;
 use itertools::Itertools;
-use masq_lib::command::{Command, StdStreams};
+use masq_lib::command::{CommandConfigError, StdStreams};
+use masq_lib::shared_schema::ConfiguratorError;
 use std::collections::HashMap;
 
 pub trait RecipientsFactory {
@@ -68,11 +69,15 @@ pub struct DaemonInitializer {
     rerunner: Box<dyn Rerunner>,
 }
 
-impl Command for DaemonInitializer {
-    fn go(&mut self, streams: &mut StdStreams<'_>, _args: &[String]) -> u8 {
+impl CommandConfigError for DaemonInitializer {
+    fn go(
+        &mut self,
+        _streams: &mut StdStreams<'_>,
+        _args: &[String],
+    ) -> Result<(), ConfiguratorError> {
         if port_is_busy(self.config.ui_port) {
-            short_writeln! (streams.stderr, "There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
-            return 1;
+            let message = format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
+            return Err(ConfiguratorError::required("ui-port", message.as_str()));
         }
         let system = System::new("daemon");
         let (sender, receiver) = self.channel_factory.make();
@@ -80,7 +85,7 @@ impl Command for DaemonInitializer {
         self.bind(sender);
 
         self.split(system, receiver);
-        0
+        Ok(())
     }
 }
 
@@ -132,7 +137,7 @@ impl DaemonInitializer {
         }
     }
 
-    fn bind(&mut self, sender: Sender<HashMap<String, String>>) -> u8 {
+    fn bind(&mut self, sender: Sender<HashMap<String, String>>) {
         let launcher = LauncherReal::new(sender);
         let recipients = self
             .recipients_factory
@@ -146,8 +151,7 @@ impl DaemonInitializer {
         recipients.bind_message_subs.into_iter().for_each(|sub| {
             sub.try_send(bind_message.clone())
                 .expect("DaemonBindMessage recipient is dead")
-        });
-        0
+        })
     }
 
     fn split(&mut self, system: SystemRunner, receiver: Receiver<HashMap<String, String>>) {
@@ -379,8 +383,9 @@ mod tests {
 
         let result = subject.go(&mut holder.streams(), &[]);
 
-        assert_eq!(result, 1);
-        assert_eq! (holder.stderr.get_string(), format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?\n", port));
+        assert_eq!(result,Err(ConfiguratorError::required("ui-port",&format!("There \
+         appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", port))));
+        assert!(holder.stderr.get_string().is_empty());
     }
 
     fn make_recipients(ui_gateway: Recorder, daemon: Recorder) -> Recipients {

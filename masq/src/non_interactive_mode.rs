@@ -12,7 +12,7 @@ use crate::communications::broadcast_handler::{
 use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{NIClapFactory, NIClapFactoryReal};
 use crate::terminal_interface::TerminalWrapper;
-use masq_lib::command;
+use masq_lib::command::CommandNumeric;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 use std::io::Write;
@@ -80,7 +80,7 @@ impl Main {
     }
 }
 
-impl command::Command for Main {
+impl CommandNumeric for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let ui_port = self
             .non_interactive_clap_factory
@@ -174,7 +174,6 @@ mod tests {
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory,
     };
-    use masq_lib::command::Command;
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
