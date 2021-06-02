@@ -30,10 +30,10 @@ pub trait AutomapControl {
 struct AutomapControlRealInner {
     router_ip: IpAddr,
     transactor_idx: usize,
-    port: u16,
+    port: u16, // TODO Remove this field
 }
 
-type TransactorExperiment<T> = Box<dyn Fn (&dyn Transactor, IpAddr) -> Option<T>>;
+type TransactorExperiment<T> = Box<dyn Fn (&dyn Transactor, IpAddr) -> Result<T, AutomapError>>;
 
 pub struct AutomapControlReal {
     transactors: Vec<Box<dyn Transactor>>,
@@ -46,25 +46,15 @@ pub struct AutomapControlReal {
 impl AutomapControl for AutomapControlReal {
     fn get_public_ip (&mut self) -> Result<IpAddr, AutomapError> {
         let experiment = Box::new (move |transactor: &dyn Transactor, router_ip: IpAddr| {
-            match transactor.get_public_ip (router_ip) {
-                Ok(public_ip) => Some (public_ip),
-                Err (e) => None,
-            }
+            transactor.get_public_ip (router_ip)
         });
         let public_ip_result = match &self.inner_opt {
-            Some (inner) => self.transactors[inner.transactor_idx].get_public_ip(inner.router_ip),
+            Some (inner) => experiment (self.transactors[inner.transactor_idx].as_ref(), inner.router_ip),
             None => {
-                self.find_working_protocol::<IpAddr> (experiment)
+                self.choose_working_protocol (experiment)
             },
         };
-        if let Some(change_handler) = self.change_handler_opt.take() {
-            match (&public_ip_result, &self.inner_opt) {
-                (Ok(_), Some(inner)) => {
-                    self.transactors[inner.transactor_idx].start_change_handler(change_handler);
-                },
-                _ => (),
-            }
-        }
+        self.maybe_start_change_handler(&public_ip_result);
         public_ip_result
     }
 
@@ -72,75 +62,30 @@ impl AutomapControl for AutomapControlReal {
         &mut self,
         hole_port: u16,
     ) -> Result<u32, AutomapError> {
-        match &self.inner_opt {
-            Some (inner) => todo! ("Use what's already here"),
+        let experiment = Box::new (move |transactor: &dyn Transactor, router_ip: IpAddr| {
+            match transactor.add_mapping(router_ip, hole_port, MAPPING_LIFETIME_SECONDS) {
+                Ok(remap_after) => Ok(remap_after),
+                Err(AutomapError::PermanentLeasesOnly) => match transactor.add_permanent_mapping (router_ip, hole_port) {
+                    Ok (remap_after) => {
+                        Ok (remap_after)
+                    },
+                    Err (_) => Err(AutomapError::Unknown), // TODO Maybe log this error?
+                }
+                Err(_) => todo! ("Test-drive me"), //Err (AutomapError::Unknown), // TODO Maybe log this error?
+            }
+        });
+        let remap_after_result = match &self.inner_opt {
+            Some (inner) => experiment (self.transactors[inner.transactor_idx].as_ref(), inner.router_ip),
             None => {
-                let result = self.find_working_protocol::<u32>(Box::new (move |transactor, router_ip| {
-                    let remap_after = match transactor.add_mapping(router_ip, hole_port, MAPPING_LIFETIME_SECONDS) {
-                        Ok(remap_after) => {
-                            Some(remap_after)
-                        },
-                        Err(AutomapError::PermanentLeasesOnly) => match transactor.add_permanent_mapping (router_ip, hole_port) {
-                            Ok (remap_after) => {
-                                Some (remap_after)
-                            },
-                            Err (_) => None, // TODO Maybe log this error?
-                        }
-                        Err(_) => None, // TODO Maybe log this error?
-                    }?;
-                    Some (remap_after)
-                }));
+                let result = self.choose_working_protocol(experiment);
                 if result.is_ok() {
                     self.hole_ports.insert (hole_port); // TODO SPIKE
                 }
                 result
             }
-        }
-        // let box_change_handler = Box::new(change_handler);
-        // match protocol_opt {
-        //     Some(protocol) => {
-        //         let (_, router_ip, public_ip) = self.try_protocol(hole_port, protocol)?;
-        //         let transactor = self
-        //             .transactors
-        //             .iter_mut()
-        //             .find(|t| t.protocol() == protocol)
-        //             .unwrap_or_else(|| panic!("Missing Transactor for {}", protocol));
-        //         transactor.start_change_handler(box_change_handler)?;
-        //         self.inner_opt = Some(AutomapControlRealInner {
-        //             router_ip,
-        //             protocol,
-        //             port: hole_port,
-        //         });
-        //         Ok((protocol, public_ip))
-        //     }
-        //     None => {
-        //         let init: Option<(&mut Box<dyn Transactor>, IpAddr, IpAddr)> = None;
-        //         let result = self
-        //             .transactors
-        //             .iter_mut()
-        //             .fold(init, |so_far, transactor| match so_far {
-        //                 Some(_) => so_far,
-        //                 None => match AutomapControlReal::try_transactor(hole_port, transactor.as_ref()) {
-        //                     Ok((_, router_ip, public_ip)) => {
-        //                         Some((transactor, router_ip, public_ip))
-        //                     }
-        //                     Err(_) => None,
-        //                 },
-        //             });
-        //         match result {
-        //             Some((transactor, router_ip, public_ip)) => {
-        //                 transactor.start_change_handler(box_change_handler)?;
-        //                 self.inner_opt = Some(AutomapControlRealInner {
-        //                     router_ip,
-        //                     protocol: transactor.protocol(),
-        //                     port: hole_port,
-        //                 });
-        //                 Ok((transactor.protocol(), public_ip))
-        //             }
-        //             None => Err(AutomapError::AllProtocolsFailed),
-        //         }
-        //     }
-        // }
+        };
+        self.maybe_start_change_handler(&remap_after_result);
+        remap_after_result
     }
 
     fn delete_mappings(&self) -> Result<(), AutomapError> {
@@ -171,17 +116,67 @@ impl AutomapControlReal {
         }
     }
 
-    fn try_protocol_old(
-        &self,
-        port: u16,
-        protocol: AutomapProtocol,
-    ) -> Result<(AutomapProtocol, IpAddr, IpAddr), AutomapError> {
-        let transactor = self
-            .transactors
-            .iter()
-            .find(|t| t.protocol() == protocol)
-            .unwrap_or_else(|| panic!("Missing Transactor for {}", protocol));
-        AutomapControlReal::try_transactor(port, transactor.as_ref())
+    fn maybe_start_change_handler<T>(&mut self, experiment_result: &Result<T, AutomapError>) {
+        if let Some(change_handler) = self.change_handler_opt.take() {
+            match (experiment_result, &self.inner_opt) {
+                (Ok(_), Some(inner)) => {
+                    self.transactors[inner.transactor_idx].start_change_handler(change_handler);
+                },
+                _ => todo! ("Test-drive me"), //self.change_handler_opt = Some (change_handler),
+            }
+        }
+    }
+
+    fn find_transactor(&self, protocol: AutomapProtocol) -> &dyn Transactor {
+        self.transactors[self.find_transactor_index(protocol)].as_ref()
+    }
+
+    fn find_transactor_index(&self, protocol: AutomapProtocol) -> usize {
+        (0..self.transactors.len())
+            .into_iter()
+            .find(|idx| self.transactors[*idx].protocol() == protocol)
+            .unwrap_or_else(|| panic!("No Transactor for {}", protocol))
+    }
+
+    fn choose_working_protocol<T>(&mut self, experiment: TransactorExperiment<T>) -> Result<T, AutomapError> {
+        if let Some (usual_protocol) = self.usual_protocol_opt {
+            let transactor = self.transactors.iter()
+                .find (|t| t.protocol() == usual_protocol)
+                .expect ("Missing Transactor");
+            match Self::try_protocol (transactor, &experiment) {
+                Ok ((router_ip, t)) => {
+                    self.inner_opt = Some(AutomapControlRealInner {
+                        router_ip,
+                        transactor_idx: self.find_transactor_index(usual_protocol),
+                        port: 0, // TODO: Doesn't belong in this struct
+                    });
+                    return Ok (t)
+                },
+                Err (_) => (),
+            }
+        }
+        let init: Result<(AutomapProtocol, IpAddr, T), AutomapError> = Err(AutomapError::Unknown);
+        let protocol_router_ip_and_experimental_outcome_result = self.transactors.iter()
+            .fold(init, |so_far, transactor| {
+            match (so_far, self.usual_protocol_opt) {
+                (Ok(tuple), _) => Ok (tuple),
+                (Err (e), Some (usual_protocol)) if usual_protocol == transactor.protocol() => Err (e),
+                (Err (e), _) => Self::try_protocol (transactor, &experiment).map (|(router_ip, t)| {
+                    (transactor.protocol(), router_ip, t)
+                })
+            }
+        });
+        match protocol_router_ip_and_experimental_outcome_result {
+            Ok ((protocol, router_ip, t)) => {
+                self.inner_opt = Some(AutomapControlRealInner {
+                    router_ip,
+                    transactor_idx: self.find_transactor_index (protocol),
+                    port: 0, // TODO: Doesn't belong in this struct
+                });
+                Ok (t)
+            },
+            Err (_) => Err(AutomapError::AllProtocolsFailed),
+        }
     }
 
     fn try_transactor(
@@ -217,69 +212,17 @@ impl AutomapControlReal {
         Ok((transactor.protocol(), router_ip, public_ip))
     }
 
-    fn find_transactor(&self, protocol: AutomapProtocol) -> &dyn Transactor {
-        self.transactors[self.find_transactor_index(protocol)].as_ref()
-    }
-
-    fn find_transactor_index(&self, protocol: AutomapProtocol) -> usize {
-        (0..self.transactors.len())
-            .into_iter()
-            .find(|idx| self.transactors[*idx].protocol() == protocol)
-            .unwrap_or_else(|| panic!("No Transactor for {}", protocol))
-    }
-
-    fn find_working_protocol<T>(&mut self, experiment: TransactorExperiment<T>) -> Result<T, AutomapError> {
-        if let Some (usual_protocol) = self.usual_protocol_opt {
-            let transactor = self.transactors.iter()
-                .find (|t| t.protocol() == usual_protocol)
-                .expect ("Missing Transactor");
-            match Self::try_protocol (transactor, &experiment) {
-                Some ((router_ip, t)) => {
-                    self.inner_opt = Some(AutomapControlRealInner {
-                        router_ip,
-                        transactor_idx: self.find_transactor_index(usual_protocol),
-                        port: 0, // TODO: Doesn't belong in this struct
-                    });
-                    return Ok (t)
-                },
-                None => (),
-            }
-        }
-        let init: Option<(AutomapProtocol, IpAddr, T)> = None;
-        let protocol_router_ip_and_experimental_outcome_opt = self.transactors.iter()
-            .fold(init, |so_far, transactor| {
-            match (so_far, self.usual_protocol_opt) {
-                (Some(tuple), _) => Some (tuple),
-                (None, Some (usual_protocol)) if usual_protocol == transactor.protocol() => None,
-                (None, _) => Self::try_protocol (transactor, &experiment).map (|(router_ip, t)| {
-                    (transactor.protocol(), router_ip, t)
-                })
-            }
-        });
-        match protocol_router_ip_and_experimental_outcome_opt {
-            Some ((protocol, router_ip, t)) => {
-                self.inner_opt = Some(AutomapControlRealInner {
-                    router_ip,
-                    transactor_idx: self.find_transactor_index (protocol),
-                    port: 0, // TODO: Doesn't belong in this struct
-                });
-                Ok (t)
-            },
-            None => Err(AutomapError::AllProtocolsFailed),
-        }
-    }
-
-    fn try_protocol<T> (transactor: &Box<dyn Transactor>, experiment: &TransactorExperiment<T>) -> Option<(IpAddr, T)> {
+    fn try_protocol<T> (transactor: &Box<dyn Transactor>, experiment: &TransactorExperiment<T>) -> Result<(IpAddr, T), AutomapError> {
         let router_ips = match transactor.find_routers() {
             Ok(router_ips) if !router_ips.is_empty () => router_ips,
-            _ => return None,
+            _ => return Err (AutomapError::AllRoutersFailed(transactor.protocol())),
         };
-        let init: Option<(IpAddr, T)> = None;
+        let init: Result<(IpAddr, T), AutomapError> = Err(AutomapError::Unknown);
         router_ips.into_iter()
             .fold (init, |so_far, router_ip| {
                 match so_far {
-                    Some (tuple) => Some (tuple),
-                    None => {
+                    Ok (tuple) => Ok (tuple),
+                    Err (_) => {
                         experiment(transactor.as_ref(), router_ip)
                             .map (|t| (router_ip, t))
                     }
@@ -471,7 +414,7 @@ mod tests {
         }
     }
 
-    fn find_working_protocol_works_for_success(protocol: AutomapProtocol) {
+    fn choose_working_protocol_works_for_success(protocol: AutomapProtocol) {
         let mut subject = make_multirouter_specific_success_subject(
             protocol,
             vec![
@@ -482,12 +425,12 @@ mod tests {
         );
         let experiment: TransactorExperiment<String> = Box::new (|t, router_ip| {
             match t.get_public_ip(router_ip) {
-                Ok (_) if router_ip == *ROUTER_IP => Some ("Success!".to_string()),
-                _ => None,
+                Ok (_) if router_ip == *ROUTER_IP => Ok ("Success!".to_string()),
+                _ => Err (AutomapError::Unknown),
             }
         });
 
-        let result = subject.find_working_protocol (experiment);
+        let result = subject.choose_working_protocol (experiment);
 
         assert_eq!(result, Ok("Success!".to_string()));
         assert_eq!(subject.inner_opt.unwrap(), AutomapControlRealInner {
@@ -502,49 +445,49 @@ mod tests {
     }
 
     #[test]
-    fn find_working_protocol_works_for_pcp_success() {
-        find_working_protocol_works_for_success (AutomapProtocol::Pcp);
+    fn choose_working_protocol_works_for_pcp_success() {
+        choose_working_protocol_works_for_success (AutomapProtocol::Pcp);
     }
 
     #[test]
-    fn find_working_protocol_works_for_pmp_success() {
-        find_working_protocol_works_for_success (AutomapProtocol::Pmp);
+    fn choose_working_protocol_works_for_pmp_success() {
+        choose_working_protocol_works_for_success (AutomapProtocol::Pmp);
     }
 
     #[test]
-    fn find_working_protocol_works_for_igdp_success() {
-        find_working_protocol_works_for_success (AutomapProtocol::Igdp);
+    fn choose_working_protocol_works_for_igdp_success() {
+        choose_working_protocol_works_for_success (AutomapProtocol::Igdp);
     }
 
     #[test]
-    fn find_working_protocol_works_for_failure() {
+    fn choose_working_protocol_works_for_failure() {
         let mut subject = make_general_failure_subject();
         let experiment: TransactorExperiment<String> = Box::new (|t, router_ip| {
             match t.get_public_ip(router_ip) {
-                Err (_) => None,
+                Err (_) => Err (AutomapError::Unknown),
                 Ok (_) => panic! ("For this test, get_public_ip() should never succeed"),
             }
         });
 
-        let result = subject.find_working_protocol (experiment);
+        let result = subject.choose_working_protocol (experiment);
 
         assert_eq!(result, Err(AutomapError::AllProtocolsFailed));
     }
 
     #[test]
-    fn find_working_protocol_works_when_a_protocol_says_no_routers() {
+    fn choose_working_protocol_works_when_a_protocol_says_no_routers() {
         let mut subject = make_no_routers_subject();
         let experiment: TransactorExperiment<String> =
-            Box::new (|t, router_ip| Some ("Success!".to_string()));
+            Box::new (|t, router_ip| Ok ("Success!".to_string()));
 
-        let result = subject.find_working_protocol (experiment);
+        let result = subject.choose_working_protocol (experiment);
 
         assert_eq!(result, Err (AutomapError::AllProtocolsFailed));
         assert_eq!(subject.inner_opt, None);
     }
 
     #[test]
-    fn find_working_protocol_works_when_routers_are_found_but_the_experiment_fails_on_all_protocols() {
+    fn choose_working_protocol_works_when_routers_are_found_but_the_experiment_fails_on_all_protocols() {
         let mut subject = make_null_subject();
         subject.transactors = subject.transactors.into_iter().map (|transactor| {
             make_params_success_transactor (
@@ -555,9 +498,9 @@ mod tests {
             )
         }).collect();
         let experiment: TransactorExperiment<String> =
-            Box::new (|t, router_ip| None);
+            Box::new (|t, router_ip| Err (AutomapError::Unknown));
 
-        let result = subject.find_working_protocol (experiment);
+        let result = subject.choose_working_protocol (experiment);
 
         assert_eq!(result, Err (AutomapError::AllProtocolsFailed));
         assert_eq!(subject.inner_opt, None);
@@ -573,14 +516,14 @@ mod tests {
             Box::new (move |t, router_ip| {
                 inner_protocol_log_arc.lock().unwrap ().push (t.protocol());
                 if t.protocol() == AutomapProtocol::Pmp {
-                    Some ("Success!".to_string())
+                    Ok ("Success!".to_string())
                 }
                 else {
-                    None
+                    Err (AutomapError::Unknown)
                 }
             });
 
-        let result = subject.find_working_protocol (experiment);
+        let result = subject.choose_working_protocol (experiment);
 
         assert_eq!(result, Ok("Success!".to_string()));
         let protocol_log = outer_protocol_log_arc.lock().unwrap();
@@ -598,14 +541,14 @@ mod tests {
             Box::new (move |t, router_ip| {
                 inner_protocol_log_arc.lock().unwrap ().push (t.protocol());
                 if t.protocol() == AutomapProtocol::Pmp {
-                    Some ("Success!".to_string())
+                    Ok ("Success!".to_string())
                 }
                 else {
-                    None
+                    Err (AutomapError::Unknown)
                 }
             });
 
-        let result = subject.find_working_protocol (experiment);
+        let result = subject.choose_working_protocol (experiment);
 
         assert_eq!(result, Ok("Success!".to_string()));
         let protocol_log = outer_protocol_log_arc.lock().unwrap();
@@ -623,14 +566,14 @@ mod tests {
             Box::new (move |t, router_ip| {
                 inner_protocol_log_arc.lock().unwrap ().push (t.protocol());
                 if t.protocol() == AutomapProtocol::Igdp {
-                    Some ("Success!".to_string())
+                    Ok ("Success!".to_string())
                 }
                 else {
-                    None
+                    Err (AutomapError::Unknown)
                 }
             });
 
-        let result = subject.find_working_protocol (experiment);
+        let result = subject.choose_working_protocol (experiment);
 
         assert_eq!(result, Ok("Success!".to_string()));
         let protocol_log = outer_protocol_log_arc.lock().unwrap();
@@ -658,6 +601,7 @@ mod tests {
 
         let result = subject.get_public_ip();
 
+        assert_eq! (result, Ok(*PUBLIC_IP));
         let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         assert! (add_mapping_params_arc.lock().unwrap().is_empty());
@@ -672,11 +616,12 @@ mod tests {
     fn late_get_public_ip_does_not_start_change_handler_but_delegates_to_transactor () {
         let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
             &get_public_ip_params_arc,
             &add_mapping_params_arc,
-            &Arc::new(Mutex::new(vec![])),
+            &start_change_handler_params_arc,
         );
         subject.change_handler_opt = None;
         subject.inner_opt = Some (AutomapControlRealInner {
@@ -687,9 +632,11 @@ mod tests {
 
         let result = subject.get_public_ip();
 
+        assert_eq! (result, Ok(*PUBLIC_IP));
         let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         assert! (add_mapping_params_arc.lock().unwrap().is_empty());
+        assert! (start_change_handler_params_arc.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -712,6 +659,7 @@ mod tests {
 
         let result = subject.add_mapping (4567);
 
+        assert_eq! (result, Ok (1000));
         assert! (get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
@@ -724,12 +672,68 @@ mod tests {
 
     #[test]
     fn late_add_mapping_timed_does_not_start_change_handler_but_delegates_to_transactor () {
-        todo! ("Complete me")
+        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = make_general_success_subject(
+            AutomapProtocol::Pcp,
+            &get_public_ip_params_arc,
+            &add_mapping_params_arc,
+            &start_change_handler_params_arc,
+        );
+        subject.change_handler_opt = None;
+        subject.inner_opt = Some (AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            transactor_idx: 0,
+            port: 0
+        });
+
+        let result = subject.add_mapping (4567);
+
+        assert_eq! (result, Ok (1000));
+        assert! (get_public_ip_params_arc.lock().unwrap().is_empty());
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
+        assert! (start_change_handler_params_arc.lock().unwrap().is_empty());
     }
 
     #[test]
     fn late_add_mapping_permanent_does_not_start_change_handler_but_delegates_to_transactor () {
-        todo! ("Complete me")
+        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let add_permanent_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = make_general_success_subject(
+            AutomapProtocol::Pcp,
+            &Arc::new(Mutex::new(vec![])),
+            &Arc::new(Mutex::new(vec![])),
+            &Arc::new(Mutex::new(vec![])),
+        );
+        subject.transactors[0] = Box::new (TransactorMock::new(AutomapProtocol::Pcp)
+            .find_routers_result(Ok (vec![*ROUTER_IP]))
+            .get_public_ip_params (&get_public_ip_params_arc)
+            .add_mapping_params (&add_mapping_params_arc)
+            .add_mapping_result (Err (AutomapError::PermanentLeasesOnly))
+            .add_permanent_mapping_params (&add_permanent_mapping_params_arc)
+            .add_permanent_mapping_result(Ok (1000))
+            .start_change_handler_params (&start_change_handler_params_arc)
+        );
+        subject.change_handler_opt = None;
+        subject.inner_opt = Some (AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            transactor_idx: 0,
+            port: 0
+        });
+
+        let result = subject.add_mapping (4567);
+
+        assert_eq! (result, Ok (1000));
+        assert! (get_public_ip_params_arc.lock().unwrap().is_empty());
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
+        let add_permanent_mapping_params = add_permanent_mapping_params_arc.lock().unwrap();
+        assert_eq! (*add_permanent_mapping_params, vec![(*ROUTER_IP, 4567)]);
+        assert! (start_change_handler_params_arc.lock().unwrap().is_empty());
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////

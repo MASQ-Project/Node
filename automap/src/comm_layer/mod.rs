@@ -27,6 +27,7 @@ pub enum AutomapErrorCause {
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum AutomapError {
+    Unknown,
     NoLocalIpAddress,
     CantFindDefaultGateway,
     IPv6Unsupported(Ipv6Addr),
@@ -53,6 +54,7 @@ pub enum AutomapError {
 impl AutomapError {
     pub fn cause(&self) -> AutomapErrorCause {
         match self {
+            AutomapError::Unknown => AutomapErrorCause::Unknown("Explicitly unknown".to_string()),
             AutomapError::NoLocalIpAddress => AutomapErrorCause::NetworkConfiguration,
             AutomapError::CantFindDefaultGateway => AutomapErrorCause::ProtocolNotImplemented,
             AutomapError::IPv6Unsupported(_) => AutomapErrorCause::NetworkConfiguration,
@@ -165,6 +167,10 @@ mod tests {
     #[test]
     fn causes_work() {
         let errors_and_expectations = vec![
+            (
+                AutomapError::Unknown,
+                AutomapErrorCause::Unknown("Explicitly unknown".to_string())
+            ),
             (
                 AutomapError::NoLocalIpAddress,
                 AutomapErrorCause::NetworkConfiguration,
