@@ -3,6 +3,7 @@
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use crate::sub_lib::logger::Logger;
+use masq_lib::utils::ExpectDecent;
 use regex::Regex;
 use std::fmt::Debug;
 use std::ops::{Deref, Not};
@@ -43,7 +44,7 @@ trait MigrateDatabase: Debug {
     fn version_compatibility(&self) -> &str;
 }
 
-//define your update here and ad it to the list: 'list_of_existing_updates()'
+//define your update here and add it to this list: 'list_of_existing_updates()'
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
@@ -80,11 +81,11 @@ impl DbMigratorReal {
 
     fn make_updates<'a>(
         &self,
-        outdated_schema: &str,
+        mismatched_schema: &str,
         list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
         mut conn: Box<dyn ConnectionWrapper + 'a>,
     ) -> Result<(), String> {
-        let updates_to_process = Self::aggregated_checks(outdated_schema, list_of_updates)?;
+        let updates_to_process = Self::aggregated_checks(mismatched_schema, list_of_updates)?;
         let mut peekable_list = updates_to_process.iter().peekable();
         for _ in 0..peekable_list.len() {
             let (record, versions_in_question) = Self::process_items_from_beneath_dirty_references(
@@ -101,15 +102,16 @@ impl DbMigratorReal {
     }
 
     fn aggregated_checks<'a>(
-        outdated_schema: &str,
+        mismatched_schema: &str,
         list_of_updates: &'a [&'a (dyn MigrateDatabase + 'a)],
     ) -> Result<Vec<&'a (dyn MigrateDatabase + 'a)>, String> {
-        Self::schema_initial_validation_check(outdated_schema);
+        Self::schema_initial_validation_check(mismatched_schema);
         let updates_to_process = Self::list_validation_check(list_of_updates)
-            .skip_while(|entry| entry.version_compatibility().ne(outdated_schema))
+            .skip_while(|entry| entry.version_compatibility().ne(mismatched_schema))
             .map(|e| e.deref())
             .collect::<Vec<&(dyn MigrateDatabase + 'a)>>();
-        let _ = Self::check_the_number_of_those_remaining(updates_to_process.len())?;
+        let _ =
+            Self::check_the_number_of_those_remaining(mismatched_schema, updates_to_process.len())?;
         Ok(updates_to_process)
     }
 
@@ -117,7 +119,7 @@ impl DbMigratorReal {
         first: Option<&'a &dyn MigrateDatabase>,
         second: Option<&&&dyn MigrateDatabase>,
     ) -> (&'a dyn MigrateDatabase, String) {
-        let first = *first.expect("item disappeared");
+        let first = *first.expect_decent("migration record");
         let second_by_its_name = if let Some(next) = second {
             next.version_compatibility()
         } else {
@@ -133,9 +135,12 @@ impl DbMigratorReal {
         )
     }
 
-    fn check_the_number_of_those_remaining(count: usize) -> Result<(), String> {
+    fn check_the_number_of_those_remaining(
+        mismatched_schema: &str,
+        count: usize,
+    ) -> Result<(), String> {
         match count {
-            0 => Err(format!("Your database claims to be of a more advanced version than {} which is the last time released",CURRENT_SCHEMA_VERSION)),
+            0 => Err(format!("Database claims to be more advanced ({}) than the version {} which is the latest released.", mismatched_schema, CURRENT_SCHEMA_VERSION)),
             _ => Ok(())
         }
     }
@@ -274,7 +279,7 @@ mod tests {
             Box::new(ConnectionWrapperMock::default()),
         );
 
-        assert_eq!(result,Err(format!("Your database claims to be of a more advanced version than {} which is the last time released",CURRENT_SCHEMA_VERSION)))
+        assert_eq!(result,Err(format!("Database claims to be more advanced ({}) than the version {} which is the latest released.",too_advanced,CURRENT_SCHEMA_VERSION)))
     }
 
     #[test]

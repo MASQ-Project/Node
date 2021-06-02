@@ -68,8 +68,8 @@ impl DbInitializer for DbInitializerReal {
                     (path, chain_id),
                     migrator,
                 ) {
-                    Ok(OkFromCV::ConnectionWrapper(cw)) => Ok(cw),
-                    Ok(OkFromCV::Connection(conn)) => {
+                    Ok(CheckVersionOk::ConnectionWrapper(cw)) => Ok(cw),
+                    Ok(CheckVersionOk::Connection(conn)) => {
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
                     Err(e) => Err(e),
@@ -277,7 +277,7 @@ impl DbInitializerReal {
         version: Option<&Option<String>>,
         arguments_for_initialize_db: (&Path, u8),
         migrator: Box<dyn DbMigrator>,
-    ) -> Result<OkFromCV, InitializationError> {
+    ) -> Result<CheckVersionOk, InitializationError> {
         match version {
             None => Err(InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
@@ -289,15 +289,15 @@ impl DbInitializerReal {
             ))),
             Some(Some(v_from_db)) => {
                 if *v_from_db == CURRENT_SCHEMA_VERSION {
-                    Ok(OkFromCV::Connection(conn))
+                    Ok(CheckVersionOk::Connection(conn))
                 } else {
-                    eprintln!("Database is obsolete and its updating is necessary");
+                    eprintln!("Database is incompatible and its updating is necessary");
                     let (dir_path, chain_id) = arguments_for_initialize_db;
                     let wrapped_connection = ConnectionWrapperReal::new(conn);
                     match migrator.migrate_database(v_from_db, Box::new(wrapped_connection)) {
                         Ok(_) => self
                             .initialize(dir_path, chain_id, false)
-                            .map(|result| OkFromCV::ConnectionWrapper(result)),
+                            .map(|result| CheckVersionOk::ConnectionWrapper(result)),
                         Err(e) => Err(InitializationError::DbMigrationError(e)),
                     }
                 }
@@ -344,7 +344,7 @@ impl DbInitializerReal {
     }
 }
 
-enum OkFromCV {
+enum CheckVersionOk {
     Connection(Connection),
     ConnectionWrapper(Box<dyn ConnectionWrapper>),
 }
