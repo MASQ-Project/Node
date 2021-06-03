@@ -8,7 +8,7 @@ use crate::node_configurator::node_configurator_standard::NodeConfiguratorStanda
 use crate::node_configurator::NodeConfigurator;
 use crate::node_configurator::RealDirsWrapper;
 use crate::sub_lib;
-use crate::sub_lib::socket_server::SocketServer;
+use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
 use chrono::{DateTime, Local};
 use flexi_logger::LogSpecBuilder;
@@ -29,8 +29,8 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 
 pub struct ServerInitializer {
-    dns_socket_server: Box<dyn SocketServer<(), Item = (), Error = ()>>,
-    bootstrapper: Box<dyn SocketServer<BootstrapperConfig, Item = (), Error = ()>>,
+    dns_socket_server: Box<dyn ConfiguredByPrivilege<(), Item = (), Error = ()>>,
+    bootstrapper: Box<dyn ConfiguredByPrivilege<BootstrapperConfig, Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
 }
 
@@ -428,7 +428,7 @@ pub mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
 
-    impl<C> SocketServer<C> for CrashTestDummy<C>
+    impl<C> ConfiguredByPrivilege<C> for CrashTestDummy<C>
     where
         C: Send,
     {
@@ -470,7 +470,7 @@ pub mod tests {
         }
     }
 
-    impl<C> SocketServer<C> for SocketServerMock<C>
+    impl<C> ConfiguredByPrivilege<C> for SocketServerMock<C>
     where
         C: Send,
     {

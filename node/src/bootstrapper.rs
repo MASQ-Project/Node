@@ -31,7 +31,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::socket_server::SocketServer;
+use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::wallet::Wallet;
 use futures::try_ready;
@@ -383,7 +383,7 @@ impl Future for Bootstrapper {
     }
 }
 
-impl SocketServer<BootstrapperConfig> for Bootstrapper {
+impl ConfiguredByPrivilege<BootstrapperConfig> for Bootstrapper {
     fn get_configuration(&self) -> &BootstrapperConfig {
         &self.config
     }

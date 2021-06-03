@@ -4,7 +4,7 @@ use masq_lib::shared_schema::ConfiguratorError;
 use std::marker::Send;
 use tokio::prelude::Future;
 
-pub trait SocketServer<C>: Send + Future<Item = (), Error = ()> {
+pub trait ConfiguredByPrivilege<C>: Send + Future<Item = (), Error = ()> {
     fn get_configuration(&self) -> &C;
     fn initialize_as_privileged(
         &mut self,

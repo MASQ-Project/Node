@@ -4,7 +4,7 @@ use crate::daemon::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal
 use crate::daemon::ChannelFactoryReal;
 use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
-use crate::node_configurator::{NodeConfigurator, RealDirsWrapper, WalletCreationConfig};
+use crate::node_configurator::{NodeConfigurator, RealDirsWrapper};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::server_initializer::{LoggerInitializerWrapperReal, ServerInitializer};
 use actix::System;
@@ -55,8 +55,8 @@ impl RunModes {
         }
         match match mode {
             Mode::DumpConfig => self.runner.dump_config(args, streams),
-            Mode::Initialization => self.runner.initialization(args, streams),
-            Mode::Service => self.runner.run_service(args, streams),
+            Mode::Initialization => self.runner.run_daemon(args, streams),
+            Mode::Service => self.runner.run_node(args, streams),
         } {
             Ok(exit_code) => exit_code,
             Err(e) => {
@@ -73,16 +73,6 @@ impl RunModes {
             }
         }
     }
-
-    // if let Err(conf_err) = result {
-    // conf_err.param_errors.into_iter().for_each(|param_error| {
-    // short_writeln!(
-    // streams.stderr,
-    // "Problem with parameter {}: {}",
-    // param_error.parameter,
-    // param_error.reason
-    // )
-    // });
 
     fn args_contain_help_or_version(args: &[String]) -> bool {
         args.contains(&"--help".to_string())
@@ -126,7 +116,7 @@ impl RunModes {
 }
 
 trait Runner {
-    fn run_service(
+    fn run_node(
         &self,
         args: &[String],
         streams: &mut StdStreams<'_>,
@@ -136,24 +126,17 @@ trait Runner {
         args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError>;
-    fn initialization(
+    fn run_daemon(
         &self,
         args: &[String],
         streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError>;
-    fn configuration_run(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-        configurator: &dyn NodeConfigurator<WalletCreationConfig>,
-        privilege_dropper: &dyn PrivilegeDropper,
     ) -> Result<i32, ConfiguratorError>;
 }
 
 struct RunnerReal {}
 
 impl Runner for RunnerReal {
-    fn run_service(
+    fn run_node(
         &self,
         args: &[String],
         streams: &mut StdStreams<'_>,
@@ -178,7 +161,7 @@ impl Runner for RunnerReal {
         config_dumper::dump_config(args, streams)
     }
 
-    fn initialization(
+    fn run_daemon(
         &self,
         args: &[String],
         streams: &mut StdStreams<'_>,
@@ -195,19 +178,6 @@ impl Runner for RunnerReal {
         );
         initializer.go(streams, args)?;
         Ok(1)
-    }
-
-    fn configuration_run(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-        configurator: &dyn NodeConfigurator<WalletCreationConfig>,
-        _privilege_dropper: &dyn PrivilegeDropper,
-    ) -> Result<i32, ConfiguratorError> {
-        match configurator.configure(args, streams) {
-            Ok(_) => Ok(0),
-            Err(e) => Err(e),
-        }
     }
 }
 
@@ -226,24 +196,22 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     pub struct RunnerMock {
-        run_service_params: Arc<Mutex<Vec<Vec<String>>>>,
-        run_service_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
+        run_node_params: Arc<Mutex<Vec<Vec<String>>>>,
+        run_node_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
         dump_config_params: Arc<Mutex<Vec<Vec<String>>>>,
         dump_config_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
-        initialization_params: Arc<Mutex<Vec<Vec<String>>>>,
-        initialization_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
-        configuration_run_params: Arc<Mutex<Vec<Vec<String>>>>,
-        configuration_run_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
+        run_daemon_params: Arc<Mutex<Vec<Vec<String>>>>,
+        run_daemon_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
     }
 
     impl Runner for RunnerMock {
-        fn run_service(
+        fn run_node(
             &self,
             args: &[String],
             _streams: &mut StdStreams<'_>,
         ) -> Result<i32, ConfiguratorError> {
-            self.run_service_params.lock().unwrap().push(args.to_vec());
-            self.run_service_results.borrow_mut().remove(0)
+            self.run_node_params.lock().unwrap().push(args.to_vec());
+            self.run_node_results.borrow_mut().remove(0)
         }
 
         fn dump_config(
@@ -255,30 +223,13 @@ mod tests {
             self.dump_config_results.borrow_mut().remove(0)
         }
 
-        fn initialization(
+        fn run_daemon(
             &self,
             args: &[String],
             _streams: &mut StdStreams<'_>,
         ) -> Result<i32, ConfiguratorError> {
-            self.initialization_params
-                .lock()
-                .unwrap()
-                .push(args.to_vec());
-            self.initialization_results.borrow_mut().remove(0)
-        }
-
-        fn configuration_run(
-            &self,
-            args: &[String],
-            _streams: &mut StdStreams<'_>,
-            _configurator: &dyn NodeConfigurator<WalletCreationConfig>,
-            _privilege_dropper: &dyn PrivilegeDropper,
-        ) -> Result<i32, ConfiguratorError> {
-            self.configuration_run_params
-                .lock()
-                .unwrap()
-                .push(args.to_vec());
-            self.configuration_run_results.borrow_mut().remove(0)
+            self.run_daemon_params.lock().unwrap().push(args.to_vec());
+            self.run_daemon_results.borrow_mut().remove(0)
         }
     }
 
@@ -286,24 +237,22 @@ mod tests {
     impl RunnerMock {
         pub fn new() -> Self {
             Self {
-                run_service_params: Arc::new(Mutex::new(vec![])),
-                run_service_results: RefCell::new(vec![]),
+                run_node_params: Arc::new(Mutex::new(vec![])),
+                run_node_results: RefCell::new(vec![]),
                 dump_config_params: Arc::new(Mutex::new(vec![])),
                 dump_config_results: RefCell::new(vec![]),
-                initialization_params: Arc::new(Mutex::new(vec![])),
-                initialization_results: RefCell::new(vec![]),
-                configuration_run_params: Arc::new(Mutex::new(vec![])),
-                configuration_run_results: RefCell::new(vec![]),
+                run_daemon_params: Arc::new(Mutex::new(vec![])),
+                run_daemon_results: RefCell::new(vec![]),
             }
         }
 
-        pub fn run_service_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
-            self.run_service_params = params.clone();
+        pub fn run_node_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+            self.run_node_params = params.clone();
             self
         }
 
-        pub fn run_service_result(self, result: Result<i32, ConfiguratorError>) -> Self {
-            self.run_service_results.borrow_mut().push(result);
+        pub fn run_node_result(self, result: Result<i32, ConfiguratorError>) -> Self {
+            self.run_node_results.borrow_mut().push(result);
             self
         }
 
@@ -317,23 +266,13 @@ mod tests {
             self
         }
 
-        pub fn initialization_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
-            self.initialization_params = params.clone();
+        pub fn run_daemon_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+            self.run_daemon_params = params.clone();
             self
         }
 
-        pub fn initialization_result(self, result: Result<i32, ConfiguratorError>) -> Self {
-            self.initialization_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn configuration_run_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
-            self.configuration_run_params = params.clone();
-            self
-        }
-
-        pub fn configuration_run_result(self, result: Result<i32, ConfiguratorError>) -> Self {
-            self.configuration_run_results.borrow_mut().push(result);
+        pub fn run_daemon_result(self, result: Result<i32, ConfiguratorError>) -> Self {
+            self.run_daemon_results.borrow_mut().push(result);
             self
         }
     }
@@ -383,27 +322,37 @@ mod tests {
     fn privilege_mismatch_messages() {
         let service_yes = RunModes::privilege_mismatch_message(&Mode::Service, true);
         let dump_config_no = RunModes::privilege_mismatch_message(&Mode::DumpConfig, false);
+        let initialization_yes = RunModes::privilege_mismatch_message(&Mode::Initialization, true);
 
         assert_eq!(
             service_yes,
             "MASQNode in Service mode must run with root privilege; try sudo\n"
         );
         assert_eq! (dump_config_no, "MASQNode in DumpConfig mode does not require root privilege; try without sudo next time\n");
+        assert_eq!(
+            initialization_yes,
+            "MASQNode in Initialization mode must run with root privilege; try sudo\n"
+        )
     }
 
     #[cfg(target_os = "windows")]
     #[test]
     fn privilege_mismatch_messages() {
-        let service_yes = RunModes::privilege_mismatch_message(&Mode::Service, true);
+        let node_yes = RunModes::privilege_mismatch_message(&Mode::Service, true);
         let dump_config_no = RunModes::privilege_mismatch_message(&Mode::DumpConfig, false);
+        let initialization_yes = RunModes::privilege_mismatch_message(&Mode::Initialization, true);
 
         assert_eq!(
-            service_yes,
+            node_yes,
             "MASQNode.exe in Service mode must run as Administrator.\n"
         );
         assert_eq!(
             dump_config_no,
             "MASQNode.exe in DumpConfig mode does not require Administrator privilege.\n"
+        );
+        assert_eq!(
+            initialization_yes,
+            "MASQNode.exe in Initialization mode must run with root privilege; try sudo\n"
         );
     }
 
@@ -429,7 +378,7 @@ parm2 - msg2\n"
     }
 
     #[test]
-    fn initialization_and_service_modes_complain_without_privilege() {
+    fn daemon_and_node_modes_complain_without_privilege() {
         let mut subject = RunModes::new();
         subject.runner = Box::new(RunnerMock::new()); // No prepared results: any calls to this will cause panics
         let params_arc = Arc::new(Mutex::new(vec![]));
@@ -438,25 +387,25 @@ parm2 - msg2\n"
             .expect_privilege_result(false)
             .expect_privilege_result(false);
         subject.privilege_dropper = Box::new(privilege_dropper);
-        let mut initialization_holder = FakeStreamHolder::new();
-        let mut service_mode_holder = FakeStreamHolder::new();
+        let mut daemon_stream_holder = FakeStreamHolder::new();
+        let mut node_stream_holder = FakeStreamHolder::new();
 
         let initialization_exit_code = subject.go(
             &["--initialization".to_string()],
-            &mut initialization_holder.streams(),
+            &mut daemon_stream_holder.streams(),
         );
-        let service_mode_exit_code = subject.go(&[], &mut service_mode_holder.streams());
+        let service_mode_exit_code = subject.go(&[], &mut node_stream_holder.streams());
 
         assert_eq!(initialization_exit_code, 1);
-        assert_eq!(initialization_holder.stdout.get_string(), "");
+        assert_eq!(daemon_stream_holder.stdout.get_string(), "");
         assert_eq!(
-            initialization_holder.stderr.get_string(),
+            daemon_stream_holder.stderr.get_string(),
             RunModes::privilege_mismatch_message(&Mode::Initialization, true)
         );
         assert_eq!(service_mode_exit_code, 1);
-        assert_eq!(service_mode_holder.stdout.get_string(), "");
+        assert_eq!(node_stream_holder.stdout.get_string(), "");
         assert_eq!(
-            service_mode_holder.stderr.get_string(),
+            node_stream_holder.stderr.get_string(),
             RunModes::privilege_mismatch_message(&Mode::Service, true)
         );
         let params = params_arc.lock().unwrap();
@@ -464,16 +413,16 @@ parm2 - msg2\n"
     }
 
     #[test]
-    fn initialization_and_service_modes_do_not_complain_without_privilege_for_help_and_version() {
+    fn daemon_and_node_modes_do_not_complain_without_privilege_for_help_and_version() {
         let mut subject = RunModes::new();
         let run_params_arc = Arc::new(Mutex::new(vec![]));
         let runner = RunnerMock::new()
-            .run_service_params(&run_params_arc)
-            .run_service_result(Ok(0))
-            .run_service_result(Ok(0))
-            .initialization_params(&run_params_arc)
-            .initialization_result(Ok(0))
-            .initialization_result(Ok(0));
+            .run_node_params(&run_params_arc)
+            .run_node_result(Ok(0))
+            .run_node_result(Ok(0))
+            .run_daemon_params(&run_params_arc)
+            .run_daemon_result(Ok(0))
+            .run_daemon_result(Ok(0));
         subject.runner = Box::new(runner);
         let priv_params_arc = Arc::new(Mutex::new(vec![]));
         let privilege_dropper = PrivilegeDropperMock::new()
@@ -483,40 +432,34 @@ parm2 - msg2\n"
             .expect_privilege_result(false)
             .expect_privilege_result(false);
         subject.privilege_dropper = Box::new(privilege_dropper);
-        let mut initialization_h_holder = FakeStreamHolder::new();
-        let mut initialization_v_holder = FakeStreamHolder::new();
-        let mut service_mode_h_holder = FakeStreamHolder::new();
-        let mut service_mode_v_holder = FakeStreamHolder::new();
+        let mut daemon_h_holder = FakeStreamHolder::new();
+        let mut daemon_v_holder = FakeStreamHolder::new();
+        let mut node_h_holder = FakeStreamHolder::new();
+        let mut node_v_holder = FakeStreamHolder::new();
 
-        let initialization_h_exit_code = subject.go(
+        let daemon_h_exit_code = subject.go(
             &["--initialization".to_string(), "--help".to_string()],
-            &mut initialization_h_holder.streams(),
+            &mut daemon_h_holder.streams(),
         );
-        let initialization_v_exit_code = subject.go(
+        let daemon_v_exit_code = subject.go(
             &["--initialization".to_string(), "--version".to_string()],
-            &mut initialization_v_holder.streams(),
+            &mut daemon_v_holder.streams(),
         );
-        let service_mode_h_exit_code = subject.go(
-            &["--help".to_string()],
-            &mut service_mode_h_holder.streams(),
-        );
-        let service_mode_v_exit_code = subject.go(
-            &["--version".to_string()],
-            &mut service_mode_v_holder.streams(),
-        );
+        let node_h_exit_code = subject.go(&["--help".to_string()], &mut node_h_holder.streams());
+        let node_v_exit_code = subject.go(&["--version".to_string()], &mut node_v_holder.streams());
 
-        assert_eq!(initialization_h_exit_code, 0);
-        assert_eq!(initialization_v_exit_code, 0);
-        assert_eq!(initialization_h_holder.stdout.get_string(), "");
-        assert_eq!(initialization_h_holder.stderr.get_string(), "");
-        assert_eq!(initialization_v_holder.stdout.get_string(), "");
-        assert_eq!(initialization_v_holder.stderr.get_string(), "");
-        assert_eq!(service_mode_h_exit_code, 0);
-        assert_eq!(service_mode_v_exit_code, 0);
-        assert_eq!(service_mode_h_holder.stdout.get_string(), "");
-        assert_eq!(service_mode_h_holder.stderr.get_string(), "");
-        assert_eq!(service_mode_v_holder.stdout.get_string(), "");
-        assert_eq!(service_mode_v_holder.stderr.get_string(), "");
+        assert_eq!(daemon_h_exit_code, 0);
+        assert_eq!(daemon_v_exit_code, 0);
+        assert_eq!(daemon_h_holder.stdout.get_string(), "");
+        assert_eq!(daemon_h_holder.stderr.get_string(), "");
+        assert_eq!(daemon_v_holder.stdout.get_string(), "");
+        assert_eq!(daemon_v_holder.stderr.get_string(), "");
+        assert_eq!(node_h_exit_code, 0);
+        assert_eq!(node_v_exit_code, 0);
+        assert_eq!(node_h_holder.stdout.get_string(), "");
+        assert_eq!(node_h_holder.stderr.get_string(), "");
+        assert_eq!(node_v_holder.stdout.get_string(), "");
+        assert_eq!(node_v_holder.stderr.get_string(), "");
         let params = priv_params_arc.lock().unwrap();
         assert_eq!(*params, vec![true, true, true, true]);
         let params = run_params_arc.lock().unwrap();
@@ -532,15 +475,12 @@ parm2 - msg2\n"
     }
 
     #[test]
-    fn modes_other_than_initialization_and_service_mention_privilege_but_do_not_abort() {
+    fn modes_other_than_daemon_and_node_mention_privilege_but_do_not_abort() {
         let mut subject = RunModes::new();
         let runner_params_arc = Arc::new(Mutex::new(vec![]));
         let runner = RunnerMock::new()
             .dump_config_params(&runner_params_arc)
-            .dump_config_result(Ok(0))
-            .configuration_run_params(&runner_params_arc)
-            .configuration_run_result(Ok(0))
-            .configuration_run_result(Ok(0));
+            .dump_config_result(Ok(0));
         subject.runner = Box::new(runner);
         let dropper_params_arc = Arc::new(Mutex::new(vec![]));
         let privilege_dropper = PrivilegeDropperMock::new()

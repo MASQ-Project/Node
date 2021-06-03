@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::socket_server::SocketServer;
+use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use masq_lib::command::StdStreams;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
@@ -50,7 +50,7 @@ impl Future for DnsSocketServer {
     }
 }
 
-impl SocketServer<()> for DnsSocketServer {
+impl ConfiguredByPrivilege<()> for DnsSocketServer {
     fn get_configuration(&self) -> &() {
         &()
     }
