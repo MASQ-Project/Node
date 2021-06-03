@@ -14,7 +14,7 @@ const THE_EARLIEST_ENTRY_IN_THE_LIST_OF_DB_MIGRATIONS: &str = "0.0.10";
 pub trait DbMigrator {
     fn migrate_database(
         &self,
-        outdated_schema: &str,
+        mismatched_schema: &str,
         conn: Box<dyn ConnectionWrapper>,
     ) -> Result<(), String>;
 }
@@ -26,10 +26,10 @@ pub struct DbMigratorReal {
 impl DbMigrator for DbMigratorReal {
     fn migrate_database(
         &self,
-        outdated_schema: &str,
+        mismatched_schema: &str,
         conn: Box<dyn ConnectionWrapper>,
     ) -> Result<(), String> {
-        self.make_updates(outdated_schema, Self::list_of_existing_updates(), conn)
+        self.make_updates(mismatched_schema, Self::list_of_existing_updates(), conn)
     }
 }
 
@@ -127,11 +127,7 @@ impl DbMigratorReal {
         };
         (
             first,
-            format!(
-                "from version {} to {}",
-                first.version_compatibility(),
-                second_by_its_name
-            ),
+            Self::identification_of_versions(first.version_compatibility(), second_by_its_name),
         )
     }
 
@@ -153,6 +149,10 @@ impl DbMigratorReal {
         let error_message = format!("Updating database {} failed: {:?}", versions, error);
         warning!(self.logger, "{}", &error_message);
         Err(error_message)
+    }
+
+    fn identification_of_versions(first: &str, second: &str) -> String {
+        format!("from version {} to {}", first, second)
     }
 
     fn log_success(&self, versions: &str) {
@@ -191,26 +191,26 @@ impl DbMigratorReal {
     fn str_version_numeric_transcription(version: &str) -> Vec<u32> {
         version
             .split('.')
-            .map(|section| section.parse::<u32>().unwrap())
+            .map(|section| section.parse::<u32>().expect_decent("pre-checked form"))
             .collect::<Vec<u32>>()
     }
 
-    fn schema_initial_validation_check(outdated_schema: &str) {
+    fn schema_initial_validation_check(mismatched_schema: &str) {
         if Regex::new(r"\d+\.\d+\.\d+")
             .expect("regex failed")
-            .is_match(outdated_schema)
+            .is_match(mismatched_schema)
             .not()
         {
-            panic!("Database is corrupted: current schema")
+            panic!("Database is corrupted: schema version syntax")
         };
         if Self::compare_set_of_numbers(
-            outdated_schema,
+            mismatched_schema,
             THE_EARLIEST_ENTRY_IN_THE_LIST_OF_DB_MIGRATIONS,
-        ) && outdated_schema.ne(THE_EARLIEST_ENTRY_IN_THE_LIST_OF_DB_MIGRATIONS)
+        ) && mismatched_schema.ne(THE_EARLIEST_ENTRY_IN_THE_LIST_OF_DB_MIGRATIONS)
         {
             panic!("Database version is too low and incompatible with any official version: database corrupted")
         };
-        if outdated_schema.eq(CURRENT_SCHEMA_VERSION) {
+        if mismatched_schema.eq(CURRENT_SCHEMA_VERSION) {
             panic!("Ordered to update the database but already up to date")
         };
         //check for a too high version is placed further
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Database is corrupted: current schema")]
+    #[should_panic(expected = "Database is corrupted: schema version syntax")]
     fn validation_check_panics_if_the_given_schema_has_wrong_syntax() {
         let _ = DbMigratorReal::schema_initial_validation_check("0.xx.5");
     }

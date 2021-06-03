@@ -62,18 +62,7 @@ impl DbInitializer for DbInitializerReal {
                 eprintln!("Opened existing database at {:?}", database_file_path);
                 let config = self.extract_configurations(&conn);
                 let migrator = Box::new(DbMigratorReal::default());
-                match self.check_version(
-                    conn,
-                    config.get("schema_version"),
-                    (path, chain_id),
-                    migrator,
-                ) {
-                    Ok(CheckVersionOk::ConnectionWrapper(cw)) => Ok(cw),
-                    Ok(CheckVersionOk::Connection(conn)) => {
-                        Ok(Box::new(ConnectionWrapperReal::new(conn)))
-                    }
-                    Err(e) => Err(e),
-                }
+                self.check_version(conn, config.get("schema_version"), path, chain_id, migrator)
             }
             Err(_) => {
                 let mut flags = OpenFlags::empty();
@@ -275,9 +264,10 @@ impl DbInitializerReal {
         &self,
         conn: Connection,
         version: Option<&Option<String>>,
-        arguments_for_initialize_db: (&Path, u8),
+        dir_path: &Path,
+        chain_id: u8,
         migrator: Box<dyn DbMigrator>,
-    ) -> Result<CheckVersionOk, InitializationError> {
+    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         match version {
             None => Err(InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
@@ -289,15 +279,12 @@ impl DbInitializerReal {
             ))),
             Some(Some(v_from_db)) => {
                 if *v_from_db == CURRENT_SCHEMA_VERSION {
-                    Ok(CheckVersionOk::Connection(conn))
+                    Ok(Box::new(ConnectionWrapperReal::new(conn)))
                 } else {
                     eprintln!("Database is incompatible and its updating is necessary");
-                    let (dir_path, chain_id) = arguments_for_initialize_db;
                     let wrapped_connection = ConnectionWrapperReal::new(conn);
                     match migrator.migrate_database(v_from_db, Box::new(wrapped_connection)) {
-                        Ok(_) => self
-                            .initialize(dir_path, chain_id, false)
-                            .map(|result| CheckVersionOk::ConnectionWrapper(result)),
+                        Ok(_) => self.initialize(dir_path, chain_id, false),
                         Err(e) => Err(InitializationError::DbMigrationError(e)),
                     }
                 }
@@ -344,11 +331,6 @@ impl DbInitializerReal {
     }
 }
 
-enum CheckVersionOk {
-    Connection(Connection),
-    ConnectionWrapper(Box<dyn ConnectionWrapper>),
-}
-
 pub fn connection_or_panic(
     db_initializer: &dyn DbInitializer,
     path: &Path,
@@ -378,11 +360,11 @@ pub mod test_utils {
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
         prepare_parameters: Arc<Mutex<Vec<String>>>,
-        prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-        transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
-        execute_results: RefCell<Vec<rusqlite::Result<usize>>>,
+        prepare_results: Arc<Mutex<Vec<Result<Statement<'a>, Error>>>>,
+        transaction_results: Arc<Mutex<Vec<Result<Transaction<'b>, Error>>>>,
+        execute_results: Arc<Mutex<Vec<rusqlite::Result<usize>>>>,
         execute_parameters: RefCell<Arc<Mutex<Vec<String>>>>,
-        execute_upon_transaction_results: RefCell<Vec<rusqlite::Result<Transaction<'b>>>>,
+        execute_upon_transaction_results: Arc<Mutex<Vec<rusqlite::Result<Transaction<'b>>>>>,
         execute_upon_transaction_params: RefCell<Arc<Mutex<Vec<Vec<String>>>>>,
     }
 
@@ -390,17 +372,17 @@ pub mod test_utils {
 
     impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
-            self.prepare_results.borrow_mut().push(result);
+            self.prepare_results.lock().unwrap().push(result);
             self
         }
 
         pub fn transaction_result(self, result: Result<Transaction<'b>, Error>) -> Self {
-            self.transaction_results.borrow_mut().push(result);
+            self.transaction_results.lock().unwrap().push(result);
             self
         }
 
         pub fn execute_result(self, result: rusqlite::Result<usize>) -> Self {
-            self.execute_results.borrow_mut().push(result);
+            self.execute_results.lock().unwrap().push(result);
             self
         }
 
@@ -414,7 +396,8 @@ pub mod test_utils {
             result: rusqlite::Result<Transaction<'b>>,
         ) -> Self {
             self.execute_upon_transaction_results
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .push(result);
             self
         }
@@ -431,11 +414,11 @@ pub mod test_utils {
                 .lock()
                 .unwrap()
                 .push(String::from(query));
-            self.prepare_results.borrow_mut().remove(0)
+            self.prepare_results.lock().unwrap().remove(0)
         }
 
         fn transaction<'x: 'y, 'y>(&'x mut self) -> Result<Transaction<'y>, Error> {
-            self.transaction_results.borrow_mut().remove(0)
+            self.transaction_results.lock().unwrap().remove(0)
         }
 
         fn execute(&self, statement: &str) -> rusqlite::Result<usize> {
@@ -444,7 +427,7 @@ pub mod test_utils {
                 .lock()
                 .unwrap()
                 .push(statement.to_string());
-            self.execute_results.borrow_mut().remove(0)
+            self.execute_results.lock().unwrap().remove(0)
         }
 
         fn execute_upon_transaction<'x: 'y, 'y>(
@@ -461,7 +444,10 @@ pub mod test_utils {
                         .map(|item| item.to_string())
                         .collect::<Vec<String>>(),
                 );
-            self.execute_upon_transaction_results.borrow_mut().remove(0)
+            self.execute_upon_transaction_results
+                .lock()
+                .unwrap()
+                .remove(0)
         }
     }
 
@@ -737,11 +723,11 @@ mod tests {
     }
 
     #[test]
-    fn existing_database_with_the_wrong_version_goes_to_migrator_and_is_happily_migrated_to_upper_versions(
+    fn existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_migrated_to_upper_versions(
     ) {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "existing_database_with_the_wrong_version_goes_to_migrator_and_is_happily_migrated_to_upper_versions",
+            "existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_migrated_to_upper_versions",
         );
         {
             let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
@@ -776,7 +762,8 @@ mod tests {
         let result = subject.check_version(
             conn,
             Some(&Some("0.0.10".to_string())),
-            (&home_dir, 2),
+            &home_dir,
+            2,
             migrator,
         );
 

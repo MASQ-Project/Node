@@ -92,21 +92,21 @@ mod test_mod {
     use crate::database::MappingProtocol;
 
     #[test]
-    fn from_str_to_pmp_matches_correctly() {
+    fn from_string_to_pmp_matches_correctly() {
         let result: MappingProtocol = "1".to_string().into();
 
         assert_eq!(result, MappingProtocol::Pmp)
     }
 
     #[test]
-    fn from_str_to_pcp_matches_correctly() {
+    fn from_string_to_pcp_matches_correctly() {
         let result: MappingProtocol = "2".to_string().into();
 
         assert_eq!(result, MappingProtocol::Pcp)
     }
 
     #[test]
-    fn from_str_to_igdp_matches_correctly() {
+    fn from_string_to_igdp_matches_correctly() {
         let result: MappingProtocol = "3".to_string().into();
 
         assert_eq!(result, MappingProtocol::Igdp)
@@ -125,21 +125,21 @@ mod test_mod {
     }
 
     #[test]
-    fn from_pmp_to_str_matches_correctly() {
+    fn from_pmp_to_string_matches_correctly() {
         let result: MappingProtocol = "1".to_string().into();
 
         assert_eq!(result, MappingProtocol::Pmp)
     }
 
     #[test]
-    fn from_pcp_to_str_matches_correctly() {
+    fn from_pcp_to_string_matches_correctly() {
         let result: MappingProtocol = "2".to_string().into();
 
         assert_eq!(result, MappingProtocol::Pcp)
     }
 
     #[test]
-    fn from_igdp_to_str_matches_correctly() {
+    fn from_igdp_to_string_matches_correctly() {
         let result: MappingProtocol = "3".to_string().into();
 
         assert_eq!(result, MappingProtocol::Igdp)

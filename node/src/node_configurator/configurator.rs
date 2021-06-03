@@ -18,6 +18,7 @@ use masq_lib::ui_gateway::{
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::database::MappingProtocol;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -35,6 +36,7 @@ use masq_lib::constants::{
     ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
     NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
+use masq_lib::utils::ExpectDecent;
 use rustc_hex::ToHex;
 use std::str::FromStr;
 
@@ -523,7 +525,7 @@ impl Configurator {
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
-                .map(|version| String::from(version).parse::<u16>().unwrap());
+                .map(Self::from_mapping_protocol_to_number_id);
         let (mnemonic_seed_opt, past_neighbors) = match good_password {
             Some(password) => {
                 let mnemonic_seed_opt = Self::value_not_required(
@@ -599,6 +601,12 @@ impl Configurator {
             ));
         }
         Ok(())
+    }
+
+    fn from_mapping_protocol_to_number_id(protocol: MappingProtocol) -> u16 {
+        String::from(protocol)
+            .parse::<u16>()
+            .expect_decent("protocol numeric representation")
     }
 
     fn handle_set_configuration(
