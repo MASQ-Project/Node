@@ -4,9 +4,12 @@ use super::privilege_drop::PrivilegeDropper;
 use super::privilege_drop::PrivilegeDropperReal;
 use crate::bootstrapper::{BootstrapperConfig, RealUser};
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
-use crate::node_configurator::node_configurator_standard::NodeConfiguratorStandardPrivileged;
-use crate::node_configurator::NodeConfigurator;
+use crate::node_configurator::node_configurator_standard::standard::make_service_mode_multi_config;
+use crate::node_configurator::node_configurator_standard::{
+    app, NodeConfiguratorStandardPrivileged,
+};
 use crate::node_configurator::RealDirsWrapper;
+use crate::node_configurator::{DirsWrapper, NodeConfigurator};
 use crate::sub_lib;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
@@ -29,9 +32,10 @@ use tokio::prelude::Async;
 use tokio::prelude::Future;
 
 pub struct ServerInitializer {
-    dns_socket_server: Box<dyn ConfiguredByPrivilege<(), Item = (), Error = ()>>,
-    bootstrapper: Box<dyn ConfiguredByPrivilege<BootstrapperConfig, Item = (), Error = ()>>,
+    dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
+    bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
+    data_dir_wrapper: Box<dyn DirsWrapper>,
 }
 
 impl CommandConfigError for ServerInitializer {
@@ -41,28 +45,30 @@ impl CommandConfigError for ServerInitializer {
         args: &[String],
     ) -> Result<(), ConfiguratorError> {
         let mut result: Result<(), ConfiguratorError> = Ok(());
+        let multi_config =
+            make_service_mode_multi_config(self.data_dir_wrapper.as_ref(), &app(), args, streams)?;
         if args.contains(&"--help".to_string()) || args.contains(&"--version".to_string()) {
             self.privilege_dropper
                 .drop_privileges(&RealUser::new(None, None, None).populate(&RealDirsWrapper {}));
             Self::combine_results(
                 result,
-                NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams),
+                NodeConfiguratorStandardPrivileged::new().configure(&multi_config, streams),
             )
         } else {
             result = Self::combine_results(
                 result,
                 self.dns_socket_server
                     .as_mut()
-                    .initialize_as_privileged(args, streams),
+                    .initialize_as_privileged(&multi_config),
             );
             result = Self::combine_results(
                 result,
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_privileged(args, streams),
+                    .initialize_as_privileged(&multi_config),
             );
 
-            let config = self.bootstrapper.get_configuration();
+            let config = self.bootstrapper;
             let real_user = config.real_user.populate(&RealDirsWrapper {});
             self.privilege_dropper
                 .chown(&config.data_directory, &real_user);
@@ -76,13 +82,13 @@ impl CommandConfigError for ServerInitializer {
                     result,
                     self.dns_socket_server
                         .as_mut()
-                        .initialize_as_unprivileged(args, streams),
+                        .initialize_as_unprivileged(&multi_config, streams),
                 );
                 result = Self::combine_results(
                     result,
                     self.bootstrapper
                         .as_mut()
-                        .initialize_as_unprivileged(args, streams),
+                        .initialize_as_unprivileged(&multi_config, streams),
                 );
                 result
             }
@@ -110,6 +116,7 @@ impl ServerInitializer {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
+            data_dir_wrapper: Box::new(RealDirsWrapper),
         }
     }
 
@@ -420,48 +427,42 @@ pub mod tests {
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::crash_point::CrashPoint;
+    use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
     use std::cell::RefCell;
+    use std::ops::Deref;
     use std::sync::Arc;
     use std::sync::Mutex;
 
-    impl<C> ConfiguredByPrivilege<C> for CrashTestDummy<C>
-    where
-        C: Send,
-    {
-        fn get_configuration(&self) -> &C {
-            &self.configuration
-        }
-
+    impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
         fn initialize_as_privileged(
             &mut self,
-            _args: &[String],
-            _streams: &mut StdStreams<'_>,
+            _multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
             Ok(())
         }
 
         fn initialize_as_unprivileged(
             &mut self,
-            _args: &[String],
+            _multi_config: &MultiConfig,
             _streams: &mut StdStreams<'_>,
         ) -> Result<(), ConfiguratorError> {
             Ok(())
         }
     }
 
-    struct SocketServerMock<C> {
+    struct ConfiguredByPrivilegMock<'a, C> {
         get_configuration_result: C,
-        initialize_as_privileged_params: Arc<Mutex<Vec<Vec<String>>>>,
+        initialize_as_privileged_params: Arc<Mutex<Vec<MultiConfig<'a>>>>,
         initialize_as_privileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
         initialize_as_unprivileged_params: Arc<Mutex<Vec<Vec<String>>>>,
         initialize_as_unprivileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
     }
 
-    impl<C> Future for SocketServerMock<C> {
+    impl<C> Future for ConfiguredByPrivilegMock<'_, C> {
         type Item = ();
         type Error = ();
 
@@ -470,43 +471,35 @@ pub mod tests {
         }
     }
 
-    impl<C> ConfiguredByPrivilege<C> for SocketServerMock<C>
-    where
-        C: Send,
-    {
-        fn get_configuration(&self) -> &C {
-            &self.get_configuration_result
-        }
-
+    impl<C: Send + 'static> ConfiguredByPrivilege for ConfiguredByPrivilegMock<'_, C> {
         fn initialize_as_privileged(
             &mut self,
-            args: &[String],
-            _streams: &mut StdStreams,
+            multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
             self.initialize_as_privileged_params
                 .lock()
                 .unwrap()
-                .push(args.to_vec());
+                .push(multi_config);
             self.initialize_as_privileged_results.borrow_mut().remove(0)
         }
 
         fn initialize_as_unprivileged(
             &mut self,
-            args: &[String],
+            multi_config: &MultiConfig,
             _streams: &mut StdStreams,
         ) -> Result<(), ConfiguratorError> {
             self.initialize_as_unprivileged_params
                 .lock()
                 .unwrap()
-                .push(args.to_vec());
+                .push(multi_config);
             self.initialize_as_unprivileged_results
                 .borrow_mut()
                 .remove(0)
         }
     }
 
-    impl<C> SocketServerMock<C> {
-        pub fn new(get_configuration_result: C) -> SocketServerMock<C> {
+    impl<C> ConfiguredByPrivilegMock<'_, C> {
+        pub fn new(get_configuration_result: C) -> ConfiguredByPrivilegMock<'static, C> {
             Self {
                 get_configuration_result,
                 initialize_as_privileged_params: Arc::new(Mutex::new(vec![])),
@@ -635,7 +628,7 @@ pub mod tests {
     fn panic_hook_handles_missing_location_and_unprintable_payload() {
         init_test_logging();
         let panic_info = AltPanicInfo {
-            payload: &SocketServerMock::new(()), // not a String or a &str
+            payload: &ConfiguredByPrivilegMock::new(()), // not a String or a &str
             location: None,
         };
 
@@ -812,8 +805,8 @@ pub mod tests {
 
     fn go_with_something_should_print_something_and_artificially_panic(parameter: &str) {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
-        let dns_socket_server = SocketServerMock::new(());
-        let bootstrapper = SocketServerMock::new(BootstrapperConfig::new());
+        let dns_socket_server = ConfiguredByPrivilegMock::new(());
+        let bootstrapper = ConfiguredByPrivilegMock::new(BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
@@ -868,10 +861,10 @@ pub mod tests {
         bootstrapper_privileged: Result<(), ConfiguratorError>,
         bootstrapper_unprivileged: Result<(), ConfiguratorError>,
     ) -> (Result<(), ConfiguratorError>, FakeStreamHolder) {
-        let dns_socket_server = SocketServerMock::new(())
+        let dns_socket_server = ConfiguredByPrivilegMock::new(())
             .initialize_as_privileged_result(dns_privileged)
             .initialize_as_unprivileged_result(dns_unprivileged);
-        let bootstrapper = SocketServerMock::new(BootstrapperConfig::new())
+        let bootstrapper = ConfiguredByPrivilegMock::new(BootstrapperConfig::new())
             .initialize_as_privileged_result(bootstrapper_privileged)
             .initialize_as_unprivileged_result(bootstrapper_unprivileged);
         let privilege_dropper = PrivilegeDropperMock::new();

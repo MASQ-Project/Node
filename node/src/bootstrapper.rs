@@ -40,6 +40,7 @@ use log::LevelFilter;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT};
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::collections::HashMap;
 use std::env::var;
@@ -383,21 +384,15 @@ impl Future for Bootstrapper {
     }
 }
 
-impl ConfiguredByPrivilege<BootstrapperConfig> for Bootstrapper {
-    fn get_configuration(&self) -> &BootstrapperConfig {
-        &self.config
-    }
-
+impl ConfiguredByPrivilege for Bootstrapper {
     fn initialize_as_privileged(
         &mut self,
-        args: &[String],
-        streams: &mut StdStreams,
+        multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
-        self.config =
-            match NodeConfiguratorStandardPrivileged::new().configure(&args.to_vec(), streams) {
-                Ok(config) => config,
-                Err(e) => return Err(e),
-            };
+        self.config = match NodeConfiguratorStandardPrivileged::new().configure(multi_config) {
+            Ok(config) => config,
+            Err(e) => return Err(e),
+        };
 
         self.logger_initializer.init(
             self.config.data_directory.clone(),
@@ -426,13 +421,13 @@ impl ConfiguredByPrivilege<BootstrapperConfig> for Bootstrapper {
 
     fn initialize_as_unprivileged(
         &mut self,
-        args: &[String],
+        multi_config: &MultiConfig,
         streams: &mut StdStreams,
     ) -> Result<(), ConfiguratorError> {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         let unprivileged_config = NodeConfiguratorStandardUnprivileged::new(&self.config)
-            .configure(&args.to_vec(), streams)?;
+            .configure(multi_config, streams)?;
         self.config.merge_unprivileged(unprivileged_config);
         self.set_up_clandestine_port();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(

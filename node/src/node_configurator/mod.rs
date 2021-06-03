@@ -40,7 +40,7 @@ use tiny_hderive::bip44::DerivationPath;
 pub trait NodeConfigurator<T> {
     fn configure(
         &self,
-        args: &[String],
+        multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
     ) -> Result<T, ConfiguratorError>;
 }

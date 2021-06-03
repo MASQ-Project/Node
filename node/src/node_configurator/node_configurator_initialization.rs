@@ -6,7 +6,7 @@ use clap::{App, Arg};
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::multi_config::CommandLineVcl;
+use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
 use masq_lib::shared_schema::{ui_port_arg, ConfiguratorError};
 
 lazy_static! {
@@ -28,15 +28,9 @@ pub struct NodeConfiguratorInitialization {}
 impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
     fn configure(
         &self,
-        args: &[String],
+        multi_config: &MultiConfig,
         streams: &mut StdStreams,
     ) -> Result<InitializationConfig, ConfiguratorError> {
-        let app = app();
-        let multi_config = make_new_multi_config(
-            &app,
-            vec![Box::new(CommandLineVcl::new(args.to_vec()))],
-            streams,
-        )?;
         let mut config = InitializationConfig::default();
         initialization::parse_args(&multi_config, &mut config, streams);
         Ok(config)

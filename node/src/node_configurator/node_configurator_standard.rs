@@ -7,6 +7,7 @@ use clap::App;
 use indoc::indoc;
 use masq_lib::command::StdStreams;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{shared_app, ui_port_arg};
 use masq_lib::shared_schema::{ConfiguratorError, UI_PORT_HELP};
 
@@ -17,16 +18,9 @@ pub struct NodeConfiguratorStandardPrivileged {
 impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged {
     fn configure(
         &self,
-        args: &[String],
-        streams: &mut StdStreams,
+        multi_config: &MultiConfig,
+        streams: &mut StdStreams<'_>,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
-        let app = app();
-        let multi_config = standard::make_service_mode_multi_config(
-            self.dirs_wrapper.as_ref(),
-            &app,
-            args,
-            streams,
-        )?;
         let mut bootstrapper_config = BootstrapperConfig::new();
         standard::establish_port_configurations(&mut bootstrapper_config);
         standard::privileged_parse_args(
@@ -61,21 +55,14 @@ pub struct NodeConfiguratorStandardUnprivileged {
 impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileged {
     fn configure(
         &self,
-        args: &[String],
+        multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
-        let app = app();
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             self.privileged_config.blockchain_bridge_config.chain_id,
         );
         let mut unprivileged_config = BootstrapperConfig::new();
-        let multi_config = standard::make_service_mode_multi_config(
-            self.dirs_wrapper.as_ref(),
-            &app,
-            args,
-            streams,
-        )?;
         standard::unprivileged_parse_args(
             &multi_config,
             &mut unprivileged_config,

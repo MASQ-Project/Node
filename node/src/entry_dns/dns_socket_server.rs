@@ -11,6 +11,7 @@ const DNS_PORT: u16 = 53;
 use crate::entry_dns::processing;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
+use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::localhost;
 
@@ -50,15 +51,10 @@ impl Future for DnsSocketServer {
     }
 }
 
-impl ConfiguredByPrivilege<()> for DnsSocketServer {
-    fn get_configuration(&self) -> &() {
-        &()
-    }
-
+impl ConfiguredByPrivilege for DnsSocketServer {
     fn initialize_as_privileged(
         &mut self,
-        _args: &[String],
-        _streams: &mut StdStreams<'_>,
+        _multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
         let socket_addr = SocketAddr::new(localhost(), DNS_PORT);
         self.socket_wrapper
@@ -69,7 +65,7 @@ impl ConfiguredByPrivilege<()> for DnsSocketServer {
 
     fn initialize_as_unprivileged(
         &mut self,
-        _args: &[String],
+        _multi_config: &MultiConfig,
         _streams: &mut StdStreams<'_>,
     ) -> Result<(), ConfiguratorError> {
         self.buf = [0; 65536];

@@ -52,7 +52,7 @@ macro_rules! values_m {
 
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
-    content: Box<dyn VirtualCommandLine>,
+    content: Box<dyn VirtualCommandLine+'a>,
 }
 
 impl<'a> Debug for MultiConfig<'a> {

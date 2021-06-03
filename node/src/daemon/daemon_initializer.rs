@@ -17,6 +17,7 @@ use flexi_logger::LevelFilter;
 use itertools::Itertools;
 use masq_lib::command::{CommandConfigError, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::utils::ExpectDecent;
 use std::collections::HashMap;
 
 pub trait RecipientsFactory {
@@ -123,7 +124,7 @@ impl DaemonInitializer {
         logger_initializer_wrapper.init(
             dirs_wrapper
                 .data_dir()
-                .expect("No data directory")
+                .expect_decent("data directory")
                 .join("MASQ"),
             &RealUser::new(None, None, None).populate(dirs_wrapper),
             LevelFilter::Trace,
