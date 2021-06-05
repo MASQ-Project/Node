@@ -374,7 +374,7 @@ impl SetupReporterReal {
                 Some(command_line) => command_line,
                 None => vec![],
             };
-            let (config_file_path, user_specified) =
+            let (_, config_file_path, user_specified) =
                 determine_config_file_path(dirs_wrapper, &app, &command_line)?;
             let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
                 Ok(cfv) => cfv,

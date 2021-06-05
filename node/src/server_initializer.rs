@@ -19,8 +19,9 @@ use flexi_logger::{DeferredNow, Duplicate, Record};
 use futures::try_ready;
 use lazy_static::lazy_static;
 use masq_lib::command::{Command, StdStreams};
+use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::exit_process;
+use masq_lib::utils::{exit_process, ExpectDecent};
 use std::any::Any;
 use std::fmt::Debug;
 use std::panic::{Location, PanicInfo};
@@ -45,7 +46,7 @@ impl Command<ConfiguratorError> for ServerInitializer {
     ) -> Result<(), ConfiguratorError> {
         if Self::is_help_or_version(args) {
             // self.privilege_dropper
-            //     .drop_privileges(&RealUser::null().populate(&RealDirsWrapper));
+            //     .drop_privileges(&RealUser::new(None,None,None).populate(&RealDirsWrapper));
             Self::clap_help_version_brief_process(
                 args,
                 streams,
@@ -55,8 +56,9 @@ impl Command<ConfiguratorError> for ServerInitializer {
             )
         }
         let mut result: Result<(), ConfiguratorError> = Ok(());
-        let multi_config =
+        let (multi_config, data_directory) =
             make_service_mode_multi_config(self.data_dir_wrapper.as_ref(), args, streams)?;
+
         result = Self::combine_results(
             result,
             self.dns_socket_server
@@ -71,12 +73,9 @@ impl Command<ConfiguratorError> for ServerInitializer {
                 .initialize_as_privileged(&multi_config),
         );
 
-        //    todo!("maybe make a new method for dropping privilege");
-        // let config = self.bootstrapper;
-        // let real_user = config.real_user.populate(&RealDirsWrapper {});
-        // self.privilege_dropper
-        //     .chown(&config.data_directory, &real_user);
-        // self.privilege_dropper.drop_privileges(&real_user);
+        let real_user = Self::real_user_from_multi_config(&multi_config);
+        self.privilege_dropper.chown(&data_directory, &real_user);
+        self.privilege_dropper.drop_privileges(&real_user);
 
         result = Self::combine_results(
             result,
@@ -156,6 +155,10 @@ impl ServerInitializer {
             }
             _ => panic!("if statement in 'go' didn't work"),
         }
+    }
+
+    fn real_user_from_multi_config(multi_config: &MultiConfig) -> RealUser {
+        value_m!(multi_config, "real-user", RealUser).expect_decent("RealUser")
     }
 }
 
@@ -814,11 +817,11 @@ pub mod tests {
     #[test]
     fn go_should_drop_privileges() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
-        let real_user = RealUser::new(Some(123), Some(456), Some("booga".into()));
+        let real_user = RealUser::new(Some(123), Some(456), Some("/home/alice".into()));
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.real_user = real_user.clone();
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, bootstrapper_config);
-        let dirs_wrapper = MockDirsWrapper::new();
+        let dirs_wrapper = make_pre_populated_mock_directory_wrapper();
         let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
         let privilege_dropper =
             PrivilegeDropperMock::new().drop_privileges_params(&drop_privileges_params_arc);
@@ -837,7 +840,14 @@ pub mod tests {
             data_dir_wrapper: Box::new(dirs_wrapper),
         };
 
-        let result = subject.go(streams, &[]);
+        let result = subject.go(
+            streams,
+            &convert_str_vec_slice_into_vec_slice_of_strings(&[
+                "MASQNode",
+                "--real-user",
+                "123:456:/home/alice",
+            ]),
+        );
 
         assert!(result.is_ok());
         let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
@@ -912,12 +922,10 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
             data_dir_wrapper: Box::new(dirs_wrapper),
         };
-        let args = vec![
-            "MASQNode".to_string(),
-            parameter.to_string(),
-            "--real-user".to_string(),
-            "123:123:/home/alice".to_string(),
-        ];
+        let args = convert_str_vec_slice_into_vec_slice_of_strings(&[
+            "MASQNode",
+            parameter
+        ]);
 
         subject
             .go(&mut FakeStreamHolder::new().streams(), &args)

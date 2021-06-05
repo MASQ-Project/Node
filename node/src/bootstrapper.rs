@@ -369,7 +369,7 @@ pub struct Bootstrapper {
     listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
     actor_system_factory: Box<dyn ActorSystemFactory>,
     logger_initializer: Box<dyn LoggerInitializerWrapper>,
-    config: BootstrapperConfig,
+    pub config: BootstrapperConfig,
 }
 
 impl Future for Bootstrapper {

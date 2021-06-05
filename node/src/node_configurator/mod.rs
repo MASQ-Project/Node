@@ -130,7 +130,7 @@ pub fn determine_config_file_path(
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool), ConfiguratorError> {
+) -> Result<(PathBuf, PathBuf, bool), ConfiguratorError> {
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
@@ -163,7 +163,11 @@ pub fn determine_config_file_path(
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
-    Ok((directory.join(config_file_path), user_specified))
+    Ok((
+        directory.clone(),
+        directory.join(config_file_path),
+        user_specified,
+    ))
 }
 
 pub fn create_wallet(
@@ -232,7 +236,7 @@ pub fn real_user_data_directory_opt_and_chain_name(
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, String) {
     let real_user = match value_m!(multi_config, "real-user", RealUser) {
-        None => RealUser::null().populate(dirs_wrapper),
+        None => RealUser::new(None,None,None).populate(dirs_wrapper),
         Some(real_user) => real_user.populate(dirs_wrapper),
     };
     let chain_name =
@@ -1030,7 +1034,7 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (data_dir, config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1041,6 +1045,7 @@ mod tests {
             &format!("{}", config_file_path.parent().unwrap().display()),
             "data-dir",
         );
+        assert_eq!(data_dir.to_str().unwrap(), "data_dir");
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
         assert_eq!(true, user_specified);
     }
@@ -1053,7 +1058,7 @@ mod tests {
         std::env::set_var("MASQ_DATA_DIRECTORY", "data_dir");
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (data_dir, config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1064,6 +1069,7 @@ mod tests {
             "data_dir",
             &format!("{}", config_file_path.parent().unwrap().display())
         );
+        assert_eq!(data_dir.to_str().unwrap(), "data_dir");
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
         assert_eq!(true, user_specified);
     }
@@ -1077,7 +1083,7 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (_, config_file_path, user_specified) = determine_config_file_path(
             &RealDirsWrapper {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),

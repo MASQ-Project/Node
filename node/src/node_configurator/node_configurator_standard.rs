@@ -152,29 +152,33 @@ pub mod standard {
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
+    use std::path::PathBuf;
     use std::str::FromStr;
 
     pub fn make_service_mode_multi_config<'a>(
         dirs_wrapper: &dyn DirsWrapper,
         args: &[String],
         streams: &mut StdStreams,
-    ) -> Result<MultiConfig<'a>, ConfiguratorError> {
+    ) -> Result<(MultiConfig<'a>, PathBuf), ConfiguratorError> {
         let app = app();
-        let (config_file_path, user_specified) =
+        let (data_directory, config_file_path, user_specified) =
             determine_config_file_path(dirs_wrapper, &app, args)?;
         let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
             Ok(cfv) => Box::new(cfv),
             Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
         };
-        make_new_multi_config(
-            &app,
-            vec![
-                Box::new(CommandLineVcl::new(args.to_vec())),
-                Box::new(EnvironmentVcl::new(&app)),
-                config_file_vcl,
-            ],
-            streams,
-        )
+        Ok((
+            make_new_multi_config(
+                &app,
+                vec![
+                    Box::new(CommandLineVcl::new(args.to_vec())),
+                    Box::new(EnvironmentVcl::new(&app)),
+                    config_file_vcl,
+                ],
+                streams,
+            )?,
+            data_directory,
+        ))
     }
 
     pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
