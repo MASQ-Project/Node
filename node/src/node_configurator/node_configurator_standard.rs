@@ -10,6 +10,7 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{shared_app, ui_port_arg};
 use masq_lib::shared_schema::{ConfiguratorError, UI_PORT_HELP};
+use masq_lib::utils::ExpectDecent;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -19,7 +20,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged
     fn configure(
         &self,
         multi_config: &MultiConfig,
-        streams: &mut StdStreams<'_>,
+        _streams: Option<&mut StdStreams<'_>>,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let mut bootstrapper_config = BootstrapperConfig::new();
         standard::establish_port_configurations(&mut bootstrapper_config);
@@ -27,7 +28,6 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged
             self.dirs_wrapper.as_ref(),
             &multi_config,
             &mut bootstrapper_config,
-            streams,
         )?;
         Ok(bootstrapper_config)
     }
@@ -48,7 +48,6 @@ impl NodeConfiguratorStandardPrivileged {
 }
 
 pub struct NodeConfiguratorStandardUnprivileged {
-    dirs_wrapper: Box<dyn DirsWrapper>,
     privileged_config: BootstrapperConfig,
 }
 
@@ -56,7 +55,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
     fn configure(
         &self,
         multi_config: &MultiConfig,
-        streams: &mut StdStreams<'_>,
+        streams: Option<&mut StdStreams<'_>>,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
@@ -66,7 +65,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         standard::unprivileged_parse_args(
             &multi_config,
             &mut unprivileged_config,
-            streams,
+            streams.expect_decent("StdStreams"),
             Some(persistent_config.as_mut()),
         )?;
         standard::configure_database(&unprivileged_config, persistent_config.as_mut())?;
@@ -77,7 +76,6 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
 impl NodeConfiguratorStandardUnprivileged {
     pub fn new(privileged_config: &BootstrapperConfig) -> Self {
         Self {
-            dirs_wrapper: Box::new(RealDirsWrapper {}),
             privileged_config: privileged_config.clone(),
         }
     }
@@ -114,7 +112,7 @@ const HELP_TEXT: &str = indoc!(
         3. Create the port forwarding entries in the router."
 );
 
-pub fn app() -> App<'static, 'static> {
+pub fn app<'a, 'b>() -> App<'a, 'b> {
     shared_app(app_head().after_help(HELP_TEXT)).arg(ui_port_arg(&UI_PORT_HELP))
 }
 
@@ -158,12 +156,12 @@ pub mod standard {
 
     pub fn make_service_mode_multi_config<'a>(
         dirs_wrapper: &dyn DirsWrapper,
-        app: &'a App,
         args: &[String],
         streams: &mut StdStreams,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
+        let app = app();
         let (config_file_path, user_specified) =
-            determine_config_file_path(dirs_wrapper, app, args)?;
+            determine_config_file_path(dirs_wrapper, &app, args)?;
         let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
             Ok(cfv) => Box::new(cfv),
             Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
@@ -203,7 +201,6 @@ pub mod standard {
         dirs_wrapper: &dyn DirsWrapper,
         multi_config: &MultiConfig,
         privileged_config: &mut BootstrapperConfig,
-        _streams: &mut StdStreams<'_>,
     ) -> Result<(), ConfiguratorError> {
         privileged_config
             .blockchain_bridge_config
@@ -1091,9 +1088,9 @@ mod tests {
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils;
-    use crate::test_utils::make_default_persistent_configuration;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    use crate::test_utils::{make_default_persistent_configuration, make_simplified_multi_config};
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
     use masq_lib::multi_config::{
         CommandLineVcl, ConfigFileVcl, NameValueVclArg, VclArg, VirtualCommandLine,
@@ -1587,12 +1584,12 @@ mod tests {
 
         let configuration = subject
             .configure(
-                &[
+                &make_simplified_multi_config(&[
                     "".to_string(),
                     "--data-directory".to_string(),
                     home_dir.to_str().unwrap().to_string(),
-                ],
-                &mut FakeStreamHolder::new().streams(),
+                ]),
+                Some(&mut FakeStreamHolder::new().streams()),
             )
             .unwrap();
 
@@ -1645,7 +1642,6 @@ mod tests {
             &RealDirsWrapper {},
             &multi_config,
             &mut bootstrapper_config,
-            &mut FakeStreamHolder::new().streams(),
         )
         .unwrap();
         standard::unprivileged_parse_args(
@@ -1711,13 +1707,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
 
-        standard::privileged_parse_args(
-            &RealDirsWrapper {},
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-        )
-        .unwrap();
+        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(
             value_m!(multi_config, "config-file", PathBuf),
@@ -1929,13 +1919,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
 
-        standard::privileged_parse_args(
-            &RealDirsWrapper {},
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-        )
-        .unwrap();
+        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(
             Some(PathBuf::from("config.toml")),
@@ -1966,13 +1950,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
 
-        standard::privileged_parse_args(
-            &RealDirsWrapper {},
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-        )
-        .unwrap();
+        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
 
         #[cfg(target_os = "linux")]
         assert_eq!(
@@ -2548,13 +2526,7 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
 
-        standard::privileged_parse_args(
-            &RealDirsWrapper {},
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-        )
-        .unwrap();
+        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::None);
     }
@@ -2567,13 +2539,7 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
 
-        standard::privileged_parse_args(
-            &RealDirsWrapper {},
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-        )
-        .unwrap();
+        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::Panic);
     }
@@ -2586,7 +2552,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let result = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .err();
 
         match result {
@@ -2615,7 +2584,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let result = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .err();
 
         match result {
@@ -2641,7 +2613,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .unwrap();
 
         assert_eq!(
@@ -2660,7 +2635,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .unwrap();
 
         assert_eq!(
@@ -2678,7 +2656,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .unwrap();
 
         assert_eq!(
@@ -2697,7 +2678,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let bootstrapper_config = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .unwrap();
         assert_eq!(
             bootstrapper_config.blockchain_bridge_config.chain_id,
@@ -2722,7 +2706,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .unwrap();
 
         assert_eq!(config.blockchain_bridge_config.gas_price, 57);
@@ -2743,7 +2730,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let config = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .unwrap();
 
         assert_eq!(config.blockchain_bridge_config.gas_price, 1);
@@ -2758,7 +2748,10 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let result = subject
-            .configure(args_vec.as_slice(), &mut FakeStreamHolder::new().streams())
+            .configure(
+                &make_simplified_multi_config(args_vec.as_slice()),
+                Some(&mut FakeStreamHolder::new().streams()),
+            )
             .err()
             .unwrap();
 

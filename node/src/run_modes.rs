@@ -9,7 +9,7 @@ use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::server_initializer::{LoggerInitializerWrapperReal, ServerInitializer};
 use actix::System;
 use futures::future::Future;
-use masq_lib::command::{CommandConfigError, StdStreams};
+use masq_lib::command::{Command, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
 
 #[derive(Debug, PartialEq)]
@@ -167,11 +167,13 @@ impl Runner for RunnerReal {
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError> {
         let configurator = NodeConfiguratorInitialization {};
-        let config = configurator.configure(args, streams)?;
+        let multi_config =
+            NodeConfiguratorInitialization::make_daemon_s_multi_config(args, streams)?; //TODO is this somehow tested?
+        let initialization_config = configurator.configure(&multi_config, Some(streams))?;
         let mut initializer = DaemonInitializer::new(
             &RealDirsWrapper {},
             Box::new(LoggerInitializerWrapperReal {}),
-            config,
+            initialization_config,
             Box::new(ChannelFactoryReal::new()),
             Box::new(RecipientsFactoryReal::new()),
             Box::new(RerunnerReal::new()),

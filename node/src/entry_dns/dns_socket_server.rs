@@ -95,6 +95,7 @@ mod tests {
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::make_simplified_multi_config;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
@@ -197,7 +198,7 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
         subject
-            .initialize_as_privileged(&[], &mut FakeStreamHolder::new().streams())
+            .initialize_as_privileged(&make_simplified_multi_config(&[]))
             .unwrap();
 
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
@@ -261,7 +262,10 @@ mod tests {
             let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
             subject
-                .initialize_as_unprivileged(&[], &mut holder.streams())
+                .initialize_as_unprivileged(
+                    &make_simplified_multi_config(&[]),
+                    &mut holder.streams(),
+                )
                 .unwrap();
             tokio::run(subject);
 
@@ -309,7 +313,7 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
         subject
-            .initialize_as_unprivileged(&[], &mut holder.streams())
+            .initialize_as_unprivileged(&make_simplified_multi_config(&[]), &mut holder.streams())
             .unwrap();
 
         let result = subject.poll();
@@ -343,7 +347,7 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
         subject
-            .initialize_as_unprivileged(&[], &mut holder.streams())
+            .initialize_as_unprivileged(&make_simplified_multi_config(&[]), &mut holder.streams())
             .unwrap();
 
         let result = subject.poll();

@@ -12,10 +12,6 @@ pub trait CommandNumeric {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8;
 }
 
-pub trait CommandConfigError {
-    fn go(
-        &mut self,
-        streams: &mut StdStreams<'_>,
-        args: &[String],
-    ) -> Result<(), ConfiguratorError>;
+pub trait Command<T> {
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> Result<(), T>;
 }

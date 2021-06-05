@@ -41,7 +41,7 @@ pub trait NodeConfigurator<T> {
     fn configure(
         &self,
         multi_config: &MultiConfig,
-        streams: &mut StdStreams<'_>,
+        streams: Option<&mut StdStreams<'_>>,
     ) -> Result<T, ConfiguratorError>;
 }
 
@@ -232,7 +232,7 @@ pub fn real_user_data_directory_opt_and_chain_name(
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, String) {
     let real_user = match value_m!(multi_config, "real-user", RealUser) {
-        None => RealUser::new(None, None, None).populate(dirs_wrapper),
+        None => RealUser::null().populate(dirs_wrapper),
         Some(real_user) => real_user.populate(dirs_wrapper),
     };
     let chain_name =

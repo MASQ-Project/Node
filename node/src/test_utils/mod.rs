@@ -89,6 +89,14 @@ impl From<ArgsBuilder> for Vec<String> {
     }
 }
 
+impl From<&[String]> for ArgsBuilder {
+    fn from(args: &[String]) -> Self {
+        Self {
+            args: args.to_vec(),
+        }
+    }
+}
+
 impl Default for ArgsBuilder {
     fn default() -> Self {
         ArgsBuilder::new()
@@ -205,6 +213,11 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 pub fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(args.into()))];
     make_new_multi_config(&app(), vcls, &mut FakeStreamHolder::new().streams()).unwrap()
+}
+
+pub fn make_simplified_multi_config(args: &[String]) -> MultiConfig {
+    let arg_matches = app().get_matches_from_safe(args).unwrap();
+    MultiConfig::new_test_only(arg_matches)
 }
 
 pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {

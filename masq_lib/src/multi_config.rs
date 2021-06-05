@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::command::StdStreams;
+use crate::intentionally_blank;
 use crate::shared_schema::{ConfiguratorError, ParamError};
 use crate::short_writeln;
 use crate::utils::exit_process;
@@ -52,7 +53,7 @@ macro_rules! values_m {
 
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
-    content: Box<dyn VirtualCommandLine+'a>,
+    content: Box<dyn VirtualCommandLine>,
 }
 
 impl<'a> Debug for MultiConfig<'a> {
@@ -87,7 +88,7 @@ impl<'a> MultiConfig<'a> {
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
-        let merged = vcls
+        let merged: Box<dyn VirtualCommandLine> = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
         let arg_matches = match schema
@@ -112,6 +113,13 @@ impl<'a> MultiConfig<'a> {
 
     pub fn arg_matches(&'a self) -> &ArgMatches<'a> {
         &self.arg_matches
+    }
+
+    pub fn new_test_only(arg_matches: ArgMatches<'a>) -> Self {
+        Self {
+            arg_matches,
+            content: Box::new(()),
+        }
     }
 
     fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
@@ -144,6 +152,30 @@ impl<'a> MultiConfig<'a> {
             return ConfiguratorError::new(requireds);
         }
         ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", e.message))
+    }
+}
+
+//TODO don't know why this cannot be test only
+//#[cfg(test)]
+#[derive(Default)]
+pub struct MultiConfigValuesExtracted {
+    arg_matches_queried_entries: Vec<String>,
+    cloned_content_field: Vec<String>,
+}
+//TODO don't know why this cannot be test only
+//#[cfg(test)]
+impl MultiConfigValuesExtracted {
+    pub fn extract_entries_on_demand(
+        mut self,
+        required: &[String],
+        multi_config: &MultiConfig,
+    ) -> Self {
+        self.arg_matches_queried_entries = required
+            .iter()
+            .map(|key| multi_config.arg_matches.value_of(key).unwrap().to_string())
+            .collect();
+        self.cloned_content_field = multi_config.content.args();
+        self
     }
 }
 
@@ -493,8 +525,19 @@ fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
     result
 }
 
+//for artificial creation of MultiConfig
+impl VirtualCommandLine for () {
+    fn vcl_args(&self) -> Vec<&dyn VclArg> {
+        intentionally_blank!()
+    }
+
+    fn args(&self) -> Vec<String> {
+        intentionally_blank!()
+    }
+}
+
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::fake_stream_holder::FakeStreamHolder;

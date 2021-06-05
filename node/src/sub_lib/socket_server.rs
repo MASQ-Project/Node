@@ -2,7 +2,6 @@
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use std::any::Any;
 use std::marker::Send;
 use tokio::prelude::Future;
 
@@ -16,7 +15,4 @@ pub trait ConfiguredByPrivilege: Send + Future<Item = (), Error = ()> {
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
     ) -> Result<(), ConfiguratorError>;
-    // fn provide_user_configuration(&self) -> Result<(), ConfiguratorError> {
-    //     intentionally_blank!()
-    // }
 }

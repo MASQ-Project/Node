@@ -411,12 +411,7 @@ impl SetupReporterReal {
         };
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.data_directory = data_directory.to_path_buf();
-        match privileged_parse_args(
-            dirs_wrapper,
-            multi_config,
-            &mut bootstrapper_config,
-            &mut streams,
-        ) {
+        match privileged_parse_args(dirs_wrapper, multi_config, &mut bootstrapper_config) {
             Ok(_) => (),
             Err(ce) => {
                 error_so_far.extend(ce);

@@ -8,6 +8,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
 use masq_lib::shared_schema::{ui_port_arg, ConfiguratorError};
+use masq_lib::utils::ExpectDecent;
 
 lazy_static! {
     static ref UI_PORT_HELP: String = format!(
@@ -25,14 +26,31 @@ pub struct InitializationConfig {
 
 pub struct NodeConfiguratorInitialization {}
 
+impl NodeConfiguratorInitialization {
+    pub fn make_daemon_s_multi_config<'a: 'b, 'b>(
+        args: &'a [String],
+        streams: &'b mut StdStreams,
+    ) -> Result<MultiConfig<'a>, ConfiguratorError> {
+        make_new_multi_config(
+            &app(),
+            vec![Box::new(CommandLineVcl::new(args.to_vec()))],
+            streams,
+        )
+    }
+}
+
 impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
     fn configure(
         &self,
         multi_config: &MultiConfig,
-        streams: &mut StdStreams,
+        streams: Option<&mut StdStreams>,
     ) -> Result<InitializationConfig, ConfiguratorError> {
         let mut config = InitializationConfig::default();
-        initialization::parse_args(&multi_config, &mut config, streams);
+        initialization::parse_args(
+            &multi_config,
+            &mut config,
+            streams.expect_decent("StdStreams"),
+        );
         Ok(config)
     }
 }

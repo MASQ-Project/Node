@@ -15,7 +15,7 @@ use actix::{Actor, System, SystemRunner};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use flexi_logger::LevelFilter;
 use itertools::Itertools;
-use masq_lib::command::{CommandConfigError, StdStreams};
+use masq_lib::command::{Command, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectDecent;
 use std::collections::HashMap;
@@ -70,7 +70,7 @@ pub struct DaemonInitializer {
     rerunner: Box<dyn Rerunner>,
 }
 
-impl CommandConfigError for DaemonInitializer {
+impl Command<ConfiguratorError> for DaemonInitializer {
     fn go(
         &mut self,
         _streams: &mut StdStreams<'_>,
