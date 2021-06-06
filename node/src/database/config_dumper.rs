@@ -6,7 +6,7 @@ use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
-use crate::node_configurator::RealDirsWrapper;
+use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
     app_head, data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
 };
@@ -33,7 +33,7 @@ const DUMP_CONFIG_HELP: &str =
 
 pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, ConfiguratorError> {
     let (real_user, data_directory, chain_id, password_opt) =
-        distill_args(&RealDirsWrapper {}, args, streams)?;
+        distill_args(&DirsWrapperReal {}, args, streams)?;
     let cryptde = CryptDEReal::new(chain_id);
     PrivilegeDropperReal::new().drop_privileges(&real_user);
     let config_dao = make_config_dao(&data_directory, chain_id);

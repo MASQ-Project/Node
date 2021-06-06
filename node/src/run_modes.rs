@@ -4,7 +4,7 @@ use crate::daemon::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal
 use crate::daemon::ChannelFactoryReal;
 use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
-use crate::node_configurator::{NodeConfigurator, RealDirsWrapper};
+use crate::node_configurator::{DirsWrapperReal, NodeConfigurator};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::server_initializer::{LoggerInitializerWrapperReal, ServerInitializer};
 use actix::System;
@@ -171,7 +171,7 @@ impl Runner for RunnerReal {
             NodeConfiguratorInitialization::make_daemon_s_multi_config(args, streams)?; //TODO is this somehow tested?
         let initialization_config = configurator.configure(&multi_config, Some(streams))?;
         let mut initializer = DaemonInitializer::new(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             Box::new(LoggerInitializerWrapperReal {}),
             initialization_config,
             Box::new(ChannelFactoryReal::new()),

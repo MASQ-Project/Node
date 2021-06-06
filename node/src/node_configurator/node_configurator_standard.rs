@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::bootstrapper::BootstrapperConfig;
-use crate::node_configurator::RealDirsWrapper;
+use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{app_head, initialize_database, DirsWrapper, NodeConfigurator};
 use clap::App;
 use indoc::indoc;
@@ -42,7 +42,7 @@ impl Default for NodeConfiguratorStandardPrivileged {
 impl NodeConfiguratorStandardPrivileged {
     pub fn new() -> Self {
         Self {
-            dirs_wrapper: Box::new(RealDirsWrapper {}),
+            dirs_wrapper: Box::new(DirsWrapperReal {}),
         }
     }
 }
@@ -126,7 +126,7 @@ pub mod standard {
 
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::bootstrapper::PortConfiguration;
+    use crate::bootstrapper::{PortConfiguration, RealUser};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
     };
@@ -155,30 +155,32 @@ pub mod standard {
     use std::path::PathBuf;
     use std::str::FromStr;
 
-    pub fn make_service_mode_multi_config<'a>(
+    pub fn aggregated_params_for_service_mode<'a>(
         dirs_wrapper: &dyn DirsWrapper,
         args: &[String],
         streams: &mut StdStreams,
-    ) -> Result<(MultiConfig<'a>, PathBuf), ConfiguratorError> {
+    ) -> Result<(MultiConfig<'a>, PathBuf, RealUser), ConfiguratorError> {
         let app = app();
-        let (data_directory, config_file_path, user_specified) =
+        let (config_file_path, user_specified, real_user) =
             determine_config_file_path(dirs_wrapper, &app, args)?;
         let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
             Ok(cfv) => Box::new(cfv),
             Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
         };
-        Ok((
-            make_new_multi_config(
-                &app,
-                vec![
-                    Box::new(CommandLineVcl::new(args.to_vec())),
-                    Box::new(EnvironmentVcl::new(&app)),
-                    config_file_vcl,
-                ],
-                streams,
-            )?,
-            data_directory,
-        ))
+        let multi_config = make_new_multi_config(
+            &app,
+            vec![
+                Box::new(CommandLineVcl::new(args.to_vec())),
+                Box::new(EnvironmentVcl::new(&app)),
+                config_file_vcl,
+            ],
+            streams,
+        )?;
+        let data_directory = config_file_path
+            .parent()
+            .map(|dir| dir.to_path_buf())
+            .expect_decent("data_directory");
+        Ok((multi_config, data_directory, real_user))
     }
 
     pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -1080,7 +1082,7 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use crate::node_configurator::RealDirsWrapper;
+    use crate::node_configurator::DirsWrapperReal;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1570,6 +1572,7 @@ mod tests {
         );
     }
 
+    //TODO it's no longer inside, should test at creation of MultiConfig which is somewhere else
     #[test]
     fn can_read_parameters_from_config_file() {
         running_test();
@@ -1643,7 +1646,7 @@ mod tests {
         .unwrap();
 
         standard::privileged_parse_args(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &multi_config,
             &mut bootstrapper_config,
         )
@@ -1711,7 +1714,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
 
-        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
+        standard::privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(
             value_m!(multi_config, "config-file", PathBuf),
@@ -1923,7 +1926,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
 
-        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
+        standard::privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(
             Some(PathBuf::from("config.toml")),
@@ -1938,7 +1941,7 @@ mod tests {
         assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(
             config.real_user,
-            RealUser::new(None, None, None).populate(&RealDirsWrapper {})
+            RealUser::new(None, None, None).populate(&DirsWrapperReal {})
         );
     }
 
@@ -1954,7 +1957,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
 
-        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
+        standard::privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
         #[cfg(target_os = "linux")]
         assert_eq!(
@@ -2530,7 +2533,7 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
 
-        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
+        standard::privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::None);
     }
@@ -2543,11 +2546,12 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
 
-        standard::privileged_parse_args(&RealDirsWrapper {}, &multi_config, &mut config).unwrap();
+        standard::privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::Panic);
     }
 
+    //TODO it's no longer inside, should test at creation of MultiConfig which is somewhere else
     #[test]
     fn privileged_generate_configuration_senses_when_user_specifies_config_file() {
         running_test();
@@ -2574,6 +2578,7 @@ mod tests {
         }
     }
 
+    //TODO it's no longer inside, should test at creation of MultiConfig which is somewhere else
     #[test]
     fn unprivileged_generate_configuration_senses_when_user_specifies_config_file() {
         running_test();
@@ -2743,6 +2748,7 @@ mod tests {
         assert_eq!(config.blockchain_bridge_config.gas_price, 1);
     }
 
+    //TODO it's no longer inside, should test at creation of MultiConfig which is somewhere else
     #[test]
     fn privileged_configuration_rejects_invalid_gas_price() {
         running_test();

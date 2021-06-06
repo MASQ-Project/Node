@@ -97,8 +97,8 @@ impl<'a> MultiConfig<'a> {
         {
             Ok(matches) => matches,
             Err(e)
-                if (e.kind == clap::ErrorKind::HelpDisplayed)
-                    || (e.kind == clap::ErrorKind::VersionDisplayed) =>
+                if e.kind == clap::ErrorKind::HelpDisplayed
+                    || e.kind == clap::ErrorKind::VersionDisplayed =>
             {
                 short_writeln!(streams.stdout, "{}", e.message);
                 exit_process(0, "")
@@ -122,7 +122,7 @@ impl<'a> MultiConfig<'a> {
         }
     }
 
-    fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
+    pub fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
         let invalid_value_regex =
             Regex::new("Invalid value for.*'--(.*?) <.*? (.*)$").expect("Bad regex");
         if let Some(captures) = invalid_value_regex.captures(&e.message) {

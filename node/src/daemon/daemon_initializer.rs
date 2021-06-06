@@ -172,7 +172,7 @@ mod tests {
     use super::*;
     use crate::daemon::{ChannelFactory, Recipients};
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-    use crate::node_test_utils::MockDirsWrapper;
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
@@ -281,7 +281,7 @@ mod tests {
         let (daemon, _, daemon_recording_arc) = make_recorder();
         let system = System::new("bind_binds_everything_together");
         let recipients = make_recipients(ui_gateway, daemon);
-        let dirs_wrapper = MockDirsWrapper::new()
+        let dirs_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(data_dir.clone()))
             .data_dir_result(Some(data_dir));
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
@@ -319,7 +319,7 @@ mod tests {
         );
         let system =
             System::new("split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args");
-        let dirs_wrapper = MockDirsWrapper::new()
+        let dirs_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(data_dir.clone()))
             .data_dir_result(Some(data_dir));
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
@@ -366,7 +366,7 @@ mod tests {
             "daemon_initializer",
             "go_detects_already_running_daemon",
         );
-        let dirs_wrapper = MockDirsWrapper::new()
+        let dirs_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(data_dir.clone()))
             .data_dir_result(Some(data_dir));
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();

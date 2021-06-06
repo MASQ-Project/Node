@@ -5,13 +5,14 @@ use super::privilege_drop::PrivilegeDropperReal;
 use crate::bootstrapper::{BootstrapperConfig, RealUser};
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::app;
-use crate::node_configurator::node_configurator_standard::standard::make_service_mode_multi_config;
+use crate::node_configurator::node_configurator_standard::standard::aggregated_params_for_service_mode;
 use crate::node_configurator::DirsWrapper;
-use crate::node_configurator::RealDirsWrapper;
+use crate::node_configurator::DirsWrapperReal;
 use crate::sub_lib;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
 use chrono::{DateTime, Local};
+use clap::{Error};
 use flexi_logger::LogSpecBuilder;
 use flexi_logger::Logger;
 use flexi_logger::{Cleanup, Criterion, LevelFilter, Naming};
@@ -21,7 +22,7 @@ use lazy_static::lazy_static;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::{exit_process, ExpectDecent};
+use masq_lib::utils::exit_process;
 use std::any::Any;
 use std::fmt::Debug;
 use std::panic::{Location, PanicInfo};
@@ -47,18 +48,13 @@ impl Command<ConfiguratorError> for ServerInitializer {
         if Self::is_help_or_version(args) {
             // self.privilege_dropper
             //     .drop_privileges(&RealUser::new(None,None,None).populate(&RealDirsWrapper));
-            Self::clap_help_version_brief_process(
-                args,
-                streams,
-                Box::new(|num, msg| {
-                    exit_process(num, msg);
-                }),
-            )
+            Self::clap_help_version_brief_process(args, streams)?
         }
-        let mut result: Result<(), ConfiguratorError> = Ok(());
-        let (multi_config, data_directory) =
-            make_service_mode_multi_config(self.data_dir_wrapper.as_ref(), args, streams)?;
 
+        let (multi_config, data_directory, real_user) =
+            aggregated_params_for_service_mode(self.data_dir_wrapper.as_ref(), args, streams)?;
+
+        let mut result: Result<(), ConfiguratorError> = Ok(());
         result = Self::combine_results(
             result,
             self.dns_socket_server
@@ -73,7 +69,6 @@ impl Command<ConfiguratorError> for ServerInitializer {
                 .initialize_as_privileged(&multi_config),
         );
 
-        let real_user = Self::real_user_from_multi_config(&multi_config);
         self.privilege_dropper.chown(&data_directory, &real_user);
         self.privilege_dropper.drop_privileges(&real_user);
 
@@ -113,7 +108,7 @@ impl ServerInitializer {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
-            data_dir_wrapper: Box::new(RealDirsWrapper),
+            data_dir_wrapper: Box::new(DirsWrapperReal),
         }
     }
 
@@ -138,27 +133,30 @@ impl ServerInitializer {
         args.contains(&"--help".to_string()) || args.contains(&"--version".to_string())
     }
 
-    fn clap_help_version_brief_process<F>(
+    fn write_msg_and_exit(streams: &mut StdStreams<'_>, version_or_help_message: String) -> ! {
+        short_writeln!(streams.stdout, "{}", version_or_help_message);
+        exit_process(0, "")
+    }
+
+    fn clap_help_version_brief_process(
         args: &[String],
         streams: &mut StdStreams<'_>,
-        process_killer: Box<F>,
-    ) where
-        F: FnOnce(i32, &'static str),
-    {
-        match app().get_matches_from_safe(args) {
-            Err(e)
-                if (e.kind == clap::ErrorKind::HelpDisplayed)
-                    || (e.kind == clap::ErrorKind::VersionDisplayed) =>
+    ) -> Result<(), ConfiguratorError> {
+        match Self::get_an_authorized_err_msg_from_clap(args) {
+            e if e.kind == clap::ErrorKind::HelpDisplayed
+                || e.kind == clap::ErrorKind::VersionDisplayed =>
             {
-                short_writeln!(streams.stdout, "{}", e.message);
-                process_killer(0, "");
+                Self::write_msg_and_exit(streams, e.message)
             }
-            _ => panic!("if statement in 'go' didn't work"),
+            e => Err(MultiConfig::make_configurator_error(e)),
         }
     }
 
-    fn real_user_from_multi_config(multi_config: &MultiConfig) -> RealUser {
-        value_m!(multi_config, "real-user", RealUser).expect_decent("RealUser")
+    fn get_an_authorized_err_msg_from_clap(args: &[String]) -> Error {
+        match app().get_matches_from_safe(args) {
+            Err(e) => e,
+            _ => unreachable!("if statement in 'go' doesn't work"),
+        }
     }
 }
 
@@ -447,7 +445,7 @@ pub mod test_utils {
 pub mod tests {
     use super::*;
     use crate::crash_test_dummy::CrashTestDummy;
-    use crate::node_test_utils::MockDirsWrapper;
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -714,8 +712,8 @@ pub mod tests {
         tlh.exists_log_containing("ERROR: PanicHandler: file.txt:24:42 - I'm just a string slice");
     }
 
-    fn make_pre_populated_mock_directory_wrapper() -> MockDirsWrapper {
-        MockDirsWrapper::new()
+    fn make_pre_populated_mock_directory_wrapper() -> DirsWrapperMock {
+        DirsWrapperMock::new()
             .home_dir_result(Some(PathBuf::from("/home/alice")))
             .data_dir_result(Some(PathBuf::from("/home/alice/documents")))
     }
@@ -762,7 +760,7 @@ pub mod tests {
         let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
-        let dirs_wrapper = MockDirsWrapper::new();
+        let dirs_wrapper = DirsWrapperMock::new();
 
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
@@ -780,7 +778,7 @@ pub mod tests {
     fn server_initializer_dns_socket_server_panics() {
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
-        let dirs_wrapper = MockDirsWrapper::new();
+        let dirs_wrapper = DirsWrapperMock::new();
 
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(CrashTestDummy::panic(
@@ -800,7 +798,7 @@ pub mod tests {
     fn server_initializer_bootstrapper_panics() {
         let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
         let privilege_dropper = PrivilegeDropperMock::new();
-        let dirs_wrapper = MockDirsWrapper::new();
+        let dirs_wrapper = DirsWrapperMock::new();
         let mut subject = ServerInitializer {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(CrashTestDummy::panic(
@@ -854,39 +852,50 @@ pub mod tests {
         assert_eq!(*drop_privileges_params, vec![real_user]);
     }
 
-    //
     #[test]
-    fn clap_help_version_brief_process_writes_out_required_information() {
+    fn get_an_authorized_msg_from_clap_provides_help_information_inside_its_error() {
         let args = &["MASQNode".to_string(), "--help".to_string()];
-        let mut stream_holder = FakeStreamHolder::default();
-        let mut streams = stream_holder.streams();
 
-        ServerInitializer::clap_help_version_brief_process(
-            args,
-            &mut streams,
-            Box::new(|_a, _b| ()),
-        );
+        let result = ServerInitializer::get_an_authorized_err_msg_from_clap(args);
 
-        let literal_output = stream_holder.stdout.get_string();
-        assert!(literal_output.contains("MASQ\nMASQ Node is the foundation of  MASQ Network"));
-        assert!(literal_output.contains(
+        assert!(result
+            .message
+            .contains("MASQ\nMASQ Node is the foundation of  MASQ Network"));
+        assert!(result.message.contains(
             "MASQNode [OPTIONS]\n\nFLAGS:\n    -h, --help       Prints help information\n "
         ))
     }
 
     #[test]
-    #[should_panic(expected = "if statement in 'go' didn't work")]
-    fn clap_help_version_brief_process_panics_if_it_cannot_find_h_or_v_argument() {
+    #[should_panic(expected = "if statement in 'go' doesn't work")]
+    fn get_an_authorized_msg_from_clap_panics_if_argument_parsing_ends_happily() {
         let args =
-            convert_str_vec_slice_into_vec_slice_of_strings(&["MASQNode", "param", "arg1", "arg2"]);
+            &convert_str_vec_slice_into_vec_slice_of_strings(&["MASQNode", "--ip", "1.2.3.4"]);
+
+        let _ = ServerInitializer::get_an_authorized_err_msg_from_clap(args);
+    }
+
+    #[test]
+    fn go_returns_a_syntax_error_within_help_invocation() {
+        let args = convert_str_vec_slice_into_vec_slice_of_strings(&[
+            "MASQNode", "param", "--help", "arg1",
+        ]);
         let mut stream_holder = FakeStreamHolder::default();
         let mut streams = stream_holder.streams();
+        let mut subject = ServerInitializer {
+            dns_socket_server: Box::new(ConfiguredByPrivilegeMock::new()),
+            bootstrapper: Box::new(ConfiguredByPrivilegeMock::new()),
+            privilege_dropper: Box::new(PrivilegeDropperMock::new()),
+            data_dir_wrapper: Box::new(DirsWrapperMock::new()),
+        };
 
-        ServerInitializer::clap_help_version_brief_process(
-            &args,
-            &mut streams,
-            Box::new(|_a, _b| ()),
-        );
+        let result = subject.go(&mut streams, &args);
+
+        let param_error = result.unwrap_err().param_errors.remove(0);
+        assert_eq!(param_error.parameter, "<unknown>".to_string());
+        assert!(param_error
+            .reason
+            .contains("Unfamiliar message: error: Found argument \'param\' which wasn\'t expected"))
     }
 
     fn convert_str_vec_slice_into_vec_slice_of_strings(slice: &[&str]) -> Vec<String> {
@@ -922,10 +931,7 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
             data_dir_wrapper: Box::new(dirs_wrapper),
         };
-        let args = convert_str_vec_slice_into_vec_slice_of_strings(&[
-            "MASQNode",
-            parameter
-        ]);
+        let args = convert_str_vec_slice_into_vec_slice_of_strings(&["MASQNode", parameter]);
 
         subject
             .go(&mut FakeStreamHolder::new().streams(), &args)

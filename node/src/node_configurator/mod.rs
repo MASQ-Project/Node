@@ -130,7 +130,7 @@ pub fn determine_config_file_path(
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, PathBuf, bool), ConfiguratorError> {
+) -> Result<(PathBuf, bool, RealUser), ConfiguratorError> {
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
@@ -163,11 +163,7 @@ pub fn determine_config_file_path(
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
-    Ok((
-        directory.clone(),
-        directory.join(config_file_path),
-        user_specified,
-    ))
+    Ok((directory.join(config_file_path), user_specified, real_user))
 }
 
 pub fn create_wallet(
@@ -236,7 +232,7 @@ pub fn real_user_data_directory_opt_and_chain_name(
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, String) {
     let real_user = match value_m!(multi_config, "real-user", RealUser) {
-        None => RealUser::new(None,None,None).populate(dirs_wrapper),
+        None => RealUser::new(None, None, None).populate(dirs_wrapper),
         Some(real_user) => real_user.populate(dirs_wrapper),
     };
     let chain_name =
@@ -297,7 +293,7 @@ pub fn prepare_initialization_mode<'a>(
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory = data_directory_from_context(
-        &RealDirsWrapper {},
+        &DirsWrapperReal {},
         &real_user,
         &data_directory_opt,
         &chain_name,
@@ -601,9 +597,9 @@ pub trait DirsWrapper: Send {
     fn dup(&self) -> Box<dyn DirsWrapper>; // because implementing Clone for traits is problematic.
 }
 
-pub struct RealDirsWrapper;
+pub struct DirsWrapperReal;
 
-impl DirsWrapper for RealDirsWrapper {
+impl DirsWrapper for DirsWrapperReal {
     fn data_dir(&self) -> Option<PathBuf> {
         data_local_dir()
     }
@@ -611,7 +607,7 @@ impl DirsWrapper for RealDirsWrapper {
         home_dir()
     }
     fn dup(&self) -> Box<dyn DirsWrapper> {
-        Box::new(RealDirsWrapper {})
+        Box::new(DirsWrapperReal {})
     }
 }
 
@@ -741,7 +737,7 @@ mod tests {
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
     use crate::node_configurator::node_configurator_standard::app;
-    use crate::node_test_utils::MockDirsWrapper;
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::ArgsBuilder;
@@ -941,7 +937,7 @@ mod tests {
         assert_eq!(
             String::from(""),
             data_directory_default(
-                &MockDirsWrapper::new().data_dir_result(None),
+                &DirsWrapperMock::new().data_dir_result(None),
                 TEST_DEFAULT_CHAIN_NAME
             )
         );
@@ -949,7 +945,7 @@ mod tests {
 
     #[test]
     fn data_directory_default_works() {
-        let mock_dirs_wrapper = MockDirsWrapper::new().data_dir_result(Some("mocked/path".into()));
+        let mock_dirs_wrapper = DirsWrapperMock::new().data_dir_result(Some("mocked/path".into()));
 
         let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
 
@@ -1011,15 +1007,15 @@ mod tests {
         let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
 
         let (real_user, data_directory_opt, chain_name) =
-            real_user_data_directory_opt_and_chain_name(&RealDirsWrapper {}, &multi_config);
+            real_user_data_directory_opt_and_chain_name(&DirsWrapperReal {}, &multi_config);
         let directory = data_directory_from_context(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &real_user,
             &data_directory_opt,
             &chain_name,
         );
 
-        let expected_root = RealDirsWrapper {}.data_dir().unwrap();
+        let expected_root = DirsWrapperReal {}.data_dir().unwrap();
         let expected_directory = expected_root.join("MASQ").join(DEFAULT_CHAIN_NAME);
         assert_eq!(directory, expected_directory);
         assert_eq!(&chain_name, DEFAULT_CHAIN_NAME);
@@ -1034,8 +1030,8 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (data_dir, config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+        let (config_file_path, user_specified, _) = determine_config_file_path(
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1045,7 +1041,6 @@ mod tests {
             &format!("{}", config_file_path.parent().unwrap().display()),
             "data-dir",
         );
-        assert_eq!(data_dir.to_str().unwrap(), "data_dir");
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
         assert_eq!(true, user_specified);
     }
@@ -1058,8 +1053,8 @@ mod tests {
         std::env::set_var("MASQ_DATA_DIRECTORY", "data_dir");
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
-        let (data_dir, config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+        let (config_file_path, user_specified, _) = determine_config_file_path(
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1069,7 +1064,6 @@ mod tests {
             "data_dir",
             &format!("{}", config_file_path.parent().unwrap().display())
         );
-        assert_eq!(data_dir.to_str().unwrap(), "data_dir");
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
         assert_eq!(true, user_specified);
     }
@@ -1083,8 +1077,8 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (_, config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+        let (config_file_path, user_specified, _) = determine_config_file_path(
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1107,7 +1101,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1130,7 +1124,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1153,7 +1147,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1177,7 +1171,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )

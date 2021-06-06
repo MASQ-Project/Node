@@ -599,7 +599,7 @@ mod tests {
     use crate::discriminator::UnmaskedChunk;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
-    use crate::node_test_utils::{extract_log, IdWrapperMock, MockDirsWrapper};
+    use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
@@ -1817,7 +1817,7 @@ mod tests {
         let mut from_configurator = RealUser::new(Some(1), Some(2), Some("three".into()));
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
-        let result = from_configurator.populate(&MockDirsWrapper::new());
+        let result = from_configurator.populate(&DirsWrapperMock::new());
 
         assert_eq!(result, from_configurator);
     }
@@ -1832,7 +1832,7 @@ mod tests {
         from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
 
         let result = from_configurator
-            .populate(&MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
+            .populate(&DirsWrapperMock::new().home_dir_result(Some("/wibble/whop/ooga".into())));
 
         assert_eq!(
             result,
@@ -1856,7 +1856,7 @@ mod tests {
         from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
-        from_configurator.populate(&MockDirsWrapper::new().home_dir_result(Some("/".into())));
+        from_configurator.populate(&DirsWrapperMock::new().home_dir_result(Some("/".into())));
     }
 
     #[test]
@@ -1868,7 +1868,7 @@ mod tests {
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
 
         let result = from_configurator
-            .populate(&MockDirsWrapper::new().home_dir_result(Some("/wibble/whop/ooga".into())));
+            .populate(&DirsWrapperMock::new().home_dir_result(Some("/wibble/whop/ooga".into())));
 
         assert_eq!(
             result,
