@@ -4,7 +4,7 @@ use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
 use crate::comm_layer::{AutomapError, Transactor};
-use masq_lib::utils::AutomapProtocol;
+use masq_lib::utils::{AutomapProtocol, plus};
 use std::net::IpAddr;
 use std::collections::HashSet;
 
@@ -23,14 +23,13 @@ pub type ChangeHandler = Box<dyn Fn(AutomapChange) + Send>;
 pub trait AutomapControl {
     fn get_public_ip (&mut self) -> Result<IpAddr, AutomapError>;
     fn add_mapping(&mut self, hole_port: u16) -> Result<u32, AutomapError>;
-    fn delete_mappings(&self) -> Result<(), AutomapError>;
+    fn delete_mappings(&mut self) -> Result<(), AutomapError>;
 }
 
 #[derive(PartialEq, Debug, Clone)]
 struct AutomapControlRealInner {
     router_ip: IpAddr,
     transactor_idx: usize,
-    port: u16, // TODO Remove this field
 }
 
 type TransactorExperiment<T> = Box<dyn Fn (&dyn Transactor, IpAddr) -> Result<T, AutomapError>>;
@@ -54,8 +53,10 @@ impl AutomapControl for AutomapControlReal {
                 self.choose_working_protocol (experiment)
             },
         };
-        self.maybe_start_change_handler(&public_ip_result);
-        public_ip_result
+        match self.maybe_start_change_handler(&public_ip_result) {
+            Ok (_) => public_ip_result,
+            Err (e) => todo! ("Test-drive me"),
+        }
     }
 
     fn add_mapping(
@@ -66,12 +67,10 @@ impl AutomapControl for AutomapControlReal {
             match transactor.add_mapping(router_ip, hole_port, MAPPING_LIFETIME_SECONDS) {
                 Ok(remap_after) => Ok(remap_after),
                 Err(AutomapError::PermanentLeasesOnly) => match transactor.add_permanent_mapping (router_ip, hole_port) {
-                    Ok (remap_after) => {
-                        Ok (remap_after)
-                    },
-                    Err (_) => Err(AutomapError::Unknown), // TODO Maybe log this error?
+                    Ok (remap_after) => Ok (remap_after),
+                    Err (e) => Err (e), // TODO Maybe log this error?
                 }
-                Err(_) => todo! ("Test-drive me"), //Err (AutomapError::Unknown), // TODO Maybe log this error?
+                Err(e) => Err (e), // TODO Maybe log this error?
             }
         });
         let remap_after_result = match &self.inner_opt {
@@ -79,23 +78,40 @@ impl AutomapControl for AutomapControlReal {
             None => {
                 let result = self.choose_working_protocol(experiment);
                 if result.is_ok() {
-                    self.hole_ports.insert (hole_port); // TODO SPIKE
+                    let transactor_idx = self.inner_opt.as_ref().expect ("inner disappeared").transactor_idx;
+                    self.usual_protocol_opt = Some(self.transactors[transactor_idx].protocol());
+                    self.hole_ports.insert (hole_port);
                 }
                 result
             }
         };
-        self.maybe_start_change_handler(&remap_after_result);
-        remap_after_result
+        match self.maybe_start_change_handler(&remap_after_result) {
+            Ok (_) => remap_after_result,
+            Err (e) => todo! ("Test-drive me"),
+        }
     }
 
-    fn delete_mappings(&self) -> Result<(), AutomapError> {
+    fn delete_mappings(&mut self) -> Result<(), AutomapError> {
         match &self.inner_opt {
             None => Err(AutomapError::DeleteMappingError(
                 "No port mapping to remove".to_string(),
             )),
             Some(inner) => {
-                let transactor = &self.transactors[inner.transactor_idx];
-                transactor.delete_mapping(inner.router_ip, inner.port)
+                let mut transactor = &mut self.transactors[inner.transactor_idx];
+                let init: Vec<AutomapError> = vec![];
+                let errors = self.hole_ports.iter().fold (init, |so_far, hole_port| {
+                    match transactor.delete_mapping(inner.router_ip, *hole_port) {
+                        Ok (_) => so_far,
+                        Err (e) => plus (so_far, e),
+                    }
+                });
+                transactor.stop_change_handler();
+                if errors.is_empty() {
+                    Ok(())
+                }
+                else {
+                    Err (errors[0].clone())
+                }
             }
         }
     }
@@ -116,19 +132,29 @@ impl AutomapControlReal {
         }
     }
 
-    fn maybe_start_change_handler<T>(&mut self, experiment_result: &Result<T, AutomapError>) {
+    fn maybe_start_change_handler<T>(&mut self, experiment_result: &Result<T, AutomapError>) -> Result<(), AutomapError> {
+        // Currently, starting the change handler surrenders ownership of it to the Transactor.
+        // This means that we can't start the change handler, stop it, and then restart it, without
+        // getting it from the client of AutomapControl again. It does turn out that in Rust
+        // closures are Clone, which means that we could redesign this code to keep a copy of the
+        // change handler against the time when we might want to start it up again. However, at the
+        // moment, the signal that the change handler is already running is that change_handler_opt
+        // is None, so adding the restart capability will require a little rearchitecture. At the
+        // time of this writing, we don't need a restart capability, so we're deferring that work
+        // until it's necessary, if ever.
         if let Some(change_handler) = self.change_handler_opt.take() {
             match (experiment_result, &self.inner_opt) {
-                (Ok(_), Some(inner)) => {
-                    self.transactors[inner.transactor_idx].start_change_handler(change_handler);
-                },
-                _ => todo! ("Test-drive me"), //self.change_handler_opt = Some (change_handler),
+                (Ok(_), Some(inner)) =>
+                    self.transactors[inner.transactor_idx].start_change_handler(change_handler),
+                (Err(_), Some (_)) => todo! ("This happens when the experiment fails after succeeding"),
+                (Ok(_), None) => todo! ("This should never happen"),
+                (Err(_), None) => todo! ("This happens when the experiment fails for the first time"),
+                // _ => todo! ("Test-drive me"), //self.change_handler_opt = Some (change_handler),
             }
         }
-    }
-
-    fn find_transactor(&self, protocol: AutomapProtocol) -> &dyn Transactor {
-        self.transactors[self.find_transactor_index(protocol)].as_ref()
+        else {
+            Ok(())
+        }
     }
 
     fn find_transactor_index(&self, protocol: AutomapProtocol) -> usize {
@@ -148,7 +174,6 @@ impl AutomapControlReal {
                     self.inner_opt = Some(AutomapControlRealInner {
                         router_ip,
                         transactor_idx: self.find_transactor_index(usual_protocol),
-                        port: 0, // TODO: Doesn't belong in this struct
                     });
                     return Ok (t)
                 },
@@ -171,45 +196,11 @@ impl AutomapControlReal {
                 self.inner_opt = Some(AutomapControlRealInner {
                     router_ip,
                     transactor_idx: self.find_transactor_index (protocol),
-                    port: 0, // TODO: Doesn't belong in this struct
                 });
                 Ok (t)
             },
             Err (_) => Err(AutomapError::AllProtocolsFailed),
         }
-    }
-
-    fn try_transactor(
-        port: u16,
-        transactor: &dyn Transactor,
-    ) -> Result<(AutomapProtocol, IpAddr, IpAddr), AutomapError> {
-        let router_ips = transactor.find_routers()?;
-        match router_ips
-            .into_iter()
-            .map(|router_ip| AutomapControlReal::try_router(port, transactor, router_ip))
-            .find(|result| result.is_ok())
-        {
-            Some(Ok(result)) => Ok(result),
-            Some(Err(_)) => panic!("Impossible!"),
-            None => Err(AutomapError::AllRoutersFailed(transactor.protocol())),
-        }
-    }
-
-    fn try_router(
-        port: u16,
-        transactor: &dyn Transactor,
-        router_ip: IpAddr,
-    ) -> Result<(AutomapProtocol, IpAddr, IpAddr), AutomapError> {
-        let public_ip = transactor.get_public_ip(router_ip)?;
-        // TODO: Employ _remap_after
-        let _remap_after = match transactor.add_mapping(router_ip, port, MAPPING_LIFETIME_SECONDS) {
-            Ok(delay) => Ok(delay),
-            Err(AutomapError::PermanentLeasesOnly) => {
-                Ok(transactor.add_permanent_mapping(router_ip, port)?)
-            }
-            Err(e) => Err(e),
-        }?;
-        Ok((transactor.protocol(), router_ip, public_ip))
     }
 
     fn try_protocol<T> (transactor: &Box<dyn Transactor>, experiment: &TransactorExperiment<T>) -> Result<(IpAddr, T), AutomapError> {
@@ -265,6 +256,7 @@ mod tests {
         delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
         start_change_handler_params: Arc<Mutex<Vec<ChangeHandler>>>,
         start_change_handler_results: RefCell<Vec<Result<(), AutomapError>>>,
+        stop_change_handler_params: Arc<Mutex<Vec<()>>>,
     }
 
     impl Transactor for TransactorMock {
@@ -326,7 +318,10 @@ mod tests {
         }
 
         fn stop_change_handler(&mut self) {
-            todo!()
+            self.stop_change_handler_params
+                .lock()
+                .unwrap()
+                .push(());
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -349,6 +344,7 @@ mod tests {
                 delete_mapping_results: RefCell::new(vec![]),
                 start_change_handler_params: Arc::new(Mutex::new(vec![])),
                 start_change_handler_results: RefCell::new(vec![]),
+                stop_change_handler_params: Arc::new(Mutex::new(vec![])),
             }
         }
 
@@ -412,6 +408,14 @@ mod tests {
             self.start_change_handler_params = params.clone();
             self
         }
+
+        pub fn stop_change_handler_params(
+            mut self,
+            params: &Arc<Mutex<Vec<()>>>,
+        ) -> Self {
+            self.stop_change_handler_params = params.clone();
+            self
+        }
     }
 
     fn choose_working_protocol_works_for_success(protocol: AutomapProtocol) {
@@ -440,7 +444,6 @@ mod tests {
                 AutomapProtocol::Pmp => 1,
                 AutomapProtocol::Igdp => 2,
             },
-            port: 0
         });
     }
 
@@ -598,6 +601,7 @@ mod tests {
             &start_change_handler_params_arc,
         );
         subject.change_handler_opt = Some (Box::new (change_handler));
+        subject.inner_opt = None;
 
         let result = subject.get_public_ip();
 
@@ -627,7 +631,6 @@ mod tests {
         subject.inner_opt = Some (AutomapControlRealInner {
             router_ip: *ROUTER_IP,
             transactor_idx: 0,
-            port: 0
         });
 
         let result = subject.get_public_ip();
@@ -655,11 +658,14 @@ mod tests {
             &add_mapping_params_arc,
             &start_change_handler_params_arc,
         );
+        subject.inner_opt = None;
         subject.change_handler_opt = Some (Box::new (change_handler));
 
         let result = subject.add_mapping (4567);
 
         assert_eq! (result, Ok (1000));
+        assert_eq! (subject.usual_protocol_opt, Some (AutomapProtocol::Pcp));
+        assert_eq! (subject.hole_ports.iter().collect::<Vec<&u16>>(), vec![&4567]);
         assert! (get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
@@ -685,7 +691,6 @@ mod tests {
         subject.inner_opt = Some (AutomapControlRealInner {
             router_ip: *ROUTER_IP,
             transactor_idx: 0,
-            port: 0
         });
 
         let result = subject.add_mapping (4567);
@@ -695,6 +700,47 @@ mod tests {
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
         assert! (start_change_handler_params_arc.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn late_add_mapping_timed_handles_mapping_error () {
+        let mut subject = make_general_failure_subject();
+        subject.transactors[0] = Box::new(TransactorMock::new(AutomapProtocol::Pcp)
+                .find_routers_result(Ok(vec![*ROUTER_IP]))
+                .get_public_ip_result(Ok(*PUBLIC_IP))
+                .add_mapping_result(Err(AutomapError::AddMappingError("Booga!".to_string())))
+        );
+
+        subject.change_handler_opt = None;
+        subject.inner_opt = Some (AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            transactor_idx: 0,
+        });
+
+        let result = subject.add_mapping (4567);
+
+        assert_eq! (result, Err(AutomapError::AddMappingError("Booga!".to_string())));
+    }
+
+    #[test]
+    fn late_add_mapping_permanent_handles_mapping_error () {
+        let mut subject = make_general_failure_subject();
+        subject.transactors[2] = Box::new(TransactorMock::new(AutomapProtocol::Pcp)
+                .find_routers_result(Ok(vec![*ROUTER_IP]))
+                .get_public_ip_result(Ok(*PUBLIC_IP))
+                .add_mapping_result(Err(AutomapError::PermanentLeasesOnly))
+                .add_permanent_mapping_result(Err(AutomapError::AddMappingError("Booga!".to_string())))
+        );
+
+        subject.change_handler_opt = None;
+        subject.inner_opt = Some (AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            transactor_idx: 2,
+        });
+
+        let result = subject.add_mapping (4567);
+
+        assert_eq! (result, Err(AutomapError::AddMappingError("Booga!".to_string())));
     }
 
     #[test]
@@ -722,7 +768,6 @@ mod tests {
         subject.inner_opt = Some (AutomapControlRealInner {
             router_ip: *ROUTER_IP,
             transactor_idx: 0,
-            port: 0
         });
 
         let result = subject.add_mapping (4567);
@@ -736,436 +781,9 @@ mod tests {
         assert! (start_change_handler_params_arc.lock().unwrap().is_empty());
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////////////////////////////////
-
-    #[test]
-    fn specific_add_mapping_works_for_success() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_single_success_subject(
-            false,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-        );
-        subject.change_handler_opt = Some (null_change_handler());
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(result, Ok(1000));
-        assert_eq!(subject.hole_ports, HashSet::from_iter (vec![1234].into_iter()));
-        assert_eq!(
-            subject.inner_opt,
-            Some(AutomapControlRealInner {
-                router_ip: *ROUTER_IP,
-                transactor_idx: 0,
-                port: 0
-            })
-        );
-        let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
-        assert!(get_public_ip_params.is_empty());
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(
-            *add_mapping_params,
-            vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]
-        );
-        let start_change_handler_params = start_change_handler_params_arc.lock().unwrap();
-        assert! (start_change_handler_params.is_empty());
-    }
-
-    #[test]
-    fn specific_add_mapping_works_for_pcp_success() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_specific_success_subject(
-            AutomapProtocol::Pcp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-        );
-        let outer_handler_data = Arc::new(Mutex::new("".to_string()));
-        let inner_handler_data = outer_handler_data.clone();
-        let change_handler = Box::new(move |change: AutomapChange| {
-            inner_handler_data
-                .lock()
-                .unwrap()
-                .push_str(&format!("{:?}", change))
-        });
-        subject.usual_protocol_opt = Some (AutomapProtocol::Pcp);
-        subject.change_handler_opt = Some (change_handler);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(result, Ok(1));
-        assert_eq!(
-            subject.inner_opt,
-            Some(AutomapControlRealInner {
-                router_ip: *ROUTER_IP,
-                transactor_idx: 0,
-                port: 1234
-            })
-        );
-        let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
-        assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(
-            *add_mapping_params,
-            vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]
-        );
-        let start_change_handler_params = start_change_handler_params_arc.lock().unwrap();
-        start_change_handler_params[0](AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
-        assert_eq!(*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
-    }
-
-    #[test]
-    fn specific_add_mapping_works_for_pmp_success() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_specific_success_subject(
-            AutomapProtocol::Pmp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-        );
-        let outer_handler_data = Arc::new(Mutex::new("".to_string()));
-        let inner_handler_data = outer_handler_data.clone();
-        let change_handler = Box::new(move |change: AutomapChange| {
-            inner_handler_data
-                .lock()
-                .unwrap()
-                .push_str(&format!("{:?}", change))
-        });
-        subject.usual_protocol_opt = Some (AutomapProtocol::Pmp);
-        subject.change_handler_opt = Some (change_handler);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(result, Ok(1));
-        assert_eq!(
-            subject.inner_opt,
-            Some(AutomapControlRealInner {
-                router_ip: *ROUTER_IP,
-                transactor_idx: 1,
-                port: 1234
-            })
-        );
-        let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
-        assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(
-            *add_mapping_params,
-            vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]
-        );
-        let start_change_handler_params = start_change_handler_params_arc.lock().unwrap();
-        start_change_handler_params[0](AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
-        assert_eq!(*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
-    }
-
-    #[test]
-    fn specific_add_mapping_works_for_igdp_success() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_specific_success_subject(
-            AutomapProtocol::Igdp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-        );
-        let outer_handler_data = Arc::new(Mutex::new("".to_string()));
-        let inner_handler_data = outer_handler_data.clone();
-        let change_handler = Box::new(move |change: AutomapChange| {
-            inner_handler_data
-                .lock()
-                .unwrap()
-                .push_str(&format!("{:?}", change))
-        });
-        subject.usual_protocol_opt = Some (AutomapProtocol::Igdp);
-        subject.change_handler_opt = Some (change_handler);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(result, Ok(1));
-        assert_eq!(
-            subject.inner_opt,
-            Some(AutomapControlRealInner {
-                router_ip: *ROUTER_IP,
-                transactor_idx: 2,
-                port: 1234
-            })
-        );
-        let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
-        assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(
-            *add_mapping_params,
-            vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]
-        );
-        let start_change_handler_params = start_change_handler_params_arc.lock().unwrap();
-        start_change_handler_params[0](AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
-        assert_eq!(*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
-    }
-
-    #[test]
-    fn specific_add_mapping_works_for_pcp_failure() {
-        let mut subject = make_specific_failure_subject(AutomapProtocol::Pcp);
-        subject.usual_protocol_opt = Some (AutomapProtocol::Pcp);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(
-            result,
-            Err(AutomapError::ProtocolError("Booga!".to_string()))
-        );
-        assert_eq!(subject.inner_opt, None);
-    }
-
-    #[test]
-    fn specific_add_mapping_works_for_pmp_failure() {
-        let mut subject = make_specific_failure_subject(AutomapProtocol::Pmp);
-        subject.usual_protocol_opt = Some (AutomapProtocol::Pmp);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(
-            result,
-            Err(AutomapError::ProtocolError("Booga!".to_string()))
-        );
-        assert_eq!(subject.inner_opt, None);
-    }
-
-    #[test]
-    fn specific_add_mapping_works_for_igdp_failure() {
-        let mut subject = make_specific_failure_subject(AutomapProtocol::Igdp);
-        subject.usual_protocol_opt = Some (AutomapProtocol::Igdp);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(
-            result,
-            Err(AutomapError::ProtocolError("Booga!".to_string()))
-        );
-        assert_eq!(subject.inner_opt, None);
-    }
-
-    #[test]
-    fn general_add_mapping_works_for_pcp_success() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_general_success_subject(
-            AutomapProtocol::Pcp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-        );
-        let outer_handler_data = Arc::new(Mutex::new("".to_string()));
-        let inner_handler_data = outer_handler_data.clone();
-        let change_handler = Box::new(move |change: AutomapChange| {
-            inner_handler_data
-                .lock()
-                .unwrap()
-                .push_str(&format!("{:?}", change))
-        });
-        subject.change_handler_opt = Some (change_handler);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(result, Ok(1));
-        assert_eq!(
-            subject.inner_opt,
-            Some(AutomapControlRealInner {
-                router_ip: *ROUTER_IP,
-                transactor_idx: 0,
-                port: 1234
-            })
-        );
-        let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
-        assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(
-            *add_mapping_params,
-            vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]
-        );
-        let start_change_handler_params = start_change_handler_params_arc.lock().unwrap();
-        start_change_handler_params[0](AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
-        assert_eq!(*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
-    }
-
-    #[test]
-    fn general_add_mapping_works_for_pmp_success() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_general_success_subject(
-            AutomapProtocol::Pmp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-        );
-        let outer_handler_data = Arc::new(Mutex::new("".to_string()));
-        let inner_handler_data = outer_handler_data.clone();
-        let change_handler = Box::new(move |change: AutomapChange| {
-            inner_handler_data
-                .lock()
-                .unwrap()
-                .push_str(&format!("{:?}", change))
-        });
-        subject.change_handler_opt = Some (change_handler);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(result, Ok(1));
-        assert_eq!(
-            subject.inner_opt,
-            Some(AutomapControlRealInner {
-                router_ip: *ROUTER_IP,
-                transactor_idx: 1,
-                port: 1234
-            })
-        );
-        let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
-        assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(
-            *add_mapping_params,
-            vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]
-        );
-        let start_change_handler_params = start_change_handler_params_arc.lock().unwrap();
-        start_change_handler_params[0](AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
-        assert_eq!(*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
-    }
-
-    #[test]
-    fn general_add_mapping_works_for_igdp_success() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_general_success_subject(
-            AutomapProtocol::Igdp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-        );
-        let outer_handler_data = Arc::new(Mutex::new("".to_string()));
-        let inner_handler_data = outer_handler_data.clone();
-        let change_handler = Box::new(move |change: AutomapChange| {
-            inner_handler_data
-                .lock()
-                .unwrap()
-                .push_str(&format!("{:?}", change))
-        });
-        subject.change_handler_opt = Some (change_handler);
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(result, Ok(1));
-        assert_eq!(
-            subject.inner_opt,
-            Some(AutomapControlRealInner {
-                router_ip: *ROUTER_IP,
-                transactor_idx: 2,
-                port: 1234
-            })
-        );
-        assert_eq!(
-            subject.inner_opt,
-            Some(AutomapControlRealInner {
-                router_ip: *ROUTER_IP,
-                transactor_idx: 2,
-                port: 1234
-            })
-        );
-        let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
-        assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(
-            *add_mapping_params,
-            vec![(*ROUTER_IP, 1234, MAPPING_LIFETIME_SECONDS)]
-        );
-        let start_change_handler_params = start_change_handler_params_arc.lock().unwrap();
-        start_change_handler_params[0](AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
-        assert_eq!(*outer_handler_data.lock().unwrap(), "NewIp(4.3.2.1)");
-    }
-
-    #[test]
-    fn general_add_mapping_works_for_all_failure() {
-        let mut subject = make_general_failure_subject();
-
-        let result = subject.add_mapping(1234);
-
-        assert_eq!(result, Err(AutomapError::AllProtocolsFailed));
-        assert_eq!(subject.inner_opt, None);
-    }
-
-    #[test]
-    fn permanent_mapping_requirements_are_handled() {
-        let add_permanent_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let transactor: Box<dyn Transactor> = Box::new(
-            TransactorMock::new(AutomapProtocol::Igdp)
-                .find_routers_result(Ok(vec![*ROUTER_IP]))
-                .get_public_ip_result(Ok(*PUBLIC_IP))
-                .add_mapping_result(Err(AutomapError::PermanentLeasesOnly))
-                .add_permanent_mapping_params(&add_permanent_mapping_params_arc)
-                .add_permanent_mapping_result(Ok(300)),
-        );
-
-        let result = AutomapControlReal::try_transactor(1234, transactor.as_ref());
-
-        assert_eq!(result, Ok((AutomapProtocol::Igdp, *ROUTER_IP, *PUBLIC_IP)));
-        let add_permanent_mapping_params = add_permanent_mapping_params_arc.lock().unwrap();
-        assert_eq!(*add_permanent_mapping_params, vec![(*ROUTER_IP, 1234)])
-    }
-
-    #[test]
-    fn all_found_routers_are_tried_success() {
-        let router_ip1 = IpAddr::from_str("8.8.8.1").unwrap();
-        let router_ip2 = IpAddr::from_str("8.8.8.2").unwrap();
-        let router_ip3 = IpAddr::from_str("8.8.8.3").unwrap();
-        let transactor: Box<dyn Transactor> = Box::new(
-            TransactorMock::new(AutomapProtocol::Igdp)
-                .find_routers_result(Ok(vec![router_ip1, router_ip2, router_ip3]))
-                .get_public_ip_result(Err(AutomapError::CantFindDefaultGateway))
-                .get_public_ip_result(Err(AutomapError::CantFindDefaultGateway))
-                .get_public_ip_result(Ok(*PUBLIC_IP))
-                .add_mapping_result(Ok(300)),
-        );
-
-        let result = AutomapControlReal::try_transactor(1234, transactor.as_ref());
-
-        assert_eq!(result, Ok((AutomapProtocol::Igdp, router_ip3, *PUBLIC_IP)));
-    }
-
-    #[test]
-    fn all_found_routers_are_tried_failure() {
-        let router_ip1 = IpAddr::from_str("8.8.8.1").unwrap();
-        let router_ip2 = IpAddr::from_str("8.8.8.2").unwrap();
-        let router_ip3 = IpAddr::from_str("8.8.8.3").unwrap();
-        let transactor: Box<dyn Transactor> = Box::new(
-            TransactorMock::new(AutomapProtocol::Igdp)
-                .find_routers_result(Ok(vec![router_ip1, router_ip2, router_ip3]))
-                .get_public_ip_result(Err(AutomapError::CantFindDefaultGateway))
-                .get_public_ip_result(Err(AutomapError::CantFindDefaultGateway))
-                .get_public_ip_result(Err(AutomapError::CantFindDefaultGateway))
-                .add_mapping_result(Ok(300)),
-        );
-
-        let result = AutomapControlReal::try_transactor(1234, transactor.as_ref());
-
-        assert_eq!(
-            result,
-            Err(AutomapError::AllRoutersFailed(AutomapProtocol::Igdp))
-        );
-    }
-
     #[test]
     fn delete_mappings_complains_if_no_active_protocol() {
-        let subject = make_null_subject();
+        let mut subject = make_null_subject();
 
         let result = subject.delete_mappings();
 
@@ -1180,19 +798,38 @@ mod tests {
     #[test]
     fn delete_mappings_works_with_success() {
         let delete_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let stop_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
         let subject =
-            make_removal_success_subject(AutomapProtocol::Pmp, &delete_mapping_params_arc);
+            make_active_two_port_subject(1);
+        let transactor = TransactorMock::new(AutomapProtocol::Pmp)
+            .delete_mapping_params(&delete_mapping_params_arc)
+            .delete_mapping_result(Ok(()))
+            .delete_mapping_result(Ok(()))
+            .stop_change_handler_params(&stop_change_handler_params_arc);
+        let mut subject = replace_transactor(subject, Box::new(transactor));
 
         let result = subject.delete_mappings();
 
         assert_eq!(result, Ok(()));
         let delete_mapping_params = delete_mapping_params_arc.lock().unwrap();
-        assert_eq!(*delete_mapping_params, vec![(*ROUTER_IP, 1234)])
+        vec![(*ROUTER_IP, 4567), (*ROUTER_IP, 5678)].into_iter().for_each(|pair| {
+            assert! (delete_mapping_params.contains (&pair));
+        });
+        let stop_change_handler_params = stop_change_handler_params_arc.lock().unwrap();
+        assert_eq! (*stop_change_handler_params, vec![()]);
     }
 
     #[test]
     fn delete_mappings_works_with_failure() {
-        let subject = make_removal_failure_subject(AutomapProtocol::Pmp);
+        let delete_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let stop_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
+        let subject = make_active_two_port_subject(1);
+        let transactor = TransactorMock::new(AutomapProtocol::Pmp)
+            .delete_mapping_params(&delete_mapping_params_arc)
+            .delete_mapping_result(Ok(()))
+            .delete_mapping_result(Err(AutomapError::DeleteMappingError("Booga!".to_string())))
+            .stop_change_handler_params(&stop_change_handler_params_arc);
+        let mut subject = replace_transactor(subject, Box::new(transactor));
 
         let result = subject.delete_mappings();
 
@@ -1200,6 +837,19 @@ mod tests {
             result,
             Err(AutomapError::DeleteMappingError("Booga!".to_string()))
         );
+        let delete_mapping_params = delete_mapping_params_arc.lock().unwrap();
+        vec![(*ROUTER_IP, 4567), (*ROUTER_IP, 5678)].into_iter().for_each(|pair| {
+            assert! (delete_mapping_params.contains (&pair));
+        });
+        let stop_change_handler_params = stop_change_handler_params_arc.lock().unwrap();
+        assert_eq! (*stop_change_handler_params, vec![()]);
+    }
+
+    #[test]
+    fn maybe_start_change_handler_handles_failure() {
+        let subject = make_null_subject();
+
+        let result = subject.maybe_start_change_handler()
     }
 
     fn make_single_success_subject(
@@ -1268,32 +918,14 @@ mod tests {
         replace_transactor (subject, Box::new (transactor))
     }
 
-    fn make_removal_success_subject(
-        protocol: AutomapProtocol,
-        delete_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16)>>>,
-    ) -> AutomapControlReal {
+    fn make_active_two_port_subject(transactor_idx: usize) -> AutomapControlReal {
         let mut subject = make_null_subject();
+        subject.hole_ports = vec![4567, 5678].into_iter().collect::<HashSet<u16>>();
         subject.inner_opt = Some(AutomapControlRealInner {
             router_ip: *ROUTER_IP,
-            transactor_idx: 1,
-            port: 1234,
+            transactor_idx,
         });
-        let transactor = TransactorMock::new(protocol)
-            .delete_mapping_params(delete_mapping_params_arc)
-            .delete_mapping_result(Ok(()));
-        replace_transactor(subject, Box::new(transactor))
-    }
-
-    fn make_removal_failure_subject(protocol: AutomapProtocol) -> AutomapControlReal {
-        let mut subject = make_null_subject();
-        subject.inner_opt = Some(AutomapControlRealInner {
-            router_ip: *ROUTER_IP,
-            transactor_idx: 1,
-            port: 1234,
-        });
-        let transactor = TransactorMock::new(protocol)
-            .delete_mapping_result(Err(AutomapError::DeleteMappingError("Booga!".to_string())));
-        replace_transactor(subject, Box::new(transactor))
+        subject
     }
 
     fn make_specific_failure_subject(protocol: AutomapProtocol) -> AutomapControlReal {
