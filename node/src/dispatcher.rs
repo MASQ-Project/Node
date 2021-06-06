@@ -176,6 +176,8 @@ impl Dispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actor_system_factory::{ActorFactory, ActorFactoryReal};
+    use crate::bootstrapper::BootstrapperConfig;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::stream_messages::NonClandestineAttributes;
     use crate::sub_lib::dispatcher::Endpoint;
@@ -188,6 +190,7 @@ mod tests {
     use masq_lib::ui_gateway::MessageTarget;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use std::thread;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
@@ -453,34 +456,40 @@ mod tests {
     }
 
     #[test]
+    //with
     fn descriptor_request_results_in_descriptor_response() {
         let system = System::new("test");
-        let subject = Dispatcher::new(CrashPoint::None, "Node descriptor".to_string());
-        let addr = subject.start();
-        let (ui_gateway_recorder, _, ui_gateway_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder()
-            .ui_gateway(ui_gateway_recorder)
-            .build();
-        addr.try_send(BindMessage { peer_actors }).unwrap();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        bootstrapper_config.node_descriptor = "abcdef1234".to_string();
         let msg = NodeFromUiMessage {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),
         };
+        let (dispatcher_subs, _) =
+            ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        dispatcher_subs
+            .bind
+            .try_send(BindMessage { peer_actors })
+            .unwrap();
 
-        addr.try_send(msg).unwrap();
+        dispatcher_subs.ui_sub.try_send(msg).unwrap();
 
+        thread::sleep(std::time::Duration::from_millis(15)); //TODO why cannot I get along without this delay
         System::current().stop_with_code(0);
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(
-            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+            response,
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiDescriptorResponse {
-                    node_descriptor: "Node descriptor".to_string()
+                    node_descriptor: "abcdef1234".to_string()
                 }
                 .tmb(4321)
             }
-        );
+        )
     }
 }

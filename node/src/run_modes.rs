@@ -175,7 +175,7 @@ impl Runner for RunnerReal {
             Box::new(LoggerInitializerWrapperReal {}),
             initialization_config,
             Box::new(ChannelFactoryReal::new()),
-            Box::new(RecipientsFactoryReal::new()),
+            Box::new(RecipientsFactoryReal::new()), //Daemon creation in this factory
             Box::new(RerunnerReal::new()),
         );
         initializer.go(streams, args)?;

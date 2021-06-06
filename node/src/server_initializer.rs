@@ -2,17 +2,17 @@
 use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::PrivilegeDropper;
 use super::privilege_drop::PrivilegeDropperReal;
-use crate::bootstrapper::{BootstrapperConfig, RealUser};
+use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::app;
-use crate::node_configurator::node_configurator_standard::standard::aggregated_params_for_service_mode;
+use crate::node_configurator::node_configurator_standard::standard::service_mode_aggregated_user_params;
 use crate::node_configurator::DirsWrapper;
 use crate::node_configurator::DirsWrapperReal;
 use crate::sub_lib;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
 use chrono::{DateTime, Local};
-use clap::{Error};
+use clap::Error;
 use flexi_logger::LogSpecBuilder;
 use flexi_logger::Logger;
 use flexi_logger::{Cleanup, Criterion, LevelFilter, Naming};
@@ -52,7 +52,7 @@ impl Command<ConfiguratorError> for ServerInitializer {
         }
 
         let (multi_config, data_directory, real_user) =
-            aggregated_params_for_service_mode(self.data_dir_wrapper.as_ref(), args, streams)?;
+            service_mode_aggregated_user_params(self.data_dir_wrapper.as_ref(), args, streams)?;
 
         let mut result: Result<(), ConfiguratorError> = Ok(());
         result = Self::combine_results(
@@ -133,7 +133,10 @@ impl ServerInitializer {
         args.contains(&"--help".to_string()) || args.contains(&"--version".to_string())
     }
 
-    fn write_msg_and_exit(streams: &mut StdStreams<'_>, version_or_help_message: String) -> ! {
+    fn write_h_or_v_msg_and_exit(
+        streams: &mut StdStreams<'_>,
+        version_or_help_message: String,
+    ) -> ! {
         short_writeln!(streams.stdout, "{}", version_or_help_message);
         exit_process(0, "")
     }
@@ -143,12 +146,12 @@ impl ServerInitializer {
         streams: &mut StdStreams<'_>,
     ) -> Result<(), ConfiguratorError> {
         match Self::get_an_authorized_err_msg_from_clap(args) {
-            e if e.kind == clap::ErrorKind::HelpDisplayed
-                || e.kind == clap::ErrorKind::VersionDisplayed =>
+            err if err.kind == clap::ErrorKind::HelpDisplayed
+                || err.kind == clap::ErrorKind::VersionDisplayed =>
             {
-                Self::write_msg_and_exit(streams, e.message)
+                Self::write_h_or_v_msg_and_exit(streams, err.message)
             }
-            e => Err(MultiConfig::make_configurator_error(e)),
+            err => Err(MultiConfig::make_configurator_error(err)),
         }
     }
 
@@ -444,6 +447,7 @@ pub mod test_utils {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::bootstrapper::BootstrapperConfig;
     use crate::crash_test_dummy::CrashTestDummy;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
@@ -712,7 +716,7 @@ pub mod tests {
         tlh.exists_log_containing("ERROR: PanicHandler: file.txt:24:42 - I'm just a string slice");
     }
 
-    fn make_pre_populated_mock_directory_wrapper() -> DirsWrapperMock {
+    pub fn make_pre_populated_mock_directory_wrapper() -> DirsWrapperMock {
         DirsWrapperMock::new()
             .home_dir_result(Some(PathBuf::from("/home/alice")))
             .data_dir_result(Some(PathBuf::from("/home/alice/documents")))
@@ -898,7 +902,7 @@ pub mod tests {
             .contains("Unfamiliar message: error: Found argument \'param\' which wasn\'t expected"))
     }
 
-    fn convert_str_vec_slice_into_vec_slice_of_strings(slice: &[&str]) -> Vec<String> {
+    pub fn convert_str_vec_slice_into_vec_slice_of_strings(slice: &[&str]) -> Vec<String> {
         slice
             .into_iter()
             .map(|item| item.to_string())

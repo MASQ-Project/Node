@@ -155,7 +155,7 @@ pub mod standard {
     use std::path::PathBuf;
     use std::str::FromStr;
 
-    pub fn aggregated_params_for_service_mode<'a>(
+    pub fn service_mode_aggregated_user_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
         args: &[String],
         streams: &mut StdStreams,
@@ -1082,7 +1082,12 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
+    use crate::node_configurator::node_configurator_standard::standard::service_mode_aggregated_user_params;
     use crate::node_configurator::DirsWrapperReal;
+    use crate::node_test_utils::DirsWrapperMock;
+    use crate::server_initializer::tests::{
+        convert_str_vec_slice_into_vec_slice_of_strings, make_pre_populated_mock_directory_wrapper,
+    };
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1572,7 +1577,6 @@ mod tests {
         );
     }
 
-    //TODO it's no longer inside, should test at creation of MultiConfig which is somewhere else
     #[test]
     fn can_read_parameters_from_config_file() {
         running_test();
@@ -1587,25 +1591,22 @@ mod tests {
                 .write_all(b"dns-servers = \"111.111.111.111,222.222.222.222\"\n")
                 .unwrap();
         }
-        let subject = NodeConfiguratorStandardPrivileged::new();
+        let directory_wrapper = make_pre_populated_mock_directory_wrapper();
 
-        let configuration = subject
-            .configure(
-                &make_simplified_multi_config(&[
-                    "".to_string(),
-                    "--data-directory".to_string(),
-                    home_dir.to_str().unwrap().to_string(),
-                ]),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
-            .unwrap();
+        let (multi_config, _, _) = service_mode_aggregated_user_params(
+            &directory_wrapper,
+            &convert_str_vec_slice_into_vec_slice_of_strings(&[
+                "",
+                "--data-directory",
+                home_dir.to_str().unwrap(),
+            ]),
+            &mut FakeStreamHolder::new().streams(),
+        )
+        .unwrap();
 
         assert_eq!(
-            configuration.dns_servers,
-            vec![
-                SocketAddr::from_str("111.111.111.111:53").unwrap(),
-                SocketAddr::from_str("222.222.222.222:53").unwrap(),
-            ]
+            value_m!(multi_config, "dns-servers", String).unwrap(),
+            "111.111.111.111,222.222.222.222".to_string()
         );
     }
 
@@ -2551,53 +2552,25 @@ mod tests {
         assert_eq!(config.crash_point, CrashPoint::Panic);
     }
 
-    //TODO it's no longer inside, should test at creation of MultiConfig which is somewhere else
     #[test]
-    fn privileged_generate_configuration_senses_when_user_specifies_config_file() {
-        running_test();
-        let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ArgsBuilder::new().param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
-        let args_vec: Vec<String> = args.into();
-
-        let result = subject
-            .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
-            .err();
-
-        match result {
-            None => panic!("Expected a value, got None"),
-            Some(mut error) => {
-                assert_eq!(error.param_errors.len(), 1);
-                let param_error = error.param_errors.remove(0);
-                assert_eq!(param_error.parameter, "config-file".to_string());
-                assert_string_contains(&param_error.reason, "Couldn't open configuration file ");
-                assert_string_contains(&param_error.reason, ". Are you sure it exists?");
-            }
-        }
-    }
-
-    //TODO it's no longer inside, should test at creation of MultiConfig which is somewhere else
-    #[test]
-    fn unprivileged_generate_configuration_senses_when_user_specifies_config_file() {
+    fn service_mode_aggregated_user_params_senses_when_user_specifies_config_file() {
         running_test();
         let data_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "unprivileged_generate_configuration_senses_when_user_specifies_config_file",
         );
-        let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
-        subject.privileged_config = BootstrapperConfig::new();
-        subject.privileged_config.data_directory = data_dir;
         let args = ArgsBuilder::new().param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
         let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(PathBuf::from("/home/alice")))
+            .data_dir_result(Some(data_dir));
 
-        let result = subject
-            .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
-            .err();
+        let result = service_mode_aggregated_user_params(
+            &dir_wrapper,
+            args_vec.as_slice(),
+            &mut FakeStreamHolder::new().streams(),
+        )
+        .err();
 
         match result {
             None => panic!("Expected a value, got None"),
@@ -2748,22 +2721,21 @@ mod tests {
         assert_eq!(config.blockchain_bridge_config.gas_price, 1);
     }
 
-    //TODO it's no longer inside, should test at creation of MultiConfig which is somewhere else
     #[test]
-    fn privileged_configuration_rejects_invalid_gas_price() {
+    fn service_mode_aggregated_user_params_rejects_invalid_gas_price() {
         running_test();
         let _clap_guard = ClapGuard::new();
-        let subject = NodeConfiguratorStandardPrivileged::new();
         let args = ArgsBuilder::new().param("--gas-price", "unleaded");
         let args_vec: Vec<String> = args.into();
+        let dir_wrapper = make_pre_populated_mock_directory_wrapper();
 
-        let result = subject
-            .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
-                Some(&mut FakeStreamHolder::new().streams()),
-            )
-            .err()
-            .unwrap();
+        let result = service_mode_aggregated_user_params(
+            &dir_wrapper,
+            &args_vec.as_slice(),
+            &mut FakeStreamHolder::new().streams(),
+        )
+        .err()
+        .unwrap();
 
         assert_eq!(
             result,

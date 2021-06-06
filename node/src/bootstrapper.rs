@@ -296,6 +296,7 @@ pub struct BootstrapperConfig {
     pub blockchain_bridge_config: BlockchainBridgeConfig,
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
+    pub node_descriptor: String,
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub real_user: RealUser,
@@ -330,7 +331,6 @@ impl BootstrapperConfig {
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
                 ui_port: DEFAULT_UI_PORT,
-                node_descriptor: String::from(""),
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
@@ -339,6 +339,7 @@ impl BootstrapperConfig {
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
+            node_descriptor: "".to_string(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::new(None, None, None),
@@ -436,7 +437,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &self.config.alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain_id,
         );
-        self.config.ui_gateway_config.node_descriptor = Bootstrapper::report_local_descriptor(
+        self.config.node_descriptor = Bootstrapper::report_local_descriptor(
             cryptde_ref,
             self.config.neighborhood_config.mode.node_addr_opt(),
             streams,
@@ -632,7 +633,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::ops::DerefMut;
+    use std::ops::{DerefMut, Not};
     use std::str::FromStr;
     use std::sync::mpsc;
     use std::sync::Arc;
@@ -777,15 +778,6 @@ mod tests {
             }
         }
     }
-
-    //TODO remove this
-    // fn make_default_cli_params() -> Vec<String> {
-    //     vec![
-    //         String::from("MASQNode"),
-    //         String::from("--ip"),
-    //         String::from("111.111.111.111"),
-    //     ]
-    // }
 
     #[test]
     fn real_user_from_blank() {
@@ -1014,30 +1006,6 @@ mod tests {
     }
 
     #[test]
-    fn initialize_as_privileged_handles_error_from_configurator() {
-        let logger_initializer = LoggerInitializerWrapperMock::new();
-        let mut subject = Bootstrapper::new(Box::new(logger_initializer));
-        let args: Vec<String> = ArgsBuilder::new().param("--booga", "value").into();
-        let args_slice: &[String] = args.as_slice();
-
-        let result = subject.initialize_as_privileged(&make_simplified_multi_config(args_slice));
-
-        let error = match result {
-            Err(configurator_error) => configurator_error,
-            x => panic!("Expected ConfiguratorError, got {:?}", x),
-        };
-        assert_eq!(error.param_errors.len(), 1);
-        let param_error = &error.param_errors[0];
-        assert_eq!(param_error.parameter, "<unknown>".to_string());
-        assert_eq!(
-            param_error.reason.contains("Unfamiliar message"),
-            true,
-            "{}",
-            param_error.reason
-        );
-    }
-
-    #[test]
     fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
@@ -1068,7 +1036,7 @@ mod tests {
             .unwrap();
 
         let config = subject.config;
-        assert!(!config.ui_gateway_config.node_descriptor.is_empty());
+        assert!(config.node_descriptor.is_empty().not());
     }
 
     #[test]

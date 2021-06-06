@@ -29,11 +29,7 @@ pub struct RecipientsFactoryReal {}
 
 impl RecipientsFactory for RecipientsFactoryReal {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients {
-        let ui_gateway_addr = UiGateway::new(&UiGatewayConfig {
-            ui_port,
-            node_descriptor: "".to_string(), // irrelevant; field should be removed
-        })
-        .start();
+        let ui_gateway_addr = UiGateway::new(&UiGatewayConfig { ui_port }).start();
         let daemon_addr = Daemon::new(launcher).start();
         Recipients {
             ui_gateway_from_sub: ui_gateway_addr.clone().recipient(),
