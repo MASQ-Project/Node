@@ -53,9 +53,9 @@ impl AutomapControl for AutomapControlReal {
                 self.choose_working_protocol (experiment)
             },
         };
-        match self.maybe_start_change_handler(&public_ip_result) {
+        match self.maybe_start_change_handler(Self::error_from (&public_ip_result)) {
             Ok (_) => public_ip_result,
-            Err (e) => todo! ("Test-drive me"),
+            Err (e) => Err (e),
         }
     }
 
@@ -68,9 +68,9 @@ impl AutomapControl for AutomapControlReal {
                 Ok(remap_after) => Ok(remap_after),
                 Err(AutomapError::PermanentLeasesOnly) => match transactor.add_permanent_mapping (router_ip, hole_port) {
                     Ok (remap_after) => Ok (remap_after),
-                    Err (e) => Err (e), // TODO Maybe log this error?
+                    Err (e) => Err (e),
                 }
-                Err(e) => Err (e), // TODO Maybe log this error?
+                Err(e) => Err (e),
             }
         });
         let remap_after_result = match &self.inner_opt {
@@ -85,9 +85,9 @@ impl AutomapControl for AutomapControlReal {
                 result
             }
         };
-        match self.maybe_start_change_handler(&remap_after_result) {
+        match self.maybe_start_change_handler(Self::error_from (&remap_after_result)) {
             Ok (_) => remap_after_result,
-            Err (e) => todo! ("Test-drive me"),
+            Err (e) => Err (e),
         }
     }
 
@@ -132,7 +132,7 @@ impl AutomapControlReal {
         }
     }
 
-    fn maybe_start_change_handler<T>(&mut self, experiment_result: &Result<T, AutomapError>) -> Result<(), AutomapError> {
+    fn maybe_start_change_handler(&mut self, experiment_error_opt: Option<AutomapError>) -> Result<(), AutomapError> {
         // Currently, starting the change handler surrenders ownership of it to the Transactor.
         // This means that we can't start the change handler, stop it, and then restart it, without
         // getting it from the client of AutomapControl again. It does turn out that in Rust
@@ -143,13 +143,14 @@ impl AutomapControlReal {
         // time of this writing, we don't need a restart capability, so we're deferring that work
         // until it's necessary, if ever.
         if let Some(change_handler) = self.change_handler_opt.take() {
-            match (experiment_result, &self.inner_opt) {
-                (Ok(_), Some(inner)) =>
+            match (experiment_error_opt, &self.inner_opt) {
+                (None, None) => unreachable! ("Experiment succeeded but produced no Inner structure"),
+                (None, Some(inner)) =>
                     self.transactors[inner.transactor_idx].start_change_handler(change_handler),
-                (Err(_), Some (_)) => todo! ("This happens when the experiment fails after succeeding"),
-                (Ok(_), None) => todo! ("This should never happen"),
-                (Err(_), None) => todo! ("This happens when the experiment fails for the first time"),
-                // _ => todo! ("Test-drive me"), //self.change_handler_opt = Some (change_handler),
+                (Some(e), _) => {
+                    self.change_handler_opt = Some (change_handler);
+                    Err (e)
+                },
             }
         }
         else {
@@ -219,6 +220,15 @@ impl AutomapControlReal {
                     }
                 }
             })
+    }
+
+    fn error_from<T, E: Clone> (result: &Result<T, E>) -> Option<E> {
+        if let Err (e) = result {
+            Some (e.clone())
+        }
+        else {
+            None
+        }
     }
 }
 
@@ -617,6 +627,23 @@ mod tests {
     }
 
     #[test]
+    fn early_get_public_ip_passes_on_error_from_failing_to_start_change_handler () {
+        let subject = make_null_subject();
+        let mut subject = replace_transactor(subject, Box::new (
+            TransactorMock::new (AutomapProtocol::Pcp)
+                .find_routers_result(Ok(vec![*ROUTER_IP]))
+                .get_public_ip_result(Ok(*PUBLIC_IP))
+                .start_change_handler_result (Err(AutomapError::Unknown))
+        ));
+        subject.change_handler_opt = Some (Box::new (|_| ()));
+        subject.inner_opt = None;
+
+        let result = subject.get_public_ip();
+
+        assert_eq! (result, Err(AutomapError::Unknown));
+    }
+
+    #[test]
     fn late_get_public_ip_does_not_start_change_handler_but_delegates_to_transactor () {
         let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
@@ -674,6 +701,23 @@ mod tests {
         actual_change_handler(change.clone());
         let change_handler_log = change_handler_log_arc.lock().unwrap();
         assert_eq! (*change_handler_log, vec![change])
+    }
+
+    #[test]
+    fn early_add_mapping_passes_on_error_from_failing_to_start_change_handler () {
+        let subject = make_null_subject();
+        let mut subject = replace_transactor(subject, Box::new (
+            TransactorMock::new (AutomapProtocol::Pcp)
+                .find_routers_result(Ok(vec![*ROUTER_IP]))
+                .add_mapping_result(Ok(12345))
+                .start_change_handler_result (Err(AutomapError::Unknown))
+        ));
+        subject.change_handler_opt = Some (Box::new (|_| ()));
+        subject.inner_opt = None;
+
+        let result = subject.add_mapping(1234);
+
+        assert_eq! (result, Err(AutomapError::Unknown));
     }
 
     #[test]
@@ -846,10 +890,30 @@ mod tests {
     }
 
     #[test]
-    fn maybe_start_change_handler_handles_failure() {
-        let subject = make_null_subject();
+    fn maybe_start_change_handler_handles_first_experiment_failure() {
+        let mut subject = make_null_subject();
+        subject.change_handler_opt = Some (Box::new (|_| ()));
+        subject.inner_opt = None;
 
-        let result = subject.maybe_start_change_handler()
+        let result = subject.maybe_start_change_handler(Some(AutomapError::Unknown));
+
+        assert_eq! (result, Err(AutomapError::Unknown));
+        assert! (subject.change_handler_opt.is_some());
+    }
+
+    #[test]
+    fn maybe_start_change_handler_handles_later_experiment_failure() {
+        let mut subject = make_null_subject();
+        subject.change_handler_opt = Some (Box::new (|_| ()));
+        subject.inner_opt = Some (AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            transactor_idx: 0
+        });
+
+        let result = subject.maybe_start_change_handler(Some(AutomapError::Unknown));
+
+        assert_eq! (result, Err(AutomapError::Unknown));
+        assert! (subject.change_handler_opt.is_some());
     }
 
     fn make_single_success_subject(
