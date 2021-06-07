@@ -61,7 +61,6 @@ impl Command<ConfiguratorError> for ServerInitializer {
                 .as_mut()
                 .initialize_as_privileged(&multi_config),
         );
-
         result = Self::combine_results(
             result,
             self.bootstrapper
@@ -133,7 +132,7 @@ impl ServerInitializer {
         args.contains(&"--help".to_string()) || args.contains(&"--version".to_string())
     }
 
-    fn write_h_or_v_msg_and_exit(
+    fn write_help_or_version_msg_and_exit(
         streams: &mut StdStreams<'_>,
         version_or_help_message: String,
     ) -> ! {
@@ -145,20 +144,20 @@ impl ServerInitializer {
         args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<(), ConfiguratorError> {
-        match Self::get_an_authorized_err_msg_from_clap(args) {
+        match Self::get_a_genuine_err_msg_from_clap(args) {
             err if err.kind == clap::ErrorKind::HelpDisplayed
                 || err.kind == clap::ErrorKind::VersionDisplayed =>
             {
-                Self::write_h_or_v_msg_and_exit(streams, err.message)
+                Self::write_help_or_version_msg_and_exit(streams, err.message)
             }
             err => Err(MultiConfig::make_configurator_error(err)),
         }
     }
 
-    fn get_an_authorized_err_msg_from_clap(args: &[String]) -> Error {
+    fn get_a_genuine_err_msg_from_clap(args: &[String]) -> Error {
         match app().get_matches_from_safe(args) {
             Err(e) => e,
-            _ => unreachable!("if statement in 'go' doesn't work"),
+            _ => unreachable!("previous if statement didn't work"),
         }
     }
 }
@@ -453,8 +452,9 @@ pub mod tests {
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use actix::fut::err;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::multi_config::{MultiConfig, MultiConfigValuesExtracted};
+    use masq_lib::multi_config::{MultiConfig, MultiConfigExtractedValues};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
@@ -483,10 +483,10 @@ pub mod tests {
     }
 
     struct ConfiguredByPrivilegeMock {
-        demanded_values_from_multi_config: Vec<String>,
-        initialize_as_privileged_params: Arc<Mutex<Vec<MultiConfigValuesExtracted>>>,
+        demanded_values_from_multi_config: RefCell<Vec<String>>,
+        initialize_as_privileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         initialize_as_privileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
-        initialize_as_unprivileged_params: Arc<Mutex<Vec<MultiConfigValuesExtracted>>>,
+        initialize_as_unprivileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         initialize_as_unprivileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
     }
 
@@ -504,10 +504,15 @@ pub mod tests {
             &mut self,
             multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
-            if self.demanded_values_from_multi_config.is_empty().not() {
+            if self
+                .demanded_values_from_multi_config
+                .borrow()
+                .is_empty()
+                .not()
+            {
                 self.initialize_as_privileged_params.lock().unwrap().push(
-                    MultiConfigValuesExtracted::default().extract_entries_on_demand(
-                        &self.demanded_values_from_multi_config,
+                    MultiConfigExtractedValues::default().extract_entries_on_demand(
+                        &self.demanded_values_from_multi_config.borrow(),
                         multi_config,
                     ),
                 )
@@ -520,10 +525,15 @@ pub mod tests {
             multi_config: &MultiConfig,
             _streams: &mut StdStreams,
         ) -> Result<(), ConfiguratorError> {
-            if self.demanded_values_from_multi_config.is_empty().not() {
+            if self
+                .demanded_values_from_multi_config
+                .borrow()
+                .is_empty()
+                .not()
+            {
                 self.initialize_as_unprivileged_params.lock().unwrap().push(
-                    MultiConfigValuesExtracted::default().extract_entries_on_demand(
-                        &self.demanded_values_from_multi_config,
+                    MultiConfigExtractedValues::default().extract_entries_on_demand(
+                        &self.demanded_values_from_multi_config.borrow(),
                         multi_config,
                     ),
                 );
@@ -537,7 +547,7 @@ pub mod tests {
     impl ConfiguredByPrivilegeMock {
         pub fn new() -> ConfiguredByPrivilegeMock {
             Self {
-                demanded_values_from_multi_config: vec![],
+                demanded_values_from_multi_config: RefCell::new(vec![]),
                 initialize_as_privileged_params: Arc::new(Mutex::new(vec![])),
                 initialize_as_privileged_results: RefCell::new(vec![]),
                 initialize_as_unprivileged_params: Arc::new(Mutex::new(vec![])),
@@ -545,10 +555,17 @@ pub mod tests {
             }
         }
 
+        pub fn set_demanded_values_from_multi_config(self, mut values: Vec<String>) -> Self {
+            self.demanded_values_from_multi_config
+                .borrow_mut()
+                .append(&mut values);
+            self
+        }
+
         #[allow(dead_code)]
         pub fn initialize_as_privileged_params(
             mut self,
-            params: &Arc<Mutex<Vec<MultiConfigValuesExtracted>>>,
+            params: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         ) -> Self {
             self.initialize_as_privileged_params = params.clone();
             self
@@ -568,7 +585,7 @@ pub mod tests {
         #[allow(dead_code)]
         pub fn initialize_as_unprivileged_params(
             mut self,
-            params: &Arc<Mutex<Vec<MultiConfigValuesExtracted>>>,
+            params: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         ) -> Self {
             self.initialize_as_unprivileged_params = params.clone();
             self
@@ -719,7 +736,7 @@ pub mod tests {
     pub fn make_pre_populated_mock_directory_wrapper() -> DirsWrapperMock {
         DirsWrapperMock::new()
             .home_dir_result(Some(PathBuf::from("/home/alice")))
-            .data_dir_result(Some(PathBuf::from("/home/alice/documents")))
+            .data_dir_result(Some(PathBuf::from("/home/alice/Documents")))
     }
 
     #[test]
@@ -819,14 +836,34 @@ pub mod tests {
     #[test]
     fn go_should_drop_privileges() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
-        let real_user = RealUser::new(Some(123), Some(456), Some("/home/alice".into()));
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.real_user = real_user.clone();
-        let bootstrapper = CrashTestDummy::new(CrashPoint::None, bootstrapper_config);
+        let bootstrapper_init_privileged_params_arc = Arc::new(Mutex::new(vec![]));
+        let bootstrapper_init_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
+        let dns_socket_server_privileged_params_arc = Arc::new(Mutex::new(vec![]));
+        let dns_socket_server_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
+        let bootstrapper = ConfiguredByPrivilegeMock::new()
+            .initialize_as_privileged_result(Ok(()))
+            .initialize_as_unprivileged_result(Ok(()))
+            .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
+            .initialize_as_unprivileged_params(&bootstrapper_init_unprivileged_params_arc)
+            .set_demanded_values_from_multi_config(vec![
+                "dns-servers".to_string(),
+                "real-user".to_string(),
+            ]);
+        let dns_socket_server = ConfiguredByPrivilegeMock::new()
+            .initialize_as_privileged_result(Ok(()))
+            .initialize_as_unprivileged_result(Ok(()))
+            .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
+            .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
+            .set_demanded_values_from_multi_config(vec![
+                "dns-servers".to_string(),
+                "real-user".to_string(),
+            ]);
         let dirs_wrapper = make_pre_populated_mock_directory_wrapper();
         let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
-        let privilege_dropper =
-            PrivilegeDropperMock::new().drop_privileges_params(&drop_privileges_params_arc);
+        let chown_params_arc = Arc::new(Mutex::new(vec![]));
+        let privilege_dropper = PrivilegeDropperMock::new()
+            .drop_privileges_params(&drop_privileges_params_arc)
+            .chown_params(&chown_params_arc);
         let stdin = &mut ByteArrayReader::new(&[0; 0]);
         let stdout = &mut ByteArrayWriter::new();
         let stderr = &mut ByteArrayWriter::new();
@@ -836,7 +873,7 @@ pub mod tests {
             stderr,
         };
         let mut subject = ServerInitializer {
-            dns_socket_server: Box::new(CrashTestDummy::new(CrashPoint::None, ())),
+            dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
             data_dir_wrapper: Box::new(dirs_wrapper),
@@ -848,19 +885,45 @@ pub mod tests {
                 "MASQNode",
                 "--real-user",
                 "123:456:/home/alice",
+                "--dns-servers",
+                "5.5.6.6",
             ]),
         );
 
         assert!(result.is_ok());
+        let real_user = RealUser::new(Some(123), Some(456), Some("/home/alice".into()));
+        let chown_params = chown_params_arc.lock().unwrap();
+        assert_eq!(
+            *chown_params,
+            vec![(
+                PathBuf::from("/home/alice/Documents/MASQ/mainnet"),
+                real_user.clone()
+            )]
+        );
         let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
         assert_eq!(*drop_privileges_params, vec![real_user]);
+        let params_for_assertion_on_multi_config = &vec!["5.5.6.6", "123:456:/home/alice"];
+        [
+            bootstrapper_init_privileged_params_arc,
+            bootstrapper_init_unprivileged_params_arc,
+            dns_socket_server_privileged_params_arc,
+            dns_socket_server_unprivileged_params_arc,
+        ]
+        .iter()
+        .for_each(|arc_params| {
+            let param_vec = arc_params.lock().unwrap();
+            assert_eq!(
+                &param_vec[0].arg_matches_requested_entries,
+                params_for_assertion_on_multi_config
+            )
+        })
     }
 
     #[test]
     fn get_an_authorized_msg_from_clap_provides_help_information_inside_its_error() {
         let args = &["MASQNode".to_string(), "--help".to_string()];
 
-        let result = ServerInitializer::get_an_authorized_err_msg_from_clap(args);
+        let result = ServerInitializer::get_a_genuine_err_msg_from_clap(args);
 
         assert!(result
             .message
@@ -871,12 +934,12 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "if statement in 'go' doesn't work")]
+    #[should_panic(expected = "previous if statement didn't work")]
     fn get_an_authorized_msg_from_clap_panics_if_argument_parsing_ends_happily() {
         let args =
             &convert_str_vec_slice_into_vec_slice_of_strings(&["MASQNode", "--ip", "1.2.3.4"]);
 
-        let _ = ServerInitializer::get_an_authorized_err_msg_from_clap(args);
+        let _ = ServerInitializer::get_a_genuine_err_msg_from_clap(args);
     }
 
     #[test]
@@ -937,9 +1000,7 @@ pub mod tests {
         };
         let args = convert_str_vec_slice_into_vec_slice_of_strings(&["MASQNode", parameter]);
 
-        subject
-            .go(&mut FakeStreamHolder::new().streams(), &args)
-            .unwrap();
+        subject.go(&mut FakeStreamHolder::new().streams(), &args);
     }
 
     #[test]

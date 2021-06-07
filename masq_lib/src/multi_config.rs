@@ -158,19 +158,19 @@ impl<'a> MultiConfig<'a> {
 //TODO don't know why this cannot be test only
 //#[cfg(test)]
 #[derive(Default)]
-pub struct MultiConfigValuesExtracted {
-    arg_matches_queried_entries: Vec<String>,
-    cloned_content_field: Vec<String>,
+pub struct MultiConfigExtractedValues {
+    pub arg_matches_requested_entries: Vec<String>,
+    pub cloned_content_field: Vec<String>,
 }
 //TODO don't know why this cannot be test only
 //#[cfg(test)]
-impl MultiConfigValuesExtracted {
+impl MultiConfigExtractedValues {
     pub fn extract_entries_on_demand(
         mut self,
         required: &[String],
         multi_config: &MultiConfig,
     ) -> Self {
-        self.arg_matches_queried_entries = required
+        self.arg_matches_requested_entries = required
             .iter()
             .map(|key| multi_config.arg_matches.value_of(key).unwrap().to_string())
             .collect();
