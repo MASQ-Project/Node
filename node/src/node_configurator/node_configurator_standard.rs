@@ -155,7 +155,7 @@ pub mod standard {
     use std::path::PathBuf;
     use std::str::FromStr;
 
-    pub fn service_mode_aggregated_user_params<'a>(
+    pub fn collected_user_params_for_service_mode<'a>(
         dirs_wrapper: &dyn DirsWrapper,
         args: &[String],
         streams: &mut StdStreams,
@@ -1082,11 +1082,11 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use crate::node_configurator::node_configurator_standard::standard::service_mode_aggregated_user_params;
+    use crate::node_configurator::node_configurator_standard::standard::collected_user_params_for_service_mode;
     use crate::node_configurator::DirsWrapperReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::tests::{
-        convert_str_vec_slice_into_vec_slice_of_strings, make_pre_populated_mock_directory_wrapper,
+        convert_str_vec_slice_into_vec_of_strings, make_pre_populated_mock_directory_wrapper,
     };
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
@@ -1593,9 +1593,9 @@ mod tests {
         }
         let directory_wrapper = make_pre_populated_mock_directory_wrapper();
 
-        let (multi_config, _, _) = service_mode_aggregated_user_params(
+        let (multi_config, _, _) = collected_user_params_for_service_mode(
             &directory_wrapper,
-            &convert_str_vec_slice_into_vec_slice_of_strings(&[
+            &convert_str_vec_slice_into_vec_of_strings(&[
                 "",
                 "--data-directory",
                 home_dir.to_str().unwrap(),
@@ -2553,7 +2553,7 @@ mod tests {
     }
 
     #[test]
-    fn service_mode_aggregated_user_params_senses_when_user_specifies_config_file() {
+    fn collected_user_params_for_service_mode_senses_when_user_specifies_config_file() {
         running_test();
         let data_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -2565,7 +2565,7 @@ mod tests {
             .home_dir_result(Some(PathBuf::from("/home/alice")))
             .data_dir_result(Some(data_dir));
 
-        let result = service_mode_aggregated_user_params(
+        let result = collected_user_params_for_service_mode(
             &dir_wrapper,
             args_vec.as_slice(),
             &mut FakeStreamHolder::new().streams(),
@@ -2722,14 +2722,14 @@ mod tests {
     }
 
     #[test]
-    fn service_mode_aggregated_user_params_rejects_invalid_gas_price() {
+    fn collected_user_params_for_service_mode_rejects_invalid_gas_price() {
         running_test();
         let _clap_guard = ClapGuard::new();
         let args = ArgsBuilder::new().param("--gas-price", "unleaded");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = make_pre_populated_mock_directory_wrapper();
 
-        let result = service_mode_aggregated_user_params(
+        let result = collected_user_params_for_service_mode(
             &dir_wrapper,
             &args_vec.as_slice(),
             &mut FakeStreamHolder::new().streams(),
