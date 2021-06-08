@@ -21,14 +21,12 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged
         streams: &mut StdStreams,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let app = app();
-        eprintln!("privileged args for msmmc {:?}", args);
         let multi_config = standard::make_service_mode_multi_config(
             self.dirs_wrapper.as_ref(),
             &app,
             args,
             streams,
         )?;
-        eprintln!("privileged multi_config {:?}", multi_config);
         let mut bootstrapper_config = BootstrapperConfig::new();
         standard::establish_port_configurations(&mut bootstrapper_config);
         standard::privileged_parse_args(
@@ -72,14 +70,12 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             self.privileged_config.blockchain_bridge_config.chain_id,
         );
         let mut unprivileged_config = BootstrapperConfig::new();
-        eprintln!("unprivileged args for msmmc {:?}", args);
         let multi_config = standard::make_service_mode_multi_config(
             self.dirs_wrapper.as_ref(),
             &app,
             args,
             streams,
         )?;
-        eprintln!("unprivileged multi_config {:?}", multi_config);
         standard::unprivileged_parse_args(
             &multi_config,
             &mut unprivileged_config,
