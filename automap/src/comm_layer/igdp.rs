@@ -8,7 +8,6 @@ use igd::{
 };
 use masq_lib::utils::AutomapProtocol;
 use std::any::Any;
-use std::cell::RefCell;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 use crossbeam_channel::{Sender, unbounded, Receiver};
 use std::sync::{Mutex, Arc, MutexGuard};
@@ -331,6 +330,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use igd::RequestError;
+    use std::cell::RefCell;
 
     fn clone_get_external_ip_error (error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -753,7 +753,7 @@ mod tests {
         let change_handler = Box::new (move |change: AutomapChange|
             inner_arc.lock().unwrap().push (change));
 
-        subject.start_change_handler(change_handler);
+        subject.start_change_handler(change_handler).unwrap();
 
         thread::sleep (Duration::from_millis(100));
         subject.stop_change_handler();
@@ -782,7 +782,7 @@ mod tests {
         let change_handler = Box::new (move |change: AutomapChange|
             inner_arc.lock().unwrap().push (change));
 
-        subject.start_change_handler(change_handler);
+        subject.start_change_handler(change_handler).unwrap();
 
         thread::sleep (Duration::from_millis(100));
         let change_log = change_log_arc.lock().unwrap();

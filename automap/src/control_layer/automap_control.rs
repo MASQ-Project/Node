@@ -97,7 +97,7 @@ impl AutomapControl for AutomapControlReal {
                 "No port mapping to remove".to_string(),
             )),
             Some(inner) => {
-                let mut transactor = &mut self.transactors[inner.transactor_idx];
+                let transactor = &mut self.transactors[inner.transactor_idx];
                 let init: Vec<AutomapError> = vec![];
                 let errors = self.hole_ports.iter().fold (init, |so_far, hole_port| {
                     match transactor.delete_mapping(inner.router_ip, *hole_port) {
@@ -187,7 +187,7 @@ impl AutomapControlReal {
             match (so_far, self.usual_protocol_opt) {
                 (Ok(tuple), _) => Ok (tuple),
                 (Err (e), Some (usual_protocol)) if usual_protocol == transactor.protocol() => Err (e),
-                (Err (e), _) => Self::try_protocol (transactor, &experiment).map (|(router_ip, t)| {
+                (Err (_), _) => Self::try_protocol (transactor, &experiment).map (|(router_ip, t)| {
                     (transactor.protocol(), router_ip, t)
                 })
             }
@@ -242,15 +242,10 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::iter::FromIterator;
 
     lazy_static! {
         static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
         static ref PUBLIC_IP: IpAddr = IpAddr::from_str("2.3.4.5").unwrap();
-    }
-
-    fn null_change_handler() -> ChangeHandler {
-        Box::new(|_| {})
     }
 
     struct TransactorMock {
@@ -491,7 +486,7 @@ mod tests {
     fn choose_working_protocol_works_when_a_protocol_says_no_routers() {
         let mut subject = make_no_routers_subject();
         let experiment: TransactorExperiment<String> =
-            Box::new (|t, router_ip| Ok ("Success!".to_string()));
+            Box::new (|_t, _router_ip| Ok ("Success!".to_string()));
 
         let result = subject.choose_working_protocol (experiment);
 
@@ -511,7 +506,7 @@ mod tests {
             )
         }).collect();
         let experiment: TransactorExperiment<String> =
-            Box::new (|t, router_ip| Err (AutomapError::Unknown));
+            Box::new (|_t, _router_ip| Err (AutomapError::Unknown));
 
         let result = subject.choose_working_protocol (experiment);
 
@@ -526,7 +521,7 @@ mod tests {
         let outer_protocol_log_arc = Arc::new (Mutex::new (vec![]));
         let inner_protocol_log_arc = outer_protocol_log_arc.clone();
         let experiment: TransactorExperiment<String> =
-            Box::new (move |t, router_ip| {
+            Box::new (move |t, _router_ip| {
                 inner_protocol_log_arc.lock().unwrap ().push (t.protocol());
                 if t.protocol() == AutomapProtocol::Pmp {
                     Ok ("Success!".to_string())
@@ -551,7 +546,7 @@ mod tests {
         let outer_protocol_log_arc = Arc::new (Mutex::new (vec![]));
         let inner_protocol_log_arc = outer_protocol_log_arc.clone();
         let experiment: TransactorExperiment<String> =
-            Box::new (move |t, router_ip| {
+            Box::new (move |t, _router_ip| {
                 inner_protocol_log_arc.lock().unwrap ().push (t.protocol());
                 if t.protocol() == AutomapProtocol::Pmp {
                     Ok ("Success!".to_string())
@@ -576,7 +571,7 @@ mod tests {
         let outer_protocol_log_arc = Arc::new (Mutex::new (vec![]));
         let inner_protocol_log_arc = outer_protocol_log_arc.clone();
         let experiment: TransactorExperiment<String> =
-            Box::new (move |t, router_ip| {
+            Box::new (move |t, _router_ip| {
                 inner_protocol_log_arc.lock().unwrap ().push (t.protocol());
                 if t.protocol() == AutomapProtocol::Igdp {
                     Ok ("Success!".to_string())
@@ -914,28 +909,6 @@ mod tests {
 
         assert_eq! (result, Err(AutomapError::Unknown));
         assert! (subject.change_handler_opt.is_some());
-    }
-
-    fn make_single_success_subject(
-        use_usual_protocol: bool,
-        get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
-        add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_change_handler_params_arc: &Arc<Mutex<Vec<ChangeHandler>>>,
-    ) -> AutomapControlReal {
-        let transactor = TransactorMock::new(AutomapProtocol::Pcp)
-            .find_routers_result(Ok(vec![*ROUTER_IP]))
-            .get_public_ip_params(get_public_ip_params_arc)
-            .get_public_ip_result(Ok(*PUBLIC_IP))
-            .add_mapping_params(add_mapping_params_arc)
-            .add_mapping_result(Ok(1000))
-            .start_change_handler_params(start_change_handler_params_arc)
-            .start_change_handler_result(Ok(()));
-        let mut subject = AutomapControlReal::new(
-            if use_usual_protocol {Some (AutomapProtocol::Pcp)} else {None},
-            Box::new (|_x| {})
-        );
-        subject.transactors = vec![Box::new (transactor)];
-        subject
     }
 
     fn make_multirouter_specific_success_subject(
