@@ -938,23 +938,6 @@ mod tests {
         subject
     }
 
-    fn make_specific_success_subject(
-        protocol: AutomapProtocol,
-        get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
-        add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_change_handler_params_arc: &Arc<Mutex<Vec<ChangeHandler>>>,
-    ) -> AutomapControlReal {
-        let transactor = TransactorMock::new(protocol)
-            .find_routers_result(Ok(vec![*ROUTER_IP]))
-            .get_public_ip_params(get_public_ip_params_arc)
-            .get_public_ip_result(Ok(*PUBLIC_IP))
-            .add_mapping_params(add_mapping_params_arc)
-            .add_mapping_result(Ok(1000))
-            .start_change_handler_params(start_change_handler_params_arc)
-            .start_change_handler_result(Ok(()));
-        replace_transactor(make_null_subject(), Box::new(transactor))
-    }
-
     fn make_multirouter_specific_success_subject(
         protocol: AutomapProtocol,
         router_ips: Vec<IpAddr>,
@@ -990,10 +973,6 @@ mod tests {
             transactor_idx,
         });
         subject
-    }
-
-    fn make_specific_failure_subject(protocol: AutomapProtocol) -> AutomapControlReal {
-        replace_transactor(make_null_subject(), make_failure_transactor(protocol))
     }
 
     fn make_general_success_subject(
