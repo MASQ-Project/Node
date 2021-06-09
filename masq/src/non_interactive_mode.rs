@@ -396,7 +396,8 @@ mod tests {
 
             assert_eq!(output, "")
         }
-        //because of Win from Actions (theoretically some other platform too)
+        //because of Win from Actions
+        #[cfg(target_os = "windows")]
         thread::sleep(Duration::from_millis(200));
 
         let output_when_unlocked = test_stream_handle.stdout_so_far();

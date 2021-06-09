@@ -40,6 +40,7 @@ pub mod privilege_drop;
 pub mod proxy_client;
 pub mod proxy_server;
 pub mod run_modes;
+pub mod run_modes_factories;
 pub mod server_initializer;
 pub mod stream_handler_pool;
 mod stream_messages;

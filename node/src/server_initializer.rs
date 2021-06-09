@@ -1,25 +1,22 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
-use crate::apps::app_node;
 use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::standard::collected_user_params_for_service_mode;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
+use crate::run_modes_factories::ServerInitializer;
 use crate::sub_lib;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
 use chrono::{DateTime, Local};
-use clap::Error;
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
 };
 use futures::try_ready;
 use lazy_static::lazy_static;
 use masq_lib::command::{Command, StdStreams};
-use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::exit_process;
 use std::any::Any;
 use std::fmt::Debug;
 use std::panic::{Location, PanicInfo};
@@ -28,14 +25,14 @@ use std::sync::{Mutex, MutexGuard};
 use std::{io, thread};
 use tokio::prelude::{Async, Future};
 
-pub struct ServerInitializer {
+pub struct ServerInitializerReal {
     dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
     data_dir_wrapper: Box<dyn DirsWrapper>,
 }
 
-impl Command<ConfiguratorError> for ServerInitializer {
+impl Command<ConfiguratorError> for ServerInitializerReal {
     fn go(
         &mut self,
         streams: &mut StdStreams<'_>,
@@ -77,7 +74,9 @@ impl Command<ConfiguratorError> for ServerInitializer {
     }
 }
 
-impl Future for ServerInitializer {
+impl ServerInitializer for ServerInitializerReal {}
+
+impl Future for ServerInitializerReal {
     type Item = ();
     type Error = ();
 
@@ -91,9 +90,9 @@ impl Future for ServerInitializer {
     }
 }
 
-impl ServerInitializer {
-    pub fn new() -> ServerInitializer {
-        ServerInitializer {
+impl ServerInitializerReal {
+    pub fn new() -> ServerInitializerReal {
+        ServerInitializerReal {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
@@ -119,7 +118,7 @@ impl ServerInitializer {
     }
 }
 
-impl Default for ServerInitializer {
+impl Default for ServerInitializerReal {
     fn default() -> Self {
         Self::new()
     }
@@ -287,13 +286,68 @@ pub fn real_format_function(
 pub mod test_utils {
     use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
+    use crate::run_modes_factories::ServerInitializer;
     use crate::server_initializer::LoggerInitializerWrapper;
     #[cfg(not(target_os = "windows"))]
     use crate::test_utils::logging::init_test_logging;
+    use futures::Async;
     use log::LevelFilter;
+    use masq_lib::command::{Command, StdStreams};
+    use masq_lib::shared_schema::ConfiguratorError;
+    use std::borrow::BorrowMut;
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
+    use tokio::prelude::Future;
+
+    #[derive(Default)]
+    pub struct ServerInitializerMock {
+        go_result: RefCell<Vec<Result<(), ConfiguratorError>>>,
+        go_params: RefCell<Arc<Mutex<Vec<Vec<String>>>>>,
+        poll_result: RefCell<Vec<Result<Async<<Self as Future>::Item>, <Self as Future>::Error>>>,
+    }
+
+    impl ServerInitializerMock {
+        pub fn go_result(self, result: Result<(), ConfiguratorError>) -> Self {
+            self.go_result.borrow_mut().push(result);
+            self
+        }
+
+        pub fn go_params(self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+            self.go_params.replace(params.clone());
+            self
+        }
+
+        pub fn poll_result(
+            self,
+            result: Result<Async<<Self as Future>::Item>, <Self as Future>::Error>,
+        ) -> Self {
+            self.poll_result.borrow_mut().push(result);
+            self
+        }
+    }
+
+    impl ServerInitializer for ServerInitializerMock {}
+
+    impl Command<ConfiguratorError> for ServerInitializerMock {
+        fn go(
+            &mut self,
+            streams: &mut StdStreams<'_>,
+            args: &[String],
+        ) -> Result<(), ConfiguratorError> {
+            self.go_params.borrow().lock().unwrap().push(args.to_vec());
+            self.go_result.borrow_mut().remove(0)
+        }
+    }
+
+    impl Future for ServerInitializerMock {
+        type Item = ();
+        type Error = ();
+
+        fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+            self.poll_result.borrow_mut().remove(0)
+        }
+    }
 
     pub struct PrivilegeDropperMock {
         drop_privileges_params: Arc<Mutex<Vec<RealUser>>>,
@@ -415,7 +469,6 @@ pub mod tests {
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
-    use masq_lib::utils::running_test;
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::Arc;
@@ -564,7 +617,7 @@ pub mod tests {
         let initial_success = Ok("booga");
         let additional_success = Ok(42);
 
-        let result = ServerInitializer::combine_results(initial_success, additional_success);
+        let result = ServerInitializerReal::combine_results(initial_success, additional_success);
 
         assert_eq!(result, Ok(()))
     }
@@ -578,7 +631,7 @@ pub mod tests {
                 ParamError::new("param-two", "Reason Two"),
             ]));
 
-        let result = ServerInitializer::combine_results(initial_success, additional_failure);
+        let result = ServerInitializerReal::combine_results(initial_success, additional_failure);
 
         assert_eq!(
             result,
@@ -597,7 +650,7 @@ pub mod tests {
         ]));
         let additional_success = Ok(42);
 
-        let result = ServerInitializer::combine_results(initial_failure, additional_success);
+        let result = ServerInitializerReal::combine_results(initial_failure, additional_success);
 
         assert_eq!(
             result,
@@ -620,7 +673,7 @@ pub mod tests {
                 ParamError::new("param-three", "Reason Four"),
             ]));
 
-        let result = ServerInitializer::combine_results(initial_failure, additional_failure);
+        let result = ServerInitializerReal::combine_results(initial_failure, additional_failure);
 
         assert_eq!(
             result,
@@ -702,7 +755,7 @@ pub mod tests {
         let bootstrapper = CrashTestDummy::new(CrashPoint::Error, BootstrapperConfig::new());
         let dirs_wrapper = make_pre_populated_mock_directory_wrapper();
         let privilege_dropper = PrivilegeDropperMock::new();
-        let mut subject = ServerInitializer {
+        let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
@@ -739,7 +792,7 @@ pub mod tests {
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
 
-        let mut subject = ServerInitializer {
+        let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
@@ -757,7 +810,7 @@ pub mod tests {
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
 
-        let mut subject = ServerInitializer {
+        let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(CrashTestDummy::panic(
                 "EntryDnsServerMock was instructed to panic".to_string(),
                 (),
@@ -776,7 +829,7 @@ pub mod tests {
         let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
-        let mut subject = ServerInitializer {
+        let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(CrashTestDummy::panic(
                 "BootstrapperMock was instructed to panic".to_string(),
@@ -828,7 +881,7 @@ pub mod tests {
             stdout,
             stderr,
         };
-        let mut subject = ServerInitializer {
+        let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
@@ -904,7 +957,7 @@ pub mod tests {
                 "boot-iau-reason",
             )));
         let privilege_dropper = PrivilegeDropperMock::new();
-        let mut subject = ServerInitializer {
+        let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),

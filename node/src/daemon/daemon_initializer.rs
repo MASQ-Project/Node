@@ -59,14 +59,14 @@ impl ChannelFactory for ChannelFactoryReal {
     }
 }
 
-pub struct DaemonInitializer {
+pub struct DaemonInitializerReal {
     config: InitializationConfig,
     channel_factory: Box<dyn ChannelFactory>,
     recipients_factory: Box<dyn RecipientsFactory>,
     rerunner: Box<dyn Rerunner>,
 }
 
-impl Command<ConfiguratorError> for DaemonInitializer {
+impl Command<ConfiguratorError> for DaemonInitializerReal {
     fn go(
         &mut self,
         _streams: &mut StdStreams<'_>,
@@ -108,7 +108,7 @@ impl RerunnerReal {
     }
 }
 
-impl DaemonInitializer {
+impl DaemonInitializerReal {
     pub fn new(
         dirs_wrapper: &dyn DirsWrapper,
         mut logger_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
@@ -116,7 +116,7 @@ impl DaemonInitializer {
         channel_factory: Box<dyn ChannelFactory>,
         recipients_factory: Box<dyn RecipientsFactory>,
         rerunner: Box<dyn Rerunner>,
-    ) -> DaemonInitializer {
+    ) -> DaemonInitializerReal {
         logger_initializer_wrapper.init(
             dirs_wrapper
                 .data_dir()
@@ -126,7 +126,7 @@ impl DaemonInitializer {
             LevelFilter::Trace,
             Some("daemon"),
         );
-        DaemonInitializer {
+        DaemonInitializerReal {
             config,
             channel_factory,
             recipients_factory,
@@ -286,7 +286,7 @@ mod tests {
         let channel_factory = ChannelFactoryMock::new();
         let addr_factory = RecipientsFactoryMock::new().make_result(recipients);
         let rerunner = RerunnerMock::new();
-        let mut subject = DaemonInitializer::new(
+        let mut subject = DaemonInitializerReal::new(
             &dirs_wrapper,
             Box::new(logger_initializer_wrapper),
             config,
@@ -326,7 +326,7 @@ mod tests {
         let addr_factory = RecipientsFactoryMock::new();
         let rerun_parameters_arc = Arc::new(Mutex::new(vec![]));
         let rerunner = RerunnerMock::new().rerun_parameters(&rerun_parameters_arc);
-        let mut subject = DaemonInitializer::new(
+        let mut subject = DaemonInitializerReal::new(
             &dirs_wrapper,
             Box::new(logger_initializer_wrapper),
             config,
@@ -368,7 +368,7 @@ mod tests {
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
         let _listener = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
-        let mut subject = DaemonInitializer::new(
+        let mut subject = DaemonInitializerReal::new(
             &dirs_wrapper,
             Box::new(logger_initializer_wrapper),
             InitializationConfig { ui_port: port },

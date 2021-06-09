@@ -1,13 +1,20 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
-use crate::daemon::daemon_initializer::{DaemonInitializer, RecipientsFactoryReal, RerunnerReal};
+use crate::daemon::daemon_initializer::{
+    DaemonInitializerReal, RecipientsFactoryReal, RerunnerReal,
+};
 use crate::daemon::ChannelFactoryReal;
 use crate::database::config_dumper;
 use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
 use crate::node_configurator::{DirsWrapperReal, NodeConfigurator};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
-use crate::server_initializer::{LoggerInitializerWrapperReal, ServerInitializer};
+use crate::run_modes_factories::{
+    DaemonInitializerFactory, DaemonInitializerFactoryReal, DumpConfigRunnerFactory,
+    DumpConfigRunnerFactoryReal, ServerInitializer, ServerInitializerFactory,
+    ServerInitializerFactoryReal,
+};
+use crate::server_initializer::LoggerInitializerWrapperReal;
 use actix::System;
 use clap::Error;
 use futures::future::Future;
@@ -81,19 +88,18 @@ impl RunModes {
         mode: &Mode,
         streams: &mut StdStreams<'_>,
     ) -> EnterProgram {
-        if Self::is_help_or_version(args) {
-            match match mode {
-                Mode::DumpConfig => app_config_dumper(),
-                Mode::Initialization => app_daemon(),
-                Mode::Service => app_node(),
-            }
-            .get_matches_from_safe(args)
-            {
-                Err(e) => Self::process_clap_error_which_may_contain_help_or_version(e, streams),
-                x => unreachable!("the help-or-version filter failed {:?}", x),
-            }
-        } else {
-            Enter
+        match match match Self::is_help_or_version(args) {
+            false => return Enter,
+            true => mode,
+        } {
+            Mode::DumpConfig => app_config_dumper(),
+            Mode::Initialization => app_daemon(),
+            Mode::Service => app_node(),
+        }
+        .get_matches_from_safe(args)
+        {
+            Err(e) => Self::process_clap_error_which_may_contain_help_or_version(e, streams),
+            x => unreachable!("the sieve for 'help' or 'version' failed {:?}", x),
         }
     }
 
@@ -221,7 +227,11 @@ trait Runner {
     ) -> Result<i32, ConfiguratorError>;
 }
 
-struct RunnerReal {}
+struct RunnerReal {
+    dump_config_runner_factory: Box<dyn DumpConfigRunnerFactory>,
+    server_initializer_factory: Box<dyn ServerInitializerFactory>,
+    daemon_initializer_factory: Box<dyn DaemonInitializerFactory>,
+}
 
 impl Runner for RunnerReal {
     fn run_node(
@@ -231,7 +241,7 @@ impl Runner for RunnerReal {
     ) -> Result<i32, ConfiguratorError> {
         let system = System::new("main");
 
-        let mut server_initializer = ServerInitializer::new();
+        let mut server_initializer = self.server_initializer_factory.make();
         server_initializer.go(streams, args)?;
 
         actix::spawn(server_initializer.map_err(|_| {
@@ -258,33 +268,41 @@ impl Runner for RunnerReal {
         let multi_config =
             NodeConfiguratorInitialization::make_multi_config_for_daemon(args, streams)?; //TODO is this somehow tested?
         let initialization_config = configurator.configure(&multi_config, Some(streams))?;
-        let mut initializer = DaemonInitializer::new(
+        let mut initializer = DaemonInitializerReal::new(
             &DirsWrapperReal {},
             Box::new(LoggerInitializerWrapperReal {}),
             initialization_config,
             Box::new(ChannelFactoryReal::new()),
-            Box::new(RecipientsFactoryReal::new()), //Daemon creation in this factory
+            Box::new(RecipientsFactoryReal::new()), //Daemon is born in this factory
             Box::new(RerunnerReal::new()),
         );
         initializer.go(streams, args)?;
-        Ok(1) //TODO why 1, doesn't make sense
+        Ok(0) //hear, there's now no way to tell the Daemon to shut down solidly
     }
 }
 
 impl RunnerReal {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            dump_config_runner_factory: Box::new(DumpConfigRunnerFactoryReal),
+            server_initializer_factory: Box::new(ServerInitializerFactoryReal),
+            daemon_initializer_factory: Box::new(DaemonInitializerFactoryReal),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server_initializer::test_utils::PrivilegeDropperMock;
+    use crate::run_modes_factories::ServerInitializerFactoryMock;
+    use crate::server_initializer::test_utils::{PrivilegeDropperMock, ServerInitializerMock};
     use crate::server_initializer::tests::convert_str_vec_slice_into_vec_of_strings;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use regex::Regex;
     use std::cell::RefCell;
+    use std::ops::Deref;
     use std::sync::{Arc, Mutex};
+    use tokio::prelude::Async;
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,
@@ -469,6 +487,95 @@ parm2 - msg2\n"
     }
 
     #[test]
+    fn run_node_promotes_an_error_from_go() {
+        let go_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = RunModes::new();
+        let mut runner = RunnerReal::new();
+        runner.server_initializer_factory = Box::new(ServerInitializerFactoryMock::new(
+            ServerInitializerMock::default()
+                .go_result(Err(ConfiguratorError::required(
+                    "some-parameter",
+                    "too-low-value",
+                )))
+                .go_params(&go_params_arc),
+        ));
+        subject.runner = Box::new(runner);
+        let mut holder = FakeStreamHolder::new();
+        let args = convert_str_vec_slice_into_vec_of_strings(&["program", "param", "--arg"]);
+
+        let result = subject.runner.run_node(&args, &mut holder.streams());
+
+        assert_eq!(
+            result.unwrap_err().param_errors[0],
+            ParamError {
+                parameter: "some-parameter".to_string(),
+                reason: "too-low-value".to_string()
+            }
+        );
+        assert_eq!(&holder.stdout.get_string(), "");
+        assert_eq!(&holder.stderr.get_string(), "");
+        let go_params = go_params_arc.lock().unwrap();
+        assert_eq!(go_params.deref().len(), 1);
+        assert_eq!(*go_params[0], args)
+    }
+
+    #[test]
+    fn run_node_promotes_an_error_from_polling_on_its_future() {
+        let go_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = RunModes::new();
+        let mut runner = RunnerReal::new();
+        runner.server_initializer_factory = Box::new(ServerInitializerFactoryMock::new(
+            ServerInitializerMock::default()
+                .go_result(Ok(()))
+                .go_params(&go_params_arc)
+                .poll_result(Err(())),
+        ));
+        subject.runner = Box::new(runner);
+        let mut holder = FakeStreamHolder::new();
+        let args =
+            convert_str_vec_slice_into_vec_of_strings(&["program", "param", "param", "--arg"]);
+
+        let result = subject.runner.run_node(&args, &mut holder.streams());
+
+        assert_eq!(result, Ok(1));
+        assert_eq!(&holder.stdout.get_string(), "");
+        assert_eq!(&holder.stderr.get_string(), "");
+        let go_params = go_params_arc.lock().unwrap();
+        assert_eq!(go_params.deref().len(), 1);
+        assert_eq!(*go_params[0], args)
+    }
+
+    #[test]
+    fn run_daemon_promotes_an_error_from_creating_the_multi_config() {
+        todo!("continue reimplementing with mocks");
+        let mut subject = RunModes::new();
+        subject.runner = Box::new(RunnerReal::new());
+        let mut holder = FakeStreamHolder::new();
+
+        let result = subject.runner.run_daemon(
+            &convert_str_vec_slice_into_vec_of_strings(&[
+                "program",
+                "--initialization",
+                "--halabala",
+            ]),
+            &mut holder.streams(),
+        );
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![ParamError {
+                parameter: "<unknown>".to_string(),
+                reason: "Unfamiliar message: error: Found argument \'--halabala\' which wasn\'t \
+             expected, or isn\'t valid in this context\n\nUSAGE:\n    MASQNode --initialization\
+             \n\nFor more information try --help"
+                    .to_string()
+            }]))
+        );
+        assert_eq!(&holder.stdout.get_string(), "");
+        assert_eq!(&holder.stderr.get_string(), "")
+    }
+
+    #[test]
     fn daemon_and_node_modes_complain_without_privilege() {
         let mut subject = RunModes::new();
         subject.runner = Box::new(RunnerMock::new()); // No prepared results: any calls to this will cause panics
@@ -513,22 +620,11 @@ parm2 - msg2\n"
         .for_each(|args| assert!(RunModes::is_help_or_version(args)))
     }
 
-    // #[ignore] //TODO resolve this somehow
     #[test]
-    fn daemon_and_node_modes_do_not_complain_without_privilege_for_help_and_version() {
-        let mut subject = RunModes::new();
-        //let priv_params_arc = Arc::new(Mutex::new(vec![]));
-        // let privilege_dropper = PrivilegeDropperMock::new()
-        //     .expect_privilege_params(&priv_params_arc)
-        //     .expect_privilege_result(false)
-        //     .expect_privilege_result(false)
-        //     .expect_privilege_result(false)
-        //     .expect_privilege_result(false);
-        //subject.privilege_dropper = Box::new(privilege_dropper);
+    fn daemon_and_node_modes_help_call() {
+        let subject = RunModes::new();
         let mut daemon_h_holder = FakeStreamHolder::new();
-        let mut daemon_v_holder = FakeStreamHolder::new();
         let mut node_h_holder = FakeStreamHolder::new();
-        let mut node_v_holder = FakeStreamHolder::new();
 
         let daemon_h_exit_code = subject.go(
             &[
@@ -538,51 +634,70 @@ parm2 - msg2\n"
             ],
             &mut daemon_h_holder.streams(),
         );
-        // let daemon_v_exit_code = subject.go(
-        //     &["--initialization".to_string(), "--version".to_string()],
-        //     &mut daemon_v_holder.streams(),
-        // );
+
         let node_h_exit_code = subject.go(
             &["program".to_string(), "--help".to_string()],
             &mut node_h_holder.streams(),
         );
-        //let node_v_exit_code = subject.go(&["--version".to_string()], &mut node_v_holder.streams());
 
         assert_eq!(daemon_h_exit_code, 0);
-        //assert_eq!(daemon_v_exit_code, 0);
         let daemon_stdout_message = daemon_h_holder.stdout.get_string();
         assert!(daemon_stdout_message.contains("MASQ\nMASQ Node is the foundation of  MASQ Network, an open-source network that allows anyone to"));
         assert!(daemon_stdout_message.contains("--initialization    Directs"));
         assert_eq!(daemon_h_holder.stderr.get_string(), "");
-        // assert_eq!(daemon_v_holder.stdout.get_string(), "");
-        // assert_eq!(daemon_v_holder.stderr.get_string(), "");
         assert_eq!(node_h_exit_code, 0);
-        // assert_eq!(node_v_exit_code, 0);
         let node_stdout_message = node_h_holder.stdout.get_string();
         assert!(node_stdout_message
             .contains("to allocate spare computing\nresources to make the internet a free"));
         assert!(node_stdout_message.contains("--clandestine-port <CLANDESTINE-PORT>\n"));
         assert_eq!(node_h_holder.stderr.get_string(), "");
-        // assert_eq!(node_v_holder.stdout.get_string(), "");
-        // assert_eq!(node_v_holder.stderr.get_string(), "");
-        // let params = priv_params_arc.lock().unwrap();
-        // assert_eq!(*params, vec![true, true, true, true]);
-        // let params = run_params_arc.lock().unwrap();
-        // assert_eq!(
-        //     *params,
-        //     vec![
-        //         vec!["--initialization".to_string(), "--help".to_string()],
-        //         vec!["--initialization".to_string(), "--version".to_string()],
-        //         vec!["--help".to_string()],
-        //         vec!["--version".to_string()],
-        //     ]
-        // );
+    }
+
+    #[ignore] //put this away when Clap is more stable or transform it into an integration test
+    #[test]
+    fn daemon_and_node_modes_version_call() {
+        let subject = RunModes::new();
+        let mut daemon_v_holder = FakeStreamHolder::new();
+        let mut node_v_holder = FakeStreamHolder::new();
+
+        let daemon_v_exit_code = subject.go(
+            &[
+                "program".to_string(),
+                "--initialization".to_string(),
+                "--version".to_string(),
+            ],
+            &mut daemon_v_holder.streams(),
+        );
+
+        let node_v_exit_code = subject.go(
+            &["program".to_string(), "--version".to_string()],
+            &mut node_v_holder.streams(),
+        );
+
+        assert_eq!(daemon_v_exit_code, 0);
+        let regex = Regex::new(r"MASQ Node \d+\.\d+\.\d+\n").unwrap();
+        let daemon_stdout_message = daemon_v_holder.stdout.get_string();
+        assert!(
+            regex.is_match(&daemon_stdout_message),
+            "Should see the version of the Daemon printed to stdout, but got this: {}",
+            daemon_stdout_message
+        );
+        assert_eq!(daemon_v_holder.stderr.get_string(), "");
+
+        assert_eq!(node_v_exit_code, 0);
+        let node_stdout_message = node_v_holder.stdout.get_string();
+        assert!(
+            regex.is_match(&node_stdout_message),
+            "Should see the version of the Node printed to stdout, but got this: {}",
+            node_stdout_message
+        );
+        assert_eq!(node_v_holder.stderr.get_string(), "");
     }
 
     #[test]
     fn attempt_for_help_call_together_with_false_and_badly_written_parameters_simply_results_in_terminating(
     ) {
-        let mut subject = RunModes::new();
+        let subject = RunModes::new();
         let mut stream_holder = FakeStreamHolder::new();
 
         let daemon_exit_code = subject.go(
