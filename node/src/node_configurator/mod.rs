@@ -731,12 +731,12 @@ pub trait WalletCreationConfigMaker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::apps::app_daemon;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::masq_lib::utils::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
-    use crate::node_configurator::node_configurator_standard::app;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -1004,7 +1004,7 @@ mod tests {
     fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
         let args = ArgsBuilder::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&app_daemon(), vec![vcl]).unwrap();
 
         let (real_user, data_directory_opt, chain_name) =
             real_user_data_directory_opt_and_chain_name(&DirsWrapperReal {}, &multi_config);
@@ -1100,7 +1100,7 @@ mod tests {
             .param("--config-file", r"\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1123,7 +1123,7 @@ mod tests {
             .param("--config-file", r"c:\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1146,7 +1146,7 @@ mod tests {
             .param("--config-file", r"\\TMP\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1170,7 +1170,7 @@ mod tests {
             .param("--config-file", r"c:tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),

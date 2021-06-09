@@ -1,23 +1,12 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::node_configurator::{app_head, NodeConfigurator};
+use crate::apps::app_daemon;
+use crate::node_configurator::NodeConfigurator;
 use crate::sub_lib::utils::make_new_multi_config;
-use clap::{App, Arg};
-use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
-use masq_lib::shared_schema::{ui_port_arg, ConfiguratorError};
+use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectDecent;
-
-lazy_static! {
-    static ref UI_PORT_HELP: String = format!(
-        "The port at which user interfaces will connect to the Daemon. (This is NOT the port at which \
-        interfaces will connect to the Node: no one will know that until after the Node starts. \
-        Best to accept the default unless you know what you're doing. Must be between {} and {}.",
-        LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    );
-}
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct InitializationConfig {
@@ -27,12 +16,12 @@ pub struct InitializationConfig {
 pub struct NodeConfiguratorInitialization {}
 
 impl NodeConfiguratorInitialization {
-    pub fn make_daemon_s_multi_config<'a: 'b, 'b>(
+    pub fn make_multi_config_for_daemon<'a: 'b, 'b>(
         args: &'a [String],
         streams: &'b mut StdStreams,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
         make_new_multi_config(
-            &app(),
+            &app_daemon(),
             vec![Box::new(CommandLineVcl::new(args.to_vec()))],
             streams,
         )
@@ -53,18 +42,6 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
         );
         Ok(config)
     }
-}
-
-pub fn app() -> App<'static, 'static> {
-    app_head()
-        .arg(
-            Arg::with_name("initialization")
-                .long("initialization")
-                .required(true)
-                .takes_value(false)
-                .help("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"),
-        )
-        .arg(ui_port_arg(&UI_PORT_HELP))
 }
 
 mod initialization {
@@ -97,7 +74,7 @@ mod tests {
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+        let multi_config = make_new_test_multi_config(&app_daemon(), vcls).unwrap();
 
         initialization::parse_args(
             &multi_config,
@@ -116,7 +93,7 @@ mod tests {
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+        let multi_config = make_new_test_multi_config(&app_daemon(), vcls).unwrap();
 
         initialization::parse_args(
             &multi_config,

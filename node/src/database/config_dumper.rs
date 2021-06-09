@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::apps::app_config_dumper;
 use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
@@ -8,7 +9,7 @@ use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
-    app_head, data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
+    data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -16,19 +17,15 @@ use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use clap::value_t;
-use clap::Arg;
 use heck::MixedCase;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
-use masq_lib::shared_schema::{
-    chain_arg, data_directory_arg, db_password_arg, real_user_arg, ConfiguratorError,
-    DB_PASSWORD_HELP,
-};
+use masq_lib::shared_schema::ConfiguratorError;
 use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-const DUMP_CONFIG_HELP: &str =
+pub const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
 
 pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, ConfiguratorError> {
@@ -43,7 +40,8 @@ pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, Con
     Ok(0)
 }
 
-fn write_string(streams: &mut StdStreams, json: String) {
+fn write_string(streams: &mut StdStreams, mut json: String) {
+    json.push_str("\n");
     streams
         .stdout
         .write_all(json.as_bytes())
@@ -126,18 +124,7 @@ fn distill_args(
     args: &[String],
     streams: &mut StdStreams,
 ) -> Result<(RealUser, PathBuf, u8, Option<String>), ConfiguratorError> {
-    let app = app_head()
-        .arg(
-            Arg::with_name("dump-config")
-                .long("dump-config")
-                .required(true)
-                .takes_value(false)
-                .help(DUMP_CONFIG_HELP),
-        )
-        .arg(chain_arg())
-        .arg(data_directory_arg())
-        .arg(real_user_arg())
-        .arg(db_password_arg(DB_PASSWORD_HELP));
+    let app = app_config_dumper();
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(CommandLineVcl::new(args.to_vec())),
         Box::new(EnvironmentVcl::new(&app)),
@@ -218,6 +205,7 @@ mod tests {
            "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
         });
         assert_eq!(actual_value, expected_value);
+        assert!(output.ends_with("\n}\n"))
     }
 
     #[test]

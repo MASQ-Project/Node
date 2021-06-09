@@ -14,10 +14,10 @@ pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
+use crate::apps::app_node;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
-use crate::node_configurator::node_configurator_standard::app;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -212,11 +212,11 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 
 pub fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(args.into()))];
-    make_new_multi_config(&app(), vcls, &mut FakeStreamHolder::new().streams()).unwrap()
+    make_new_multi_config(&app_node(), vcls, &mut FakeStreamHolder::new().streams()).unwrap()
 }
 
 pub fn make_simplified_multi_config(args: &[String]) -> MultiConfig {
-    let arg_matches = app().get_matches_from_safe(args).unwrap();
+    let arg_matches = app_node().get_matches_from_safe(args).unwrap();
     MultiConfig::new_test_only(arg_matches)
 }
 
