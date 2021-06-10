@@ -29,7 +29,7 @@ pub struct ServerInitializerReal {
     dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
-    data_dir_wrapper: Box<dyn DirsWrapper>,
+    dir_wrapper: Box<dyn DirsWrapper>,
 }
 
 impl Command<ConfiguratorError> for ServerInitializerReal {
@@ -39,7 +39,7 @@ impl Command<ConfiguratorError> for ServerInitializerReal {
         args: &[String],
     ) -> Result<(), ConfiguratorError> {
         let (multi_config, data_directory, real_user) =
-            collected_user_params_for_service_mode(self.data_dir_wrapper.as_ref(), args, streams)?;
+            collected_user_params_for_service_mode(self.dir_wrapper.as_ref(), args, streams)?;
 
         let mut result: Result<(), ConfiguratorError> = Ok(());
         result = Self::combine_results(
@@ -74,7 +74,11 @@ impl Command<ConfiguratorError> for ServerInitializerReal {
     }
 }
 
-impl ServerInitializer for ServerInitializerReal {}
+impl ServerInitializer for ServerInitializerReal {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl Future for ServerInitializerReal {
     type Item = ();
@@ -96,7 +100,7 @@ impl ServerInitializerReal {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
-            data_dir_wrapper: Box::new(DirsWrapperReal),
+            dir_wrapper: Box::new(DirsWrapperReal),
         }
     }
 
@@ -294,7 +298,6 @@ pub mod test_utils {
     use log::LevelFilter;
     use masq_lib::command::{Command, StdStreams};
     use masq_lib::shared_schema::ConfiguratorError;
-    use std::borrow::BorrowMut;
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
@@ -332,7 +335,7 @@ pub mod test_utils {
     impl Command<ConfiguratorError> for ServerInitializerMock {
         fn go(
             &mut self,
-            streams: &mut StdStreams<'_>,
+            _streams: &mut StdStreams<'_>,
             args: &[String],
         ) -> Result<(), ConfiguratorError> {
             self.go_params.borrow().lock().unwrap().push(args.to_vec());
@@ -759,7 +762,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            data_dir_wrapper: Box::new(dirs_wrapper),
+            dir_wrapper: Box::new(dirs_wrapper),
         };
         let stdin = &mut ByteArrayReader::new(&[0; 0]);
         let stdout = &mut ByteArrayWriter::new();
@@ -796,7 +799,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            data_dir_wrapper: Box::new(dirs_wrapper),
+            dir_wrapper: Box::new(dirs_wrapper),
         };
 
         let result = subject.poll();
@@ -817,7 +820,7 @@ pub mod tests {
             )),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            data_dir_wrapper: Box::new(dirs_wrapper),
+            dir_wrapper: Box::new(dirs_wrapper),
         };
 
         let _ = subject.poll();
@@ -836,7 +839,7 @@ pub mod tests {
                 BootstrapperConfig::new(),
             )),
             privilege_dropper: Box::new(privilege_dropper),
-            data_dir_wrapper: Box::new(dirs_wrapper),
+            dir_wrapper: Box::new(dirs_wrapper),
         };
 
         let _ = subject.poll();
@@ -885,7 +888,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            data_dir_wrapper: Box::new(dirs_wrapper),
+            dir_wrapper: Box::new(dirs_wrapper),
         };
 
         let result = subject.go(
@@ -961,7 +964,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            data_dir_wrapper: Box::new(make_pre_populated_mock_directory_wrapper()),
+            dir_wrapper: Box::new(make_pre_populated_mock_directory_wrapper()),
         };
         let args = convert_str_vec_slice_into_vec_of_strings(&[
             "MASQNode",

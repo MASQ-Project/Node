@@ -5,8 +5,11 @@ use crate::daemon::launcher::LauncherReal;
 use crate::daemon::{
     ChannelFactory, ChannelFactoryReal, Daemon, DaemonBindMessage, Launcher, Recipients,
 };
-use crate::node_configurator::node_configurator_initialization::InitializationConfig;
+use crate::node_configurator::node_configurator_initialization::{
+    InitializationConfig
+};
 use crate::node_configurator::{port_is_busy, DirsWrapper};
+use crate::run_modes_factories::DaemonInitializer;
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::main_tools::main_with_args;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
@@ -18,6 +21,7 @@ use itertools::Itertools;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectDecent;
+use std::any::Any;
 use std::collections::HashMap;
 
 pub trait RecipientsFactory {
@@ -59,11 +63,19 @@ impl ChannelFactory for ChannelFactoryReal {
     }
 }
 
+pub struct DaemonInitializerMock {}
+
 pub struct DaemonInitializerReal {
     config: InitializationConfig,
     channel_factory: Box<dyn ChannelFactory>,
     recipients_factory: Box<dyn RecipientsFactory>,
     rerunner: Box<dyn Rerunner>,
+}
+
+impl DaemonInitializer for DaemonInitializerReal {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl Command<ConfiguratorError> for DaemonInitializerReal {

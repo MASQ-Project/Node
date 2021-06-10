@@ -7,16 +7,18 @@ use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectDecent;
+use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct InitializationConfig {
     pub ui_port: u16,
 }
 
-pub struct NodeConfiguratorInitialization {}
+pub struct NodeConfiguratorInitializationReal;
 
-impl NodeConfiguratorInitialization {
-    pub fn make_multi_config_for_daemon<'a: 'b, 'b>(
+impl NodeConfiguratorInitializationReal {
+    pub fn make_multi_config_daemon_specific<'a: 'b, 'b>(
         args: &'a [String],
         streams: &'b mut StdStreams,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
@@ -28,7 +30,7 @@ impl NodeConfiguratorInitialization {
     }
 }
 
-impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
+impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationReal {
     fn configure(
         &self,
         multi_config: &MultiConfig,
@@ -41,6 +43,22 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
             streams.expect_decent("StdStreams"),
         );
         Ok(config)
+    }
+}
+
+pub struct NodeConfiguratorInitializationMock {
+    requested_values_to_know: Vec<String>, //TODO use the utility from server_initializer
+    configure_result: RefCell<Vec<Result<InitializationConfig, ConfiguratorError>>>,
+    configure_params: RefCell<Arc<Mutex<Vec<String>>>>,
+}
+
+impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationMock {
+    fn configure(
+        &self,
+        multi_config: &MultiConfig,
+        streams: Option<&mut StdStreams>,
+    ) -> Result<InitializationConfig, ConfiguratorError> {
+        todo!("finish this mock")
     }
 }
 

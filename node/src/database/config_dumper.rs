@@ -12,6 +12,7 @@ use crate::node_configurator::{
     data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
+use crate::run_modes_factories::DumpConfigRunner;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -23,21 +24,33 @@ use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine}
 use masq_lib::shared_schema::ConfiguratorError;
 use serde_json::json;
 use serde_json::{Map, Value};
+use std::any::Any;
 use std::path::{Path, PathBuf};
 
 pub const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
 
-pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, ConfiguratorError> {
-    let (real_user, data_directory, chain_id, password_opt) =
-        distill_args(&DirsWrapperReal {}, args, streams)?;
-    let cryptde = CryptDEReal::new(chain_id);
-    PrivilegeDropperReal::new().drop_privileges(&real_user);
-    let config_dao = make_config_dao(&data_directory, chain_id);
-    let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
-    let json = configuration_to_json(configuration, password_opt, &cryptde);
-    write_string(streams, json);
-    Ok(0)
+pub struct DumpConfigRunnerReal;
+
+impl DumpConfigRunner for DumpConfigRunnerReal {
+    fn dump_config(
+        &self,
+        args: &[String],
+        streams: &mut StdStreams,
+    ) -> Result<i32, ConfiguratorError> {
+        let (real_user, data_directory, chain_id, password_opt) =
+            distill_args(&DirsWrapperReal {}, args, streams)?;
+        let cryptde = CryptDEReal::new(chain_id);
+        PrivilegeDropperReal::new().drop_privileges(&real_user);
+        let config_dao = make_config_dao(&data_directory, chain_id);
+        let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
+        let json = configuration_to_json(configuration, password_opt, &cryptde);
+        write_string(streams, json);
+        Ok(0)
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 fn write_string(streams: &mut StdStreams, mut json: String) {
@@ -181,8 +194,11 @@ mod tests {
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .opt("--dump-config")
             .into();
+        let subject = DumpConfigRunnerReal;
 
-        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
+        let result = subject
+            .dump_config(args_vec.as_slice(), &mut holder.streams())
+            .unwrap();
 
         assert_eq!(result, 0);
         let output = holder.stdout.get_string();
@@ -255,8 +271,11 @@ mod tests {
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .opt("--dump-config")
             .into();
+        let subject = DumpConfigRunnerReal;
 
-        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
+        let result = subject
+            .dump_config(args_vec.as_slice(), &mut holder.streams())
+            .unwrap();
 
         assert_eq!(result, 0);
         let output = holder.stdout.get_string();
@@ -353,8 +372,11 @@ mod tests {
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
+        let subject = DumpConfigRunnerReal;
 
-        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
+        let result = subject
+            .dump_config(args_vec.as_slice(), &mut holder.streams())
+            .unwrap();
 
         assert_eq!(result, 0);
         let output = holder.stdout.get_string();
@@ -453,8 +475,11 @@ mod tests {
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
+        let subject = DumpConfigRunnerReal;
 
-        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
+        let result = subject
+            .dump_config(args_vec.as_slice(), &mut holder.streams())
+            .unwrap();
 
         assert_eq!(result, 0);
         let output = holder.stdout.get_string();

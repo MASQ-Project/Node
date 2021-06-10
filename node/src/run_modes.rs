@@ -1,24 +1,18 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
-use crate::daemon::daemon_initializer::{
-    DaemonInitializerReal, RecipientsFactoryReal, RerunnerReal,
+use crate::node_configurator::node_configurator_initialization::{
+    NodeConfiguratorInitializationReal,
 };
-use crate::daemon::ChannelFactoryReal;
-use crate::database::config_dumper;
-use crate::node_configurator::node_configurator_initialization::NodeConfiguratorInitialization;
-use crate::node_configurator::{DirsWrapperReal, NodeConfigurator};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::{
     DaemonInitializerFactory, DaemonInitializerFactoryReal, DumpConfigRunnerFactory,
-    DumpConfigRunnerFactoryReal, ServerInitializer, ServerInitializerFactory,
-    ServerInitializerFactoryReal,
+    DumpConfigRunnerFactoryReal, ServerInitializerFactory, ServerInitializerFactoryReal,
 };
-use crate::server_initializer::LoggerInitializerWrapperReal;
 use actix::System;
 use clap::Error;
 use futures::future::Future;
-use masq_lib::command::{Command, StdStreams};
+use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use EnterProgram::{Enter, LeaveGood, LeaveWrong};
@@ -233,6 +227,26 @@ struct RunnerReal {
     daemon_initializer_factory: Box<dyn DaemonInitializerFactory>,
 }
 
+// struct DaemonFactoryTypeWrapper<T>{
+//     inner: Box<dyn DaemonInitializerFactory<T>>
+// }
+//
+// impl <T> Deref for DaemonFactoryTypeWrapper<T>{
+//     type Target = Box<dyn DaemonInitializerFactory<T>>;
+//
+//     fn deref(&self) -> &Self::Target {
+//         &self.inner
+//     }
+// }
+//
+// impl <T> DaemonFactoryTypeWrapper<T>{
+//     fn new(inner:Box<dyn DaemonInitializerFactory<T>>)->Self{
+//         Self{
+//             inner
+//         }
+//     }
+// }
+
 impl Runner for RunnerReal {
     fn run_node(
         &self,
@@ -256,7 +270,9 @@ impl Runner for RunnerReal {
         args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError> {
-        config_dumper::dump_config(args, streams)
+        self.dump_config_runner_factory
+            .make()
+            .dump_config(args, streams)
     }
 
     fn run_daemon(
@@ -264,20 +280,9 @@ impl Runner for RunnerReal {
         args: &[String],
         streams: &mut StdStreams<'_>,
     ) -> Result<i32, ConfiguratorError> {
-        let configurator = NodeConfiguratorInitialization {};
-        let multi_config =
-            NodeConfiguratorInitialization::make_multi_config_for_daemon(args, streams)?; //TODO is this somehow tested?
-        let initialization_config = configurator.configure(&multi_config, Some(streams))?;
-        let mut initializer = DaemonInitializerReal::new(
-            &DirsWrapperReal {},
-            Box::new(LoggerInitializerWrapperReal {}),
-            initialization_config,
-            Box::new(ChannelFactoryReal::new()),
-            Box::new(RecipientsFactoryReal::new()), //Daemon is born in this factory
-            Box::new(RerunnerReal::new()),
-        );
+        let mut initializer = self.daemon_initializer_factory.make(args, streams)?;
         initializer.go(streams, args)?;
-        Ok(0) //hear, there's now no way to tell the Daemon to shut down solidly
+        Ok(0) //listen, there's currently no way to make it terminate politely
     }
 }
 
@@ -286,7 +291,9 @@ impl RunnerReal {
         Self {
             dump_config_runner_factory: Box::new(DumpConfigRunnerFactoryReal),
             server_initializer_factory: Box::new(ServerInitializerFactoryReal),
-            daemon_initializer_factory: Box::new(DaemonInitializerFactoryReal),
+            daemon_initializer_factory: Box::new(DaemonInitializerFactoryReal::new(Box::new(
+                NodeConfiguratorInitializationReal,
+            ))),
         }
     }
 }
@@ -294,7 +301,9 @@ impl RunnerReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run_modes_factories::ServerInitializerFactoryMock;
+    use crate::run_modes_factories::mocks::{
+        DumpConfigRunnerFactoryMock, DumpConfigRunnerMock, ServerInitializerFactoryMock,
+    };
     use crate::server_initializer::test_utils::{PrivilegeDropperMock, ServerInitializerMock};
     use crate::server_initializer::tests::convert_str_vec_slice_into_vec_of_strings;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -302,7 +311,6 @@ mod tests {
     use std::cell::RefCell;
     use std::ops::Deref;
     use std::sync::{Arc, Mutex};
-    use tokio::prelude::Async;
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,
@@ -487,18 +495,18 @@ parm2 - msg2\n"
     }
 
     #[test]
-    fn run_node_promotes_an_error_from_go() {
+    fn run_node_hands_in_an_error_from_go() {
         let go_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
-        runner.server_initializer_factory = Box::new(ServerInitializerFactoryMock::new(
+        runner.server_initializer_factory = Box::new(ServerInitializerFactoryMock::new(Box::new(
             ServerInitializerMock::default()
                 .go_result(Err(ConfiguratorError::required(
                     "some-parameter",
                     "too-low-value",
                 )))
                 .go_params(&go_params_arc),
-        ));
+        )));
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
         let args = convert_str_vec_slice_into_vec_of_strings(&["program", "param", "--arg"]);
@@ -520,16 +528,16 @@ parm2 - msg2\n"
     }
 
     #[test]
-    fn run_node_promotes_an_error_from_polling_on_its_future() {
+    fn run_node_hands_in_an_error_from_polling_on_its_future() {
         let go_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
-        runner.server_initializer_factory = Box::new(ServerInitializerFactoryMock::new(
+        runner.server_initializer_factory = Box::new(ServerInitializerFactoryMock::new(Box::new(
             ServerInitializerMock::default()
                 .go_result(Ok(()))
                 .go_params(&go_params_arc)
                 .poll_result(Err(())),
-        ));
+        )));
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
         let args =
@@ -546,7 +554,7 @@ parm2 - msg2\n"
     }
 
     #[test]
-    fn run_daemon_promotes_an_error_from_creating_the_multi_config() {
+    fn run_daemon_hands_in_an_error_from_creating_the_multi_config() {
         todo!("continue reimplementing with mocks");
         let mut subject = RunModes::new();
         subject.runner = Box::new(RunnerReal::new());
@@ -573,6 +581,36 @@ parm2 - msg2\n"
         );
         assert_eq!(&holder.stdout.get_string(), "");
         assert_eq!(&holder.stderr.get_string(), "")
+    }
+
+    #[test]
+    fn dump_config_hands_in_an_error_from_dump_config() {
+        let dump_config_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = RunModes::new();
+        let mut runner = RunnerReal::new();
+        runner.dump_config_runner_factory = Box::new(DumpConfigRunnerFactoryMock::new(Box::new(
+            DumpConfigRunnerMock::default()
+                .dump_config_result(Err(ConfiguratorError::required("parameter", "deep-reason")))
+                .dump_config_params(&dump_config_params_arc),
+        )));
+        subject.runner = Box::new(runner);
+        let mut holder = FakeStreamHolder::new();
+        let args = convert_str_vec_slice_into_vec_of_strings(&["program", "param", "--arg"]);
+
+        let result = subject.runner.dump_config(&args, &mut holder.streams());
+
+        assert_eq!(
+            result.unwrap_err().param_errors[0],
+            ParamError {
+                parameter: "parameter".to_string(),
+                reason: "deep-reason".to_string()
+            }
+        );
+        assert_eq!(&holder.stdout.get_string(), "");
+        assert_eq!(&holder.stderr.get_string(), "");
+        let dump_config_params = dump_config_params_arc.lock().unwrap();
+        assert_eq!(dump_config_params.deref().len(), 1);
+        assert_eq!(*dump_config_params[0], args)
     }
 
     #[test]
