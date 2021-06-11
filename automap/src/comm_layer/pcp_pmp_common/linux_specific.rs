@@ -11,21 +11,17 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
         Ok(stdout) => stdout,
         Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
     };
-    let address_opt = output
+    let addresses = output
         .split('\n')
         .map(|line| {
             line.split(' ')
                 .filter(|piece| !piece.is_empty())
                 .collect::<Vec<&str>>()
         })
-        .find(|line_vec| (line_vec.len() >= 4) && (line_vec[3] == "UG"))
-        .map(|line_vec| line_vec[1].to_string());
-    match address_opt {
-        Some(str_address) => Ok(vec![
-            IpAddr::from_str(&str_address).expect("Bad syntax from route -n")
-        ]),
-        None => Ok(vec![]),
-    }
+        .filter(|line_vec| (line_vec.len() >= 4) && (line_vec[3] == "UG"))
+        .map(|line_vec| IpAddr::from_str(line_vec[1]).expect ("Bad syntax from route -n"))
+        .collect::<Vec<IpAddr>>();
+    Ok(addresses)
 }
 
 pub struct LinuxFindRoutersCommand {}

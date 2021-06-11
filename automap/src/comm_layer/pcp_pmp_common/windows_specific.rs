@@ -9,14 +9,15 @@ use std::str::FromStr;
 pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     match command.execute() {
         Ok(stdout) => {
+            // Arrange to split output into line pairs that we can zip together
             let mut firsts = stdout.split(&['\n', '\r'][..]).collect::<Vec<&str>>();
             firsts.push("");
             let mut seconds = vec![""];
             seconds.extend(firsts.clone());
-            match firsts
+            let addresses = firsts
                 .into_iter()
                 .zip(seconds)
-                .filter(|(_, first)| first.to_string().contains("Default Gateway"))
+                .filter(|(_, first)| first.contains("Default Gateway"))
                 .map(|(second, first)| {
                     let first_line_strs = first
                         .split(' ')
@@ -28,22 +29,21 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                     };
                     (first_line_strs, second_addr_opt)
                 })
-                .find(|(first_line_strs, _)| first_line_strs.len() > 2)
-            {
-                None => Ok(vec![]),
-                Some((_, Some(IpAddr::V4(ipv4_addr)))) => Ok(vec![IpAddr::V4(ipv4_addr)]),
-                Some((first_elements, _)) => {
-                    let ip_addr_maybe_with_scope_id = first_elements[2];
-                    let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
-                    match IpAddr::from_str(ip_addr_str) {
-                        Err(_) => Err(AutomapError::ProtocolError(format!(
-                            "ipconfig output shows invalid Default Gateway:\n{}",
-                            stdout
-                        ))),
-                        Ok(addr) => Ok(vec![addr]),
+                .filter(|(first_line_strs, _)| first_line_strs.len() > 2)
+                .map(|(first_elements, ip_addr_opt)| match (first_elements, ip_addr_opt) {
+                    (_, Some(IpAddr::V4(ipv4_addr))) => Some(IpAddr::V4(ipv4_addr)),
+                    (first_elements, _) => {
+                        let ip_addr_maybe_with_scope_id = first_elements[2];
+                        let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
+                        match IpAddr::from_str(ip_addr_str) {
+                            Err(_) => panic! ("Bad syntax from ipconfig /all"),
+                            Ok(addr) => Some(addr),
+                        }
                     }
-                }
-            }
+                })
+                .flat_map (|opt| opt)
+                .collect::<Vec<IpAddr>>();
+            Ok(addresses)
         }
         Err(stderr) => Err(AutomapError::ProtocolError(stderr)),
     }
@@ -104,6 +104,65 @@ Ethernet adapter Ethernet:
         let result = windows_find_routers(&find_routers_command).unwrap();
 
         assert_eq!(result, vec![IpAddr::from_str("10.0.2.2").unwrap()])
+    }
+
+    #[test]
+    fn find_routers_works_when_there_are_multiple_routers_to_find() {
+        let route_n_output = "
+Windows IP Configuration
+
+   Host Name . . . . . . . . . . . . : DESKTOP-EULPUP3
+   Primary Dns Suffix  . . . . . . . :
+   Node Type . . . . . . . . . . . . : Hybrid
+   IP Routing Enabled. . . . . . . . : No
+   WINS Proxy Enabled. . . . . . . . : No
+
+Ethernet adapter Ethernet:
+
+   Connection-specific DNS Suffix  . :
+   Description . . . . . . . . . . . : Intel(R) PRO/1000 MT Desktop Adapter
+   Physical Address. . . . . . . . . : 08-00-27-4B-EB-0D
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration Enabled . . . . : Yes
+   Link-local IPv6 Address . . . . . : fe80::a06b:7e59:8cb5:e82f%6(Preferred)
+   IPv4 Address. . . . . . . . . . . : 10.0.2.15(Preferred)
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Lease Obtained. . . . . . . . . . : Sunday, February 14, 2021 5:21:59 PM
+   Lease Expires . . . . . . . . . . : Monday, February 15, 2021 2:45:20 PM
+   Default Gateway . . . . . . . . . : 10.0.2.2
+   DHCP Server . . . . . . . . . . . : 10.0.2.3
+   DHCPv6 IAID . . . . . . . . . . . : 101187623
+   DHCPv6 Client DUID. . . . . . . . : 00-01-00-01-26-49-5A-82-08-00-27-4B-EB-0D
+   DNS Servers . . . . . . . . . . . : 192.168.0.1
+   NetBIOS over Tcpip. . . . . . . . : Enabled
+
+Ethernet adapter Ethernet 2:
+
+   Connection-specific DNS Suffix  . :
+   Description . . . . . . . . . . . : Intel(R) PRO/1000 MT Desktop Adapter
+   Physical Address. . . . . . . . . : 08-00-27-4B-EB-0D
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration Enabled . . . . : Yes
+   Link-local IPv6 Address . . . . . : fe80::a06b:7e59:8cb5:e82f%6(Preferred)
+   IPv4 Address. . . . . . . . . . . : 10.0.2.15(Preferred)
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Lease Obtained. . . . . . . . . . : Sunday, February 14, 2021 5:21:59 PM
+   Lease Expires . . . . . . . . . . : Monday, February 15, 2021 2:45:20 PM
+   Default Gateway . . . . . . . . . : 10.0.2.0
+   DHCP Server . . . . . . . . . . . : 10.0.2.3
+   DHCPv6 IAID . . . . . . . . . . . : 101187623
+   DHCPv6 Client DUID. . . . . . . . : 00-01-00-01-26-49-5A-82-08-00-27-4B-EB-0D
+   DNS Servers . . . . . . . . . . . : 192.168.0.1
+   NetBIOS over Tcpip. . . . . . . . : Enabled
+";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+
+        let result = windows_find_routers(&find_routers_command).unwrap();
+
+        assert_eq!(result, vec![
+            IpAddr::from_str("10.0.2.2").unwrap(),
+            IpAddr::from_str("10.0.2.0").unwrap(),
+        ])
     }
 
     #[test]
@@ -299,6 +358,7 @@ Ethernet adapter Ethernet:
     }
 
     #[test]
+    #[should_panic(expected = "Bad syntax from ipconfig /all")]
     fn find_routers_works_when_ipconfig_output_cant_be_parsed() {
         let route_n_output = "
    Booga
@@ -308,19 +368,6 @@ Ethernet adapter Ethernet:
         let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
 
         let result = windows_find_routers(&find_routers_command);
-
-        match result {
-            Err(AutomapError::ProtocolError(msg)) => {
-                assert_eq!(
-                    msg.starts_with("ipconfig output shows invalid Default Gateway:"),
-                    true,
-                    "{}",
-                    msg
-                );
-                assert_eq!(msg.contains(route_n_output), true, "{}", msg);
-            }
-            x => panic!("Expected ProtocolError with message; got '{:?}'", x),
-        }
     }
 
     #[test]

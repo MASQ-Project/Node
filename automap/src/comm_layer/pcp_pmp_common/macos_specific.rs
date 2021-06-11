@@ -11,21 +11,19 @@ pub fn macos_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
         Ok(stdout) => stdout,
         Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
     };
-    let gateway_line_opt = output
+    let addresses = output
         .split('\n')
         .map(|line_ref| line_ref.to_string())
-        .find(|line| line.contains("gateway:"))
+        .filter(|line| line.contains("gateway:"))
         .map(|line| {
             line.split(": ")
                 .map(|piece| piece.to_string())
                 .collect::<Vec<String>>()
-        });
-    match gateway_line_opt {
-        Some(pieces) if pieces.len() > 1 => Ok(vec![
-            IpAddr::from_str(&pieces[1]).expect("Bad syntax from route -n get default")
-        ]),
-        _ => Ok(vec![]),
-    }
+        })
+        .filter (|pieces| pieces.len() > 1)
+        .map(|pieces| IpAddr::from_str (&pieces[1]).expect ("Bad syntax from route -n get default"))
+        .collect::<Vec<IpAddr>>();
+    Ok(addresses)
 }
 
 pub struct MacOsFindRoutersCommand {}
@@ -49,11 +47,12 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn find_routers_works_when_there_is_a_router_to_find() {
+    fn find_routers_works_when_there_are_multiple_routers_to_find() {
         let route_n_output = "   route to: default
 destination: default
        mask: default
     gateway: 192.168.0.1
+    gateway: 192.168.0.2
   interface: en0
       flags: <UP,GATEWAY,DONE,STATIC,PRCLONING>
  recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
@@ -63,7 +62,10 @@ destination: default
 
         let result = macos_find_routers(&find_routers_command).unwrap();
 
-        assert_eq!(result, vec![IpAddr::from_str("192.168.0.1").unwrap()])
+        assert_eq!(result, vec![
+            IpAddr::from_str("192.168.0.1").unwrap(),
+            IpAddr::from_str("192.168.0.2").unwrap(),
+        ])
     }
 
     #[test]

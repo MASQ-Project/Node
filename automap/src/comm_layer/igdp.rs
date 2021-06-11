@@ -205,7 +205,7 @@ impl Transactor for IgdpTransactor {
         AutomapProtocol::Igdp
     }
 
-    fn start_change_handler(&mut self, change_handler: ChangeHandler) -> Result<(), AutomapError> {
+    fn start_change_handler(&mut self, change_handler: ChangeHandler, _router_ip: IpAddr) -> Result<(), AutomapError> {
         let (tx, rx) = unbounded();
         let public_ip_poll_delay_ms = {
             let mut inner = self.inner_arc.lock().expect ("Change handler is dead");
@@ -321,7 +321,7 @@ impl IgdpTransactor {
 mod tests {
     use super::*;
     use crate::comm_layer::tests::LocalIpFinderMock;
-    use masq_lib::utils::AutomapProtocol;
+    use masq_lib::utils::{AutomapProtocol, localhost};
     use std::net::Ipv6Addr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -724,7 +724,8 @@ mod tests {
         let mut subject = IgdpTransactor::new();
         subject.inner_arc.lock().unwrap().change_handler_stopper_opt = Some (unbounded().0);
 
-        let result = subject.start_change_handler(Box::new (|_| ()));
+        let result = subject.start_change_handler(Box::new (|_| ()),
+            localhost());
 
         assert_eq! (result, Err (AutomapError::ChangeHandlerAlreadyRunning))
     }
@@ -733,6 +734,7 @@ mod tests {
     fn start_change_handler_notices_address_changes() {
         let one_ip = Ipv4Addr::from_str ("1.2.3.4").unwrap();
         let another_ip = Ipv4Addr::from_str ("4.3.2.1").unwrap();
+        let router_ip = IpAddr::from_str ("5.5.5.5").unwrap();
         let mut subject = IgdpTransactor::new();
         {
             let mut inner = subject.inner_arc.lock().unwrap();
@@ -753,7 +755,7 @@ mod tests {
         let change_handler = Box::new (move |change: AutomapChange|
             inner_arc.lock().unwrap().push (change));
 
-        subject.start_change_handler(change_handler).unwrap();
+        subject.start_change_handler(change_handler, router_ip).unwrap();
 
         thread::sleep (Duration::from_millis(100));
         subject.stop_change_handler();
@@ -769,20 +771,21 @@ mod tests {
 
     #[test]
     fn start_change_handler_handles_absence_of_gateway () {
-        let ip = Ipv4Addr::from_str ("1.2.3.4").unwrap();
+        let public_ip = Ipv4Addr::from_str ("1.2.3.4").unwrap();
+        let router_ip = IpAddr::from_str ("4.3.2.1").unwrap();
         let mut subject = IgdpTransactor::new();
         subject.public_ip_poll_delay_ms = 10;
         {
             let mut inner = subject.inner_arc.lock().unwrap();
             inner.gateway_opt = None;
-            inner.public_ip_opt = Some(IpAddr::V4(ip));
+            inner.public_ip_opt = Some(IpAddr::V4(public_ip));
         }
         let change_log_arc = Arc::new(Mutex::new (vec![]));
         let inner_arc = change_log_arc.clone();
         let change_handler = Box::new (move |change: AutomapChange|
             inner_arc.lock().unwrap().push (change));
 
-        subject.start_change_handler(change_handler).unwrap();
+        subject.start_change_handler(change_handler, router_ip).unwrap();
 
         thread::sleep (Duration::from_millis(100));
         let change_log = change_log_arc.lock().unwrap();
@@ -790,7 +793,7 @@ mod tests {
             AutomapChange::Error (AutomapError::CantFindDefaultGateway)
         ]);
         let inner = subject.inner_arc.lock().unwrap();
-        assert_eq! (inner.public_ip_opt, Some (IpAddr::V4(ip)));
+        assert_eq! (inner.public_ip_opt, Some (IpAddr::V4(public_ip)));
         assert! (inner.change_handler_stopper_opt.is_none());
     }
 

@@ -127,7 +127,7 @@ impl Transactor for PmpTransactor {
         AutomapProtocol::Pmp
     }
 
-    fn start_change_handler(&mut self, change_handler: ChangeHandler) -> Result<(), AutomapError> {
+    fn start_change_handler(&mut self, change_handler: ChangeHandler, router_ip: IpAddr) -> Result<(), AutomapError> {
         if let Some(_change_handler_stopper) = &self.change_handler_stopper {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
@@ -160,6 +160,7 @@ impl Transactor for PmpTransactor {
                 socket.as_ref(),
                 &rx,
                 factories_arc,
+                router_ip,
                 router_port,
                 &change_handler,
                 change_handler_config,
@@ -254,6 +255,7 @@ impl PmpTransactor {
         socket: &dyn UdpSocketWrapper,
         rx: &Receiver<()>,
         factories_arc: Arc<Mutex<Factories>>,
+        router_ip: IpAddr,
         router_port: u16,
         change_handler: &ChangeHandler,
         change_handler_config: ChangeHandlerConfig,
@@ -264,14 +266,12 @@ impl PmpTransactor {
         socket
             .set_read_timeout(Some(Duration::from_millis(250)))
             .expect("Can't set read timeout");
-        eprintln!(
-            "Prod: change handler starting loop with router port {}",
-            router_port
-        );
         loop {
-            eprintln!("Prod: change handler waiting for announcement");
             match socket.recv_from(&mut buffer) {
                 Ok((len, announcement_source_address)) => {
+                    if announcement_source_address.ip() != router_ip {
+                        continue
+                    }
                     match PmpPacket::try_from(&buffer[0..len]) {
                         Ok(packet) => {
                             if packet.opcode == Opcode::Get {
@@ -288,7 +288,6 @@ impl PmpTransactor {
                                     }
                                     None => todo!("Log something alarming and continue"),
                                 };
-                                eprintln!("Prod: parsed announcement, new public IP {}", public_ip);
                                 let router_address =
                                     SocketAddr::new(announcement_source_address.ip(), router_port);
                                 Self::handle_announcement(
@@ -486,7 +485,7 @@ mod tests {
 
         let result = subject.find_routers().unwrap();
 
-        assert_eq!(result.len(), 1)
+        assert_eq!(result.len(), 1);
     }
 
     #[test]
@@ -742,10 +741,9 @@ mod tests {
         };
 
         subject
-            .start_change_handler(Box::new(change_handler))
+            .start_change_handler(Box::new(change_handler), localhost())
             .unwrap();
 
-        eprintln!("Test: change handler started");
         assert!(subject.change_handler_stopper.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
@@ -765,19 +763,12 @@ mod tests {
         let len_to_send = packet.marshal(&mut buffer).unwrap();
         let mapping_target_address = SocketAddr::new(localhost(), router_port);
         let mapping_socket = UdpSocket::bind(mapping_target_address).unwrap();
-        eprintln!("Test: sending announcement");
         let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-        eprintln!("Test: announcement sent");
         assert_eq!(sent_len, len_to_send);
         mapping_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-        eprintln!(
-            "Test: waiting for mapping request on {}",
-            mapping_socket.local_addr().unwrap()
-        );
         let (recv_len, remapping_socket_addr) = mapping_socket.recv_from(&mut buffer).unwrap();
-        eprintln!("Test: mapping request received");
         let packet = PmpPacket::try_from(&buffer[0..recv_len]).unwrap();
         assert_eq!(packet.opcode, Opcode::MapTcp);
         let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
@@ -788,14 +779,11 @@ mod tests {
         packet.result_code_opt = Some(ResultCode::Success);
         packet.opcode_data = make_map_response(0, 1234, 0);
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        eprintln!("Test: sending mapping response");
         let sent_len = mapping_socket
             .send_to(&buffer[0..len_to_send], remapping_socket_addr)
             .unwrap();
-        eprintln!("Test: mapping response sent");
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
-        eprintln!("Test: stopping change handler");
         subject.stop_change_handler();
         assert!(subject.change_handler_stopper.is_none());
         let changes = changes_arc.lock().unwrap();
@@ -807,7 +795,50 @@ mod tests {
 
     #[test]
     fn change_handler_rejects_data_from_non_router_ip_addresses() {
-        todo! ("Complete me")
+        let change_handler_port = find_free_port();
+        let router_port = find_free_port();
+        let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
+        let mut subject = PmpTransactor::default();
+        subject.router_port = router_port;
+        subject.listen_port = change_handler_port;
+        subject.change_handler_config = RefCell::new(Some(ChangeHandlerConfig {
+            hole_port: 1234,
+            lifetime: 321,
+        }));
+        let changes_arc = Arc::new(Mutex::new(vec![]));
+        let changes_arc_inner = changes_arc.clone();
+        let change_handler = move |change| {
+            changes_arc_inner.lock().unwrap().push(change);
+        };
+
+        subject
+            .start_change_handler(Box::new(change_handler), router_ip)
+            .unwrap();
+
+        assert!(subject.change_handler_stopper.is_some());
+        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
+        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
+        announce_socket
+            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .unwrap();
+        announce_socket.set_broadcast(true).unwrap();
+        announce_socket
+            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
+            .unwrap();
+        let mut packet = PmpPacket::default();
+        packet.opcode = Opcode::Get;
+        packet.direction = Direction::Response;
+        packet.result_code_opt = Some(ResultCode::Success);
+        packet.opcode_data = make_get_response(0, Ipv4Addr::from_str("1.2.3.4").unwrap());
+        let mut buffer = [0u8; 100];
+        let len_to_send = packet.marshal(&mut buffer).unwrap();
+        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
+        assert_eq!(sent_len, len_to_send);
+        thread::sleep(Duration::from_millis(1)); // yield timeslice
+        subject.stop_change_handler();
+        assert!(subject.change_handler_stopper.is_none());
+        let changes = changes_arc.lock().unwrap();
+        assert_eq!(*changes, vec![]);
     }
 
     fn make_subject(socket_factory: UdpSocketFactoryMock) -> PmpTransactor {

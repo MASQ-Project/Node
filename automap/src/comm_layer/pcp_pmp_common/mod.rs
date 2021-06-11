@@ -128,19 +128,18 @@ pub trait FindRoutersCommand {
     }
 }
 
-#[allow(clippy::needless_return)] // IntelliJ doesn't like it if you take the returns out
 pub fn find_routers() -> Result<Vec<IpAddr>, AutomapError> {
     #[cfg(target_os = "linux")]
     {
-        return linux_find_routers(&LinuxFindRoutersCommand::new());
+        linux_find_routers(&LinuxFindRoutersCommand::new())
     }
     #[cfg(target_os = "windows")]
     {
-        return windows_find_routers(&WindowsFindRoutersCommand::new());
+        windows_find_routers(&WindowsFindRoutersCommand::new())
     }
     #[cfg(target_os = "macos")]
     {
-        return macos_find_routers(&MacOsFindRoutersCommand::new());
+        macos_find_routers(&MacOsFindRoutersCommand::new())
     }
 }
 

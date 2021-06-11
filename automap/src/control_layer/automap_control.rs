@@ -7,6 +7,7 @@ use crate::comm_layer::{AutomapError, Transactor};
 use masq_lib::utils::{AutomapProtocol, plus};
 use std::net::IpAddr;
 use std::collections::HashSet;
+use std::fmt::Debug;
 
 const MAPPING_LIFETIME_SECONDS: u32 = 600; // ten minutes
 
@@ -34,6 +35,12 @@ struct AutomapControlRealInner {
 
 type TransactorExperiment<T> = Box<dyn Fn (&dyn Transactor, IpAddr) -> Result<T, AutomapError>>;
 
+#[derive(PartialEq, Debug)]
+struct ProtocolInfo<T: PartialEq + Debug> {
+    payload: T,
+    router_ip: IpAddr,
+}
+
 pub struct AutomapControlReal {
     transactors: Vec<Box<dyn Transactor>>,
     change_handler_opt: Option<ChangeHandler>,
@@ -47,14 +54,17 @@ impl AutomapControl for AutomapControlReal {
         let experiment = Box::new (move |transactor: &dyn Transactor, router_ip: IpAddr| {
             transactor.get_public_ip (router_ip)
         });
-        let public_ip_result = match &self.inner_opt {
-            Some (inner) => experiment (self.transactors[inner.transactor_idx].as_ref(), inner.router_ip),
+        let protocol_info_result = match &self.inner_opt {
+            Some (inner) => {
+                let result = experiment (self.transactors[inner.transactor_idx].as_ref(), inner.router_ip);
+                result.map (|public_ip| ProtocolInfo {payload: public_ip, router_ip: inner.router_ip})
+            },
             None => {
                 self.choose_working_protocol (experiment)
             },
         };
-        match self.maybe_start_change_handler(Self::error_from (&public_ip_result)) {
-            Ok (_) => public_ip_result,
+        match self.maybe_start_change_handler(&protocol_info_result) {
+            Ok (_) => protocol_info_result.map (|protocol_info| protocol_info.payload),
             Err (e) => Err (e),
         }
     }
@@ -73,20 +83,28 @@ impl AutomapControl for AutomapControlReal {
                 Err(e) => Err (e),
             }
         });
-        let remap_after_result = match &self.inner_opt {
-            Some (inner) => experiment (self.transactors[inner.transactor_idx].as_ref(), inner.router_ip),
-            None => {
-                let result = self.choose_working_protocol(experiment);
-                if result.is_ok() {
-                    let transactor_idx = self.inner_opt.as_ref().expect ("inner disappeared").transactor_idx;
-                    self.usual_protocol_opt = Some(self.transactors[transactor_idx].protocol());
-                    self.hole_ports.insert (hole_port);
+        let protocol_info_result = match &self.inner_opt {
+            Some (inner) => {
+                let result = experiment (self.transactors[inner.transactor_idx].as_ref(), inner.router_ip);
+                match result {
+                    Ok (remap_after) => Ok (ProtocolInfo {payload: remap_after, router_ip: inner.router_ip}),
+                    Err (e) => Err (e),
                 }
-                result
+            },
+            None => {
+                match self.choose_working_protocol(experiment) {
+                    Ok(protocol_info) => {
+                        let transactor_idx = self.inner_opt.as_ref().expect ("inner disappeared").transactor_idx;
+                        self.usual_protocol_opt = Some(self.transactors[transactor_idx].protocol());
+                        self.hole_ports.insert (hole_port);
+                        Ok(protocol_info)
+                    },
+                    Err (e) => Err (e)
+                }
             }
         };
-        match self.maybe_start_change_handler(Self::error_from (&remap_after_result)) {
-            Ok (_) => remap_after_result,
+        match self.maybe_start_change_handler(&protocol_info_result) {
+            Ok (_) => protocol_info_result.map (|r| r.payload),
             Err (e) => Err (e),
         }
     }
@@ -132,7 +150,10 @@ impl AutomapControlReal {
         }
     }
 
-    fn maybe_start_change_handler(&mut self, experiment_error_opt: Option<AutomapError>) -> Result<(), AutomapError> {
+    fn maybe_start_change_handler<T: PartialEq + Debug>(
+        &mut self,
+        protocol_info_result: &Result<ProtocolInfo<T>, AutomapError>
+    ) -> Result<(), AutomapError> {
         // Currently, starting the change handler surrenders ownership of it to the Transactor.
         // This means that we can't start the change handler, stop it, and then restart it, without
         // getting it from the client of AutomapControl again. It does turn out that in Rust
@@ -143,13 +164,13 @@ impl AutomapControlReal {
         // time of this writing, we don't need a restart capability, so we're deferring that work
         // until it's necessary, if ever.
         if let Some(change_handler) = self.change_handler_opt.take() {
-            match (experiment_error_opt, &self.inner_opt) {
-                (None, None) => unreachable! ("Experiment succeeded but produced no Inner structure"),
-                (None, Some(inner)) =>
-                    self.transactors[inner.transactor_idx].start_change_handler(change_handler),
-                (Some(e), _) => {
+            match (protocol_info_result, &self.inner_opt) {
+                (Ok(_), None) => unreachable! ("Experiment succeeded but produced no Inner structure"),
+                (Ok(protocol_info), Some(inner)) =>
+                    self.transactors[inner.transactor_idx].start_change_handler(change_handler, protocol_info.router_ip),
+                (Err(e), _) => {
                     self.change_handler_opt = Some (change_handler);
-                    Err (e)
+                    Err (e.clone())
                 },
             }
         }
@@ -165,7 +186,7 @@ impl AutomapControlReal {
             .unwrap_or_else(|| panic!("No Transactor for {}", protocol))
     }
 
-    fn choose_working_protocol<T>(&mut self, experiment: TransactorExperiment<T>) -> Result<T, AutomapError> {
+    fn choose_working_protocol<T: PartialEq + Debug>(&mut self, experiment: TransactorExperiment<T>) -> Result<ProtocolInfo<T>, AutomapError> {
         if let Some (usual_protocol) = self.usual_protocol_opt {
             let transactor = self.transactors.iter()
                 .find (|t| t.protocol() == usual_protocol)
@@ -176,7 +197,8 @@ impl AutomapControlReal {
                         router_ip,
                         transactor_idx: self.find_transactor_index(usual_protocol),
                     });
-                    return Ok (t)
+                    return Ok (ProtocolInfo{payload: t, router_ip})
+
                 },
                 Err (_) => (),
             }
@@ -198,7 +220,7 @@ impl AutomapControlReal {
                     router_ip,
                     transactor_idx: self.find_transactor_index (protocol),
                 });
-                Ok (t)
+                Ok (ProtocolInfo{payload: t, router_ip})
             },
             Err (_) => Err(AutomapError::AllProtocolsFailed),
         }
@@ -220,15 +242,6 @@ impl AutomapControlReal {
                     }
                 }
             })
-    }
-
-    fn error_from<T, E: Clone> (result: &Result<T, E>) -> Option<E> {
-        if let Err (e) = result {
-            Some (e.clone())
-        }
-        else {
-            None
-        }
     }
 }
 
@@ -259,7 +272,7 @@ mod tests {
         add_permanent_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
         delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
         delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
-        start_change_handler_params: Arc<Mutex<Vec<ChangeHandler>>>,
+        start_change_handler_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
         start_change_handler_results: RefCell<Vec<Result<(), AutomapError>>>,
         stop_change_handler_params: Arc<Mutex<Vec<()>>>,
     }
@@ -314,11 +327,12 @@ mod tests {
         fn start_change_handler(
             &mut self,
             change_handler: ChangeHandler,
+            router_ip: IpAddr,
         ) -> Result<(), AutomapError> {
             self.start_change_handler_params
                 .lock()
                 .unwrap()
-                .push(change_handler);
+                .push((change_handler, router_ip));
             self.start_change_handler_results.borrow_mut().remove(0)
         }
 
@@ -408,7 +422,7 @@ mod tests {
 
         pub fn start_change_handler_params(
             mut self,
-            params: &Arc<Mutex<Vec<ChangeHandler>>>,
+            params: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
         ) -> Self {
             self.start_change_handler_params = params.clone();
             self
@@ -441,7 +455,7 @@ mod tests {
 
         let result = subject.choose_working_protocol (experiment);
 
-        assert_eq!(result, Ok("Success!".to_string()));
+        assert_eq!(result, Ok(ProtocolInfo {payload: "Success!".to_string(), router_ip: *ROUTER_IP}));
         assert_eq!(subject.inner_opt.unwrap(), AutomapControlRealInner {
             router_ip: *ROUTER_IP,
             transactor_idx: match protocol {
@@ -533,7 +547,7 @@ mod tests {
 
         let result = subject.choose_working_protocol (experiment);
 
-        assert_eq!(result, Ok("Success!".to_string()));
+        assert_eq!(result, Ok(ProtocolInfo {payload: "Success!".to_string(), router_ip: *ROUTER_IP}));
         let protocol_log = outer_protocol_log_arc.lock().unwrap();
         // Tried PCP, failed. Tried PMP, worked. Didn't bother with IGDP.
         assert_eq!(*protocol_log, vec![AutomapProtocol::Pcp, AutomapProtocol::Pmp]);
@@ -558,7 +572,7 @@ mod tests {
 
         let result = subject.choose_working_protocol (experiment);
 
-        assert_eq!(result, Ok("Success!".to_string()));
+        assert_eq!(result, Ok(ProtocolInfo {payload: "Success!".to_string(), router_ip: *ROUTER_IP}));
         let protocol_log = outer_protocol_log_arc.lock().unwrap();
         // Tried usual PMP first; succeeded.
         assert_eq!(*protocol_log, vec![AutomapProtocol::Pmp]);
@@ -583,7 +597,7 @@ mod tests {
 
         let result = subject.choose_working_protocol (experiment);
 
-        assert_eq!(result, Ok("Success!".to_string()));
+        assert_eq!(result, Ok(ProtocolInfo {payload: "Success!".to_string(), router_ip: *ROUTER_IP}));
         let protocol_log = outer_protocol_log_arc.lock().unwrap();
         // Tried usual PMP; failed. Tried PCP, failed. Skipped PMP (already tried), tried IGDP; succeeded.
         assert_eq!(*protocol_log, vec![AutomapProtocol::Pmp, AutomapProtocol::Pcp, AutomapProtocol::Igdp]);
@@ -614,7 +628,8 @@ mod tests {
         let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
         assert_eq! (*get_public_ip_params, vec![*ROUTER_IP]);
         assert! (add_mapping_params_arc.lock().unwrap().is_empty());
-        let actual_change_handler = start_change_handler_params_arc.lock().unwrap().remove(0);
+        let (actual_change_handler, router_ip) = start_change_handler_params_arc.lock().unwrap().remove(0);
+        assert_eq! (router_ip, *ROUTER_IP);
         let change = AutomapChange::Error(AutomapError::ProtocolError("Booga!".to_string()));
         actual_change_handler(change.clone());
         let change_handler_log = change_handler_log_arc.lock().unwrap();
@@ -691,7 +706,8 @@ mod tests {
         assert! (get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq! (*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
-        let actual_change_handler = start_change_handler_params_arc.lock().unwrap().remove(0);
+        let (actual_change_handler, router_ip) = start_change_handler_params_arc.lock().unwrap().remove(0);
+        assert_eq! (router_ip, *ROUTER_IP);
         let change = AutomapChange::Error(AutomapError::ProtocolError("Booga!".to_string()));
         actual_change_handler(change.clone());
         let change_handler_log = change_handler_log_arc.lock().unwrap();
@@ -889,8 +905,9 @@ mod tests {
         let mut subject = make_null_subject();
         subject.change_handler_opt = Some (Box::new (|_| ()));
         subject.inner_opt = None;
+        let protocol_info_result: Result<ProtocolInfo<u32>, AutomapError> = Err(AutomapError::Unknown);
 
-        let result = subject.maybe_start_change_handler(Some(AutomapError::Unknown));
+        let result = subject.maybe_start_change_handler(&protocol_info_result);
 
         assert_eq! (result, Err(AutomapError::Unknown));
         assert! (subject.change_handler_opt.is_some());
@@ -904,8 +921,9 @@ mod tests {
             router_ip: *ROUTER_IP,
             transactor_idx: 0
         });
+        let protocol_info_result: Result<ProtocolInfo<u32>, AutomapError> = Err(AutomapError::Unknown);
 
-        let result = subject.maybe_start_change_handler(Some(AutomapError::Unknown));
+        let result = subject.maybe_start_change_handler(&protocol_info_result);
 
         assert_eq! (result, Err(AutomapError::Unknown));
         assert! (subject.change_handler_opt.is_some());
@@ -952,7 +970,7 @@ mod tests {
         protocol: AutomapProtocol,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_change_handler_params_arc: &Arc<Mutex<Vec<ChangeHandler>>>,
+        start_change_handler_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
     ) -> AutomapControlReal {
         let subject = make_general_failure_subject();
         let success_transactor = make_params_success_transactor(
@@ -978,7 +996,7 @@ mod tests {
         protocol: AutomapProtocol,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_change_handler_params_arc: &Arc<Mutex<Vec<ChangeHandler>>>,
+        start_change_handler_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
     ) -> Box<dyn Transactor> {
         Box::new(
             TransactorMock::new(protocol)
