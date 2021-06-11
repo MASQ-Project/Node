@@ -193,7 +193,7 @@ impl ActorSystemFactoryReal {
             })
             .expect("Dispatcher is dead");
 
-// TODO: Open firewall port here
+        // TODO: Open firewall port here
 
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);

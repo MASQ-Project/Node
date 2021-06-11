@@ -34,7 +34,7 @@ impl Display for AutomapProtocol {
 }
 
 impl AutomapProtocol {
-    pub fn values () -> Vec<AutomapProtocol> {
+    pub fn values() -> Vec<AutomapProtocol> {
         vec![
             AutomapProtocol::Pcp,
             AutomapProtocol::Pmp,
@@ -179,11 +179,14 @@ mod tests {
     fn automap_protocol_values_works() {
         let result = AutomapProtocol::values();
 
-        assert_eq!(result, vec![
-            AutomapProtocol::Pcp,
-            AutomapProtocol::Pmp,
-            AutomapProtocol::Igdp
-        ])
+        assert_eq!(
+            result,
+            vec![
+                AutomapProtocol::Pcp,
+                AutomapProtocol::Pmp,
+                AutomapProtocol::Igdp
+            ]
+        )
     }
 
     #[test]

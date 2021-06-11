@@ -140,7 +140,11 @@ impl Transactor for PcpTransactor {
         AutomapProtocol::Pcp
     }
 
-    fn start_change_handler(&mut self, change_handler: ChangeHandler, router_ip: IpAddr) -> Result<(), AutomapError> {
+    fn start_change_handler(
+        &mut self,
+        change_handler: ChangeHandler,
+        router_ip: IpAddr,
+    ) -> Result<(), AutomapError> {
         if let Some(_change_handler_stopper) = &self.change_handler_stopper {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
@@ -184,8 +188,8 @@ impl Transactor for PcpTransactor {
     }
 
     fn stop_change_handler(&mut self) {
-        if let Some (stopper) = self.change_handler_stopper.take() {
-            let _ = stopper.send (());
+        if let Some(stopper) = self.change_handler_stopper.take() {
+            let _ = stopper.send(());
         }
     }
 
@@ -301,7 +305,7 @@ impl PcpTransactor {
         Ok((result_code, epoch_time, opcode_data.clone()))
     }
 
-    #[allow (clippy::type_complexity)]
+    #[allow(clippy::type_complexity)]
     fn employ_factories(
         factories_arc: &Arc<Mutex<Factories>>,
         router_ip: IpAddr,
@@ -364,12 +368,15 @@ impl PcpTransactor {
                             PrettyHex::hex_dump(&&buffer[0..len])
                         ),
                     }
-                },
+                }
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
+                {
+                    ()
+                }
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
-            if rx.try_recv ().is_ok() {
+            if rx.try_recv().is_ok() {
                 break;
             }
         }
@@ -417,6 +424,7 @@ mod tests {
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::{find_free_port, localhost};
+    use pretty_hex::*;
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::io::ErrorKind;
@@ -426,7 +434,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
-    use pretty_hex::*;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -1082,7 +1089,7 @@ mod tests {
     fn change_handler_rejects_data_from_non_router_ip_addresses() {
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
-        let router_ip = IpAddr::from_str ("7.7.7.7").unwrap();
+        let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
         let mut subject = PcpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
@@ -1117,15 +1124,22 @@ mod tests {
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
         let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
-        mapping_socket.set_read_timeout(Some (Duration::from_millis(100))).unwrap();
+        mapping_socket
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
         let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
         assert_eq!(sent_len, len_to_send);
         match mapping_socket.recv_from(&mut buffer) {
-            Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => (),
-            Err(e) => panic! ("{:?}", e),
-            Ok ((recv_len, remapping_socket_addr)) => {
+            Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
+                ()
+            }
+            Err(e) => panic!("{:?}", e),
+            Ok((recv_len, remapping_socket_addr)) => {
                 let dump = pretty_hex(&buffer[0..recv_len].to_vec());
-                panic! ("Should have timed out; but received from {}:\n{}", remapping_socket_addr, dump);
+                panic!(
+                    "Should have timed out; but received from {}:\n{}",
+                    remapping_socket_addr, dump
+                );
             }
         }
         subject.stop_change_handler();
@@ -1137,8 +1151,7 @@ mod tests {
         subject.change_handler_stopper = Some(unbounded().0);
         let change_handler = move |_| {};
 
-        let result = subject.start_change_handler(Box::new(change_handler),
-            localhost());
+        let result = subject.start_change_handler(Box::new(change_handler), localhost());
 
         assert_eq!(result, Err(AutomapError::ChangeHandlerAlreadyRunning))
     }
@@ -1149,8 +1162,7 @@ mod tests {
         subject.change_handler_config = RefCell::new(None);
         let change_handler = move |_| {};
 
-        let result = subject.start_change_handler(Box::new(change_handler),
-            localhost());
+        let result = subject.start_change_handler(Box::new(change_handler), localhost());
 
         assert_eq!(result, Err(AutomapError::ChangeHandlerUnconfigured))
     }
@@ -1215,7 +1227,7 @@ mod tests {
             socket.as_ref(),
             &rx,
             Arc::new(Mutex::new(Factories::default())),
-            IpAddr::from_str ("1.1.1.1").unwrap(),
+            IpAddr::from_str("1.1.1.1").unwrap(),
             0,
             &change_handler,
             ChangeHandlerConfig {

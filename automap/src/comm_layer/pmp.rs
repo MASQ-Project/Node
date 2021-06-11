@@ -127,7 +127,11 @@ impl Transactor for PmpTransactor {
         AutomapProtocol::Pmp
     }
 
-    fn start_change_handler(&mut self, change_handler: ChangeHandler, router_ip: IpAddr) -> Result<(), AutomapError> {
+    fn start_change_handler(
+        &mut self,
+        change_handler: ChangeHandler,
+        router_ip: IpAddr,
+    ) -> Result<(), AutomapError> {
         if let Some(_change_handler_stopper) = &self.change_handler_stopper {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
@@ -172,7 +176,7 @@ impl Transactor for PmpTransactor {
 
     fn stop_change_handler(&mut self) {
         if let Some(stopper) = self.change_handler_stopper.take() {
-            let _= stopper.send(());
+            let _ = stopper.send(());
         }
     }
 
@@ -270,7 +274,7 @@ impl PmpTransactor {
             match socket.recv_from(&mut buffer) {
                 Ok((len, announcement_source_address)) => {
                     if announcement_source_address.ip() != router_ip {
-                        continue
+                        continue;
                     }
                     match PmpPacket::try_from(&buffer[0..len]) {
                         Ok(packet) => {
@@ -309,7 +313,10 @@ impl PmpTransactor {
                     }
                 }
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
+                {
+                    ()
+                }
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
             if rx.try_recv().is_ok() {

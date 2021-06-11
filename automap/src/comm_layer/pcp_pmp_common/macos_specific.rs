@@ -20,8 +20,8 @@ pub fn macos_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
                 .map(|piece| piece.to_string())
                 .collect::<Vec<String>>()
         })
-        .filter (|pieces| pieces.len() > 1)
-        .map(|pieces| IpAddr::from_str (&pieces[1]).expect ("Bad syntax from route -n get default"))
+        .filter(|pieces| pieces.len() > 1)
+        .map(|pieces| IpAddr::from_str(&pieces[1]).expect("Bad syntax from route -n get default"))
         .collect::<Vec<IpAddr>>();
     Ok(addresses)
 }
@@ -62,10 +62,13 @@ destination: default
 
         let result = macos_find_routers(&find_routers_command).unwrap();
 
-        assert_eq!(result, vec![
-            IpAddr::from_str("192.168.0.1").unwrap(),
-            IpAddr::from_str("192.168.0.2").unwrap(),
-        ])
+        assert_eq!(
+            result,
+            vec![
+                IpAddr::from_str("192.168.0.1").unwrap(),
+                IpAddr::from_str("192.168.0.2").unwrap(),
+            ]
+        )
     }
 
     #[test]

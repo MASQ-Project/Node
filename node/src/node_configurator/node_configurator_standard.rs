@@ -168,8 +168,6 @@ pub mod standard {
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::str::FromStr;
-    use automap_lib::comm_layer::igdp::IgdpTransactor;
-    use automap_lib::comm_layer::Transactor;
 
     pub fn make_service_mode_multi_config<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -426,7 +424,11 @@ pub mod standard {
                 },
             }
         };
-        match make_neighborhood_mode(multi_config, neighbor_configs, unprivileged_config.automap_public_ip_opt.clone()) {
+        match make_neighborhood_mode(
+            multi_config,
+            neighbor_configs,
+            unprivileged_config.automap_public_ip_opt.clone(),
+        ) {
             Ok(mode) => Ok(NeighborhoodConfig { mode }),
             Err(e) => Err(e),
         }
@@ -578,7 +580,9 @@ pub mod standard {
                 "--neighborhood-mode {} has not been properly provided for in the code",
                 s
             ),
-            None => neighborhood_mode_standard(multi_config, neighbor_configs, automap_public_ip_opt),
+            None => {
+                neighborhood_mode_standard(multi_config, neighbor_configs, automap_public_ip_opt)
+            }
         }
     }
 
@@ -587,7 +591,7 @@ pub mod standard {
         neighbor_configs: Vec<NodeDescriptor>,
         automap_public_ip_opt: Option<IpAddr>,
     ) -> Result<NeighborhoodMode, ConfiguratorError> {
-        todo! ("Use automap_public_ip_opt");
+        todo!("Use automap_public_ip_opt");
         let ip = match value_m!(multi_config, "ip", IpAddr) {
             Some(ip) => ip,
             None => {

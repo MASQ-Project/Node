@@ -95,7 +95,11 @@ pub trait Transactor {
         -> Result<u32, AutomapError>;
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
     fn protocol(&self) -> AutomapProtocol;
-    fn start_change_handler(&mut self, change_handler: ChangeHandler, router_ip: IpAddr) -> Result<(), AutomapError>;
+    fn start_change_handler(
+        &mut self,
+        change_handler: ChangeHandler,
+        router_ip: IpAddr,
+    ) -> Result<(), AutomapError>;
     fn stop_change_handler(&mut self);
     fn as_any(&self) -> &dyn Any;
 }
@@ -169,7 +173,7 @@ mod tests {
         let errors_and_expectations = vec![
             (
                 AutomapError::Unknown,
-                AutomapErrorCause::Unknown("Explicitly unknown".to_string())
+                AutomapErrorCause::Unknown("Explicitly unknown".to_string()),
             ),
             (
                 AutomapError::NoLocalIpAddress,

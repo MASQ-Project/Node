@@ -33,6 +33,9 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::SocketServer;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::wallet::Wallet;
+use automap_lib::control_layer::automap_control::{
+    AutomapControl, AutomapControlReal, ChangeHandler,
+};
 use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
@@ -41,11 +44,12 @@ use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::utils::AutomapProtocol;
 use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::{SocketAddr, IpAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
@@ -365,12 +369,38 @@ impl BootstrapperConfig {
     }
 }
 
+pub trait AutomapControlFactory: Send {
+    fn make(
+        &self,
+        usual_protocol_opt: Option<AutomapProtocol>,
+        change_handler: ChangeHandler,
+    ) -> Box<dyn AutomapControl>;
+}
+
+pub struct AutomapControlFactoryReal {}
+
+impl AutomapControlFactory for AutomapControlFactoryReal {
+    fn make(
+        &self,
+        usual_protocol_opt: Option<AutomapProtocol>,
+        change_handler: ChangeHandler,
+    ) -> Box<dyn AutomapControl> {
+        Box::new(AutomapControlReal::new(usual_protocol_opt, change_handler))
+    }
+}
+
+impl AutomapControlFactoryReal {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
 pub struct Bootstrapper {
     listener_handler_factory: Box<dyn ListenerHandlerFactory>,
     listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
     actor_system_factory: Box<dyn ActorSystemFactory>,
     logger_initializer: Box<dyn LoggerInitializerWrapper>,
-    router_manager: Box<dyn RouterManager>,
+    automap_control_factory: Box<dyn AutomapControlFactory>,
     config: BootstrapperConfig,
 }
 
@@ -468,6 +498,7 @@ impl Bootstrapper {
                 FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
             actor_system_factory: Box::new(ActorSystemFactoryReal {}),
             logger_initializer,
+            automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
             config: BootstrapperConfig::new(),
         }
     }
@@ -625,6 +656,7 @@ mod tests {
     use crate::test_utils::{assert_contains, rate_pack, ArgsBuilder};
     use actix::Recipient;
     use actix::System;
+    use automap_lib::comm_layer::AutomapError;
     use lazy_static::lazy_static;
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -751,6 +783,46 @@ mod tests {
         fn bind_port_result(mut self, result: io::Result<()>) -> ListenerHandlerNull {
             self.bind_port_and_discriminator_factories_result = Some(result);
             self
+        }
+    }
+
+    struct AutomapControlMock {}
+
+    impl AutomapControl for AutomapControlMock {
+        fn get_public_ip(&mut self) -> Result<IpAddr, AutomapError> {
+            todo!()
+        }
+
+        fn add_mapping(&mut self, hole_port: u16) -> Result<u32, AutomapError> {
+            todo!()
+        }
+
+        fn delete_mappings(&mut self) -> Result<(), AutomapError> {
+            todo!()
+        }
+    }
+
+    impl AutomapControlMock {
+        fn new() -> Self {
+            Self {}
+        }
+    }
+
+    struct AutomapControlFactoryMock {}
+
+    impl AutomapControlFactory for AutomapControlFactoryMock {
+        fn make(
+            &self,
+            usual_protocol_opt: Option<AutomapProtocol>,
+            change_handler: ChangeHandler,
+        ) -> Box<dyn AutomapControl> {
+            todo!()
+        }
+    }
+
+    impl AutomapControlFactoryMock {
+        fn new() -> Self {
+            Self {}
         }
     }
 
@@ -1954,6 +2026,7 @@ mod tests {
         actor_system_factory: Box<dyn ActorSystemFactory>,
         log_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
         listener_handler_factory: ListenerHandlerFactoryMock,
+        automap_control_factory: Box<dyn AutomapControlFactory>,
         config: BootstrapperConfig,
     }
 
@@ -1964,6 +2037,7 @@ mod tests {
                 log_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
                 // Don't modify this line unless you've already looked at DispatcherBuilder::add_listener_handler().
                 listener_handler_factory: ListenerHandlerFactoryMock::new(),
+                automap_control_factory: Box::new(AutomapControlFactoryMock::new()),
                 config: BootstrapperConfig::new(),
             }
         }
@@ -1984,6 +2058,14 @@ mod tests {
             self
         }
 
+        fn automap_control_factory(
+            mut self,
+            automap_control_factory: Box<dyn AutomapControlFactory>,
+        ) -> BootstrapperBuilder {
+            self.automap_control_factory = automap_control_factory;
+            self
+        }
+
         fn config(mut self, config: BootstrapperConfig) -> Self {
             self.config = config;
             self
@@ -1997,6 +2079,7 @@ mod tests {
                     Box<dyn ListenerHandler<Item = (), Error = ()>>,
                 >::new(),
                 logger_initializer: self.log_initializer_wrapper,
+                automap_control_factory: self.automap_control_factory,
                 config: self.config,
             }
         }

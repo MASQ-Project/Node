@@ -30,18 +30,21 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                     (first_line_strs, second_addr_opt)
                 })
                 .filter(|(first_line_strs, _)| first_line_strs.len() > 2)
-                .map(|(first_elements, ip_addr_opt)| match (first_elements, ip_addr_opt) {
-                    (_, Some(IpAddr::V4(ipv4_addr))) => Some(IpAddr::V4(ipv4_addr)),
-                    (first_elements, _) => {
-                        let ip_addr_maybe_with_scope_id = first_elements[2];
-                        let ip_addr_str = ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
-                        match IpAddr::from_str(ip_addr_str) {
-                            Err(_) => panic! ("Bad syntax from ipconfig /all"),
-                            Ok(addr) => Some(addr),
+                .map(
+                    |(first_elements, ip_addr_opt)| match (first_elements, ip_addr_opt) {
+                        (_, Some(IpAddr::V4(ipv4_addr))) => Some(IpAddr::V4(ipv4_addr)),
+                        (first_elements, _) => {
+                            let ip_addr_maybe_with_scope_id = first_elements[2];
+                            let ip_addr_str =
+                                ip_addr_maybe_with_scope_id.split('%').collect::<Vec<_>>()[0];
+                            match IpAddr::from_str(ip_addr_str) {
+                                Err(_) => panic!("Bad syntax from ipconfig /all"),
+                                Ok(addr) => Some(addr),
+                            }
                         }
-                    }
-                })
-                .flat_map (|opt| opt)
+                    },
+                )
+                .flat_map(|opt| opt)
                 .collect::<Vec<IpAddr>>();
             Ok(addresses)
         }
@@ -159,10 +162,13 @@ Ethernet adapter Ethernet 2:
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
-        assert_eq!(result, vec![
-            IpAddr::from_str("10.0.2.2").unwrap(),
-            IpAddr::from_str("10.0.2.0").unwrap(),
-        ])
+        assert_eq!(
+            result,
+            vec![
+                IpAddr::from_str("10.0.2.2").unwrap(),
+                IpAddr::from_str("10.0.2.0").unwrap(),
+            ]
+        )
     }
 
     #[test]

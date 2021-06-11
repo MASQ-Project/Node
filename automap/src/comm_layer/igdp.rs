@@ -1,7 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
-use crate::control_layer::automap_control::{ChangeHandler, AutomapChange};
+use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
@@ -9,8 +10,7 @@ use igd::{
 use masq_lib::utils::AutomapProtocol;
 use std::any::Any;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
-use crossbeam_channel::{Sender, unbounded, Receiver};
-use std::sync::{Mutex, Arc, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -130,16 +130,17 @@ impl Transactor for IgdpTransactor {
     fn get_public_ip(&self, _router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         self.ensure_gateway()?;
         let mut inner = self.inner_arc.lock().expect("Change handler died");
-        match inner.gateway_opt
+        match inner
+            .gateway_opt
             .as_ref()
             .expect("Must get Gateway before using it")
             .as_ref()
             .get_external_ip()
         {
             Ok(ip) => {
-                inner.public_ip_opt.replace (IpAddr::V4(ip));
+                inner.public_ip_opt.replace(IpAddr::V4(ip));
                 Ok(IpAddr::V4(ip))
-            },
+            }
             Err(e) => Err(AutomapError::GetPublicIpError(format!("{:?}", e))),
         }
     }
@@ -156,7 +157,8 @@ impl Transactor for IgdpTransactor {
             IpAddr::V6(ip) => return Err(AutomapError::IPv6Unsupported(ip)),
         };
         let inner = self.inner_arc.lock().expect("Change handler died");
-        match inner.gateway_opt
+        match inner
+            .gateway_opt
             .as_ref()
             .expect("Must get Gateway before using it")
             .as_ref()
@@ -190,7 +192,8 @@ impl Transactor for IgdpTransactor {
     fn delete_mapping(&self, _router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         self.ensure_gateway()?;
         let inner = self.inner_arc.lock().expect("Change handler is dead");
-        match inner.gateway_opt
+        match inner
+            .gateway_opt
             .as_ref()
             .expect("Must get Gateway before using it")
             .as_ref()
@@ -205,34 +208,38 @@ impl Transactor for IgdpTransactor {
         AutomapProtocol::Igdp
     }
 
-    fn start_change_handler(&mut self, change_handler: ChangeHandler, _router_ip: IpAddr) -> Result<(), AutomapError> {
+    fn start_change_handler(
+        &mut self,
+        change_handler: ChangeHandler,
+        _router_ip: IpAddr,
+    ) -> Result<(), AutomapError> {
         let (tx, rx) = unbounded();
         let public_ip_poll_delay_ms = {
-            let mut inner = self.inner_arc.lock().expect ("Change handler is dead");
+            let mut inner = self.inner_arc.lock().expect("Change handler is dead");
             if inner.change_handler_stopper_opt.is_some() {
-                return Err (AutomapError::ChangeHandlerAlreadyRunning)
+                return Err(AutomapError::ChangeHandlerAlreadyRunning);
             }
             inner.change_handler_stopper_opt = Some(tx);
             self.public_ip_poll_delay_ms
         };
         let inner_inner = self.inner_arc.clone();
-        thread::spawn (move || {
-            Self::thread_guts (
-                public_ip_poll_delay_ms,
-                change_handler,
-                inner_inner,
-                rx
-            )
+        thread::spawn(move || {
+            Self::thread_guts(public_ip_poll_delay_ms, change_handler, inner_inner, rx)
         });
-        Ok (())
+        Ok(())
     }
 
     fn stop_change_handler(&mut self) {
-        match &self.inner_arc.lock().expect("Change handler is dead").change_handler_stopper_opt {
-            Some (stopper) => {
-                let _ = stopper.try_send (());
-            },
-            None => ()
+        match &self
+            .inner_arc
+            .lock()
+            .expect("Change handler is dead")
+            .change_handler_stopper_opt
+        {
+            Some(stopper) => {
+                let _ = stopper.try_send(());
+            }
+            None => (),
         }
     }
 
@@ -253,7 +260,7 @@ impl IgdpTransactor {
             gateway_factory: Box::new(GatewayFactoryReal::new()),
             local_ip_finder: Box::new(LocalIpFinderReal::new()),
             public_ip_poll_delay_ms: PUBLIC_IP_POLL_DELAY_SECONDS * 1000,
-            inner_arc: Arc::new (Mutex::new (IgdpTransactorInner {
+            inner_arc: Arc::new(Mutex::new(IgdpTransactorInner {
                 gateway_opt: None,
                 change_handler_stopper_opt: None,
                 public_ip_opt: None,
@@ -274,43 +281,44 @@ impl IgdpTransactor {
         Ok(())
     }
 
-    fn inner (&self) -> MutexGuard<IgdpTransactorInner> {
-        self.inner_arc.lock().expect ("Change handler died")
+    fn inner(&self) -> MutexGuard<IgdpTransactorInner> {
+        self.inner_arc.lock().expect("Change handler died")
     }
 
-    fn thread_guts (
+    fn thread_guts(
         public_ip_poll_delay_ms: u32,
         change_handler: ChangeHandler,
         inner_arc: Arc<Mutex<IgdpTransactorInner>>,
-        rx: Receiver<()>
+        rx: Receiver<()>,
     ) {
         loop {
-            thread::sleep (Duration::from_millis (public_ip_poll_delay_ms as u64));
+            thread::sleep(Duration::from_millis(public_ip_poll_delay_ms as u64));
             if rx.try_recv().is_ok() {
                 break;
             }
-            { // detached scope to make sure locked Mutexes disappear
-                let mut inner = inner_arc.lock().expect ("IgdpTransactor died");
+            {
+                // detached scope to make sure locked Mutexes disappear
+                let mut inner = inner_arc.lock().expect("IgdpTransactor died");
                 let old_public_ip = match inner.public_ip_opt.as_ref() {
-                    Some (public_ip) => public_ip,
+                    Some(public_ip) => public_ip,
                     None => todo!(),
                 };
                 match inner.gateway_opt.as_ref() {
-                    Some (gateway_wrapper) => match gateway_wrapper.get_external_ip() {
-                        Ok (current_public_ip) => {
+                    Some(gateway_wrapper) => match gateway_wrapper.get_external_ip() {
+                        Ok(current_public_ip) => {
                             if current_public_ip != *old_public_ip {
                                 let ip = IpAddr::V4(current_public_ip);
-                                inner.public_ip_opt.replace (ip);
-                                change_handler (AutomapChange::NewIp(ip));
+                                inner.public_ip_opt.replace(ip);
+                                change_handler(AutomapChange::NewIp(ip));
                             }
-                        },
-                        Err (_) => todo!(),
+                        }
+                        Err(_) => todo!(),
                     },
                     None => {
                         let _ = inner.change_handler_stopper_opt.take();
-                        change_handler (AutomapChange::Error (AutomapError::CantFindDefaultGateway));
+                        change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
                         break;
-                    },
+                    }
                 }
             }
         }
@@ -321,21 +329,23 @@ impl IgdpTransactor {
 mod tests {
     use super::*;
     use crate::comm_layer::tests::LocalIpFinderMock;
-    use masq_lib::utils::{AutomapProtocol, localhost};
+    use crate::control_layer::automap_control::AutomapChange;
+    use crossbeam_channel::unbounded;
+    use igd::RequestError;
+    use masq_lib::utils::{localhost, AutomapProtocol};
+    use std::cell::RefCell;
     use std::net::Ipv6Addr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crossbeam_channel::unbounded;
-    use crate::control_layer::automap_control::AutomapChange;
     use std::thread;
     use std::time::Duration;
-    use igd::RequestError;
-    use std::cell::RefCell;
 
-    fn clone_get_external_ip_error (error: &GetExternalIpError) -> GetExternalIpError {
+    fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
             GetExternalIpError::ActionNotAuthorized => GetExternalIpError::ActionNotAuthorized,
-            GetExternalIpError::RequestError(_) => GetExternalIpError::RequestError(RequestError::InvalidResponse("...overflow...".to_string())),
+            GetExternalIpError::RequestError(_) => GetExternalIpError::RequestError(
+                RequestError::InvalidResponse("...overflow...".to_string()),
+            ),
         }
     }
 
@@ -393,8 +403,7 @@ mod tests {
             let mut results = self.get_external_ip_results.borrow_mut();
             if results.len() > 1 {
                 results.remove(0)
-            }
-            else {
+            } else {
                 match &results[0] {
                     Ok(ip) => Ok(*ip),
                     Err(e) => Err(clone_get_external_ip_error(e)),
@@ -548,7 +557,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, public_ip);
-        assert_eq!(subject.inner_arc.lock().unwrap().public_ip_opt, Some (public_ip));
+        assert_eq!(
+            subject.inner_arc.lock().unwrap().public_ip_opt,
+            Some(public_ip)
+        );
     }
 
     #[test]
@@ -567,7 +579,7 @@ mod tests {
                 "ActionNotAuthorized".to_string()
             ))
         );
-        assert_eq! (subject.inner_arc.lock().unwrap().public_ip_opt, None);
+        assert_eq!(subject.inner_arc.lock().unwrap().public_ip_opt, None);
     }
 
     #[test]
@@ -722,57 +734,62 @@ mod tests {
     #[test]
     fn start_change_handler_complains_if_change_handler_is_already_running() {
         let mut subject = IgdpTransactor::new();
-        subject.inner_arc.lock().unwrap().change_handler_stopper_opt = Some (unbounded().0);
+        subject.inner_arc.lock().unwrap().change_handler_stopper_opt = Some(unbounded().0);
 
-        let result = subject.start_change_handler(Box::new (|_| ()),
-            localhost());
+        let result = subject.start_change_handler(Box::new(|_| ()), localhost());
 
-        assert_eq! (result, Err (AutomapError::ChangeHandlerAlreadyRunning))
+        assert_eq!(result, Err(AutomapError::ChangeHandlerAlreadyRunning))
     }
 
     #[test]
     fn start_change_handler_notices_address_changes() {
-        let one_ip = Ipv4Addr::from_str ("1.2.3.4").unwrap();
-        let another_ip = Ipv4Addr::from_str ("4.3.2.1").unwrap();
-        let router_ip = IpAddr::from_str ("5.5.5.5").unwrap();
+        let one_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
+        let another_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
+        let router_ip = IpAddr::from_str("5.5.5.5").unwrap();
         let mut subject = IgdpTransactor::new();
         {
             let mut inner = subject.inner_arc.lock().unwrap();
-            inner.gateway_opt = Some(Box::new(GatewayWrapperMock::new()
-                .get_external_ip_result(Ok(one_ip))
-                .get_external_ip_result(Ok(one_ip))
-                .get_external_ip_result(Ok(one_ip))
-                .get_external_ip_result(Ok(another_ip))
-                .get_external_ip_result(Ok(another_ip))
-                .get_external_ip_result(Ok(one_ip))
-                .get_external_ip_result(Ok(another_ip))
+            inner.gateway_opt = Some(Box::new(
+                GatewayWrapperMock::new()
+                    .get_external_ip_result(Ok(one_ip))
+                    .get_external_ip_result(Ok(one_ip))
+                    .get_external_ip_result(Ok(one_ip))
+                    .get_external_ip_result(Ok(another_ip))
+                    .get_external_ip_result(Ok(another_ip))
+                    .get_external_ip_result(Ok(one_ip))
+                    .get_external_ip_result(Ok(another_ip)),
             ));
             inner.public_ip_opt = Some(IpAddr::V4(one_ip));
         }
         subject.public_ip_poll_delay_ms = 10;
-        let change_log_arc = Arc::new(Mutex::new (vec![]));
+        let change_log_arc = Arc::new(Mutex::new(vec![]));
         let inner_arc = change_log_arc.clone();
-        let change_handler = Box::new (move |change: AutomapChange|
-            inner_arc.lock().unwrap().push (change));
+        let change_handler =
+            Box::new(move |change: AutomapChange| inner_arc.lock().unwrap().push(change));
 
-        subject.start_change_handler(change_handler, router_ip).unwrap();
+        subject
+            .start_change_handler(change_handler, router_ip)
+            .unwrap();
 
-        thread::sleep (Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(100));
         subject.stop_change_handler();
         let change_log = change_log_arc.lock().unwrap();
-        assert_eq! (*change_log, vec![
-            AutomapChange::NewIp (IpAddr::V4(another_ip)),
-            AutomapChange::NewIp (IpAddr::V4(one_ip)),
-            AutomapChange::NewIp (IpAddr::V4(another_ip)),
-        ]);
+        assert_eq!(
+            *change_log,
+            vec![
+                AutomapChange::NewIp(IpAddr::V4(another_ip)),
+                AutomapChange::NewIp(IpAddr::V4(one_ip)),
+                AutomapChange::NewIp(IpAddr::V4(another_ip)),
+            ]
+        );
         let inner = subject.inner_arc.lock().unwrap();
-        assert_eq! (inner.public_ip_opt, Some (IpAddr::V4(another_ip)));
+        assert_eq!(inner.public_ip_opt, Some(IpAddr::V4(another_ip)));
     }
 
     #[test]
-    fn start_change_handler_handles_absence_of_gateway () {
-        let public_ip = Ipv4Addr::from_str ("1.2.3.4").unwrap();
-        let router_ip = IpAddr::from_str ("4.3.2.1").unwrap();
+    fn start_change_handler_handles_absence_of_gateway() {
+        let public_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
+        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
         let mut subject = IgdpTransactor::new();
         subject.public_ip_poll_delay_ms = 10;
         {
@@ -780,21 +797,24 @@ mod tests {
             inner.gateway_opt = None;
             inner.public_ip_opt = Some(IpAddr::V4(public_ip));
         }
-        let change_log_arc = Arc::new(Mutex::new (vec![]));
+        let change_log_arc = Arc::new(Mutex::new(vec![]));
         let inner_arc = change_log_arc.clone();
-        let change_handler = Box::new (move |change: AutomapChange|
-            inner_arc.lock().unwrap().push (change));
+        let change_handler =
+            Box::new(move |change: AutomapChange| inner_arc.lock().unwrap().push(change));
 
-        subject.start_change_handler(change_handler, router_ip).unwrap();
+        subject
+            .start_change_handler(change_handler, router_ip)
+            .unwrap();
 
-        thread::sleep (Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(100));
         let change_log = change_log_arc.lock().unwrap();
-        assert_eq! (*change_log, vec![
-            AutomapChange::Error (AutomapError::CantFindDefaultGateway)
-        ]);
+        assert_eq!(
+            *change_log,
+            vec![AutomapChange::Error(AutomapError::CantFindDefaultGateway)]
+        );
         let inner = subject.inner_arc.lock().unwrap();
-        assert_eq! (inner.public_ip_opt, Some (IpAddr::V4(public_ip)));
-        assert! (inner.change_handler_stopper_opt.is_none());
+        assert_eq!(inner.public_ip_opt, Some(IpAddr::V4(public_ip)));
+        assert!(inner.change_handler_stopper_opt.is_none());
     }
 
     #[test]

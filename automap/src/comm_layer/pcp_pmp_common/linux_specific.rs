@@ -19,7 +19,7 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
                 .collect::<Vec<&str>>()
         })
         .filter(|line_vec| (line_vec.len() >= 4) && (line_vec[3] == "UG"))
-        .map(|line_vec| IpAddr::from_str(line_vec[1]).expect ("Bad syntax from route -n"))
+        .map(|line_vec| IpAddr::from_str(line_vec[1]).expect("Bad syntax from route -n"))
         .collect::<Vec<IpAddr>>();
     Ok(addresses)
 }
@@ -76,10 +76,13 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
-        assert_eq!(result, vec![
-            IpAddr::from_str("192.168.0.1").unwrap(),
-            IpAddr::from_str("192.168.0.2").unwrap()
-        ])
+        assert_eq!(
+            result,
+            vec![
+                IpAddr::from_str("192.168.0.1").unwrap(),
+                IpAddr::from_str("192.168.0.2").unwrap()
+            ]
+        )
     }
 
     #[test]
