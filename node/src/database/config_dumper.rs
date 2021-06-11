@@ -24,8 +24,10 @@ use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine}
 use masq_lib::shared_schema::ConfiguratorError;
 use serde_json::json;
 use serde_json::{Map, Value};
-use std::any::Any;
 use std::path::{Path, PathBuf};
+
+#[cfg(test)]
+use std::any::Any;
 
 pub const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
@@ -48,13 +50,15 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         write_string(streams, json);
         Ok(0)
     }
+
+    #[cfg(test)]
     fn as_any(&self) -> &dyn Any {
         self
     }
 }
 
 fn write_string(streams: &mut StdStreams, mut json: String) {
-    json.push_str("\n");
+    json.push('\n');
     streams
         .stdout
         .write_all(json.as_bytes())

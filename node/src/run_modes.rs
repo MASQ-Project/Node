@@ -1,9 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
-use crate::node_configurator::node_configurator_initialization::{
-    NodeConfiguratorInitializationReal,
-};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::{
     DaemonInitializerFactory, DaemonInitializerFactoryReal, DumpConfigRunnerFactory,
@@ -227,26 +224,6 @@ struct RunnerReal {
     daemon_initializer_factory: Box<dyn DaemonInitializerFactory>,
 }
 
-// struct DaemonFactoryTypeWrapper<T>{
-//     inner: Box<dyn DaemonInitializerFactory<T>>
-// }
-//
-// impl <T> Deref for DaemonFactoryTypeWrapper<T>{
-//     type Target = Box<dyn DaemonInitializerFactory<T>>;
-//
-//     fn deref(&self) -> &Self::Target {
-//         &self.inner
-//     }
-// }
-//
-// impl <T> DaemonFactoryTypeWrapper<T>{
-//     fn new(inner:Box<dyn DaemonInitializerFactory<T>>)->Self{
-//         Self{
-//             inner
-//         }
-//     }
-// }
-
 impl Runner for RunnerReal {
     fn run_node(
         &self,
@@ -291,9 +268,7 @@ impl RunnerReal {
         Self {
             dump_config_runner_factory: Box::new(DumpConfigRunnerFactoryReal),
             server_initializer_factory: Box::new(ServerInitializerFactoryReal),
-            daemon_initializer_factory: Box::new(DaemonInitializerFactoryReal::new(Box::new(
-                NodeConfiguratorInitializationReal,
-            ))),
+            daemon_initializer_factory: Box::new(DaemonInitializerFactoryReal::build()),
         }
     }
 }
@@ -302,7 +277,8 @@ impl RunnerReal {
 mod tests {
     use super::*;
     use crate::run_modes_factories::mocks::{
-        DumpConfigRunnerFactoryMock, DumpConfigRunnerMock, ServerInitializerFactoryMock,
+        DaemonInitializerFactoryMock, DaemonInitializerMock, DumpConfigRunnerFactoryMock,
+        DumpConfigRunnerMock, ServerInitializerFactoryMock,
     };
     use crate::server_initializer::test_utils::{PrivilegeDropperMock, ServerInitializerMock};
     use crate::server_initializer::tests::convert_str_vec_slice_into_vec_of_strings;
@@ -555,32 +531,74 @@ parm2 - msg2\n"
 
     #[test]
     fn run_daemon_hands_in_an_error_from_creating_the_multi_config() {
-        todo!("continue reimplementing with mocks");
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
-        subject.runner = Box::new(RunnerReal::new());
-        let mut holder = FakeStreamHolder::new();
-
-        let result = subject.runner.run_daemon(
-            &convert_str_vec_slice_into_vec_of_strings(&[
-                "program",
-                "--initialization",
-                "--halabala",
-            ]),
-            &mut holder.streams(),
+        let mut runner = RunnerReal::new();
+        runner.daemon_initializer_factory = Box::new(
+            DaemonInitializerFactoryMock::default()
+                .make_params(&make_params_arc)
+                .make_result(Err(ConfiguratorError::required(
+                    "<unknown>",
+                    "Unfamiliar message: error: Found argument \'--halabala\'",
+                ))),
         );
+        subject.runner = Box::new(runner);
+        let mut holder = FakeStreamHolder::new();
+        let args = &convert_str_vec_slice_into_vec_of_strings(&[
+            "program",
+            "--initialization",
+            "--halabala",
+        ]);
 
+        let result = subject.runner.run_daemon(args, &mut holder.streams());
+
+        assert_eq!(&holder.stdout.get_string(), "");
+        assert_eq!(&holder.stderr.get_string(), "");
+        let mut make_params = make_params_arc.lock().unwrap();
+        assert_eq!(make_params.remove(0), *args);
         assert_eq!(
             result,
             Err(ConfiguratorError::new(vec![ParamError {
                 parameter: "<unknown>".to_string(),
-                reason: "Unfamiliar message: error: Found argument \'--halabala\' which wasn\'t \
-             expected, or isn\'t valid in this context\n\nUSAGE:\n    MASQNode --initialization\
-             \n\nFor more information try --help"
-                    .to_string()
+                reason: "Unfamiliar message: error: Found argument \'--halabala\'".to_string()
             }]))
+        )
+    }
+
+    #[test]
+    fn run_daemon_hands_in_an_error_from_go() {
+        let go_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = RunModes::new();
+        let mut runner = RunnerReal::new();
+        runner.daemon_initializer_factory = Box::new(
+            DaemonInitializerFactoryMock::default().make_result(Ok(Box::new(
+                DaemonInitializerMock::default()
+                    .go_params(&go_params_arc)
+                    .go_results(Err(ConfiguratorError::required("parameter", "too-bad"))),
+            ))),
         );
+        subject.runner = Box::new(runner);
+        let mut holder = FakeStreamHolder::new();
+        let args = &convert_str_vec_slice_into_vec_of_strings(&[
+            "program",
+            "--initialization",
+            "--ui-port",
+            "52452",
+        ]);
+
+        let result = subject.runner.run_daemon(args, &mut holder.streams());
+
         assert_eq!(&holder.stdout.get_string(), "");
-        assert_eq!(&holder.stderr.get_string(), "")
+        assert_eq!(&holder.stderr.get_string(), "");
+        let mut go_params = go_params_arc.lock().unwrap();
+        assert_eq!(go_params.remove(0), *args);
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![ParamError {
+                parameter: "parameter".to_string(),
+                reason: "too-bad".to_string()
+            }]))
+        )
     }
 
     #[test]

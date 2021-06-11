@@ -179,8 +179,6 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::any::Any;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {

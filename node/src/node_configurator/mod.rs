@@ -731,7 +731,7 @@ pub trait WalletCreationConfigMaker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::apps::app_daemon;
+    use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::masq_lib::utils::{
@@ -1004,7 +1004,7 @@ mod tests {
     fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
         let args = ArgsBuilder::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app_daemon(), vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
 
         let (real_user, data_directory_opt, chain_name) =
             real_user_data_directory_opt_and_chain_name(&DirsWrapperReal {}, &multi_config);

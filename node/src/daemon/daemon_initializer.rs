@@ -5,9 +5,7 @@ use crate::daemon::launcher::LauncherReal;
 use crate::daemon::{
     ChannelFactory, ChannelFactoryReal, Daemon, DaemonBindMessage, Launcher, Recipients,
 };
-use crate::node_configurator::node_configurator_initialization::{
-    InitializationConfig
-};
+use crate::node_configurator::node_configurator_initialization::InitializationConfig;
 use crate::node_configurator::{port_is_busy, DirsWrapper};
 use crate::run_modes_factories::DaemonInitializer;
 use crate::server_initializer::LoggerInitializerWrapper;
@@ -21,8 +19,10 @@ use itertools::Itertools;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectDecent;
-use std::any::Any;
 use std::collections::HashMap;
+
+#[cfg(test)]
+use std::any::Any;
 
 pub trait RecipientsFactory {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -63,8 +63,6 @@ impl ChannelFactory for ChannelFactoryReal {
     }
 }
 
-pub struct DaemonInitializerMock {}
-
 pub struct DaemonInitializerReal {
     config: InitializationConfig,
     channel_factory: Box<dyn ChannelFactory>,
@@ -73,6 +71,7 @@ pub struct DaemonInitializerReal {
 }
 
 impl DaemonInitializer for DaemonInitializerReal {
+    #[cfg(test)]
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -176,7 +175,7 @@ impl DaemonInitializerReal {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::daemon::{ChannelFactory, Recipients};
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
@@ -219,7 +218,7 @@ mod tests {
         }
     }
 
-    struct ChannelFactoryMock {
+    pub struct ChannelFactoryMock {
         make_results: RefCell<
             Vec<(
                 Sender<HashMap<String, String>>,

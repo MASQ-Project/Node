@@ -7,8 +7,6 @@ use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectDecent;
-use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct InitializationConfig {
@@ -43,22 +41,6 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationRe
             streams.expect_decent("StdStreams"),
         );
         Ok(config)
-    }
-}
-
-pub struct NodeConfiguratorInitializationMock {
-    requested_values_to_know: Vec<String>, //TODO use the utility from server_initializer
-    configure_result: RefCell<Vec<Result<InitializationConfig, ConfiguratorError>>>,
-    configure_params: RefCell<Arc<Mutex<Vec<String>>>>,
-}
-
-impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationMock {
-    fn configure(
-        &self,
-        multi_config: &MultiConfig,
-        streams: Option<&mut StdStreams>,
-    ) -> Result<InitializationConfig, ConfiguratorError> {
-        todo!("finish this mock")
     }
 }
 
@@ -120,5 +102,63 @@ mod tests {
         );
 
         assert_eq!(config.ui_port, 4321);
+    }
+}
+
+#[cfg(test)]
+pub mod mocks {
+    use crate::node_configurator::node_configurator_initialization::InitializationConfig;
+    use crate::node_configurator::NodeConfigurator;
+    use crate::server_initializer::tests::extract_values_from_multi_config;
+    use masq_lib::command::StdStreams;
+    use masq_lib::multi_config::{MultiConfig, MultiConfigExtractedValues};
+    use masq_lib::shared_schema::ConfiguratorError;
+    use std::cell::RefCell;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    pub struct NodeConfiguratorInitializationMock {
+        demanded_values_from_multi_config: RefCell<Vec<String>>,
+        configure_result: RefCell<Vec<Result<InitializationConfig, ConfiguratorError>>>,
+        configure_params: RefCell<Arc<Mutex<Vec<MultiConfigExtractedValues>>>>,
+    }
+
+    impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationMock {
+        fn configure(
+            &self,
+            multi_config: &MultiConfig,
+            _streams: Option<&mut StdStreams>,
+        ) -> Result<InitializationConfig, ConfiguratorError> {
+            extract_values_from_multi_config(
+                &self.demanded_values_from_multi_config,
+                &self.configure_params,
+                multi_config,
+            );
+            self.configure_result.borrow_mut().remove(0)
+        }
+    }
+
+    impl NodeConfiguratorInitializationMock {
+        pub fn demanded_values_from_multi_config(self, demanded_values: Vec<String>) -> Self {
+            self.demanded_values_from_multi_config
+                .replace(demanded_values);
+            self
+        }
+
+        pub fn configure_result(
+            self,
+            result: Result<InitializationConfig, ConfiguratorError>,
+        ) -> Self {
+            self.configure_result.borrow_mut().push(result);
+            self
+        }
+
+        pub fn configure_params(
+            self,
+            params: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
+        ) -> Self {
+            self.configure_params.replace(params.clone());
+            self
+        }
     }
 }

@@ -75,6 +75,7 @@ impl Command<ConfiguratorError> for ServerInitializerReal {
 }
 
 impl ServerInitializer for ServerInitializerReal {
+    #[cfg(test)]
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -142,7 +143,7 @@ pub trait LoggerInitializerWrapper: Send {
     );
 }
 
-pub struct LoggerInitializerWrapperReal {}
+pub struct LoggerInitializerWrapperReal;
 
 impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
     fn init(
@@ -496,9 +497,9 @@ pub mod tests {
 
     struct ConfiguredByPrivilegeMock {
         demanded_values_from_multi_config: RefCell<Vec<String>>,
-        initialize_as_privileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
+        initialize_as_privileged_params: RefCell<Arc<Mutex<Vec<MultiConfigExtractedValues>>>>,
         initialize_as_privileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
-        initialize_as_unprivileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
+        initialize_as_unprivileged_params: RefCell<Arc<Mutex<Vec<MultiConfigExtractedValues>>>>,
         initialize_as_unprivileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
     }
 
@@ -511,24 +512,29 @@ pub mod tests {
         }
     }
 
+    pub fn extract_values_from_multi_config(
+        requested_params: &RefCell<Vec<String>>,
+        resulting_values: &RefCell<Arc<Mutex<Vec<MultiConfigExtractedValues>>>>,
+        multi_config: &MultiConfig,
+    ) {
+        if requested_params.borrow().is_empty().not() {
+            resulting_values.borrow().lock().unwrap().push(
+                MultiConfigExtractedValues::default()
+                    .extract_entries_on_demand(&requested_params.borrow(), multi_config),
+            )
+        };
+    }
+
     impl<'a> ConfiguredByPrivilege for ConfiguredByPrivilegeMock {
         fn initialize_as_privileged(
             &mut self,
             multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
-            if self
-                .demanded_values_from_multi_config
-                .borrow()
-                .is_empty()
-                .not()
-            {
-                self.initialize_as_privileged_params.lock().unwrap().push(
-                    MultiConfigExtractedValues::default().extract_entries_on_demand(
-                        &self.demanded_values_from_multi_config.borrow(),
-                        multi_config,
-                    ),
-                )
-            };
+            extract_values_from_multi_config(
+                &self.demanded_values_from_multi_config,
+                &self.initialize_as_privileged_params,
+                multi_config,
+            );
             self.initialize_as_privileged_results.borrow_mut().remove(0)
         }
 
@@ -537,19 +543,11 @@ pub mod tests {
             multi_config: &MultiConfig,
             _streams: &mut StdStreams,
         ) -> Result<(), ConfiguratorError> {
-            if self
-                .demanded_values_from_multi_config
-                .borrow()
-                .is_empty()
-                .not()
-            {
-                self.initialize_as_unprivileged_params.lock().unwrap().push(
-                    MultiConfigExtractedValues::default().extract_entries_on_demand(
-                        &self.demanded_values_from_multi_config.borrow(),
-                        multi_config,
-                    ),
-                );
-            }
+            extract_values_from_multi_config(
+                &self.demanded_values_from_multi_config,
+                &self.initialize_as_unprivileged_params,
+                multi_config,
+            );
             self.initialize_as_unprivileged_results
                 .borrow_mut()
                 .remove(0)
@@ -560,9 +558,9 @@ pub mod tests {
         pub fn new() -> ConfiguredByPrivilegeMock {
             Self {
                 demanded_values_from_multi_config: RefCell::new(vec![]),
-                initialize_as_privileged_params: Arc::new(Mutex::new(vec![])),
+                initialize_as_privileged_params: RefCell::new(Arc::new(Mutex::new(vec![]))),
                 initialize_as_privileged_results: RefCell::new(vec![]),
-                initialize_as_unprivileged_params: Arc::new(Mutex::new(vec![])),
+                initialize_as_unprivileged_params: RefCell::new(Arc::new(Mutex::new(vec![]))),
                 initialize_as_unprivileged_results: RefCell::new(vec![]),
             }
         }
@@ -576,10 +574,10 @@ pub mod tests {
 
         #[allow(dead_code)]
         pub fn initialize_as_privileged_params(
-            mut self,
+            self,
             params: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         ) -> Self {
-            self.initialize_as_privileged_params = params.clone();
+            self.initialize_as_privileged_params.replace(params.clone());
             self
         }
 
@@ -596,10 +594,11 @@ pub mod tests {
 
         #[allow(dead_code)]
         pub fn initialize_as_unprivileged_params(
-            mut self,
+            self,
             params: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         ) -> Self {
-            self.initialize_as_unprivileged_params = params.clone();
+            self.initialize_as_unprivileged_params
+                .replace(params.clone());
             self
         }
 
