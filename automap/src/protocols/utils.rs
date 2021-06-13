@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::any::Any;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::fmt::Debug;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Direction {

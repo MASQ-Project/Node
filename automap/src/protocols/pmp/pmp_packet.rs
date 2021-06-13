@@ -93,7 +93,7 @@ pub trait PmpOpcodeData: OpcodeData {}
 
 impl PmpOpcodeData for UnrecognizedData {}
 
-#[derive (Debug)]
+#[derive(Debug)]
 pub struct PmpPacket {
     pub direction: Direction,
     pub opcode: Opcode,
