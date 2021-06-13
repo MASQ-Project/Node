@@ -1,3 +1,5 @@
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use std::path::PathBuf;
 
 use actix::{Actor, Context, Handler, Recipient};

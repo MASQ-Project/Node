@@ -22,6 +22,7 @@ pub enum AutomapErrorCause {
     ProtocolFailed,
     ProbeServerIssue,
     ProbeFailed,
+    SocketFailure,
     Unknown(String),
 }
 

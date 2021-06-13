@@ -169,7 +169,7 @@ impl Transactor for IgdpTransactor {
                 lifetime,
                 "",
             ) {
-            Ok(_) => Ok(lifetime / 2), // TODO For lifetime == 0, return a really big number instead
+            Ok(_) => Ok(lifetime / 2),
             Err(e)
                 if (&format!("{:?}", e) == "OnlyPermanentLeasesSupported")
                     || (&format!("{:?}", e)
@@ -186,7 +186,7 @@ impl Transactor for IgdpTransactor {
         router_ip: IpAddr,
         hole_port: u16,
     ) -> Result<u32, AutomapError> {
-        self.add_mapping(router_ip, hole_port, u32::MAX)
+        self.add_mapping(router_ip, hole_port, 0).map(|_| u32::MAX)
     }
 
     fn delete_mapping(&self, _router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
@@ -632,7 +632,7 @@ mod tests {
             .add_permanent_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777)
             .unwrap();
 
-        assert_eq!(result, u32::MAX / 2);
+        assert_eq!(result, u32::MAX);
         let add_port_params = add_port_params_arc.lock().unwrap();
         assert_eq!(
             *add_port_params,
@@ -640,7 +640,7 @@ mod tests {
                 PortMappingProtocol::TCP,
                 7777,
                 SocketAddrV4::new(local_ipv4, 7777),
-                u32::MAX,
+                0,
                 "".to_string(),
             )]
         );
