@@ -338,7 +338,6 @@ impl PcpTransactor {
     ) {
         let change_handler_lifetime = change_handler_config.lifetime;
         let mut buffer = [0u8; 100];
-        // TODO: Try a select on the socket and the channel so we don't have a tight loop
         socket
             .set_read_timeout(Some(Duration::from_millis(250)))
             .expect("Can't set read timeout");
@@ -406,6 +405,7 @@ impl PcpTransactor {
                     logger,
                     "Remapping after IP change failed, Node is useless: {:?}", e
                 );
+                change_handler(AutomapChange::Error(e))
             }
         }
     }
@@ -1240,9 +1240,6 @@ mod tests {
         TestLogHandler::new().exists_log_containing("ERROR: Automap: Unparseable PCP packet:");
     }
 
-    // TODO: This is not really what we want, but I don't know exactly what we really do want. When
-    // this happens, the Node is useless until the port can be remapped. How do we handle that
-    // situation?
     #[test]
     fn handle_announcement_logs_if_remapping_fails() {
         init_test_logging();
@@ -1250,7 +1247,12 @@ mod tests {
         factories.socket_factory = Box::new(
             UdpSocketFactoryMock::new().make_result(Err(io::Error::from(ErrorKind::AlreadyExists))),
         );
-        let change_handler: ChangeHandler = Box::new(move |_| {});
+        factories.free_port_factory = Box::new (
+            FreePortFactoryMock::new ().make_result (2345)
+        );
+        let change_log_arc = Arc::new (Mutex::new (vec![]));
+        let change_log_inner = change_log_arc.clone();
+        let change_handler: ChangeHandler = Box::new(move |change| change_log_inner.lock().unwrap().push (change));
         let logger = Logger::new("Automap");
 
         PcpTransactor::handle_announcement(
@@ -1263,7 +1265,9 @@ mod tests {
             &logger,
         );
 
-        TestLogHandler::new().exists_log_containing ("ERROR: Automap: Remapping after IP change failed, Node is useless: SocketBindingError(\"Kind(AlreadyExists)\", 0.0.0.0:");
+        let change_log = change_log_arc.lock().unwrap();
+        assert_eq! (*change_log, vec![AutomapChange::Error(AutomapError::SocketBindingError("Kind(AlreadyExists)".to_string(), SocketAddr::from_str ("0.0.0.0:2345").unwrap()))]);
+        TestLogHandler::new().exists_log_containing ("ERROR: Automap: Remapping after IP change failed, Node is useless: SocketBindingError(\"Kind(AlreadyExists)\", 0.0.0.0:2345");
     }
 
     fn vanilla_request() -> PcpPacket {

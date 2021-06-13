@@ -75,10 +75,10 @@ impl AutomapError {
             AutomapError::ProbeReceiveError(_) => AutomapErrorCause::ProbeFailed,
             AutomapError::DeleteMappingError(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::AllProtocolsFailed => todo!(),
-            AutomapError::AllRoutersFailed(_) => todo!(),
-            AutomapError::ChangeHandlerAlreadyRunning => todo!(),
-            AutomapError::ChangeHandlerUnconfigured => todo!(),
+            AutomapError::AllProtocolsFailed => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::AllRoutersFailed(_) => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::ChangeHandlerAlreadyRunning => AutomapErrorCause::Unknown("Sequencing error".to_string()),
+            AutomapError::ChangeHandlerUnconfigured => AutomapErrorCause::Unknown("Sequencing error".to_string()),
         }
     }
 }
@@ -249,6 +249,22 @@ mod tests {
             (
                 AutomapError::TransactionFailure(String::new()),
                 AutomapErrorCause::ProtocolFailed,
+            ),
+            (
+                AutomapError::AllProtocolsFailed,
+                AutomapErrorCause::NetworkConfiguration,
+            ),
+            (
+                AutomapError::AllRoutersFailed(AutomapProtocol::Pmp),
+                AutomapErrorCause::NetworkConfiguration,
+            ),
+            (
+                AutomapError::ChangeHandlerAlreadyRunning,
+                AutomapErrorCause::Unknown("Sequencing error".to_string()),
+            ),
+            (
+                AutomapError::ChangeHandlerUnconfigured,
+                AutomapErrorCause::Unknown("Sequencing error".to_string()),
             ),
         ];
 
