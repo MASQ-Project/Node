@@ -65,7 +65,7 @@ impl Transactor for PmpTransactor {
                 external_ip_address_opt: None,
             }),
         };
-        let response = Self::transact(&self.factories_arc, router_ip, self.router_port, request)?;
+        let response = Self::transact(&self.factories_arc, router_ip, self.router_port, &request)?;
         match response
             .result_code_opt
             .expect("transact allowed absent result code")
@@ -101,7 +101,7 @@ impl Transactor for PmpTransactor {
                 lifetime,
             }),
         };
-        let response = Self::transact(&self.factories_arc, router_ip, self.router_port, request)?;
+        let response = Self::transact(&self.factories_arc, router_ip, self.router_port, &request)?;
         match response
             .result_code_opt
             .expect("transact allowed absent result code")
@@ -208,7 +208,7 @@ impl PmpTransactor {
         factories_arc: &Arc<Mutex<Factories>>,
         router_ip: IpAddr,
         router_port: u16,
-        request: PmpPacket,
+        request: &PmpPacket,
     ) -> Result<PmpPacket, AutomapError> {
         let mut buffer = [0u8; 1100];
         let len = request
@@ -383,17 +383,25 @@ impl PmpTransactor {
             &factories_arc,
             router_address.ip(),
             router_address.port(),
-            packet,
+            &packet,
         ) {
             Ok(response) => match response.result_code_opt {
                 Some (ResultCode::Success) => {
                     debug!(logger, "Prod: Received response; triggering change handler");
                     change_handler(AutomapChange::NewIp(IpAddr::V4(public_ip)));
                 },
-                Some (_result_code) => {
-                    todo! ("Handle unsuccessful response")
+                Some (result_code) => {
+                    let err_msg = format!("Remapping after IP change failed; Node is useless: {:?}", result_code);
+                    error! (logger, "{}\n{:?}", err_msg, packet);
+                    change_handler(AutomapChange::Error(AutomapError::AddMappingError(err_msg)));
+                    return
                 },
-                None => todo! ("Handle missing response code, implying receipt of Request"),
+                None => {
+                    let err_msg = "Remapping after IP change failed; Node is useless: Received request when expecting response".to_string();
+                    error! (logger, "{}\n{:?}", err_msg, packet);
+                    change_handler(AutomapChange::Error(AutomapError::ProtocolError(err_msg)));
+                    return
+                },
             },
             Err(e) => {
                 error!(
@@ -819,6 +827,7 @@ mod tests {
         assert_eq!(opcode_data.internal_port, 1234);
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::MapTcp;
+        packet.direction = Direction::Response;
         packet.result_code_opt = Some(ResultCode::Success);
         packet.opcode_data = make_map_response(0, 1234, 0);
         let len_to_send = packet.marshal(&mut buffer).unwrap();
@@ -833,7 +842,7 @@ mod tests {
         assert_eq!(
             *changes,
             vec![AutomapChange::NewIp(IpAddr::from_str("1.2.3.4").unwrap())]
-        )
+        );
     }
 
     #[test]
@@ -1033,6 +1042,92 @@ mod tests {
         let change_handler_log = change_handler_log_arc.lock().unwrap();
         assert_eq! (*change_handler_log, vec![AutomapChange::Error(AutomapError::SocketReceiveError(AutomapErrorCause::SocketFailure))]);
         TestLogHandler::new().exists_log_containing("ERROR: test: Remapping after IP change failed; Node is useless: SocketReceiveError(Unknown(\"Kind(ConnectionReset)\"))");
+    }
+
+    #[test]
+    fn handle_announcement_rejects_unexpected_request() {
+        init_test_logging();
+        let router_address = SocketAddr::from_str("7.7.7.7:1234").unwrap();
+        let mut packet = PmpPacket::default();
+        packet.direction = Direction::Request;
+        packet.opcode = Opcode::MapTcp;
+        packet.opcode_data = Box::new(MapOpcodeData::default());
+        let mut buffer = [0u8; 100];
+        let buflen = packet.marshal(&mut buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(100))
+            .recv_from_result(Ok((buflen, router_address)), buffer[0..buflen].to_vec());
+        let factories = Factories {
+            socket_factory: Box::new(UdpSocketFactoryMock::new()
+                .make_result(Ok(socket))
+            ),
+            free_port_factory: Box::new(FreePortFactoryMock::new()
+                .make_result(1234)
+            ),
+        };
+        let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
+        let change_handler_log_inner = change_handler_log_arc.clone();
+        let change_handler: ChangeHandler = Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
+        let logger = Logger::new("test");
+
+        PmpTransactor::handle_announcement(
+            Arc::new(Mutex::new(factories)),
+            router_address,
+            Ipv4Addr::from_str("4.3.2.1").unwrap(),
+            &change_handler,
+            &ChangeHandlerConfig {
+                hole_port: 2222,
+                lifetime: 10000,
+            },
+            &logger
+        );
+    }
+
+    #[test]
+    fn handle_announcement_rejects_unsuccessful_result_code() {
+        init_test_logging();
+        let router_address = SocketAddr::from_str ("7.7.7.7:1234").unwrap();
+        let mut packet = PmpPacket::default();
+        packet.direction = Direction::Response;
+        packet.opcode = Opcode::MapTcp;
+        packet.result_code_opt = Some (ResultCode::OutOfResources);
+        packet.opcode_data = Box::new (MapOpcodeData::default());
+        let mut buffer = [0u8; 100];
+        let buflen = packet.marshal (&mut buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result (Ok(()))
+            .send_to_result (Ok (100))
+            .recv_from_result (Ok((buflen, router_address)), buffer[0..buflen].to_vec());
+        let factories = Factories {
+            socket_factory: Box::new(UdpSocketFactoryMock::new()
+                .make_result (Ok (socket))
+            ),
+            free_port_factory: Box::new (FreePortFactoryMock::new()
+                .make_result(1234)
+            ),
+        };
+        let change_handler_log_arc = Arc::new (Mutex::new (vec![]));
+        let change_handler_log_inner = change_handler_log_arc.clone();
+        let change_handler: ChangeHandler = Box::new (move |change| change_handler_log_inner.lock().unwrap().push (change));
+        let logger = Logger::new ("test");
+
+        PmpTransactor::handle_announcement(
+            Arc::new (Mutex::new (factories)),
+            router_address,
+            Ipv4Addr::from_str ("4.3.2.1").unwrap(),
+            &change_handler,
+            &ChangeHandlerConfig{
+                hole_port: 2222,
+                lifetime: 10000,
+            },
+            &logger
+        );
+
+        let change_handler_log = change_handler_log_arc.lock().unwrap();
+        let err_msg = "Remapping after IP change failed; Node is useless: OutOfResources";
+        assert_eq! (*change_handler_log, vec![AutomapChange::Error(AutomapError::AddMappingError(err_msg.to_string()))]);
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: test: {}", err_msg));
     }
 
     fn make_subject(socket_factory: UdpSocketFactoryMock) -> PmpTransactor {

@@ -2,6 +2,7 @@
 
 use std::any::Any;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::fmt::Debug;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Direction {
@@ -28,7 +29,7 @@ impl Direction {
     }
 }
 
-pub trait OpcodeData {
+pub trait OpcodeData: Debug {
     fn marshal(&self, direction: Direction, buf: &mut [u8]) -> Result<(), MarshalError>;
     fn len(&self, direction: Direction) -> usize;
     fn as_any(&self) -> &dyn Any;
