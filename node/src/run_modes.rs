@@ -445,7 +445,7 @@ mod tests {
         );
         assert_eq!(
             initialization_yes,
-            "MASQNode.exe in Initialization mode must run with root privilege; try sudo"
+            "MASQNode.exe in Initialization mode must run as Administrator."
         );
     }
 
