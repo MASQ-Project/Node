@@ -32,12 +32,6 @@ impl Default for RunModes {
     }
 }
 
-enum EnterProgram {
-    Enter,
-    LeaveGood,
-    LeaveWrong,
-}
-
 impl RunModes {
     pub fn new() -> Self {
         Self {
@@ -65,13 +59,18 @@ impl RunModes {
             Mode::Initialization => self.runner.run_daemon(args, streams),
             Mode::Service => self.runner.run_node(args, streams),
         } {
-            Ok(exit_code) => exit_code, //TODO resolve this
-            Err(e) => {
-                short_writeln!(streams.stderr, "Configuration error");
-                Self::write_unified_err_msgs(streams, e.param_errors);
-                1
+            Ok(_) => 0,
+            Err(RunnerError::Numeric(e_num)) => e_num,
+            Err(RunnerError::Configurator(e_conf)) => {
+                Self::process_a_configurator_error(e_conf, streams)
             }
         }
+    }
+
+    fn process_a_configurator_error(error: ConfiguratorError, streams: &mut StdStreams) -> i32 {
+        short_writeln!(streams.stderr, "Configuration error");
+        Self::write_unified_err_msgs(streams, error.param_errors);
+        1
     }
 
     fn help_or_version_processing(
@@ -200,22 +199,23 @@ impl RunModes {
     }
 }
 
+enum EnterProgram {
+    Enter,
+    LeaveGood,
+    LeaveWrong,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum RunnerError {
+    Configurator(ConfiguratorError),
+    Numeric(i32),
+}
+
 trait Runner {
-    fn run_node(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError>;
-    fn dump_config(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError>;
-    fn run_daemon(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError>;
+    fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError>;
+    fn dump_config(&self, args: &[String], streams: &mut StdStreams<'_>)
+        -> Result<(), RunnerError>;
+    fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError>;
 }
 
 struct RunnerReal {
@@ -225,11 +225,7 @@ struct RunnerReal {
 }
 
 impl Runner for RunnerReal {
-    fn run_node(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError> {
+    fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let system = System::new("main");
 
         let mut server_initializer = self.server_initializer_factory.make();
@@ -239,27 +235,27 @@ impl Runner for RunnerReal {
             System::current().stop_with_code(1);
         }));
 
-        Ok(system.run())
+        match system.run() {
+            0 => Ok(()),
+            e => Err(RunnerError::Numeric(e)),
+        }
     }
 
     fn dump_config(
         &self,
         args: &[String],
         streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError> {
+    ) -> Result<(), RunnerError> {
         self.dump_config_runner_factory
             .make()
             .dump_config(args, streams)
+            .map_err(|e| RunnerError::Configurator(e))
     }
 
-    fn run_daemon(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
-    ) -> Result<i32, ConfiguratorError> {
+    fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let mut initializer = self.daemon_initializer_factory.make(args, streams)?;
         initializer.go(streams, args)?;
-        Ok(0) //listen, there's currently no way to make it terminate politely
+        Ok(()) //listen, there's currently no way to make this fn terminate politely
     }
 }
 
@@ -270,6 +266,12 @@ impl RunnerReal {
             server_initializer_factory: Box::new(ServerInitializerFactoryReal),
             daemon_initializer_factory: Box::new(DaemonInitializerFactoryReal::build()),
         }
+    }
+}
+
+impl From<ConfiguratorError> for RunnerError {
+    fn from(error: ConfiguratorError) -> Self {
+        RunnerError::Configurator(error)
     }
 }
 
@@ -290,11 +292,11 @@ mod tests {
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,
-        run_node_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
+        run_node_results: RefCell<Vec<Result<(), RunnerError>>>,
         dump_config_params: Arc<Mutex<Vec<Vec<String>>>>,
-        dump_config_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
+        dump_config_results: RefCell<Vec<Result<(), RunnerError>>>,
         run_daemon_params: Arc<Mutex<Vec<Vec<String>>>>,
-        run_daemon_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
+        run_daemon_results: RefCell<Vec<Result<(), RunnerError>>>,
     }
 
     impl Runner for RunnerMock {
@@ -302,7 +304,7 @@ mod tests {
             &self,
             args: &[String],
             _streams: &mut StdStreams<'_>,
-        ) -> Result<i32, ConfiguratorError> {
+        ) -> Result<(), RunnerError> {
             self.run_node_params.lock().unwrap().push(args.to_vec());
             self.run_node_results.borrow_mut().remove(0)
         }
@@ -311,7 +313,7 @@ mod tests {
             &self,
             args: &[String],
             _streams: &mut StdStreams<'_>,
-        ) -> Result<i32, ConfiguratorError> {
+        ) -> Result<(), RunnerError> {
             self.dump_config_params.lock().unwrap().push(args.to_vec());
             self.dump_config_results.borrow_mut().remove(0)
         }
@@ -320,7 +322,7 @@ mod tests {
             &self,
             args: &[String],
             _streams: &mut StdStreams<'_>,
-        ) -> Result<i32, ConfiguratorError> {
+        ) -> Result<(), RunnerError> {
             self.run_daemon_params.lock().unwrap().push(args.to_vec());
             self.run_daemon_results.borrow_mut().remove(0)
         }
@@ -344,7 +346,7 @@ mod tests {
             self
         }
 
-        pub fn run_node_result(self, result: Result<i32, ConfiguratorError>) -> Self {
+        pub fn run_node_result(self, result: Result<(), RunnerError>) -> Self {
             self.run_node_results.borrow_mut().push(result);
             self
         }
@@ -354,7 +356,7 @@ mod tests {
             self
         }
 
-        pub fn dump_config_result(self, result: Result<i32, ConfiguratorError>) -> Self {
+        pub fn dump_config_result(self, result: Result<(), RunnerError>) -> Self {
             self.dump_config_results.borrow_mut().push(result);
             self
         }
@@ -364,7 +366,7 @@ mod tests {
             self
         }
 
-        pub fn run_daemon_result(self, result: Result<i32, ConfiguratorError>) -> Self {
+        pub fn run_daemon_result(self, result: Result<(), RunnerError>) -> Self {
             self.run_daemon_results.borrow_mut().push(result);
             self
         }
@@ -453,7 +455,9 @@ mod tests {
     fn go_accepts_requireds_errors_and_renders_them() {
         let mut subject = RunModes::new();
         subject.runner = Box::new(RunnerMock::new().dump_config_result(Err(
-            ConfiguratorError::required("parm1", "msg1").another_required("parm2", "msg2"),
+            RunnerError::Configurator(
+                ConfiguratorError::required("parm1", "msg1").another_required("parm2", "msg2"),
+            ),
         )));
         subject.privilege_dropper =
             Box::new(PrivilegeDropperMock::new().expect_privilege_result(true));
@@ -489,8 +493,13 @@ parm2 - msg2\n"
 
         let result = subject.runner.run_node(&args, &mut holder.streams());
 
+        let configurator_error = if let RunnerError::Configurator(c_e) = result.unwrap_err() {
+            c_e
+        } else {
+            panic!("expected ConfiguratorError")
+        };
         assert_eq!(
-            result.unwrap_err().param_errors[0],
+            configurator_error.param_errors[0],
             ParamError {
                 parameter: "some-parameter".to_string(),
                 reason: "too-low-value".to_string()
@@ -521,7 +530,7 @@ parm2 - msg2\n"
 
         let result = subject.runner.run_node(&args, &mut holder.streams());
 
-        assert_eq!(result, Ok(1));
+        assert_eq!(result, Err(RunnerError::Numeric(1)));
         assert_eq!(&holder.stdout.get_string(), "");
         assert_eq!(&holder.stderr.get_string(), "");
         let go_params = go_params_arc.lock().unwrap();
@@ -558,10 +567,12 @@ parm2 - msg2\n"
         assert_eq!(make_params.remove(0), *args);
         assert_eq!(
             result,
-            Err(ConfiguratorError::new(vec![ParamError {
-                parameter: "<unknown>".to_string(),
-                reason: "Unfamiliar message: error: Found argument \'--halabala\'".to_string()
-            }]))
+            Err(RunnerError::Configurator(ConfiguratorError::new(vec![
+                ParamError {
+                    parameter: "<unknown>".to_string(),
+                    reason: "Unfamiliar message: error: Found argument \'--halabala\'".to_string()
+                }
+            ])))
         )
     }
 
@@ -594,10 +605,12 @@ parm2 - msg2\n"
         assert_eq!(go_params.remove(0), *args);
         assert_eq!(
             result,
-            Err(ConfiguratorError::new(vec![ParamError {
-                parameter: "parameter".to_string(),
-                reason: "too-bad".to_string()
-            }]))
+            Err(RunnerError::Configurator(ConfiguratorError::new(vec![
+                ParamError {
+                    parameter: "parameter".to_string(),
+                    reason: "too-bad".to_string()
+                }
+            ])))
         )
     }
 
@@ -617,8 +630,13 @@ parm2 - msg2\n"
 
         let result = subject.runner.dump_config(&args, &mut holder.streams());
 
+        let configurator_error = if let RunnerError::Configurator(c_e) = result.unwrap_err() {
+            c_e
+        } else {
+            panic!("expected ConfiguratorError")
+        };
         assert_eq!(
-            result.unwrap_err().param_errors[0],
+            configurator_error.param_errors[0],
             ParamError {
                 parameter: "parameter".to_string(),
                 reason: "deep-reason".to_string()
@@ -774,7 +792,7 @@ parm2 - msg2\n"
         let runner_params_arc = Arc::new(Mutex::new(vec![]));
         let runner = RunnerMock::new()
             .dump_config_params(&runner_params_arc)
-            .dump_config_result(Ok(0));
+            .dump_config_result(Ok(()));
         subject.runner = Box::new(runner);
         let dropper_params_arc = Arc::new(Mutex::new(vec![]));
         let privilege_dropper = PrivilegeDropperMock::new()

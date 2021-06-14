@@ -39,7 +39,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         &self,
         args: &[String],
         streams: &mut StdStreams,
-    ) -> Result<i32, ConfiguratorError> {
+    ) -> Result<(), ConfiguratorError> {
         let (real_user, data_directory, chain_id, password_opt) =
             distill_args(&DirsWrapperReal {}, args, streams)?;
         let cryptde = CryptDEReal::new(chain_id);
@@ -48,7 +48,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
         let json = configuration_to_json(configuration, password_opt, &cryptde);
         write_string(streams, json);
-        Ok(0)
+        Ok(())
     }
 
     #[cfg(test)]
@@ -200,11 +200,9 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject
-            .dump_config(args_vec.as_slice(), &mut holder.streams())
-            .unwrap();
+        let result = subject.dump_config(args_vec.as_slice(), &mut holder.streams());
 
-        assert_eq!(result, 0);
+        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let actual_value: Value = serde_json::from_str(&output).unwrap();
         let actual_map = match &actual_value {
@@ -277,11 +275,9 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject
-            .dump_config(args_vec.as_slice(), &mut holder.streams())
-            .unwrap();
+        let result = subject.dump_config(args_vec.as_slice(), &mut holder.streams());
 
-        assert_eq!(result, 0);
+        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
@@ -378,11 +374,9 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject
-            .dump_config(args_vec.as_slice(), &mut holder.streams())
-            .unwrap();
+        let result = subject.dump_config(args_vec.as_slice(), &mut holder.streams());
 
-        assert_eq!(result, 0);
+        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
@@ -481,11 +475,9 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject
-            .dump_config(args_vec.as_slice(), &mut holder.streams())
-            .unwrap();
+        let result = subject.dump_config(args_vec.as_slice(), &mut holder.streams());
 
-        assert_eq!(result, 0);
+        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,

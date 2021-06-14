@@ -180,6 +180,12 @@ mod tests {
     use std::any::Any;
     use std::sync::{Arc, Mutex};
 
+    #[cfg(target_os = "windows")]
+    mod win_test_import {
+        pub use std::thread;
+        pub use std::time::Duration;
+    }
+
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
@@ -396,7 +402,7 @@ mod tests {
         }
         //because of Win from Actions
         #[cfg(target_os = "windows")]
-        thread::sleep(Duration::from_millis(200));
+        win_test_import::thread::sleep(win_test_import::Duration::from_millis(200));
 
         let output_when_unlocked = test_stream_handle.stdout_so_far();
 

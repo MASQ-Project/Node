@@ -14,7 +14,6 @@ use crate::server_initializer::{
 };
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
-
 use masq_lib::utils::ExpectDecent;
 #[cfg(test)]
 use std::any::Any;
@@ -91,7 +90,7 @@ pub trait DumpConfigRunner {
         &self,
         args: &[String],
         streams: &mut StdStreams,
-    ) -> Result<i32, ConfiguratorError>;
+    ) -> Result<(), ConfiguratorError>;
 
     #[cfg(test)]
     fn as_any(&self) -> &dyn Any {
@@ -412,7 +411,7 @@ pub mod mocks {
 
     #[derive(Default)]
     pub struct DumpConfigRunnerMock {
-        dump_config_results: RefCell<Vec<Result<i32, ConfiguratorError>>>,
+        dump_config_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
         dump_config_params: RefCell<Arc<Mutex<Vec<Vec<String>>>>>,
     }
 
@@ -421,7 +420,7 @@ pub mod mocks {
             &self,
             args: &[String],
             _streams: &mut StdStreams,
-        ) -> Result<i32, ConfiguratorError> {
+        ) -> Result<(), ConfiguratorError> {
             self.dump_config_params
                 .borrow()
                 .lock()
@@ -432,7 +431,7 @@ pub mod mocks {
     }
 
     impl DumpConfigRunnerMock {
-        pub fn dump_config_result(self, result: Result<i32, ConfiguratorError>) -> Self {
+        pub fn dump_config_result(self, result: Result<(), ConfiguratorError>) -> Self {
             self.dump_config_results.borrow_mut().push(result);
             self
         }
