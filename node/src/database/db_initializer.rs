@@ -20,7 +20,9 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.0.11";
+pub const CURRENT_SCHEMA_VERSION: &str = "0.11";
+//always use an increment of 1; if a particular database change is somehow more significant than others it takes a higher number at the first place.
+//If so, the number behind the period becomes automatically 0
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -62,7 +64,13 @@ impl DbInitializer for DbInitializerReal {
                 eprintln!("Opened existing database at {:?}", database_file_path);
                 let config = self.extract_configurations(&conn);
                 let migrator = Box::new(DbMigratorReal::default());
-                self.check_version(conn, config.get("schema_version"), path, chain_id, migrator)
+                self.conn_to_checked_existing_database(
+                    conn,
+                    config.get("schema_version"),
+                    path,
+                    chain_id,
+                    migrator,
+                )
             }
             Err(_) => {
                 let mut flags = OpenFlags::empty();
@@ -260,7 +268,7 @@ impl DbInitializerReal {
         .collect::<HashMap<String, Option<String>>>()
     }
 
-    fn check_version(
+    fn conn_to_checked_existing_database(
         &self,
         conn: Connection,
         version: Option<&Option<String>>,
@@ -281,7 +289,7 @@ impl DbInitializerReal {
                 if *v_from_db == CURRENT_SCHEMA_VERSION {
                     Ok(Box::new(ConnectionWrapperReal::new(conn)))
                 } else {
-                    eprintln!("Database is incompatible and its updating is necessary");
+                    migrator.log_warn("Database is incompatible and its updating is necessary");
                     let wrapped_connection = ConnectionWrapperReal::new(conn);
                     match migrator.migrate_database(v_from_db, Box::new(wrapped_connection)) {
                         Ok(_) => self.initialize(dir_path, chain_id, false),
@@ -362,8 +370,6 @@ pub mod test_utils {
         prepare_parameters: Arc<Mutex<Vec<String>>>,
         prepare_results: Arc<Mutex<Vec<Result<Statement<'a>, Error>>>>,
         transaction_results: Arc<Mutex<Vec<Result<Transaction<'b>, Error>>>>,
-        execute_results: Arc<Mutex<Vec<rusqlite::Result<usize>>>>,
-        execute_parameters: RefCell<Arc<Mutex<Vec<String>>>>,
         execute_upon_transaction_results: Arc<Mutex<Vec<rusqlite::Result<Transaction<'b>>>>>,
         execute_upon_transaction_params: RefCell<Arc<Mutex<Vec<Vec<String>>>>>,
     }
@@ -378,32 +384,6 @@ pub mod test_utils {
 
         pub fn transaction_result(self, result: Result<Transaction<'b>, Error>) -> Self {
             self.transaction_results.lock().unwrap().push(result);
-            self
-        }
-
-        pub fn execute_result(self, result: rusqlite::Result<usize>) -> Self {
-            self.execute_results.lock().unwrap().push(result);
-            self
-        }
-
-        pub fn execute_params(self, params: Arc<Mutex<Vec<String>>>) -> Self {
-            self.execute_parameters.replace(params);
-            self
-        }
-
-        pub fn execute_upon_transaction_result(
-            self,
-            result: rusqlite::Result<Transaction<'b>>,
-        ) -> Self {
-            self.execute_upon_transaction_results
-                .lock()
-                .unwrap()
-                .push(result);
-            self
-        }
-
-        pub fn execute_upon_transaction_params(self, params: Arc<Mutex<Vec<Vec<String>>>>) -> Self {
-            self.execute_upon_transaction_params.replace(params);
             self
         }
     }
@@ -421,34 +401,25 @@ pub mod test_utils {
             self.transaction_results.lock().unwrap().remove(0)
         }
 
-        fn execute(&self, statement: &str) -> rusqlite::Result<usize> {
-            self.execute_parameters
-                .borrow_mut()
-                .lock()
-                .unwrap()
-                .push(statement.to_string());
-            self.execute_results.lock().unwrap().remove(0)
-        }
-
-        fn execute_upon_transaction<'x: 'y, 'y>(
-            &'x mut self,
-            statement: &[&str],
-        ) -> rusqlite::Result<Transaction<'y>> {
-            self.execute_upon_transaction_params
-                .borrow_mut()
-                .lock()
-                .unwrap()
-                .push(
-                    statement
-                        .iter()
-                        .map(|item| item.to_string())
-                        .collect::<Vec<String>>(),
-                );
-            self.execute_upon_transaction_results
-                .lock()
-                .unwrap()
-                .remove(0)
-        }
+        // fn execute_upon_transaction<'x: 'y, 'y>(
+        //     &'x mut self,
+        //     statement: &[&str],
+        // ) -> rusqlite::Result<Transaction<'y>> {
+        //     self.execute_upon_transaction_params
+        //         .borrow_mut()
+        //         .lock()
+        //         .unwrap()
+        //         .push(
+        //             statement
+        //                 .iter()
+        //                 .map(|item| item.to_string())
+        //                 .collect::<Vec<String>>(),
+        //         );
+        //     self.execute_upon_transaction_results
+        //         .lock()
+        //         .unwrap()
+        //         .remove(0)
+        // }
     }
 
     #[derive(Default)]
@@ -502,6 +473,7 @@ mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::database::test_utils::DbMigratorMock;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
@@ -725,6 +697,7 @@ mod tests {
     #[test]
     fn existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_migrated_to_upper_versions(
     ) {
+        init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
             "existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_migrated_to_upper_versions",
@@ -744,26 +717,29 @@ mod tests {
             .unwrap()
             .query_row(NO_PARAMS, |row| Ok(row.get(1).unwrap()))
             .unwrap();
-        assert_eq!(schema, CURRENT_SCHEMA_VERSION)
+        assert_eq!(schema, CURRENT_SCHEMA_VERSION);
+        TestLogHandler::new()
+            .exists_log_containing("Database is incompatible and its updating is necessary");
     }
 
     #[test]
-    fn check_version_starts_db_migration_and_makes_sure_that_a_possible_error_from_database_operations_is_messaged_politely(
+    fn conn_to_checked_existing_database_starts_db_migration_and_hands_in_an_error_from_database_operations(
     ) {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "check_version_starts_db_migration_and_makes_sure_that_a_possible_error_from_database_operations_is_messaged_politely",
+            "conn_to_checked_existing_database_starts_db_migration_and_hands_in_an_error_from_database_operations",
         );
         let migrate_database_params = Arc::new(Mutex::new(vec![]));
         let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
         let subject = DbInitializerReal::new();
-        let migrator = Box::new(DbMigratorMock::default().migrate_database_params(migrate_database_params.clone()).migrate_database_result(Err("Updating database from version 0.0.10 to 0.0.11 failed: Transaction couldn't be processed".to_string())));
+        let migrator = Box::new(DbMigratorMock::default().migrate_database_params(migrate_database_params.clone()).migrate_database_result(Err("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string())));
+        let chain_id = 2;
 
-        let result = subject.check_version(
+        let result = subject.conn_to_checked_existing_database(
             conn,
             Some(&Some("0.0.10".to_string())),
             &home_dir,
-            2,
+            chain_id,
             migrator,
         );
 
@@ -771,7 +747,7 @@ mod tests {
             Ok(_) => panic!("expected Err got Ok"),
             Err(e) => e,
         };
-        assert_eq!(error,InitializationError::DbMigrationError("Updating database from version 0.0.10 to 0.0.11 failed: Transaction couldn't be processed".to_string()))
+        assert_eq!(error,InitializationError::DbMigrationError("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string()));
     }
 
     #[test]

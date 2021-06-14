@@ -55,7 +55,7 @@ pub struct MultiConfig<'a> {
     content: Box<dyn VirtualCommandLine>,
 }
 
-//I found this hadn't been tested.
+//TODO I found this hadn't been either tested nor ever being used.
 impl<'a> Debug for MultiConfig<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let representation = self

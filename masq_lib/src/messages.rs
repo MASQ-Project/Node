@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
+use crate::automap_tools::MappingProtocol;
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
 use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
@@ -469,7 +470,7 @@ pub struct UiConfigurationResponse {
     #[serde(rename = "earningWalletAddressOpt")]
     pub earning_wallet_address_opt: Option<String>,
     #[serde(rename = "portMappingProtocol")]
-    pub port_mapping_protocol_opt: Option<u16>,
+    pub port_mapping_protocol_opt: Option<MappingProtocol>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
     #[serde(rename = "startBlock")]

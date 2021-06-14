@@ -130,12 +130,12 @@ pub fn exit_process_with_sigterm(message: &str) {
 }
 
 pub trait ExpectValue<T> {
-    fn expect_value(self, msg: &str) -> T;
+    fn expect_v(self, msg: &str) -> T;
 }
 
 impl<T> ExpectValue<T> for Option<T> {
     #[track_caller]
-    fn expect_value(self, subject: &str) -> T {
+    fn expect_v(self, subject: &str) -> T {
         match self {
             Some(v) => v,
             None => expect_value_panic(subject, None),
@@ -145,7 +145,7 @@ impl<T> ExpectValue<T> for Option<T> {
 
 impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
     #[track_caller]
-    fn expect_value(self, subject: &str) -> T {
+    fn expect_v(self, subject: &str) -> T {
         self.unwrap_or_else(|e| expect_value_panic(subject, Some(&e)))
     }
 }
@@ -307,7 +307,7 @@ mod tests {
     fn expect_decent_panics_for_none() {
         let subject: Option<u16> = None;
 
-        let _ = subject.expect_value("meaningful code");
+        let _ = subject.expect_v("meaningful code");
     }
 
     #[test]
@@ -315,14 +315,14 @@ mod tests {
     fn expect_decent_panics_for_error_variant() {
         let subject: Result<String, String> = Err("alarm".to_string());
 
-        let _ = subject.expect_value("safety feature");
+        let _ = subject.expect_v("safety feature");
     }
 
     #[test]
     fn expect_decent_unwraps_option() {
         let subject = Some(456);
 
-        let result = subject.expect_value("meaningful code");
+        let result = subject.expect_v("meaningful code");
 
         assert_eq!(result, 456)
     }
@@ -331,7 +331,7 @@ mod tests {
     fn expect_decent_unwraps_result() {
         let subject: Result<String, String> = Ok("all right".to_string());
 
-        let result = subject.expect_value("safety feature");
+        let result = subject.expect_v("safety feature");
 
         assert_eq!(result, "all right".to_string())
     }

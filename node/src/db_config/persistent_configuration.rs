@@ -2,7 +2,6 @@
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::MappingProtocol;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
@@ -12,6 +11,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, MnemonicType};
+use masq_lib::automap_tools::MappingProtocol;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -374,7 +374,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         value: MappingProtocol,
     ) -> Result<(), PersistentConfigError> {
         let mut writer = self.dao.start_transaction()?;
-        writer.set("mapping_protocol", Some(String::from(value)))?;
+        writer.set("mapping_protocol", Some(value.to_string()))?;
         Ok(writer.commit()?)
     }
 }
@@ -1579,7 +1579,7 @@ mod tests {
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new(
                 "mapping_protocol",
-                Some("2"),
+                Some("PCP"),
                 false,
             )));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1608,7 +1608,7 @@ mod tests {
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,
-            vec![("mapping_protocol".to_string(), Some("1".to_string()))]
+            vec![("mapping_protocol".to_string(), Some("PMP".to_string()))]
         );
     }
 }

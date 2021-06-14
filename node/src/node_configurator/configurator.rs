@@ -18,7 +18,6 @@ use masq_lib::ui_gateway::{
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::database::MappingProtocol;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -36,7 +35,6 @@ use masq_lib::constants::{
     ILLEGAL_MNEMONIC_WORD_COUNT_ERROR, KEY_PAIR_CONSTRUCTION_ERROR, MNEMONIC_PHRASE_ERROR,
     NON_PARSABLE_VALUE, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
-use masq_lib::utils::ExpectDecent;
 use rustc_hex::ToHex;
 use std::str::FromStr;
 
@@ -524,8 +522,7 @@ impl Configurator {
         )?;
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
         let port_mapping_protocol_opt =
-            Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
-                .map(Self::from_mapping_protocol_to_number_id);
+            Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?;
         let (mnemonic_seed_opt, past_neighbors) = match good_password {
             Some(password) => {
                 let mnemonic_seed_opt = Self::value_not_required(
@@ -601,12 +598,6 @@ impl Configurator {
             ));
         }
         Ok(())
-    }
-
-    fn from_mapping_protocol_to_number_id(protocol: MappingProtocol) -> u16 {
-        String::from(protocol)
-            .parse::<u16>()
-            .expect_decent("protocol numeric representation")
     }
 
     fn handle_set_configuration(
@@ -750,10 +741,10 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::Bip39;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::database::MappingProtocol;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
+    use masq_lib::automap_tools::MappingProtocol;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
 
@@ -1979,7 +1970,7 @@ mod tests {
                 mnemonic_seed_opt: None,
                 consuming_wallet_derivation_path_opt: None,
                 earning_wallet_address_opt: None,
-                port_mapping_protocol_opt: Some(3),
+                port_mapping_protocol_opt: Some(MappingProtocol::Igdp),
                 past_neighbors: vec![],
                 start_block: 3456
             }
