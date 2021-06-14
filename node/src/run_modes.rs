@@ -249,7 +249,7 @@ impl Runner for RunnerReal {
         self.dump_config_runner_factory
             .make()
             .dump_config(args, streams)
-            .map_err(|e| RunnerError::Configurator(e))
+            .map_err(RunnerError::Configurator)
     }
 
     fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
