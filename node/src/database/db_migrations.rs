@@ -7,7 +7,7 @@ use masq_lib::utils::ExpectValue;
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
 
-const THE_EARLIEST_RECORD_OF_DB_MIGRATION: usize = 0;
+const THE_EARLIEST_RECORD_OF_DB_MIGRATION: usize = 0; //TODO maybe remove this
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -26,12 +26,14 @@ impl DbMigrator for DbMigratorReal {
     fn migrate_database(
         &self,
         mismatched_schema: usize,
-        conn: Box<dyn ConnectionWrapper>,
+        mut conn: Box<dyn ConnectionWrapper>,
     ) -> Result<(), String> {
+        let migration_utils = DBMigrationUtilitiesReal::new(&mut *conn)
+            .map_err::<Result<(), String>, _>(|e| return Err(e.to_string()))
+            .expect_v("migration utils"); //TODO test drive this, probably not tested
         self.make_updates(
             mismatched_schema,
-            conn,
-            Box::new(DBMigrationUtilitiesReal),
+            Box::new(migration_utils),
             Self::list_of_existing_updates(),
         )
     }
@@ -47,55 +49,64 @@ impl Default for DbMigratorReal {
 }
 
 trait DatabaseMigration: Debug {
-    fn migrate<'a: 'b, 'b>(
+    fn migrate(
         &self,
-        migration_utilities: &(dyn DBMigrationUtilities+'a),
-        conn: &'a mut dyn ConnectionWrapper
-    ) -> rusqlite::Result<Transaction<'b>>;
+        migration_utilities: &dyn DBMigrationUtilities,
+    ) -> rusqlite::Result<()>;
     fn old_version(&self) -> usize;
 }
 
 trait DBMigrationUtilities {
-    fn update_schema_version(
-        &self,
-        transaction: &Transaction,
-        updated_to: String,
-    ) -> rusqlite::Result<()>;
+    fn update_schema_version(&self, updated_to: String) -> rusqlite::Result<()>;
 
-    fn execute_upon_transaction<'a: 'b, 'b>(
-        &self,
-        conn: &'a mut dyn ConnectionWrapper,
-        sql_statements: &'a[&'static str],
-    ) -> rusqlite::Result<Transaction<'b>>;
+    fn execute_upon_transaction(&self, sql_statements: &[&'static str]) -> rusqlite::Result<()>;
+
+    fn commit(&mut self) -> Result<(), String>;
 }
 
-struct DBMigrationUtilitiesReal;
+struct DBMigrationUtilitiesReal<'a> {
+    root_transaction: Option<Transaction<'a>>,
+}
 
-impl DBMigrationUtilities for DBMigrationUtilitiesReal {
-    fn update_schema_version(
-        &self,
-        transaction: &Transaction,
-        updated_to: String,
-    ) -> rusqlite::Result<()> {
-        todo!("test-drive-me");
-        DbMigratorReal::update_schema_version(transaction, updated_to)
+impl<'a> DBMigrationUtilitiesReal<'a> {
+    fn new<'b: 'a>(conn: &'b mut dyn ConnectionWrapper) -> rusqlite::Result<Self> {
+        let new_instance = Self {
+            root_transaction: Some(conn.transaction()?),
+        };
+        Ok(new_instance)
     }
 
-    fn execute_upon_transaction<'a: 'b, 'b>(
-        &self,
-        conn: &'a mut dyn ConnectionWrapper,
-        sql_statements: &'a[&'static str],
-    ) -> rusqlite::Result<Transaction<'b>> {
+    fn root_transaction_ref(&self) -> &Transaction<'a> {
+        self.root_transaction.as_ref().expect_v("root transaction")
+    }
+}
+
+impl DBMigrationUtilities for DBMigrationUtilitiesReal<'_> {
+    fn update_schema_version(&self, updated_to: String) -> rusqlite::Result<()> {
         todo!("test-drive-me");
-        let transaction = conn.transaction()?;
+        DbMigratorReal::update_schema_version(&self.root_transaction_ref(), updated_to)
+    }
+
+    fn execute_upon_transaction(&self, sql_statements: &[&'static str]) -> rusqlite::Result<()> {
+        todo!("test-drive-me");
+        let transaction = &self.root_transaction_ref();
         for stm in sql_statements {
             transaction.execute(stm, NO_PARAMS)?;
         }
-        Ok(transaction)
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), String> {
+        todo!("test-drive the following");
+        self.root_transaction
+            .take()
+            .expect_v("owned root transaction")
+            .commit()
+            .map_err(|e| e.to_string())
     }
 }
 
-//define your update here and add it to this list: 'list_of_existing_updates()'
+//define a new update here and add it to this list: 'list_of_existing_updates()'
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
@@ -103,12 +114,11 @@ impl DBMigrationUtilities for DBMigrationUtilitiesReal {
 struct Migrate_0_to_1;
 
 impl DatabaseMigration for Migrate_0_to_1 {
-    fn migrate<'a: 'b, 'b>(
+    fn migrate(
         &self,
-        mig_utils: &(dyn DBMigrationUtilities+'a),
-        conn: &'a mut dyn ConnectionWrapper
-    ) -> rusqlite::Result<Transaction<'b>> {
-        mig_utils.execute_upon_transaction(conn,&[
+        mig_utils: &dyn DBMigrationUtilities,
+    ) -> rusqlite::Result<()> {
+        mig_utils.execute_upon_transaction(&[
             "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)",
             //another statement would follow here
         ])
@@ -135,8 +145,7 @@ impl DbMigratorReal {
     fn make_updates<'a>(
         &self,
         mismatched_schema: usize,
-        mut conn: Box<dyn ConnectionWrapper>,
-        migration_utilities: Box<dyn DBMigrationUtilities+'a>,
+        mut migration_utilities: Box<dyn DBMigrationUtilities + 'a>,
         list_of_updates: &'a [&'a (dyn DatabaseMigration + 'a)],
     ) -> Result<(), String> {
         let updates_to_process = Self::aggregated_checks(mismatched_schema, list_of_updates)?;
@@ -150,24 +159,22 @@ impl DbMigratorReal {
                 Self::context_between_two_versions(first_record.old_version(), &next_record);
 
             if let Err(e) =
-                Self::migrate_semi_automated(first_record, next_record, &mut *conn,&*migration_utilities)
+                Self::migrate_semi_automated(first_record, next_record, &*migration_utilities)
             {
                 return self.take_care_of_bad_news(&versions_in_question, e);
             }
             self.log_success(&versions_in_question)
         }
-        Ok(())
+        migration_utilities.commit()
     }
 
     fn migrate_semi_automated<'a>(
         record: &dyn DatabaseMigration,
         updated_to: String,
-        conn: &mut (dyn ConnectionWrapper + 'a),
-        migration_utilities: & dyn DBMigrationUtilities,
+        migration_utilities: &dyn DBMigrationUtilities,
     ) -> rusqlite::Result<()> {
-        let transaction = record.migrate(migration_utilities,conn)?;
-        migration_utilities.update_schema_version(&transaction, updated_to)?;
-        transaction.commit()
+        record.migrate(migration_utilities)?;
+        migration_utilities.update_schema_version(updated_to)
     }
 
     fn update_schema_version(
@@ -259,10 +266,9 @@ impl DbMigratorReal {
 #[cfg(test)]
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
-    use crate::database::db_migrations::{DbMigratorReal, DBMigrationUtilitiesReal};
     use crate::database::db_migrations::{DBMigrationUtilities, DatabaseMigration, Migrate_0_to_1};
+    use crate::database::db_migrations::{DbMigratorReal};
     use crate::database::test_utils::assurance_query_for_config_table;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use lazy_static::lazy_static;
@@ -273,45 +279,80 @@ mod tests {
     use std::ops::Not;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use std::borrow::BorrowMut;
+    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
 
     #[derive(Default)]
-    struct DBMigrationUtilitiesMock<'a>{
+    struct DBMigrationUtilitiesMock {
         update_schema_version_params: Arc<Mutex<Vec<String>>>,
-        update_schema_version_result: RefCell<Vec<rusqlite::Result<()>>>,
+        update_schema_version_results: RefCell<Vec<rusqlite::Result<()>>>,
         execute_upon_transaction_params: Arc<Mutex<Vec<Vec<String>>>>,
-        execute_upon_transaction_result: RefCell<Vec<rusqlite::Result<Transaction<'a>>>>,
+        execute_upon_transaction_result: RefCell<Vec<rusqlite::Result<()>>>,
+        commit_params: Arc<Mutex<Vec<()>>>,
+        commit_results: RefCell<Vec<Result<(), String>>>,
     }
 
-    impl<'a> DBMigrationUtilitiesMock<'a> {
-        pub fn update_schema_version_params(mut self, params: &Arc<Mutex<Vec<String>>>)->Self{
+    impl DBMigrationUtilitiesMock {
+        pub fn update_schema_version_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
             self.update_schema_version_params = params.clone();
             self
         }
 
-        pub fn update_schema_version_result(self, result: rusqlite::Result<()>)->Self{
-            self.update_schema_version_result.borrow_mut().push(result);
+        pub fn update_schema_version_result(self, result: rusqlite::Result<()>) -> Self {
+            self.update_schema_version_results.borrow_mut().push(result);
             self
         }
 
-        pub fn execute_upon_transaction_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>)->Self{
+        pub fn execute_upon_transaction_params(
+            mut self,
+            params: &Arc<Mutex<Vec<Vec<String>>>>,
+        ) -> Self {
             self.execute_upon_transaction_params = params.clone();
             self
         }
 
-        pub fn execute_upon_transaction_result(self, result: rusqlite::Result<Transaction<'a>>)->Self{
-            self.execute_upon_transaction_result.borrow_mut().push(result);
+        pub fn execute_upon_transaction_result(self, result: rusqlite::Result<()>) -> Self {
+            self.execute_upon_transaction_result
+                .borrow_mut()
+                .push(result);
+            self
+        }
+
+        pub fn commit_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+            self.commit_params = params.clone();
+            self
+        }
+
+        pub fn commit_result(self, result: Result<(), String>) -> Self {
+            self.commit_results.borrow_mut().push(result);
             self
         }
     }
 
-    impl DBMigrationUtilities for DBMigrationUtilitiesMock<'_>{
-        fn update_schema_version(&self, transaction: &Transaction, updated_to: String) -> rusqlite::Result<()> {
-            todo!()
+    impl DBMigrationUtilities for DBMigrationUtilitiesMock {
+        fn update_schema_version(&self, updated_to: String) -> rusqlite::Result<()> {
+            self.update_schema_version_params
+                .lock()
+                .unwrap()
+                .push(updated_to);
+            self.update_schema_version_results.borrow_mut().remove(0)
         }
 
-        fn execute_upon_transaction<'a: 'b, 'b>(&self, conn: &mut dyn ConnectionWrapper, sql_statements: &'a [&'static str]) -> rusqlite::Result<Transaction<'b>> {
-            todo!()
+        fn execute_upon_transaction(
+            &self,
+            sql_statements: &[&'static str],
+        ) -> rusqlite::Result<()> {
+            self.execute_upon_transaction_params.lock().unwrap().push(
+                sql_statements
+                    .iter()
+                    .map(|str| str.to_string())
+                    .collect::<Vec<String>>(),
+            );
+            self.execute_upon_transaction_result.borrow_mut().remove(0)
+        }
+
+        fn commit(&mut self) -> Result<(), String> {
+            self.commit_params.lock().unwrap().push(());
+            self.commit_results.borrow_mut().remove(0)
         }
     }
 
@@ -336,64 +377,45 @@ mod tests {
         let subject = DbMigratorReal::default();
 
         let result = subject.make_updates(
-            too_advanced,Box::new(connection),
-            Box::new(migration_utilities),DbMigratorReal::list_of_existing_updates()
+            too_advanced,
+            Box::new(migration_utilities),
+            DbMigratorReal::list_of_existing_updates(),
         );
 
         assert_eq!(result,Err(format!("Database claims to be more advanced ({}) than the version {} which is the latest released.",too_advanced,CURRENT_SCHEMA_VERSION)))
     }
 
     #[derive(Default, Debug)]
-    struct MigrationRecordMock<'a> {
+    struct MigrationRecordMock {
         old_version_result: RefCell<usize>,
-        // main_migration_statements: RefCell<&'static [&'static str]>,
-        // update_statement: RefCell<&'static str>,
         migrate_params: Arc<Mutex<Vec<()>>>, //TODO is there a better thing to assert on than just to pretend
-        migrate_result: RefCell<Vec<rusqlite::Result<Transaction<'a>>>>,
+        migrate_result: RefCell<Vec<rusqlite::Result<()>>>,
     }
 
-    impl MigrationRecordMock<'_> {
+    impl MigrationRecordMock {
         fn old_version_result(self, result: usize) -> Self {
             self.old_version_result.replace(result);
             self
         }
-        // }
-        // fn inject_sql_statement(self, statement: &'static [&'static str]) -> Self {
-        //     self.main_migration_statements.replace(statement);
-        //     self
-        // }
-        //
-        // fn inject_update_statement(self, statement: &'static str) -> Self {
-        //     self.update_statement.replace(statement);
-        //     self
-        // }
 
-        fn migrate_result(
-            self,
-            result: rusqlite::Result<Transaction<'static>>,
-        ) -> Self {
-            self.migrate_result
-                .borrow_mut()
-                .push(result);
+        fn migrate_result(self, result: rusqlite::Result<()>) -> Self {
+            self.migrate_result.borrow_mut().push(result);
             self
         }
 
-        fn migrate_params(
-            mut self,
-            params: &Arc<Mutex<Vec<()>>>,
-        ) -> Self {
+        fn migrate_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
             self.migrate_params = params.clone();
             self
         }
     }
 
     impl DatabaseMigration for MigrationRecordMock {
-        fn migrate<'a: 'b, 'b>(
+        fn migrate(
             &self,
-            migration_utilities: &(dyn DBMigrationUtilities+'a),
-            conn: &'a mut dyn ConnectionWrapper,
-        ) -> rusqlite::Result<Transaction<'b>> {
-            self.migrate_params.lock().unwrap().push(()); //TODO rethink, seems bad
+            migration_utilities: &dyn DBMigrationUtilities,
+        ) -> rusqlite::Result<()> {
+            //TODO add params mechanism
+            // self.migrate_params.lock().unwrap().push(()); //TODO rethink, seems bad
             self.migrate_result.borrow_mut().remove(0)
         }
 
@@ -445,42 +467,42 @@ mod tests {
     }
 
     #[test]
-    fn transacting_migration_happy_path() {
+    fn db_migration_happy_path() {
         init_test_logging();
-        //params are tested in the next test where I don't use ConnectionWrapperReal
-        let connection = Connection::open_in_memory().unwrap();
-        // connection
-        //     .execute(
-        //         "CREATE TABLE test (
-        //         name TEXT,
-        //         value TEXT
-        //     )",
-        //         NO_PARAMS,
-        //     )
-        //     .unwrap();
-        let mut connection_wrapper_original = ConnectionWrapperReal::new(connection);
+        let execute_upon_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let update_schema_version_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
         let outdated_schema = 0;
-        let statement = &["INSERT INTO test (name, value) VALUES (\"booga\", \"gibberish\")"];
-        let update_statement = "UPDATE test SET value = '0.11' WHERE name = 'schema_version'";
-        let list = &[&MigrationRecordMock::default()
-            .old_version_result(0)
-            .inject_update_statement(update_statement)
-            .inject_sql_statement(statement)
-            as &(dyn DatabaseMigration + 'static)];
-        let connection_2 = Connection::open_in_memory().unwrap();
-        let mut connection_wrapper_two = ConnectionWrapperReal::new(connection_2);
-        let transaction = connection_wrapper_two.transaction().unwrap();
-        let migration_utils = DBMigrationUtilitiesMock::default().execute_upon_transaction_result(Ok(transaction)).update_schema_version_result(Ok(())); //TODO missing checks of params
+        let list = &[&Migrate_0_to_1 as &dyn DatabaseMigration];
+        let migration_utils = DBMigrationUtilitiesMock::default()
+            .execute_upon_transaction_params(&execute_upon_transaction_params_arc)
+            .execute_upon_transaction_result(Ok(()))
+            .update_schema_version_params(&update_schema_version_params_arc)
+            .update_schema_version_result(Ok(()))
+            .commit_params(&commit_params_arc)
+            .commit_result(Ok(()));
         let subject = DbMigratorReal::default();
 
-        let result = subject.make_updates(outdated_schema, Box::new(connection_wrapper_original), Box::new(migration_utils), list);
+        let result = subject.make_updates(outdated_schema, Box::new(migration_utils), list);
 
-        eprintln!("{:?}", result);
         assert!(result.is_ok());
+        let execute_upon_transaction_params = execute_upon_transaction_params_arc.lock().unwrap();
+        assert_eq!(
+            *execute_upon_transaction_params[0],
+            vec![
+                "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)"
+            ]
+        );
+        let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();
+        assert_eq!(update_schema_version_params[0], "1");
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(commit_params[0], ());
         TestLogHandler::new().exists_log_containing(
-            "INFO: DbMigrator: Database successfully updated from version 0.0.10 to 0.11",
+            "INFO: DbMigrator: Database successfully updated from version 0 to 1",
         );
     }
+
+    //TODO test multiple items...maybe even with a failure on some later record
 
     #[test]
     fn transacting_migration_sad_path() {

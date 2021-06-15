@@ -284,12 +284,7 @@ impl DbInitializerReal {
                 CURRENT_SCHEMA_VERSION
             ))),
             Some(Some(v_from_db)) => {
-                let v_from_db = v_from_db.parse::<usize>().unwrap_or_else(|val| {
-                    panic!(
-                        "database corrupted - schema version: {}: {}",
-                        val, v_from_db
-                    )
-                }); //TODO test this out
+                let v_from_db = Self::validate_schema_version(v_from_db);
                 if v_from_db == CURRENT_SCHEMA_VERSION {
                     Ok(Box::new(ConnectionWrapperReal::new(conn)))
                 } else {
@@ -302,6 +297,15 @@ impl DbInitializerReal {
                 }
             }
         }
+    }
+
+    fn validate_schema_version(obtained_s_v: &String) ->usize{
+        obtained_s_v.parse::<usize>().unwrap_or_else(|val| {
+            panic!(
+                "database corrupted - schema version: {}: {}",
+                val, obtained_s_v
+            )
+        })
     }
 
     fn choose_clandestine_port() -> u16 {
@@ -369,7 +373,7 @@ pub mod test_utils {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
-    #[derive(Debug, Default,Clone)]
+    #[derive(Debug, Default, Clone)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
         prepare_parameters: Arc<Mutex<Vec<String>>>,
         prepare_results: Arc<Mutex<Vec<Result<Statement<'a>, Error>>>>,
@@ -404,26 +408,6 @@ pub mod test_utils {
         fn transaction<'x: 'y, 'y>(&'x mut self) -> Result<Transaction<'y>, Error> {
             self.transaction_results.lock().unwrap().remove(0)
         }
-
-        // fn execute_upon_transaction<'x: 'y, 'y>(
-        //     &'x mut self,
-        //     statement: &[&str],
-        // ) -> rusqlite::Result<Transaction<'y>> {
-        //     self.execute_upon_transaction_params
-        //         .borrow_mut()
-        //         .lock()
-        //         .unwrap()
-        //         .push(
-        //             statement
-        //                 .iter()
-        //                 .map(|item| item.to_string())
-        //                 .collect::<Vec<String>>(),
-        //         );
-        //     self.execute_upon_transaction_results
-        //         .lock()
-        //         .unwrap()
-        //         .remove(0)
-        // }
     }
 
     #[derive(Default)]
@@ -696,6 +680,31 @@ mod tests {
                 CURRENT_SCHEMA_VERSION
             )),
         );
+    }
+
+    #[test]
+    #[should_panic(expected="database corrupted - schema version: invalid digit found in string: boooobles")]
+    fn existing_database_with_junk_in_place_of_its_schema_version_is_caught() {
+        let home_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "existing_database_with_junk_in_place_of_its_schema_version_is_caught",
+        );
+        {
+            DbInitializerReal::new()
+                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .unwrap();
+            let mut flags = OpenFlags::empty();
+            flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+            let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+            conn.execute(
+                "update config set value = 'boooobles' where name = 'schema_version'",
+                NO_PARAMS,
+            )
+                .unwrap();
+        }
+        let subject = DbInitializerReal::new();
+
+        let _ = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, true);
     }
 
     #[test]
