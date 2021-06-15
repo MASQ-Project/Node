@@ -20,9 +20,7 @@ use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: &str = "0.11";
-//always use an increment of 1; if a particular database change is somehow more significant than others it takes a higher number at the first place.
-//If so, the number behind the period becomes automatically 0
+pub const CURRENT_SCHEMA_VERSION: usize = 1;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -62,7 +60,7 @@ impl DbInitializer for DbInitializerReal {
         match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
-                let config = self.extract_configurations(&conn);
+                let config = self.extract_configurations(&conn); //TODO this should be replace with a call of PersistentConfiguration.current_schema_version()...which involves moving the creation of PC from conn_to_checked_datbase to here
                 let migrator = Box::new(DbMigratorReal::default());
                 self.conn_to_checked_existing_database(
                     conn,
@@ -183,7 +181,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "schema_version",
-            Some(CURRENT_SCHEMA_VERSION),
+            Some(&CURRENT_SCHEMA_VERSION.to_string()),
             false,
             "database version",
         );
@@ -286,7 +284,13 @@ impl DbInitializerReal {
                 CURRENT_SCHEMA_VERSION
             ))),
             Some(Some(v_from_db)) => {
-                if *v_from_db == CURRENT_SCHEMA_VERSION {
+                let v_from_db = v_from_db.parse::<usize>().unwrap_or_else(|val| {
+                    panic!(
+                        "database corrupted - schema version: {}: {}",
+                        val, v_from_db
+                    )
+                }); //TODO test this out
+                if v_from_db == CURRENT_SCHEMA_VERSION {
                     Ok(Box::new(ConnectionWrapperReal::new(conn)))
                 } else {
                     migrator.log_warn("Database is incompatible and its updating is necessary");
@@ -365,7 +369,7 @@ pub mod test_utils {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default,Clone)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
         prepare_parameters: Arc<Mutex<Vec<String>>>,
         prepare_results: Arc<Mutex<Vec<Result<Statement<'a>, Error>>>>,
@@ -648,7 +652,7 @@ mod tests {
         verify(
             &mut config_vec,
             "schema_version",
-            Some(CURRENT_SCHEMA_VERSION),
+            Some(&CURRENT_SCHEMA_VERSION.to_string()),
         );
         verify(&mut config_vec, "seed", None);
         verify(
@@ -704,7 +708,7 @@ mod tests {
         );
         {
             let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
-            revive_tables_of_the_deceased_version_0_0_10(&conn)
+            revive_tables_of_the_deceased_version_0(&conn)
         }
         let subject = DbInitializerReal::new();
 
@@ -717,7 +721,7 @@ mod tests {
             .unwrap()
             .query_row(NO_PARAMS, |row| Ok(row.get(1).unwrap()))
             .unwrap();
-        assert_eq!(schema, CURRENT_SCHEMA_VERSION);
+        assert_eq!(schema, CURRENT_SCHEMA_VERSION.to_string());
         TestLogHandler::new()
             .exists_log_containing("Database is incompatible and its updating is necessary");
     }
@@ -737,7 +741,7 @@ mod tests {
 
         let result = subject.conn_to_checked_existing_database(
             conn,
-            Some(&Some("0.0.10".to_string())),
+            Some(&Some("0".to_string())),
             &home_dir,
             chain_id,
             migrator,
@@ -884,7 +888,7 @@ mod tests {
         data_dir
     }
 
-    fn revive_tables_of_the_deceased_version_0_0_10(conn: &Connection) {
+    fn revive_tables_of_the_deceased_version_0(conn: &Connection) {
         &[
             "create table if not exists config (
             name text not null,
@@ -896,7 +900,7 @@ mod tests {
             "insert into config (name, value, encrypted) values ('consuming_wallet_derivation_path', null, 0)",
             "insert into config (name, value, encrypted) values ('consuming_wallet_public_key', null, 0)",
             "insert into config (name, value, encrypted) values ('earning_wallet_address', null, 0)",
-            "insert into config (name, value, encrypted) values ('schema_version', '0.0.10', 0)",
+            "insert into config (name, value, encrypted) values ('schema_version', '0', 0)",
             "insert into config (name, value, encrypted) values ('seed', null, 0)",
             "insert into config (name, value, encrypted) values ('start_block', 8688171, 0)",
             "insert into config (name, value, encrypted) values ('gas_price', '1', 0)",

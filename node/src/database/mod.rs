@@ -42,7 +42,7 @@ pub mod test_utils {
     impl DbMigrator for DbMigratorMock {
         fn migrate_database(
             &self,
-            outdated_schema: &str,
+            outdated_schema: usize,
             conn: Box<dyn ConnectionWrapper>,
         ) -> Result<(), String> {
             self.migrate_database_params
