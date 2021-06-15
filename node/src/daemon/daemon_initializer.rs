@@ -7,7 +7,7 @@ use crate::daemon::{
 };
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
 use crate::node_configurator::{port_is_busy, DirsWrapper};
-use crate::run_modes_factories::DaemonInitializer;
+use crate::run_modes_factories::{DaemonInitializer, RunModeResult};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::main_tools::main_with_args;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
@@ -77,7 +77,7 @@ impl DaemonInitializer for DaemonInitializerReal {
     }
 }
 
-impl Command<ConfiguratorError> for DaemonInitializerReal {
+impl Command<RunModeResult> for DaemonInitializerReal {
     fn go(
         &mut self,
         _streams: &mut StdStreams<'_>,

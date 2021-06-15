@@ -19,6 +19,8 @@ use masq_lib::utils::ExpectDecent;
 use std::any::Any;
 use std::cell::RefCell;
 
+pub type RunModeResult = Result<(),ConfiguratorError>;
+
 pub struct DumpConfigRunnerFactoryReal;
 pub struct ServerInitializerFactoryReal;
 pub struct DaemonInitializerFactoryReal {
@@ -98,14 +100,14 @@ pub trait DumpConfigRunner {
     }
 }
 
-pub trait ServerInitializer: Command<ConfiguratorError> + futures::Future {
+pub trait ServerInitializer: Command<RunModeResult> + futures::Future {
     #[cfg(test)]
     fn as_any(&self) -> &dyn Any {
         intentionally_blank!()
     }
 }
 
-pub trait DaemonInitializer: Command<ConfiguratorError> {
+pub trait DaemonInitializer: Command<RunModeResult> {
     #[cfg(test)]
     fn as_any(&self) -> &dyn Any {
         intentionally_blank!()
@@ -300,10 +302,7 @@ mod tests {
 
 #[cfg(test)]
 pub mod mocks {
-    use crate::run_modes_factories::{
-        DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner, DumpConfigRunnerFactory,
-        ServerInitializer, ServerInitializerFactory,
-    };
+    use crate::run_modes_factories::{DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner, DumpConfigRunnerFactory, ServerInitializer, ServerInitializerFactory, RunModeResult};
     use crate::server_initializer::test_utils::ServerInitializerMock;
     use masq_lib::command::{Command, StdStreams};
     use masq_lib::shared_schema::ConfiguratorError;
@@ -396,7 +395,7 @@ pub mod mocks {
         }
     }
 
-    impl Command<ConfiguratorError> for DaemonInitializerMock {
+    impl Command<RunModeResult> for DaemonInitializerMock {
         fn go(
             &mut self,
             _streams: &mut StdStreams<'_>,

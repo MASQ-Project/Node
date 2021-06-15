@@ -1,7 +1,7 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use self::sub_lib::utils::indicates_dead_stream;
-use masq_lib::command::{CommandNumeric, StdStreams};
+use masq_lib::command::{StdStreams, Command};
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use node_lib::sub_lib;
 use node_lib::sub_lib::framer::Framer;
@@ -52,7 +52,7 @@ struct MockNode {
     guts: Option<MockNodeGuts>,
 }
 
-impl CommandNumeric for MockNode {
+impl Command<u8> for MockNode {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let node_addr = match Self::interpret_args(args, streams.stderr) {
             Ok(p) => p,

@@ -7,10 +7,6 @@ pub struct StdStreams<'a> {
     pub stderr: &'a mut (dyn io::Write + Send),
 }
 
-pub trait CommandNumeric {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8;
-}
-
 pub trait Command<T> {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> Result<(), T>;
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> T;
 }

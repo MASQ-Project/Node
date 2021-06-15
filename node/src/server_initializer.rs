@@ -5,7 +5,7 @@ use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::standard::collected_user_params_for_service_mode;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
-use crate::run_modes_factories::ServerInitializer;
+use crate::run_modes_factories::{ServerInitializer, RunModeResult};
 use crate::sub_lib;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
@@ -32,7 +32,7 @@ pub struct ServerInitializerReal {
     dir_wrapper: Box<dyn DirsWrapper>,
 }
 
-impl Command<ConfiguratorError> for ServerInitializerReal {
+impl Command<RunModeResult> for ServerInitializerReal {
     fn go(
         &mut self,
         streams: &mut StdStreams<'_>,
@@ -291,7 +291,7 @@ pub fn real_format_function(
 pub mod test_utils {
     use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
-    use crate::run_modes_factories::ServerInitializer;
+    use crate::run_modes_factories::{ServerInitializer, RunModeResult};
     use crate::server_initializer::LoggerInitializerWrapper;
     #[cfg(not(target_os = "windows"))]
     use crate::test_utils::logging::init_test_logging;
@@ -333,7 +333,7 @@ pub mod test_utils {
 
     impl ServerInitializer for ServerInitializerMock {}
 
-    impl Command<ConfiguratorError> for ServerInitializerMock {
+    impl Command<RunModeResult> for ServerInitializerMock {
         fn go(
             &mut self,
             _streams: &mut StdStreams<'_>,

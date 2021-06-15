@@ -12,8 +12,7 @@ use crate::communications::broadcast_handler::{
 use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{NIClapFactory, NIClapFactoryReal};
 use crate::terminal_interface::TerminalWrapper;
-use masq_lib::command::CommandNumeric;
-use masq_lib::command::StdStreams;
+use masq_lib::command::{StdStreams, Command};
 use masq_lib::short_writeln;
 use std::io::Write;
 use std::ops::Not;
@@ -80,7 +79,7 @@ impl Main {
     }
 }
 
-impl CommandNumeric for Main {
+impl Command<u8> for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let ui_port = self
             .non_interactive_clap_factory
