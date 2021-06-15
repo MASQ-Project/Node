@@ -591,21 +591,29 @@ pub mod standard {
         neighbor_configs: Vec<NodeDescriptor>,
         automap_public_ip_opt: Option<IpAddr>,
     ) -> Result<NeighborhoodMode, ConfiguratorError> {
-        todo!("Use automap_public_ip_opt");
-        let ip = match value_m!(multi_config, "ip", IpAddr) {
-            Some(ip) => ip,
-            None => {
-                return Err(ConfiguratorError::required(
-                    "neighborhood-mode",
-                    "Node cannot run as --neighborhood-mode standard without --ip specified",
-                ))
-            }
-        };
+        let ip = get_public_ip(automap_public_ip_opt, multi_config)?;
         Ok(NeighborhoodMode::Standard(
             NodeAddr::new(&ip, &[]),
             neighbor_configs,
             DEFAULT_RATE_PACK,
         ))
+    }
+
+    pub fn get_public_ip (automap_public_ip_opt: Option<IpAddr>, multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorError> {
+        match (automap_public_ip_opt, value_m! (multi_config, "ip", String)) {
+            (_, Some(ip_str)) => match IpAddr::from_str(&ip_str) {
+                Ok(ip_addr) => Ok(ip_addr),
+                Err(_) => return Err(ConfiguratorError::required(
+                    "ip",
+                    &format! ("blockety blip: '{}'", ip_str),
+                )),
+            },
+            (Some(automap_public_ip), None) => Ok(automap_public_ip),
+            (None, None) => return Err(ConfiguratorError::required(
+                "ip",
+                "The public IP address cannot be retrieved from the router; therefore --ip must be specified for --neighborhood-mode standard"
+            ))
+        }
     }
 
     fn get_earning_wallet_from_address(
@@ -1217,8 +1225,8 @@ mod tests {
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
-                "neighborhood-mode",
-                "Node cannot run as --neighborhood-mode standard without --ip specified"
+                "ip",
+                "The public IP address cannot be retrieved from the router; therefore --ip must be specified for --neighborhood-mode standard"
             ))
         )
     }
@@ -1447,6 +1455,42 @@ mod tests {
                 "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified"
             ))
         )
+    }
+
+    #[test]
+    fn get_public_ip_complains_if_neither_is_provided() {
+        let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
+
+        let result = standard::get_public_ip(None, &multi_config);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![ParamError::new(
+                "ip",
+                "The public IP address cannot be retrieved from the router; therefore --ip must be specified for --neighborhood-mode standard"
+            )]))
+        );
+    }
+
+    #[test]
+    fn get_public_ip_uses_multi_config_even_if_automap_ip_is_provided() {
+        let args = ArgsBuilder::new()
+            .param("--ip", "4.3.2.1");
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
+        let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
+
+        let result = standard::get_public_ip(Some (IpAddr::from_str ("1.2.3.4").unwrap()), &multi_config);
+
+        assert_eq!(result, Ok(IpAddr::from_str ("4.3.2.1").unwrap()));
+    }
+
+    #[test]
+    fn get_public_ip_uses_automap_ip_if_multi_config_is_not_provided() {
+        let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
+
+        let result = standard::get_public_ip(Some (IpAddr::from_str ("1.2.3.4").unwrap()), &multi_config);
+
+        assert_eq!(result, Ok(IpAddr::from_str ("1.2.3.4").unwrap()));
     }
 
     #[test]

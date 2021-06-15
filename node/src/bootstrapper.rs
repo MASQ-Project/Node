@@ -400,7 +400,7 @@ pub struct Bootstrapper {
     listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
     actor_system_factory: Box<dyn ActorSystemFactory>,
     logger_initializer: Box<dyn LoggerInitializerWrapper>,
-    automap_control_factory: Box<dyn AutomapControlFactory>,
+    _automap_control_factory: Box<dyn AutomapControlFactory>,
     config: BootstrapperConfig,
 }
 
@@ -498,7 +498,7 @@ impl Bootstrapper {
                 FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
             actor_system_factory: Box::new(ActorSystemFactoryReal {}),
             logger_initializer,
-            automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
+            _automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
             config: BootstrapperConfig::new(),
         }
     }
@@ -793,7 +793,7 @@ mod tests {
             todo!()
         }
 
-        fn add_mapping(&mut self, hole_port: u16) -> Result<u32, AutomapError> {
+        fn add_mapping(&mut self, _hole_port: u16) -> Result<u32, AutomapError> {
             todo!()
         }
 
@@ -803,7 +803,7 @@ mod tests {
     }
 
     impl AutomapControlMock {
-        fn new() -> Self {
+        fn _new() -> Self {
             Self {}
         }
     }
@@ -813,8 +813,8 @@ mod tests {
     impl AutomapControlFactory for AutomapControlFactoryMock {
         fn make(
             &self,
-            usual_protocol_opt: Option<AutomapProtocol>,
-            change_handler: ChangeHandler,
+            _usual_protocol_opt: Option<AutomapProtocol>,
+            _change_handler: ChangeHandler,
         ) -> Box<dyn AutomapControl> {
             todo!()
         }
@@ -2058,7 +2058,7 @@ mod tests {
             self
         }
 
-        fn automap_control_factory(
+        fn _automap_control_factory(
             mut self,
             automap_control_factory: Box<dyn AutomapControlFactory>,
         ) -> BootstrapperBuilder {
@@ -2079,7 +2079,7 @@ mod tests {
                     Box<dyn ListenerHandler<Item = (), Error = ()>>,
                 >::new(),
                 logger_initializer: self.log_initializer_wrapper,
-                automap_control_factory: self.automap_control_factory,
+                _automap_control_factory: self.automap_control_factory,
                 config: self.config,
             }
         }
