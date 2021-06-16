@@ -213,7 +213,7 @@ mod tests {
            "gasPrice": "1",
            "mappingProtocol": null,
            "pastNeighbors": null,
-           "schemaVersion": CURRENT_SCHEMA_VERSION,
+           "schemaVersion": CURRENT_SCHEMA_VERSION.to_string(),
            "seed": null,
            "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
         });

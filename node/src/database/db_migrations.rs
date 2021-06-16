@@ -16,7 +16,7 @@ pub trait DbMigrator {
     fn migrate_database(
         &self,
         mismatched_schema: usize,
-        target_version: usize, //TODO implement RangeOfUpdates putting these two in one
+        target_version: usize,
         conn: Box<dyn ConnectionWrapper>,
     ) -> Result<(), String>;
     fn log_warn(&self, msg: &str);
@@ -180,25 +180,26 @@ impl DbMigratorReal {
         mismatched_schema: usize,
         target_version: usize,
         mut migration_utilities: Box<dyn DBMigrationUtilities + 'a>,
-        //TODO insert: dyn MigratorConfiguration here...minimally needed for 'update_schema_version'
         list_of_updates: &'a [&'a (dyn DatabaseMigration + 'a)],
     ) -> Result<(), String> {
         let updates_to_process =
-            Self::select_updates_to_process(mismatched_schema, list_of_updates)?;
+            Self::select_updates_to_process(mismatched_schema, list_of_updates);
         let mut peekable_list = updates_to_process.iter().peekable();
         for _ in 0..peekable_list.len() {
-            let (first_record, next_record) = Self::process_items_with_dirty_references(
+            let (next_record, updatable_to) = Self::process_items_with_dirty_references(
                 peekable_list.next(),
                 peekable_list.peek(),
             );
-            if first_record.old_version() >= target_version {
+            let current_state = next_record.old_version();
+            //necessary for testing
+            if Self::is_target_version_reached(current_state, &target_version) {
                 return Ok(());
-            } //TODO test-drive this!
+            }
             let versions_in_question =
-                Self::context_between_two_versions(first_record.old_version(), &next_record);
+                Self::context_between_two_versions(current_state, &updatable_to);
 
             if let Err(e) =
-                Self::migrate_semi_automated(first_record, next_record, &*migration_utilities)
+                Self::migrate_semi_automated(next_record, updatable_to, &*migration_utilities)
             {
                 return self.dispatch_bad_news(&versions_in_question, e);
             }
@@ -231,10 +232,20 @@ impl DbMigratorReal {
         Ok(())
     }
 
+    fn is_target_version_reached(current_state: usize, target_version: &usize) -> bool {
+        if current_state.lt(target_version) {
+            return false;
+        } else if current_state.eq(target_version) {
+            return true;
+        } else {
+            panic!("Nonsense: the given target is lower than the version that is considered mismatched")
+        }
+    }
+
     fn select_updates_to_process<'a>(
         mismatched_schema: usize,
         list_of_updates: &'a [&'a (dyn DatabaseMigration + 'a)],
-    ) -> Result<Vec<&'a (dyn DatabaseMigration + 'a)>, String> {
+    ) -> Vec<&'a (dyn DatabaseMigration + 'a)> {
         let updates_to_process = list_of_updates
             .iter()
             .skip_while(|entry| entry.old_version().ne(&mismatched_schema))
@@ -243,8 +254,8 @@ impl DbMigratorReal {
         let _ = Self::check_out_quantity_of_those_remaining(
             mismatched_schema,
             updates_to_process.len(),
-        )?;
-        Ok(updates_to_process)
+        );
+        updates_to_process
     }
 
     fn deref<'a>(value: &'a &dyn DatabaseMigration) -> &'a dyn DatabaseMigration {
@@ -256,11 +267,11 @@ impl DbMigratorReal {
         second: Option<&&&dyn DatabaseMigration>,
     ) -> (&'a dyn DatabaseMigration, String) {
         let first = *first.expect_v("migration record");
-        let identity_of_the_second = Self::identify_the_next_one(second, first);
+        let identity_of_the_second = Self::identify_the_next_record(second, first);
         (first, identity_of_the_second)
     }
 
-    fn identify_the_next_one(
+    fn identify_the_next_record(
         subject: Option<&&&dyn DatabaseMigration>,
         current_record: &dyn DatabaseMigration,
     ) -> String {
@@ -271,13 +282,9 @@ impl DbMigratorReal {
         }
     }
 
-    fn check_out_quantity_of_those_remaining(
-        mismatched_schema: usize,
-        count: usize,
-    ) -> Result<(), String> {
-        match count {
-            0 => Err(format!("Database claims to be more advanced ({}) than the version {} which is the latest released.", mismatched_schema, CURRENT_SCHEMA_VERSION)),
-            _ => Ok(())
+    fn check_out_quantity_of_those_remaining(mismatched_schema: usize, count: usize) {
+        if count == 0 {
+            panic!("Database claims to be more advanced ({}) than the version {} which is the latest released.", mismatched_schema, CURRENT_SCHEMA_VERSION)
         }
     }
 
@@ -310,15 +317,16 @@ mod tests {
         Migrate_0_to_1,
     };
     use crate::database::db_migrations::{DBMigratorConfiguration, DbMigratorReal};
-    use crate::database::test_utils::assurance_query_for_config_table;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::BASE_TEST_DIR;
     use rusqlite::{Connection, Error, NO_PARAMS};
     use std::any::Any;
     use std::cell::RefCell;
+    use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::ops::Not;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
@@ -404,6 +412,8 @@ mod tests {
     lazy_static! {
         static ref TEST_DIRECTORY_FOR_DB_MIGRATION: PathBuf =
             PathBuf::from(format!("{}/db_migration", BASE_TEST_DIR));
+
+        static ref CHANGABLE_PANIC_MESSAGE:String = format!("Database claims to be more advanced ({}) than the version {} which is the latest released.",CURRENT_SCHEMA_VERSION + 1,CURRENT_SCHEMA_VERSION);
     }
 
     #[test]
@@ -429,17 +439,20 @@ mod tests {
         let too_advanced = last_version + 1;
         let migration_utilities = DBMigrationUtilitiesMock::default();
         let target_version = 5; //not relevant
-
         let subject = DbMigratorReal::default();
 
-        let result = subject.make_updates(
-            too_advanced,
-            target_version,
-            Box::new(migration_utilities),
-            DbMigratorReal::list_of_existing_updates(),
-        );
+        let captured_panic = catch_unwind(AssertUnwindSafe(|| {
+            subject.make_updates(
+                too_advanced,
+                target_version,
+                Box::new(migration_utilities),
+                DbMigratorReal::list_of_existing_updates(),
+            )
+        }))
+        .unwrap_err();
 
-        assert_eq!(result,Err(format!("Database claims to be more advanced ({}) than the version {} which is the latest released.",too_advanced,CURRENT_SCHEMA_VERSION)))
+        let panic_message = captured_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(*panic_message,format!("Database claims to be more advanced ({}) than the version {} which is the latest released.",too_advanced,CURRENT_SCHEMA_VERSION))
     }
 
     #[derive(Default, Debug)]
@@ -538,6 +551,42 @@ mod tests {
     }
 
     #[test]
+    fn migrate_semi_automated_returns_an_error_from_update_schema_version() {
+        let update_schema_version_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut migration_record = DBMigrationRecordMock::default().migrate_result(Ok(()));
+        let migration_utilities = DBMigrationUtilitiesMock::default()
+            .update_schema_version_result(Err(Error::InvalidQuery))
+            .update_schema_version_params(&update_schema_version_params_arc);
+
+        let result = DbMigratorReal::migrate_semi_automated(
+            &mut migration_record,
+            5.to_string(),
+            &migration_utilities,
+        );
+
+        assert_eq!(result, Err(Error::InvalidQuery));
+        let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();
+        assert_eq!(*update_schema_version_params, vec!["5".to_string()])
+    }
+
+    #[test]
+    fn migrate_semi_automated_returns_an_error_from_migrate() {
+        let mut migration_record =
+            DBMigrationRecordMock::default().migrate_result(Err(Error::InvalidColumnIndex(5)));
+        let migration_utilities = DBMigrationUtilitiesMock::default();
+
+        let result = DbMigratorReal::migrate_semi_automated(
+            &mut migration_record,
+            5.to_string(),
+            &migration_utilities,
+        );
+
+        assert_eq!(result, Err(Error::InvalidColumnIndex(5)));
+    }
+
+    //TODO write a test for 'commit()'
+
+    #[test]
     fn execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled(
     ) {
         let dir_path: PathBuf = TEST_DIRECTORY_FOR_DB_MIGRATION
@@ -583,6 +632,35 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Nonsense: the given target is lower than the version that is considered mismatched"
+    )]
+    fn make_updates_panics_if_the_parameters_for_a_test_does_not_make_sense() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute(
+                "CREATE TABLE test (
+            name TEXT,
+            value TEXT
+        )",
+                NO_PARAMS,
+            )
+            .unwrap();
+        let mut connection_wrapper = ConnectionWrapperReal::new(connection);
+        let config = DBMigratorConfiguration::new();
+        let subject = DbMigratorReal::new();
+        let list_of_updates: &[&dyn DatabaseMigration] =
+            &[&DBMigrationRecordMock::default().old_version_result(5)];
+
+        let _ = subject.make_updates(
+            5,
+            3,
+            Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
+            list_of_updates,
+        );
+    }
+
+    #[test]
     fn make_updates_skips_records_already_included_in_the_current_database_and_updates_only_the_others(
     ) {
         let first_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
@@ -597,31 +675,31 @@ mod tests {
         let fifth_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let list_of_updates: &[&dyn DatabaseMigration] = &[
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                1,
+                0,
                 &first_record_old_version_p_arc,
                 Ok(()),
                 &first_record_migration_p_arc,
             ),
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                2,
+                1,
                 &second_record_old_version_p_arc,
                 Ok(()),
                 &second_record_migration_p_arc,
             ),
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                3,
+                2,
                 &third_record_old_version_p_arc,
                 Ok(()),
                 &third_record_migration_p_arc,
             ),
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                4,
+                3,
                 &fourth_record_old_version_p_arc,
                 Ok(()),
                 &fourth_record_migration_p_arc,
             ),
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                5,
+                4,
                 &fifth_record_old_version_p_arc,
                 Ok(()),
                 &fifth_record_migration_p_arc,
@@ -650,8 +728,8 @@ mod tests {
         let subject = DbMigratorReal::new();
 
         let result = subject.make_updates(
-            3,
-            6,
+            2,
+            5,
             Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
             list_of_updates,
         );
@@ -662,11 +740,11 @@ mod tests {
         let second_record_old_version_param = second_record_old_version_p_arc.lock().unwrap();
         assert_eq!(second_record_old_version_param.len(), 1);
         let third_record_old_version_param = third_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(third_record_old_version_param.len(), 3);
+        assert_eq!(third_record_old_version_param.len(), 2);
         let fourth_record_old_version_param = fourth_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(fourth_record_old_version_param.len(), 3);
+        assert_eq!(fourth_record_old_version_param.len(), 2);
         let fifth_record_old_version_param = fifth_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(fifth_record_old_version_param.len(), 4);
+        assert_eq!(fifth_record_old_version_param.len(), 3);
         let first_record_migration_params = first_record_migration_p_arc.lock().unwrap();
         assert_eq!(*first_record_migration_params, vec![]);
         let second_record_migration_params = second_record_migration_p_arc.lock().unwrap();
@@ -686,11 +764,11 @@ mod tests {
                 |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
             )
             .unwrap();
-        assert_eq!(assertion.1, "6")
+        assert_eq!(assertion.1, "5")
     }
 
     #[test]
-    fn make_updates_stops_doing_updates_on_the_update_specified_as_a_parameter() {
+    fn make_updates_stops_doing_updates_on_the_version_specified_as_a_parameter() {
         let first_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
         let second_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
         let third_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
@@ -703,37 +781,37 @@ mod tests {
         let fifth_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let list_of_updates: &[&dyn DatabaseMigration] = &[
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                1,
+                0,
                 &first_record_old_version_p_arc,
                 Ok(()),
                 &first_record_migration_p_arc,
             ),
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                2,
+                1,
                 &second_record_old_version_p_arc,
                 Ok(()),
                 &second_record_migration_p_arc,
             ),
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                3,
+                2,
                 &third_record_old_version_p_arc,
                 Ok(()),
                 &third_record_migration_p_arc,
             ),
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                4,
+                3,
                 &fourth_record_old_version_p_arc,
                 Ok(()),
                 &fourth_record_migration_p_arc,
             ),
             &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
-                5,
+                4,
                 &fifth_record_old_version_p_arc,
                 Ok(()),
                 &fifth_record_migration_p_arc,
             ),
         ];
-        let mut connection = Connection::open_in_memory().unwrap();
+        let connection = Connection::open_in_memory().unwrap();
         connection
             .execute(
                 "CREATE TABLE test (
@@ -750,17 +828,17 @@ mod tests {
         let subject = DbMigratorReal::new();
 
         let result = subject.make_updates(
-            1,
-            3,
+            0,
+            2,
             Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
             list_of_updates,
         );
 
         assert_eq!(result, Ok(()));
         let first_record_old_version_param = first_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(first_record_old_version_param.len(), 3);
+        assert_eq!(first_record_old_version_param.len(), 2);
         let second_record_old_version_param = second_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(second_record_old_version_param.len(), 3);
+        assert_eq!(second_record_old_version_param.len(), 2);
         let third_record_old_version_param = third_record_old_version_p_arc.lock().unwrap();
         assert_eq!(third_record_old_version_param.len(), 2);
         let fourth_record_old_version_param = fourth_record_old_version_p_arc.lock().unwrap();
@@ -820,6 +898,8 @@ mod tests {
             "INFO: DbMigrator: Database successfully updated from version 0 to 1",
         );
     }
+
+    //TODO write a specific test for the only, so far only, migration record
 
     #[test]
     fn transacting_migration_sad_path() {
