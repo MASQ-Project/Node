@@ -37,6 +37,14 @@ pub trait DbInitializer {
         chain_id: u8,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
+
+    fn initialize_to_version(
+        &self,
+        path: &Path,
+        chain_id: u8,
+        target_version: usize,
+        create_if_necessary: bool,
+    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
 
 #[derive(Default)]
@@ -47,6 +55,16 @@ impl DbInitializer for DbInitializerReal {
         &self,
         path: &Path,
         chain_id: u8,
+        create_if_necessary: bool,
+    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+        self.initialize_to_version(path, chain_id, CURRENT_SCHEMA_VERSION, create_if_necessary)
+    }
+
+    fn initialize_to_version(
+        &self,
+        path: &Path,
+        chain_id: u8,
+        target_version: usize,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         let is_creation_necessary = Self::is_creation_necessary(path);
@@ -60,11 +78,12 @@ impl DbInitializer for DbInitializerReal {
         match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
-                let config = self.extract_configurations(&conn); //TODO this should be replace with a call of PersistentConfiguration.current_schema_version()...which involves moving the creation of PC from conn_to_checked_datbase to here
+                let config = self.extract_configurations(&conn); //TODO this should be replaced with a call of PersistentConfiguration.current_schema_version()...which involves moving the creation of PC from conn_to_checked_datbase to here
                 let migrator = Box::new(DbMigratorReal::default());
-                self.conn_to_checked_existing_database(
+                self.update_if_required_and_get_connection(
                     conn,
                     config.get("schema_version"),
+                    target_version,
                     path,
                     chain_id,
                     migrator,
@@ -266,10 +285,11 @@ impl DbInitializerReal {
         .collect::<HashMap<String, Option<String>>>()
     }
 
-    fn conn_to_checked_existing_database(
+    fn update_if_required_and_get_connection(
         &self,
         conn: Connection,
         version: Option<&Option<String>>,
+        target_version: usize,
         dir_path: &Path,
         chain_id: u8,
         migrator: Box<dyn DbMigrator>,
@@ -290,8 +310,12 @@ impl DbInitializerReal {
                 } else {
                     migrator.log_warn("Database is incompatible and its updating is necessary");
                     let wrapped_connection = ConnectionWrapperReal::new(conn);
-                    match migrator.migrate_database(v_from_db, Box::new(wrapped_connection)) {
-                        Ok(_) => self.initialize(dir_path, chain_id, false),
+                    match migrator.migrate_database(
+                        v_from_db,
+                        target_version,
+                        Box::new(wrapped_connection),
+                    ) {
+                        Ok(_) => self.initialize(dir_path, chain_id, false), //TODO figure out how to do this without recursion (simpler and safer)
                         Err(e) => Err(InitializationError::DbMigrationError(e)),
                     }
                 }
@@ -299,7 +323,7 @@ impl DbInitializerReal {
         }
     }
 
-    fn validate_schema_version(obtained_s_v: &String) ->usize{
+    fn validate_schema_version(obtained_s_v: &String) -> usize {
         obtained_s_v.parse::<usize>().unwrap_or_else(|val| {
             panic!(
                 "database corrupted - schema version: {}: {}",
@@ -430,6 +454,16 @@ pub mod test_utils {
                 create_if_necessary,
             ));
             self.initialize_results.borrow_mut().remove(0)
+        }
+
+        fn initialize_to_version(
+            &self,
+            path: &Path,
+            chain_id: u8,
+            target_version: usize,
+            create_if_necessary: bool,
+        ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+            todo!()
         }
     }
 
@@ -683,7 +717,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected="database corrupted - schema version: invalid digit found in string: boooobles")]
+    #[should_panic(
+        expected = "database corrupted - schema version: invalid digit found in string: boooobles"
+    )]
     fn existing_database_with_junk_in_place_of_its_schema_version_is_caught() {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
@@ -700,7 +736,7 @@ mod tests {
                 "update config set value = 'boooobles' where name = 'schema_version'",
                 NO_PARAMS,
             )
-                .unwrap();
+            .unwrap();
         }
         let subject = DbInitializerReal::new();
 
@@ -708,16 +744,16 @@ mod tests {
     }
 
     #[test]
-    fn existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_migrated_to_upper_versions(
+    fn existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_gradually_migrated_to_upper_versions(
     ) {
         init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_migrated_to_upper_versions",
+            "existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_gradually_migrated_to_upper_versions",
         );
         {
             let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
-            revive_tables_of_the_deceased_version_0(&conn)
+            revive_tables_of_the_version_0(&conn)
         }
         let subject = DbInitializerReal::new();
 
@@ -736,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn conn_to_checked_existing_database_starts_db_migration_and_hands_in_an_error_from_database_operations(
+    fn update_if_necessary_and_get_connection_starts_db_migration_and_hands_in_an_error_from_database_operations(
     ) {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
@@ -745,12 +781,14 @@ mod tests {
         let migrate_database_params = Arc::new(Mutex::new(vec![]));
         let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
         let subject = DbInitializerReal::new();
+        let target_version = 5; //not relevant
         let migrator = Box::new(DbMigratorMock::default().migrate_database_params(migrate_database_params.clone()).migrate_database_result(Err("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string())));
         let chain_id = 2;
 
-        let result = subject.conn_to_checked_existing_database(
+        let result = subject.update_if_required_and_get_connection(
             conn,
             Some(&Some("0".to_string())),
+            target_version,
             &home_dir,
             chain_id,
             migrator,
@@ -897,7 +935,7 @@ mod tests {
         data_dir
     }
 
-    fn revive_tables_of_the_deceased_version_0(conn: &Connection) {
+    fn revive_tables_of_the_version_0(conn: &Connection) {
         &[
             "create table if not exists config (
             name text not null,

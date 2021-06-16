@@ -43,6 +43,7 @@ pub mod test_utils {
         fn migrate_database(
             &self,
             outdated_schema: usize,
+            target_version: usize,
             conn: Box<dyn ConnectionWrapper>,
         ) -> Result<(), String> {
             self.migrate_database_params
