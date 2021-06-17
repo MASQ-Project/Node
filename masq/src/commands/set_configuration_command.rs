@@ -14,7 +14,7 @@ pub struct SetConfigurationCommand {
 }
 
 impl SetConfigurationCommand {
-    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
+    pub fn new(pieces: &[String]) -> Result<Self, String> {
         // if anything wrong, Clap will handle it at get_matches_from_safe
         let mut preserved_name: String = String::new();
         if pieces.len() != 1 {

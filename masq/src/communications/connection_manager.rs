@@ -25,7 +25,7 @@ use websocket::{ClientBuilder, WebSocketResult};
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
-pub const FALLBACK_TIMEOUT_MILLIS: u64 = 500;
+pub const FALLBACK_TIMEOUT_MILLIS: u64 = 1000; //used to be 500; but we have suspicion that Actions doesn't make it and needs more
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutgoingMessageType {
@@ -84,7 +84,7 @@ impl ConnectionManager {
     pub fn connect(
         &mut self,
         port: u16,
-        broadcast_handle: Box<dyn BroadcastHandle>,
+        generic_broadcast_handle: Box<dyn BroadcastHandle>,
         timeout_millis: u64,
     ) -> Result<(), ClientListenerError> {
         let (demand_tx, demand_rx) = unbounded();
@@ -95,7 +95,7 @@ impl ConnectionManager {
         let (redirect_response_tx, redirect_response_rx) = unbounded();
         let (active_port_response_tx, active_port_response_rx) = unbounded();
         let redirect_broadcast_handler =
-            RedirectBroadcastHandler::new(broadcast_handle, redirect_order_tx);
+            RedirectBroadcastHandler::new(generic_broadcast_handle, redirect_order_tx);
         self.demand_tx = demand_tx;
         self.conversation_return_rx = conversation_return_rx;
         self.redirect_response_rx = redirect_response_rx;
@@ -175,6 +175,7 @@ fn make_client_listener(
     Ok(talker_half)
 }
 
+//hack a time-out around connection attempt to the Node or Daemon. Leak a thread if the attempt times out
 fn connect_insecure_timeout(
     mut builder: ClientBuilder<'static>,
     timeout_millis: u64,
@@ -540,15 +541,15 @@ impl RedirectBroadcastHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communications::broadcast_handler::{BroadcastHandler, StreamFactoryReal};
     use crate::communications::node_conversation::ClientError;
     use crate::test_utils::client_utils::make_client;
     use crossbeam_channel::TryRecvError;
-    use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{
-        UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupBroadcast, UiSetupRequest,
-        UiSetupResponse, UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse,
-        UiUnmarshalError,
+        CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiSetupBroadcast,
+    };
+    use masq_lib::messages::{
+        UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupRequest, UiSetupResponse,
+        UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse, UiUnmarshalError,
     };
     use masq_lib::test_utils::mock_websockets_server::{
         MockWebSocketsServer, MockWebSocketsServerStopHandle,

@@ -1,11 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::ContextError::ConnectionRefused;
-use crate::communications::broadcast_handler::{
-    BroadcastHandler, BroadcastHandlerReal, StreamFactory,
-};
+use crate::communications::broadcast_handler::BroadcastHandle;
 use crate::communications::connection_manager::{ConnectionManager, REDIRECT_TIMEOUT_MILLIS};
 use crate::communications::node_conversation::ClientError;
+use crate::terminal_interface::TerminalWrapper;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
@@ -65,6 +64,7 @@ pub struct CommandContextReal {
     pub stdin: Box<dyn Read>,
     pub stdout: Box<dyn Write>,
     pub stderr: Box<dyn Write>,
+    pub terminal_interface: Option<TerminalWrapper>,
 }
 
 impl Debug for CommandContextReal {
@@ -123,17 +123,21 @@ impl CommandContext for CommandContextReal {
 impl CommandContextReal {
     pub fn new(
         daemon_ui_port: u16,
-        broadcast_stream_factory: Box<dyn StreamFactory>,
+        foreground_terminal_interface: Option<TerminalWrapper>,
+        generic_broadcast_handle: Box<dyn BroadcastHandle>,
     ) -> Result<Self, ContextError> {
         let mut connection = ConnectionManager::new();
-        let broadcast_handler = BroadcastHandlerReal::new();
-        let broadcast_handle = broadcast_handler.start(broadcast_stream_factory);
-        match connection.connect(daemon_ui_port, broadcast_handle, REDIRECT_TIMEOUT_MILLIS) {
+        match connection.connect(
+            daemon_ui_port,
+            generic_broadcast_handle,
+            REDIRECT_TIMEOUT_MILLIS,
+        ) {
             Ok(_) => Ok(Self {
                 connection,
                 stdin: Box::new(io::stdin()),
                 stdout: Box::new(io::stdout()),
                 stderr: Box::new(io::stderr()),
+                terminal_interface: foreground_terminal_interface,
             }),
             Err(e) => Err(ConnectionRefused(format!("{:?}", e))),
         }
@@ -146,7 +150,7 @@ mod tests {
     use crate::command_context::ContextError::{
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
-    use crate::communications::broadcast_handler::StreamFactoryReal;
+    use crate::communications::broadcast_handler::BroadcastHandleInactive;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
@@ -203,8 +207,9 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let handle = server.start();
+        let broadcast_handle = BroadcastHandleInactive::new();
 
-        let subject = CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+        let subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
         assert_eq!(subject.active_port(), Some(port));
         handle.stop();
@@ -221,8 +226,9 @@ mod tests {
         let stderr_arc = stderr.inner_arc();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
-        let mut subject =
-            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+        let broadcast_handle = BroadcastHandleInactive::new();
+
+        let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);
         subject.stderr = Box::new(stderr);
@@ -253,8 +259,9 @@ mod tests {
     fn works_when_server_isnt_present() {
         running_test();
         let port = find_free_port();
+        let broadcast_handle = BroadcastHandleInactive::new();
 
-        let result = CommandContextReal::new(port, Box::new(StreamFactoryReal::new()));
+        let result = CommandContextReal::new(port, None, Box::new(broadcast_handle));
 
         match result {
             Err(ConnectionRefused(_)) => (),
@@ -273,8 +280,8 @@ mod tests {
             payload: Err((101, "booga".to_string())),
         });
         let stop_handle = server.start();
-        let mut subject =
-            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+        let broadcast_handle = BroadcastHandleInactive::new();
+        let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -288,8 +295,8 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
         let stop_handle = server.start();
-        let mut subject =
-            CommandContextReal::new(port, Box::new(StreamFactoryReal::new())).unwrap();
+        let broadcast_handle = BroadcastHandleInactive::new();
+        let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -311,8 +318,8 @@ mod tests {
         let stderr_arc = stderr.inner_arc();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
-        let stream_factory = Box::new(StreamFactoryReal::new());
-        let subject_result = CommandContextReal::new(port, stream_factory);
+        let broadcast_handle = BroadcastHandleInactive::new();
+        let subject_result = CommandContextReal::new(port, None, Box::new(broadcast_handle));
         let mut subject = subject_result.unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);

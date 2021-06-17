@@ -61,7 +61,7 @@ impl Command for ConfigurationCommand {
 }
 
 impl ConfigurationCommand {
-    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
+    pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match configuration_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
@@ -152,7 +152,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let command = subject
-            .make(vec!["configuration".to_string(), "password".to_string()])
+            .make(&["configuration".to_string(), "password".to_string()])
             .unwrap();
 
         let configuration_command = command
@@ -172,7 +172,7 @@ mod tests {
     fn command_factory_works_without_password() {
         let subject = CommandFactoryReal::new();
 
-        let command = subject.make(vec!["configuration".to_string()]).unwrap();
+        let command = subject.make(&["configuration".to_string()]).unwrap();
 
         let configuration_command = command
             .as_any()
@@ -191,7 +191,7 @@ mod tests {
         ));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
-        let subject = ConfigurationCommand::new(vec!["configuration".to_string()]).unwrap();
+        let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -228,7 +228,7 @@ mod tests {
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let subject =
-            ConfigurationCommand::new(vec!["configuration".to_string(), "password".to_string()])
+            ConfigurationCommand::new(&["configuration".to_string(), "password".to_string()])
                 .unwrap();
 
         let result = subject.execute(&mut context);
@@ -283,7 +283,7 @@ mod tests {
             .transact_result(Ok(expected_response.tmb(42)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
-        let subject = ConfigurationCommand::new(vec!["configuration".to_string()]).unwrap();
+        let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -325,7 +325,7 @@ Start block:                      3456\n\
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
-        let subject = ConfigurationCommand::new(vec!["configuration".to_string()]).unwrap();
+        let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 

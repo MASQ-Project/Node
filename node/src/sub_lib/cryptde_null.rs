@@ -12,6 +12,7 @@ use rustc_hex::ToHex;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
 pub struct CryptDENull {
     private_key: PrivateKey,

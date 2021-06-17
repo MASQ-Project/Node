@@ -104,14 +104,34 @@ going on at once, this might happen:
 1. ← Response for conversation 2
 
 If each conversation has its own ID, it'll be a lot easier to tell what's going on when a message arrives
-than it will be if every message is part of conversation 555.
+than it will be if every message is part of conversation 555. Even more importantly, if two or more of
+those requests have the same opcode, figuring out which response goes with which request can be completely
+impossible if all the requests are in the same conversation.
+
+The reason the concept of conversations exists is the fact that many of the messages in the `MASQNode-UIv2`
+protocol are requests in a particular context that specifically demand responses in the same context. The
+conversation, whether you choose to use a new conversation for every exchange, or the same conversation for
+all of them, or some compromise scheme, serves to fix the context and bind together a request with its
+response or responses.
+
+In `MASQNode-UIv2`, all responses to a particular conversational request will always have the same opcode
+as that request. In situations where responses to a particular request can have different meanings (for
+example, in the case where the request is a subscription to a class of messages), all the responses will
+have the same opcode, but another common field in the responses may be chosen to act as a secondary opcode
+to distinguish them from one another.
 
 Some messages are always isolated, and never part of any conversation, like the Broadcast in step 5 above. 
 These messages will be identifiable by their `opcode`, and their `contextId` should be ignored. (In the 
-real world, it's always zero, but depending on that might be dangerous.)
+real world, it's always zero, but depending on that might be dangerous.) These isolated messages cannot
+reasonably be called requests, since A) they neither expect nor provoke any response, except in certain error
+situations, and B) provide no meaningful `contextId` to identify a conversation that would bind a response
+to them.
 
 Neither the Daemon nor the Node will ever start a conversation, although they will send isolated, non-conversational
-messages.
+messages. In the error situations mentioned above, the error notifications will arrive as isolated messages
+and should either be ignored or presented to the user in a general-error format. The error report will
+almost certainly have a different opcode from the message that provoked the error, and there will probably
+be no tractable way to semantically connect the two.
 
 The `payload` is the body of the message, with its structure being signaled by the contents of the `opcode` field.
 See the Message Reference section below for specifics about the `payload` field for each type of message.
@@ -457,6 +477,27 @@ Requests the Node descriptor from a Node.
 ```
 ##### Description:
 Contains a Node's Node descriptor.
+
+#### `undelivered`
+##### Direction: Response
+##### Correspondent: Daemon
+##### Layout:
+```
+"payload": {
+    "opcode": <string>,
+    }
+}
+```
+##### Description:
+When the Daemon receives a fire-and-forget message (which is a case not being implemented at the time of writing this;
+all such messages go only in the opposite direction now), the normal way to proceed would be to look whether that type 
+of message is known to the Daemon. If not, then it tries to send a redirect message. However, if it turns out, at the 
+same moment, that the Node is not running there is no sense in it, and the action should not be completed. On the other
+hand, we want the UI, or the user respectively to know that this has happened otherwise they might think that a certain
+operation was executed though wasn't. This message comes back to the sender (UI) saying that a message with a certain
+opcode could not be delivered because Node is not running.
+ 
+`opcode` means the opcode taken from the original message received by the Daemon.
 
 #### `financials`
 ##### Direction: Request

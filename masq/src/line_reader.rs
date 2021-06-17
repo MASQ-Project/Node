@@ -1,242 +1,418 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::utils::MASQ_PROMPT;
-use rustyline::error::ReadlineError;
-use rustyline::Editor;
-use std::io;
-use std::io::ErrorKind;
-use std::io::{BufRead, Read};
+use crate::terminal_interface::{InterfaceWrapper, MasqTerminal, WriterLock};
+use linefeed::{ReadResult, Signal};
+use masq_lib::constants::MASQ_PROMPT;
+use masq_lib::short_writeln;
+use std::fmt::Debug;
+use std::io::{stdin, stdout, Read, Write};
+use std::sync::{Arc, Mutex, MutexGuard};
 
-pub struct LineReader {
-    delegate: Box<dyn EditorTrait>,
+#[derive(Debug, PartialEq)]
+pub enum TerminalEvent {
+    CommandLine(Vec<String>),
+    CLError(Option<String>), //'None' when already printed out
+    CLContinue,              //as ignore
+    CLBreak,
 }
 
-impl Read for LineReader {
-    fn read(&mut self, _: &mut [u8]) -> Result<usize, io::Error> {
-        panic!("Should never be called");
-    }
+pub struct TerminalReal {
+    pub interface: Box<dyn InterfaceWrapper>,
 }
 
-impl BufRead for LineReader {
-    fn fill_buf(&mut self) -> Result<&[u8], io::Error> {
-        panic!("Should never be called");
-    }
-
-    fn consume(&mut self, _: usize) {
-        panic!("Should never be called");
-    }
-
-    fn read_line(&mut self, buf: &mut String) -> Result<usize, io::Error> {
-        let line = match self.delegate.readline(MASQ_PROMPT) {
-            Ok(line) => line,
-            Err(e) => match e {
-                ReadlineError::Eof => {
-                    return Err(io::Error::new(ErrorKind::UnexpectedEof, "End of file"))
-                }
-                ReadlineError::Interrupted => {
-                    return Err(io::Error::new(ErrorKind::Interrupted, "Interrupted"))
-                }
-                other => return Err(io::Error::new(ErrorKind::Other, format!("{}", other))),
-            },
-        };
-        self.delegate.add_history_entry(&line);
-        let len = line.len();
-        buf.clear();
-        buf.push_str(&line);
-        Ok(len)
+impl TerminalReal {
+    pub fn new(interface: Box<dyn InterfaceWrapper>) -> Self {
+        Self { interface }
     }
 }
 
-impl Default for LineReader {
+impl MasqTerminal for TerminalReal {
+    fn read_line(&self) -> TerminalEvent {
+        match self.interface.read_line() {
+            Ok(ReadResult::Input(line)) => {
+                add_history(self, line.clone());
+                let args = split_quoted_line(line);
+                TerminalEvent::CommandLine(args)
+            }
+            Err(e) => TerminalEvent::CLError(Some(format!("Reading from the terminal: {}", e))),
+            Ok(ReadResult::Signal(Signal::Resize)) | Ok(ReadResult::Signal(Signal::Continue)) => {
+                TerminalEvent::CLContinue
+            }
+            _ => TerminalEvent::CLBreak,
+        }
+    }
+
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
+        self.interface
+            .lock_writer_append()
+            .expect("lock writer append failed")
+    }
+
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
+        format!(
+            "TerminalReal<{}>",
+            self.interface
+                .lock_writer_append()
+                .unwrap()
+                .tell_me_who_you_are()
+        )
+    }
+}
+
+fn add_history(terminal: &TerminalReal, line: String) {
+    terminal.interface.add_history(line)
+}
+
+fn split_quoted_line(input: String) -> Vec<String> {
+    let mut active_single = false;
+    let mut active_double = false;
+    let mut pieces: Vec<String> = vec![];
+    let mut current_piece = String::new();
+    input.chars().for_each(|c| {
+        if c.is_whitespace() && !active_double && !active_single {
+            if !current_piece.is_empty() {
+                pieces.push(current_piece.clone());
+                current_piece.clear();
+            }
+        } else if c == '"' && !active_single {
+            active_double = !active_double;
+        } else if c == '\'' && !active_double {
+            active_single = !active_single;
+        } else {
+            current_piece.push(c);
+        }
+    });
+    if !current_piece.is_empty() {
+        pieces.push(current_piece)
+    }
+    pieces
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//utils for integration tests run in the interactive mode
+
+pub struct IntegrationTestTerminal {
+    lock: Arc<Mutex<()>>,
+    stdin: Arc<Mutex<Box<dyn Read + Send>>>,
+    stdout: Arc<Mutex<Box<dyn Write + Send>>>,
+}
+
+impl Default for IntegrationTestTerminal {
     fn default() -> Self {
-        LineReader::new()
-    }
-}
-
-impl LineReader {
-    pub fn new() -> LineReader {
-        LineReader {
-            delegate: Box::new(EditorReal::default()),
+        IntegrationTestTerminal {
+            lock: Arc::new(Mutex::new(())),
+            stdin: Arc::new(Mutex::new(Box::new(stdin()))),
+            stdout: Arc::new(Mutex::new(Box::new(stdout()))),
         }
     }
 }
 
-trait EditorTrait {
-    fn readline(&mut self, prompt: &str) -> Result<String, ReadlineError>;
-    fn add_history_entry(&mut self, line: &str) -> bool;
-}
-
-struct EditorReal {
-    delegate: Editor<()>,
-}
-
-impl EditorTrait for EditorReal {
-    fn readline(&mut self, prompt: &str) -> Result<String, ReadlineError> {
-        self.delegate.readline(prompt)
+impl MasqTerminal for IntegrationTestTerminal {
+    fn read_line(&self) -> TerminalEvent {
+        let mut buffer = [0; 1024];
+        let number_of_bytes = self
+            .stdin
+            .lock()
+            .expect("poisoned mutex")
+            .read(&mut buffer)
+            .expect("reading failed");
+        let _lock = self
+            .lock
+            .lock()
+            .expect("poisoned mutex in IntegrationTestTerminal: lock");
+        short_writeln!(
+            self.stdout
+                .lock()
+                .expect("poisoned mutex in IntegrationTestTerminal: stdout"),
+            "{}",
+            MASQ_PROMPT
+        );
+        drop(_lock);
+        let finalized_command_line = std::str::from_utf8(&buffer[..number_of_bytes])
+            .expect("conversion into str failed")
+            .to_string();
+        TerminalEvent::CommandLine(split_quoted_line(finalized_command_line))
     }
 
-    fn add_history_entry(&mut self, line: &str) -> bool {
-        self.delegate.add_history_entry(line)
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
+        Box::new(IntegrationTestWriter {
+            mutex_guard_simulating_locking: self.lock.lock().expect("providing MutexGuard failed"),
+        })
     }
 }
 
-impl Default for EditorReal {
-    fn default() -> Self {
-        EditorReal {
-            delegate: Editor::new(),
-        }
-    }
+struct IntegrationTestWriter<'a> {
+    #[allow(dead_code)]
+    mutex_guard_simulating_locking: MutexGuard<'a, ()>,
 }
+
+impl WriterLock for IntegrationTestWriter<'_> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
+    use crate::terminal_interface::TerminalWrapper;
+    use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender};
+    use crossbeam_channel::{bounded, unbounded};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayReader;
+    use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
-    struct EditorMock {
-        readline_params: Arc<Mutex<Vec<String>>>,
-        readline_results: RefCell<Vec<Result<String, ReadlineError>>>,
-        add_history_entry_params: Arc<Mutex<Vec<String>>>,
-        add_history_entry_results: RefCell<Vec<bool>>,
-    }
+    #[test]
+    fn integration_test_terminal_provides_functional_synchronization() {
+        let (tx_cb, rx_cb) = unbounded();
+        let mut terminal_interface = IntegrationTestTerminal::default();
+        terminal_interface.stdin =
+            Arc::new(Mutex::new(Box::new(ByteArrayReader::new(b"Some command"))));
+        terminal_interface.stdout =
+            Arc::new(Mutex::new(Box::new(StdoutBlender::new(tx_cb.clone()))));
+        let terminal = TerminalWrapper::new(Box::new(terminal_interface));
+        let mut terminal_clone = terminal.clone();
+        let (tx, rx) = bounded(1);
+        let handle = thread::spawn(move || {
+            let mut background_thread_stdout = StdoutBlender::new(tx_cb);
+            tx.send(()).unwrap();
+            (0..3).for_each(|_| {
+                write_one_cycle(&mut background_thread_stdout, &mut terminal_clone);
+                thread::sleep(Duration::from_millis(1))
+            })
+        });
+        rx.recv().unwrap();
+        thread::sleep(Duration::from_millis(5));
+        let quite_irrelevant = terminal.read_line();
 
-    impl EditorTrait for EditorMock {
-        fn readline(&mut self, prompt: &str) -> Result<String, ReadlineError> {
-            self.readline_params
-                .lock()
-                .unwrap()
-                .push(prompt.to_string());
-            self.readline_results.borrow_mut().remove(0)
-        }
+        handle.join().unwrap();
 
-        fn add_history_entry(&mut self, line: &str) -> bool {
-            self.add_history_entry_params
-                .lock()
-                .unwrap()
-                .push(line.to_string());
-            self.add_history_entry_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl EditorMock {
-        fn new() -> EditorMock {
-            EditorMock {
-                readline_params: Arc::new(Mutex::new(vec![])),
-                readline_results: RefCell::new(vec![]),
-                add_history_entry_params: Arc::new(Mutex::new(vec![])),
-                add_history_entry_results: RefCell::new(vec![]),
+        assert_eq!(
+            quite_irrelevant,
+            TerminalEvent::CommandLine(vec!["Some".to_string(), ("command").to_string()])
+        );
+        let mut written_in_a_whole = String::new();
+        loop {
+            match rx_cb.try_recv() {
+                Ok(string) => written_in_a_whole.push_str(&string),
+                Err(_) => break,
             }
         }
+        assert!(!written_in_a_whole.starts_with("mas"));
+        assert!(!written_in_a_whole.ends_with("asq> \n"));
+        assert_eq!(written_in_a_whole.len(), 97);
+        let filtered_string = written_in_a_whole.replace("012345678910111213141516171819", "");
+        assert_eq!(filtered_string, "masq> \n");
+    }
 
-        fn readline_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
-            self.readline_params = params.clone();
-            self
-        }
-
-        fn readline_result(self, result: Result<String, ReadlineError>) -> Self {
-            self.readline_results.borrow_mut().push(result);
-            self
-        }
-
-        fn add_history_entry_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
-            self.add_history_entry_params = params.clone();
-            self
-        }
-
-        fn add_history_entry_result(self, result: bool) -> Self {
-            self.add_history_entry_results.borrow_mut().push(result);
-            self
-        }
+    fn write_one_cycle(stdout: &mut StdoutBlender, interface: &mut TerminalWrapper) {
+        let _lock = interface.lock();
+        (0..20).for_each(|num: u8| {
+            stdout.write(num.to_string().as_bytes()).unwrap();
+            thread::sleep(Duration::from_millis(1))
+        })
     }
 
     #[test]
-    #[should_panic(expected = "Should never be called")]
-    fn read_doesnt_work() {
-        let mut subject = LineReader::new();
+    fn read_line_works_when_eof_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Eof)),
+        ));
 
-        let _ = subject.read(&mut [0; 0]);
+        let result = subject.read_line();
+
+        assert_eq!(result, TerminalEvent::CLBreak);
     }
 
     #[test]
-    #[should_panic(expected = "Should never be called")]
-    fn fill_buf_doesnt_work() {
-        let mut subject = LineReader::new();
+    fn read_line_works_when_signal_interrupted_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Break))),
+        ));
 
-        let _ = subject.fill_buf();
+        let result = subject.read_line();
+
+        assert_eq!(result, TerminalEvent::CLBreak);
     }
 
     #[test]
-    #[should_panic(expected = "Should never be called")]
-    fn consume_doesnt_work() {
-        let mut subject = LineReader::new();
+    fn read_line_works_when_signal_break_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Interrupt))),
+        ));
 
-        let _ = subject.consume(0);
+        let result = subject.read_line();
+
+        assert_eq!(result, TerminalEvent::CLBreak);
     }
 
     #[test]
-    fn read_line_works_when_rustyline_succeeds() {
-        let line = "Mary had a little lamb";
-        let readline_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_history_entry_params_arc = Arc::new(Mutex::new(vec![]));
-        let editor = EditorMock::new()
-            .readline_params(&readline_params_arc)
-            .readline_result(Ok(line.to_string()))
-            .add_history_entry_params(&add_history_entry_params_arc)
-            .add_history_entry_result(true);
-        let mut subject = LineReader::new();
-        subject.delegate = Box::new(editor);
-        let mut buf = "this should be overwritten".to_string();
+    fn read_line_works_when_a_valid_string_line_comes_from_the_terminal() {
+        let add_history_unique_params_arc = Arc::new(Mutex::new(vec![]));
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new()
+                .read_line_result(Ok(ReadResult::Input("setup --ip 4.4.4.4".to_string())))
+                .add_history_unique_params(add_history_unique_params_arc.clone()),
+        ));
 
-        let result = subject.read_line(&mut buf);
+        let result = subject.read_line();
 
-        assert_eq!(result.unwrap(), line.len());
-        assert_eq!(buf, line.to_string());
-        let readline_params = readline_params_arc.lock().unwrap();
-        assert_eq!(*readline_params, vec![MASQ_PROMPT.to_string()]);
-        let add_history_entry_params = add_history_entry_params_arc.lock().unwrap();
-        assert_eq!(*add_history_entry_params, vec![line.to_string()]);
+        assert_eq!(
+            result,
+            TerminalEvent::CommandLine(vec![
+                "setup".to_string(),
+                "--ip".to_string(),
+                "4.4.4.4".to_string()
+            ])
+        );
+
+        let add_history_unique_params = add_history_unique_params_arc.lock().unwrap();
+        assert_eq!(
+            *add_history_unique_params[0],
+            "setup --ip 4.4.4.4".to_string()
+        )
     }
 
     #[test]
-    fn read_line_works_when_rustyline_says_eof() {
-        let editor = EditorMock::new().readline_result(Err(ReadlineError::Eof));
-        let mut subject = LineReader::new();
-        subject.delegate = Box::new(editor);
-        let mut buf = String::new();
+    fn read_line_works_when_signal_quit_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Quit))),
+        ));
 
-        let result = subject.read_line(&mut buf);
+        let result = subject.read_line();
 
-        assert_eq!(result.err().unwrap().to_string(), "End of file".to_string());
-        assert_eq!(buf, String::new());
+        assert_eq!(result, TerminalEvent::CLBreak)
     }
 
     #[test]
-    fn read_line_works_when_rustyline_says_interrupted() {
-        let editor = EditorMock::new().readline_result(Err(ReadlineError::Interrupted));
-        let mut subject = LineReader::new();
-        subject.delegate = Box::new(editor);
-        let mut buf = String::new();
+    fn read_line_works_when_signal_suspend_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Suspend))),
+        ));
 
-        let result = subject.read_line(&mut buf);
+        let result = subject.read_line();
 
-        assert_eq!(result.err().unwrap().to_string(), "Interrupted".to_string());
-        assert_eq!(buf, String::new());
+        assert_eq!(result, TerminalEvent::CLBreak)
     }
 
     #[test]
-    fn read_line_works_when_rustyline_says_something_else() {
-        let editor = EditorMock::new().readline_result(Err(ReadlineError::Io(io::Error::new(
-            ErrorKind::Other,
-            "Booga!",
-        ))));
-        let mut subject = LineReader::new();
-        subject.delegate = Box::new(editor);
-        let mut buf = String::new();
+    fn read_line_works_when_signal_continue_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Continue))),
+        ));
 
-        let result = subject.read_line(&mut buf);
+        let result = subject.read_line();
 
-        assert_eq!(result.err().unwrap().to_string(), "Booga!".to_string());
-        assert_eq!(buf, String::new());
+        assert_eq!(result, TerminalEvent::CLContinue);
+    }
+
+    #[test]
+    fn read_line_works_when_signal_resize_is_hit() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new().read_line_result(Ok(ReadResult::Signal(Signal::Resize))),
+        ));
+
+        let result = subject.read_line();
+
+        assert_eq!(result, TerminalEvent::CLContinue);
+    }
+
+    #[test]
+    fn read_line_receives_an_error_and_sends_it_forward() {
+        let subject = TerminalReal::new(Box::new(
+            InterfaceRawMock::new()
+                .read_line_result(Err(std::io::Error::from(ErrorKind::InvalidInput))),
+        ));
+
+        let result = subject.read_line();
+
+        assert_eq!(
+            result,
+            TerminalEvent::CLError(Some(
+                "Reading from the terminal: invalid input parameter".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn accept_subcommand_handles_balanced_double_quotes() {
+        let command_line =
+            "  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth\" "
+                .to_string();
+
+        let result = split_quoted_line(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth'fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_unbalanced_double_quotes() {
+        let command_line =
+            "  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth  "
+                .to_string();
+
+        let result = split_quoted_line(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth'fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth  ".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_balanced_single_quotes() {
+        let command_line =
+            "  first \n 'second' \n third \n 'fourth\"fifth' \t sixth 'seventh eighth\tninth' "
+                .to_string();
+
+        let result = split_quoted_line(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth\"fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn accept_subcommand_handles_unbalanced_single_quotes() {
+        let command_line =
+            "  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth  ".to_string();
+        let result = split_quoted_line(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth\"fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth  ".to_string(),
+            ]
+        )
     }
 }

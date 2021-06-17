@@ -54,7 +54,7 @@ impl Command for CrashCommand {
 }
 
 impl CrashCommand {
-    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
+    pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match crash_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
@@ -86,7 +86,7 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().send_result(Ok(()));
         let subject = factory
-            .make(vec![
+            .make(&[
                 "crash".to_string(),
                 "Dispatcher".to_string(),
                 "panic message".to_string(),
@@ -108,7 +108,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec![
+            .make(&[
                 "crash".to_string(),
                 "blocKChainbRidge".to_string(),
                 "These are the times".to_string(),
@@ -140,7 +140,7 @@ mod tests {
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
-        let subject = factory.make(vec!["crash".to_string()]).unwrap();
+        let subject = factory.make(&["crash".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -162,7 +162,7 @@ mod tests {
     fn crash_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
             .send_result(Err(ContextError::ConnectionDropped("blah".to_string())));
-        let subject = CrashCommand::new(vec![
+        let subject = CrashCommand::new(&[
             "crash".to_string(),
             "BlockchainBridge".to_string(),
             "message".to_string(),

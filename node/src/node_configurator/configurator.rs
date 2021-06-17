@@ -197,47 +197,67 @@ impl Configurator {
     }
 
     fn get_wallet_addresses(&self, db_password: String) -> Result<(String, String), (u64, String)> {
-        let mnemonic = match self.persistent_config.mnemonic_seed(&db_password) {
-            Ok(mnemonic_opt) => match mnemonic_opt {
-                None => {
-                    return Err((
-                        EARLY_QUESTIONING_ABOUT_DATA,
-                        "Wallets must exist prior to \
-                 demanding info on them (recover or generate wallets first)"
-                            .to_string(),
-                    ))
-                }
-                Some(mnemonic) => mnemonic,
+        let mnemonic = match Self::process_value_with_dif_treatment_of_none(
+            self.persistent_config.mnemonic_seed(&db_password),
+            || {
+                (
+                    EARLY_QUESTIONING_ABOUT_DATA,
+                    "Wallets must exist prior to demanding info \
+                    on them (recover or generate wallets first)"
+                        .to_string(),
+                )
             },
-            Err(e) => return Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
+        ) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
         };
-        let derivation_path = match self.persistent_config.consuming_wallet_derivation_path() {
-            Ok(deriv_path_opt) => match deriv_path_opt {
-                None => panic!(
-                    "Database corrupted: consuming derivation path not present despite \
-                 mnemonic seed in place!"
-                ),
-                Some(deriv_path) => deriv_path,
+
+        let derivation_path = match Self::process_value_with_dif_treatment_of_none(
+            self.persistent_config.consuming_wallet_derivation_path(),
+            || {
+                panic!(
+                    "Database corrupted: consuming derivation path \
+                     not present despite mnemonic seed in place!"
+                )
             },
-            Err(e) => return Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
+        ) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
         };
+
         let consuming_wallet_address =
             match Self::recalculate_consuming_wallet(mnemonic, derivation_path) {
                 Ok(wallet) => wallet.string_address_from_keypair(),
                 Err(e) => return Err((KEY_PAIR_CONSTRUCTION_ERROR, e)),
             };
-        let earning_wallet_address = match self.persistent_config.earning_wallet_address() {
-            Ok(address) => match address {
-                None => panic!(
-                    "Database corrupted: missing earning wallet address despite other \
-                 values for wallets in place!"
-                ),
-                Some(address) => address,
+
+        let earning_wallet_address = match Self::process_value_with_dif_treatment_of_none(
+            self.persistent_config.earning_wallet_address(),
+            || {
+                panic!(
+                    "Database corrupted: missing earning wallet address \
+                      despite other values for wallets in place!"
+                )
             },
-            Err(e) => return Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
+        ) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
         };
 
         Ok((consuming_wallet_address, earning_wallet_address))
+    }
+
+    fn process_value_with_dif_treatment_of_none<T>(
+        data: Result<Option<T>, PersistentConfigError>,
+        closure_for_none: fn() -> (u64, String),
+    ) -> Result<T, (u64, String)> {
+        match data {
+            Ok(value) => match value {
+                None => Err(closure_for_none()),
+                Some(value) => Ok(value),
+            },
+            Err(e) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
+        }
     }
 
     fn recalculate_consuming_wallet(

@@ -5,11 +5,20 @@ use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handler::StreamFactory;
-use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
+use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
+use crate::line_reader::TerminalEvent;
+use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClap};
+use crate::terminal_interface::{InterfaceWrapper, MasqTerminal, TerminalWrapper, WriterLock};
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
+use linefeed::memory::MemoryTerminal;
+use linefeed::{Interface, ReadResult};
+use masq_lib::constants::DEFAULT_UI_PORT;
+use masq_lib::intentionally_blank;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
+use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -22,8 +31,8 @@ pub struct CommandFactoryMock {
 }
 
 impl CommandFactory for CommandFactoryMock {
-    fn make(&self, pieces: Vec<String>) -> Result<Box<dyn Command>, CommandFactoryError> {
-        self.make_params.lock().unwrap().push(pieces);
+    fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError> {
+        self.make_params.lock().unwrap().push(pieces.to_vec());
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -162,6 +171,7 @@ pub struct CommandProcessorMock {
     process_params: Arc<Mutex<Vec<Box<dyn Command>>>>,
     process_results: RefCell<Vec<Result<(), CommandError>>>,
     close_params: Arc<Mutex<Vec<()>>>,
+    terminal_interface: Option<TerminalWrapper>,
 }
 
 impl CommandProcessor for CommandProcessorMock {
@@ -173,11 +183,23 @@ impl CommandProcessor for CommandProcessorMock {
     fn close(&mut self) {
         self.close_params.lock().unwrap().push(());
     }
+
+    fn terminal_wrapper_ref(&self) -> &TerminalWrapper {
+        self.terminal_interface.as_ref().unwrap()
+    }
 }
 
 impl CommandProcessorMock {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn inject_terminal_interface(
+        mut self,
+        terminal_interface_arc_clone: TerminalWrapper,
+    ) -> Self {
+        self.terminal_interface = Some(terminal_interface_arc_clone);
+        self
     }
 
     pub fn process_params(mut self, params: &Arc<Mutex<Vec<Box<dyn Command>>>>) -> Self {
@@ -198,17 +220,22 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandProcessorFactoryMock {
-    make_params: Arc<Mutex<Vec<Vec<String>>>>,
+    make_params: Arc<Mutex<Vec<(Option<TerminalWrapper>, Box<dyn BroadcastHandle>, u16)>>>,
     make_results: RefCell<Vec<Result<Box<dyn CommandProcessor>, CommandError>>>,
 }
 
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
-        _broadcast_stream_factory: Box<dyn StreamFactory>,
-        args: &[String],
+        terminal_interface: Option<TerminalWrapper>,
+        generic_broadcast_handle: Box<dyn BroadcastHandle>,
+        ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        self.make_params.lock().unwrap().push(args.to_vec());
+        self.make_params.lock().unwrap().push((
+            terminal_interface,
+            generic_broadcast_handle,
+            ui_port,
+        ));
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -218,7 +245,10 @@ impl CommandProcessorFactoryMock {
         Self::default()
     }
 
-    pub fn make_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+    pub fn make_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Option<TerminalWrapper>, Box<dyn BroadcastHandle>, u16)>>>,
+    ) -> Self {
         self.make_params = params.clone();
         self
     }
@@ -226,6 +256,22 @@ impl CommandProcessorFactoryMock {
     pub fn make_result(self, result: Result<Box<dyn CommandProcessor>, CommandError>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
+    }
+}
+
+pub struct NIClapFactoryMock;
+
+impl NIClapFactory for NIClapFactoryMock {
+    fn make(&self) -> Box<dyn NonInteractiveClap> {
+        Box::new(NonInteractiveClapMock {})
+    }
+}
+
+pub struct NonInteractiveClapMock;
+
+impl NonInteractiveClap for NonInteractiveClapMock {
+    fn non_interactive_initial_clap_operations(&self, _args: &[String]) -> u16 {
+        DEFAULT_UI_PORT
     }
 }
 
@@ -319,6 +365,24 @@ impl TestStreamFactory {
         };
         (factory, handle)
     }
+
+    pub fn clone_senders(&self) -> (Sender<String>, Sender<String>) {
+        let stdout = self
+            .stdout_opt
+            .borrow_mut()
+            .as_ref()
+            .unwrap()
+            .write_tx
+            .clone();
+        let stderr = self
+            .stderr_opt
+            .borrow_mut()
+            .as_ref()
+            .unwrap()
+            .write_tx
+            .clone();
+        (stdout, stderr)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -356,5 +420,208 @@ impl TestStreamFactoryHandle {
             }
         }
         accum
+    }
+}
+
+impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory {
+    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
+        let (stdout, stderr) = self.stream_factory.make();
+        let stream_with_checker = TestStreamWithThreadLifeChecker {
+            stream: stdout,
+            threads_connector: self.threads_connector.borrow_mut().take().unwrap(),
+        };
+        (Box::new(stream_with_checker), stderr)
+    }
+}
+
+//this set is invented just for a single special test; checking that the background thread doesn't outlive the foreground thread
+#[derive(Debug)]
+pub struct TestStreamsWithThreadLifeCheckerFactory {
+    stream_factory: TestStreamFactory,
+    threads_connector: RefCell<Option<Sender<()>>>,
+}
+
+struct TestStreamWithThreadLifeChecker {
+    stream: Box<dyn Write>,
+    threads_connector: Sender<()>,
+}
+
+impl Write for TestStreamWithThreadLifeChecker {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.stream.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stream.flush()
+    }
+}
+
+impl Drop for TestStreamWithThreadLifeChecker {
+    fn drop(&mut self) {
+        self.threads_connector.send(()).unwrap();
+    }
+}
+
+pub fn make_tools_for_test_streams_with_thread_life_checker() -> (
+    Receiver<()>,
+    TestStreamsWithThreadLifeCheckerFactory,
+    TestStreamFactoryHandle,
+) {
+    let (stream_factory, stream_handle) = TestStreamFactory::new();
+    let (tx, life_checker_receiver) = bounded(1);
+    (
+        life_checker_receiver,
+        TestStreamsWithThreadLifeCheckerFactory {
+            stream_factory,
+            threads_connector: RefCell::new(Some(tx)),
+        },
+        stream_handle,
+    )
+}
+
+//this is used in tests aimed at synchronization
+#[derive(Clone)]
+pub struct StdoutBlender {
+    channel_half: Sender<String>,
+}
+
+impl StdoutBlender {
+    pub fn new(sender: Sender<String>) -> Self {
+        StdoutBlender {
+            channel_half: sender,
+        }
+    }
+}
+
+impl Write for StdoutBlender {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let chunk = std::str::from_utf8(buf).unwrap().to_string();
+        let length = chunk.len();
+        self.channel_half.send(chunk).unwrap();
+        Ok(length)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
+        self.channel_half.send(fmt.to_string()).unwrap();
+        Ok(())
+    }
+}
+
+//light-weight mock ("passive" = without functions of the linefeed interface and without functional locking
+//thus unusable for sync tests
+
+#[derive(Clone)]
+pub struct TerminalPassiveMock {
+    read_line_result: Arc<Mutex<Vec<TerminalEvent>>>,
+}
+
+impl MasqTerminal for TerminalPassiveMock {
+    fn read_line(&self) -> TerminalEvent {
+        self.read_line_result.lock().unwrap().remove(0)
+    }
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
+        Box::new(WriterInactive {})
+    }
+}
+
+impl TerminalPassiveMock {
+    pub fn new() -> Self {
+        Self {
+            read_line_result: Arc::new(Mutex::new(vec![])),
+        }
+    }
+    pub fn read_line_result(self, result: TerminalEvent) -> Self {
+        self.read_line_result.lock().unwrap().push(result);
+        self
+    }
+}
+
+//mock incorporating with in-memory using functional locking corresponding to how it works in the production code;
+
+pub struct TerminalActiveMock {
+    in_memory_terminal: Interface<MemoryTerminal>,
+    user_input: Arc<Mutex<Vec<String>>>,
+}
+
+impl MasqTerminal for TerminalActiveMock {
+    fn read_line(&self) -> TerminalEvent {
+        let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
+        TerminalEvent::CommandLine(vec![line])
+    }
+    fn lock(&self) -> Box<dyn WriterLock + '_> {
+        Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
+    }
+}
+
+impl TerminalActiveMock {
+    pub fn new() -> Self {
+        Self {
+            in_memory_terminal: Interface::with_term("test only terminal", MemoryTerminal::new())
+                .unwrap(),
+            user_input: Arc::new(Mutex::new(vec![])),
+        }
+    }
+    pub fn read_line_result(self, line: String) -> Self {
+        self.user_input
+            .lock()
+            .unwrap()
+            .borrow_mut()
+            .push(format!("{}\n", line));
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct WriterInactive {}
+
+impl WriterLock for WriterInactive {
+    #[cfg(test)]
+    fn tell_me_who_you_are(&self) -> String {
+        "WriterInactive".to_string()
+    }
+}
+
+#[derive(Default)]
+pub struct InterfaceRawMock {
+    read_line_result: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
+    add_history_unique_params: Arc<Mutex<Vec<String>>>,
+    set_prompt_result: Arc<Mutex<Vec<std::io::Result<()>>>>,
+}
+
+impl InterfaceWrapper for InterfaceRawMock {
+    fn read_line(&self) -> std::io::Result<ReadResult> {
+        self.read_line_result.lock().unwrap().remove(0)
+    }
+    fn add_history(&self, line: String) {
+        self.add_history_unique_params.lock().unwrap().push(line)
+    }
+    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + 'static>> {
+        intentionally_blank!()
+    }
+    fn set_prompt(&self, _prompt: &str) -> std::io::Result<()> {
+        self.set_prompt_result.lock().unwrap().remove(0)
+    }
+}
+
+impl InterfaceRawMock {
+    pub fn new() -> Self {
+        Self {
+            read_line_result: Arc::new(Mutex::new(vec![])),
+            add_history_unique_params: Arc::new(Mutex::new(vec![])),
+            set_prompt_result: Arc::new(Mutex::new(vec![])),
+        }
+    }
+    pub fn read_line_result(self, result: std::io::Result<ReadResult>) -> Self {
+        self.read_line_result.lock().unwrap().push(result);
+        self
+    }
+    pub fn add_history_unique_params(mut self, params: Arc<Mutex<Vec<String>>>) -> Self {
+        self.add_history_unique_params = params;
+        self
+    }
+    pub fn set_prompt_result(self, result: std::io::Result<()>) -> Self {
+        self.set_prompt_result.lock().unwrap().push(result);
+        self
     }
 }

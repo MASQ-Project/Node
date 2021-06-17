@@ -15,7 +15,7 @@ extern "C" {
 use crate::bootstrapper::RealUser;
 #[cfg(not(target_os = "windows"))]
 use nix::NixPath;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub trait IdWrapper: Send {
@@ -61,7 +61,7 @@ impl IdWrapper for IdWrapperReal {
 
 pub trait PrivilegeDropper: Send {
     fn drop_privileges(&self, real_user: &RealUser);
-    fn chown(&self, file: &PathBuf, real_user: &RealUser);
+    fn chown(&self, file: &Path, real_user: &RealUser);
     fn expect_privilege(&self, privilege_expected: bool) -> bool;
 }
 
@@ -103,7 +103,7 @@ impl PrivilegeDropper for PrivilegeDropperReal {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn chown(&self, file: &PathBuf, real_user: &RealUser) {
+    fn chown(&self, file: &Path, real_user: &RealUser) {
         // Don't bother trying if the file is blank
         if file.is_empty() {
             return;
@@ -133,7 +133,7 @@ impl PrivilegeDropper for PrivilegeDropperReal {
     }
 
     #[cfg(target_os = "windows")]
-    fn chown(&self, _file: &PathBuf, _real_user: &RealUser) {
+    fn chown(&self, _file: &Path, _real_user: &RealUser) {
         // Windows doesn't need chown: it runs as administrator the whole way
     }
 

@@ -33,31 +33,6 @@ pub fn main() {
     test_igdp();
 }
 
-// struct Tracker {
-//     issues: Vec<String>,
-// }
-
-// impl Tracker {
-//     fn new () -> Self {
-//         Self {
-//             issues: vec![]
-//         }
-//     }
-//
-//     fn fail (&mut self, msg: String) {
-//         self.issues.push (msg);
-//     }
-//
-//     fn resolve (self) {
-//         if self.issues.is_empty () {
-//             ::std::process::exit (0);
-//         }
-//         else {
-//             let _: () = abort (&self.issues.join ("\n"));
-//         }
-//     }
-// }
-
 fn abort<T>(msg: &str) -> T {
     eprintln!("{}", msg);
     ::std::process::exit(1);

@@ -74,6 +74,10 @@ Temporary Items
 # CMake
 cmake-build-debug/
 
+# Azure
+.idea/azure*
+.idea/azure/
+
 # Mongo Explorer plugin:
 **/.idea/**/mongoSettings.xml
 
@@ -83,6 +87,9 @@ cmake-build-debug/
 *.ipr
 
 ## Plugin-specific files:
+
+# Azure:
+**/.idea/azureSettings.xml
 
 # IntelliJ
 out/
