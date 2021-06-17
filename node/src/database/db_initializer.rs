@@ -16,7 +16,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
@@ -72,20 +72,19 @@ impl DbInitializer for DbInitializerReal {
             return Err(InitializationError::Nonexistent);
         }
         Self::create_data_directory_if_necessary(path);
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE;
         let database_file_path = &path.join(DATABASE_FILE);
         match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
-                let config = self.extract_configurations(&conn); //TODO this should be replaced with a call of PersistentConfiguration.current_schema_version()...which involves moving the creation of PC from conn_to_checked_datbase to here
+                let config = self.extract_configurations(&conn);
                 let migrator = Box::new(DbMigratorReal::default());
                 self.update_if_required_and_get_connection(
                     conn,
                     config.get("schema_version"),
                     target_version,
-                    path,
-                    chain_id,
+                    database_file_path,
+                    flags,
                     migrator,
                 )
             }
@@ -288,13 +287,13 @@ impl DbInitializerReal {
     fn update_if_required_and_get_connection(
         &self,
         conn: Connection,
-        version: Option<&Option<String>>,
+        version_found: Option<&Option<String>>,
         target_version: usize,
-        dir_path: &Path,
-        chain_id: u8,
+        db_file_path: &PathBuf,
+        opening_flags: OpenFlags,
         migrator: Box<dyn DbMigrator>,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-        match version {
+        match version_found {
             None => Err(InitializationError::UndetectableVersion(format!(
                 "Need {}, found nothing",
                 CURRENT_SCHEMA_VERSION
@@ -315,11 +314,39 @@ impl DbInitializerReal {
                         target_version,
                         Box::new(wrapped_connection),
                     ) {
-                        Ok(_) => self.initialize(dir_path, chain_id, false), //TODO figure out how to do this without recursion (simpler and safer)
+                        Ok(_) => {
+                            let wrapped_conn = self.double_check_the_result_of_db_migration(
+                                db_file_path,
+                                opening_flags,
+                            );
+                            Ok(wrapped_conn)
+                        }
                         Err(e) => Err(InitializationError::DbMigrationError(e)),
                     }
                 }
             }
+        }
+    }
+
+    fn double_check_the_result_of_db_migration(
+        &self,
+        db_file_path: &PathBuf,
+        opening_flags: OpenFlags,
+    ) -> Box<dyn ConnectionWrapper> {
+        let conn = Connection::open_with_flags(db_file_path, opening_flags)
+            .unwrap_or_else(|e| panic!("The database undoubtedly exists, but: {}", e));
+        let config_table_content = self.extract_configurations(&conn);
+        let schema_version_entry = config_table_content.get("schema_version");
+        let found_schema = Self::validate_schema_version(
+            &schema_version_entry
+                .expect("Db migration failed; did not find a row")
+                .as_ref()
+                .expect("Db migration failed; a value is missing"),
+        );
+        if found_schema.eq(&CURRENT_SCHEMA_VERSION) {
+            Box::new(ConnectionWrapperReal::new(conn))
+        } else {
+            panic!("DB migration failed; the records after it are incorrect again")
         }
     }
 
@@ -458,12 +485,14 @@ pub mod test_utils {
 
         fn initialize_to_version(
             &self,
-            path: &Path,
-            chain_id: u8,
-            target_version: usize,
-            create_if_necessary: bool,
+            _path: &Path,
+            _chain_id: u8,
+            _target_version: usize,
+            _create_if_necessary: bool,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-            todo!()
+            intentionally_blank!()
+            //it doesn't make too much sense to test this method separately, it's a test aid itself from a certain perspective;
+            //we want to access it from various files though
         }
     }
 
@@ -495,7 +524,7 @@ mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::test_utils::database_utils::{
-        revive_tables_of_the_version_0_and_return_connection_to_the_db, DbMigratorMock,
+        revive_tables_of_the_version_0_and_return_the_connection_to_the_db, DbMigratorMock,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
@@ -612,6 +641,42 @@ mod tests {
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
         let mut banned_contents = stmt.query_map(NO_PARAMS, |_| Ok(42)).unwrap();
         assert!(banned_contents.next().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "The database undoubtedly exists, but: unable to open database file")]
+    fn double_check_the_result_of_db_migration_panics_if_cannot_reestablish_the_connection_to_the_database(
+    ) {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "double_check_the_result_of_db_migration_panics_if_cannot_reestablish_the_connection_to_the_database",
+        );
+        let subject = DbInitializerReal::new();
+
+        let _ = subject.double_check_the_result_of_db_migration(
+            &home_dir.join(DATABASE_FILE),
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "DB migration failed; the records after it are incorrect again")]
+    fn double_check_the_result_of_db_migration_panics_if_the_data_of_schema_version_does_not_fit_to_current_schema_after_an_allegedly_successful_update(
+    ) {
+        let home_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "double_check_the_result_of_db_migration_panics_if_the_data_of_schema_version_does_not_fit_to_current_schema_after_an_allegedly_successful_update",
+        );
+        let db_file_path = home_dir.join(DATABASE_FILE);
+        let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_file_path);
+        //schema_version equals to 0 but current schema version must be at least 1 and more
+
+        let subject = DbInitializerReal::new();
+
+        let _ = subject.double_check_the_result_of_db_migration(
+            &home_dir.join(DATABASE_FILE),
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+        );
     }
 
     #[test]
@@ -755,7 +820,7 @@ mod tests {
         );
         let db_path = &home_dir.join(DATABASE_FILE);
         {
-            revive_tables_of_the_version_0_and_return_connection_to_the_db(db_path);
+            revive_tables_of_the_version_0_and_return_the_connection_to_the_db(db_path);
         }
         let subject = DbInitializerReal::new();
 
@@ -781,18 +846,18 @@ mod tests {
             "conn_to_checked_existing_database_starts_db_migration_and_hands_in_an_error_from_database_operations",
         );
         let migrate_database_params_arc = Arc::new(Mutex::new(vec![]));
-        let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
+        let db_file_path = home_dir.join(DATABASE_FILE);
+        let conn = Connection::open(&db_file_path).unwrap();
         let subject = DbInitializerReal::new();
         let target_version = 5; //not relevant
         let migrator = Box::new(DbMigratorMock::default().migrate_database_params(&migrate_database_params_arc).migrate_database_result(Err("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string())));
-        let chain_id = 2;
 
         let result = subject.update_if_required_and_get_connection(
             conn,
             Some(&Some("0".to_string())),
             target_version,
-            &home_dir,
-            chain_id,
+            &db_file_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
             migrator,
         );
 

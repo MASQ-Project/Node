@@ -308,7 +308,7 @@ mod tests {
     use crate::database::db_migrations::{DBMigratorConfiguration, DbMigratorReal};
     use crate::test_utils::database_utils::{
         assurance_query_for_config_table,
-        revive_tables_of_the_version_0_and_return_connection_to_the_db,
+        revive_tables_of_the_version_0_and_return_the_connection_to_the_db,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use lazy_static::lazy_static;
@@ -933,7 +933,8 @@ mod tests {
         let dir_path = TEST_DIRECTORY_FOR_DB_MIGRATION.join("0_to_1");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
-        let connection = revive_tables_of_the_version_0_and_return_connection_to_the_db(&db_path);
+        let connection =
+            revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
         let subject = DbInitializerReal::default();
 
         let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 1, true);

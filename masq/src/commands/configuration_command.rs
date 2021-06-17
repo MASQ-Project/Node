@@ -151,7 +151,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::automap_tools::MappingProtocol;
+    use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use std::sync::{Arc, Mutex};
@@ -228,7 +228,7 @@ mod tests {
             mnemonic_seed_opt: Some("mnemonic seed".to_string()),
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
-            port_mapping_protocol_opt: Some(MappingProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
             start_block: 3456,
         };

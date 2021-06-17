@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 //the only difference to the original is that we create the db in every call anew
-pub fn revive_tables_of_the_version_0_and_return_connection_to_the_db(
+pub fn revive_tables_of_the_version_0_and_return_the_connection_to_the_db(
     db_path: &PathBuf,
 ) -> Connection {
     match remove_file(db_path) {
