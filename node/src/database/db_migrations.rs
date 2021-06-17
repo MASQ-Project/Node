@@ -7,11 +7,6 @@ use masq_lib::utils::ExpectValue;
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
 
-#[cfg(test)]
-use std::any::Any;
-
-const THE_EARLIEST_RECORD_OF_DB_MIGRATION: usize = 0; //TODO maybe remove this
-
 pub trait DbMigrator {
     fn migrate_database(
         &self,
@@ -67,9 +62,6 @@ trait DBMigrationUtilities {
     fn execute_upon_transaction(&self, sql_statements: &[&'static str]) -> rusqlite::Result<()>;
 
     fn commit(&mut self) -> Result<(), String>;
-
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn Any;
 }
 
 struct DBMigrationUtilitiesReal<'a> {
@@ -123,10 +115,6 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
             .commit()
             .map_err(|e| e.to_string())
     }
-
-    fn as_any(&self) -> &dyn Any {
-        todo!()
-    }
 }
 
 struct DBMigratorConfiguration {
@@ -175,7 +163,6 @@ impl DbMigratorReal {
     }
 
     fn make_updates<'a>(
-        //TODO is this function tested from a higher level?
         &self,
         mismatched_schema: usize,
         target_version: usize,
@@ -311,17 +298,22 @@ impl DbMigratorReal {
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
-    use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
+    use crate::database::db_initializer::{
+        DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
+    };
     use crate::database::db_migrations::{
         DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator,
         Migrate_0_to_1,
     };
     use crate::database::db_migrations::{DBMigratorConfiguration, DbMigratorReal};
+    use crate::test_utils::database_utils::{
+        assurance_query_for_config_table,
+        revive_tables_of_the_version_0_and_return_connection_to_the_db,
+    };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use lazy_static::lazy_static;
-    use masq_lib::test_utils::utils::BASE_TEST_DIR;
+    use masq_lib::test_utils::utils::{BASE_TEST_DIR, DEFAULT_CHAIN_ID};
     use rusqlite::{Connection, Error, NO_PARAMS};
-    use std::any::Any;
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
@@ -402,10 +394,6 @@ mod tests {
         fn commit(&mut self) -> Result<(), String> {
             self.commit_params.lock().unwrap().push(());
             self.commit_results.borrow_mut().remove(0)
-        }
-
-        fn as_any(&self) -> &dyn Any {
-            todo!()
         }
     }
 
@@ -584,8 +572,6 @@ mod tests {
         assert_eq!(result, Err(Error::InvalidColumnIndex(5)));
     }
 
-    //TODO write a test for 'commit()'
-
     #[test]
     fn execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled(
     ) {
@@ -658,6 +644,49 @@ mod tests {
             Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
             list_of_updates,
         );
+    }
+
+    #[test]
+    fn final_commit_of_the_root_transaction_sad_path() {
+        let first_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
+        let second_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
+        let first_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
+        let second_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let list_of_updates: &[&dyn DatabaseMigration] = &[
+            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+                0,
+                &first_record_old_version_p_arc,
+                Ok(()),
+                &first_record_migration_p_arc,
+            ),
+            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+                1,
+                &second_record_old_version_p_arc,
+                Ok(()),
+                &second_record_migration_p_arc,
+            ),
+        ];
+        let migration_utils = DBMigrationUtilitiesMock::default()
+            .update_schema_version_result(Ok(()))
+            .update_schema_version_result(Ok(()))
+            .commit_params(&commit_params_arc)
+            .commit_result(Err("Committing transaction failed".to_string()));
+        let subject = DbMigratorReal::new();
+
+        let result = subject.make_updates(0, 2, Box::new(migration_utils), list_of_updates);
+
+        assert_eq!(result, Err(String::from("Committing transaction failed")));
+        let first_record_old_version_param = first_record_old_version_p_arc.lock().unwrap();
+        assert_eq!(first_record_old_version_param.len(), 2);
+        let second_record_old_version_param = second_record_old_version_p_arc.lock().unwrap();
+        assert_eq!(second_record_old_version_param.len(), 3);
+        let first_record_migration_params = first_record_migration_p_arc.lock().unwrap();
+        assert_eq!(*first_record_migration_params, vec![()]);
+        let second_record_migration_params = second_record_migration_p_arc.lock().unwrap();
+        assert_eq!(*second_record_migration_params, vec![()]);
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()])
     }
 
     #[test]
@@ -899,101 +928,36 @@ mod tests {
         );
     }
 
-    //TODO write a specific test for the only, so far only, migration record
-
     #[test]
-    fn transacting_migration_sad_path() {
-        // init_test_logging();
-        // let execution_upon_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        // //let connection = Connection::open_in_memory().unwrap();
-        // // connection
-        // //     .execute(
-        // //         "CREATE TABLE test (
-        // //     name TEXT,
-        // //     value TEXT
-        // // )",
-        // //         NO_PARAMS,
-        // //     )
-        // //     .unwrap();
-        // let mut connection_wrapper = ConnectionWrapperMock::default();
-        // // .execute_upon_transaction_result(Err(rusqlite::Error::InvalidQuery))
-        // // .execute_upon_transaction_params(params_arc_clone);
-        // let outdated_schema = 0;
-        // let list = &[&MigrationRecordMock::default()
-        //     .old_version_result(0)
-        //     .execute_upon_transaction_params(&execution_upon_transaction_params_arc)
-        //     .execute_upon_transaction_result(Err(rusqlite::Error::InvalidQuery))
-        //     as &(dyn DatabaseMigration + 'static)];
-        // //.inject_update_statement(update_statement)
-        // //.inject_sql_statement(statement) as &(dyn DatabaseMigration + 'static)];
-        // //let connection_wrapper
-        // let transaction = connection_wrapper.transaction().unwrap();
-        // let migration_utils = DBMigrationUtilitiesMock::default(); //TODO missing configuration
-        // let subject = DbMigratorReal::default();
-        //
-        // let result = subject.make_updates(outdated_schema, Box::new(connection_wrapper),Box::new(migration_utils),list);
-        //
-        // assert_eq!(
-        //     result,
-        //     Err("Updating database from version 0.0.10 to 0.11 failed: InvalidQuery".to_string())
-        // );
-        // assert_eq!(
-        //     *execution_upon_transaction_params_arc
-        //         .lock()
-        //         .unwrap()
-        //         .pop()
-        //         .unwrap(),
-        //     vec![
-        //         "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)"
-        //     ]
-        // );
-        // TestLogHandler::new().exists_log_containing(
-        //     "WARN: DbMigrator: Updating database from version 0.0.10 to 0.11 failed: InvalidQuery",
-        // );
-    }
+    fn migration_from_0_to_1_is_properly_set() {
+        let dir_path = TEST_DIRECTORY_FOR_DB_MIGRATION.join("0_to_1");
+        create_dir_all(&dir_path).unwrap();
+        let db_path = dir_path.join(DATABASE_FILE);
+        let connection = revive_tables_of_the_version_0_and_return_connection_to_the_db(&db_path);
+        let subject = DbInitializerReal::default();
 
-    #[test]
-    fn migration_from_0_0_10_to_0_11_is_properly_set() {
-        // let dir_path = TEST_DIRECTORY_FOR_DB_MIGRATION.join("0_0_10_to_0_11");
-        // create_dir_all(&dir_path).unwrap();
-        // let db_path = dir_path.join("test_database.db");
-        // let connection = Connection::open(&db_path).unwrap();
-        // connection
-        //     .execute(
-        //         "create table if not exists config (
-        //         name text not null,
-        //         value text,
-        //         encrypted integer not null
-        //     )",
-        //         NO_PARAMS,
-        //     )
-        //     .unwrap();
-        // connection.execute("INSERT INTO config (name, value, encrypted) VALUES ('schema_version', '0.0.10', 0)",NO_PARAMS).unwrap();
-        // let connection_wrapper = ConnectionWrapperReal::new(connection);
-        // let outdated_schema = 0;
-        // let list = &[&Migrate_0_to_1 as &(dyn DatabaseMigration + 'static)];
-        // let migration_utils = DBMigrationUtilitiesMock::default();
-        // let subject = DbMigratorReal::default();
-        //
-        // let result = subject.make_updates(outdated_schema, Box::new(migration_utils),list);
-        //
-        // assert!(result.is_ok());
-        // let connection = Connection::open(&db_path).unwrap();
-        // let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
-        //     assurance_query_for_config_table(
-        //         &connection,
-        //         "select name, value, encrypted from config where name = 'mapping_protocol'",
-        //     );
-        // let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
-        //     assurance_query_for_config_table(
-        //         &connection,
-        //         "select name, value, encrypted from config where name = 'schema_version'",
-        //     );
-        // assert_eq!(mp_name, "mapping_protocol".to_string());
-        // assert_eq!(mp_value, None);
-        // assert_eq!(mp_encrypted, 0);
-        // assert_eq!(cs_name, "schema_version".to_string());
-        // assert_eq!(cs_value, Some("1".to_string()));
-        // assert_eq!(cs_encrypted, 0)
+        let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 1, true);
+
+        let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
+            assurance_query_for_config_table(
+                &connection,
+                "select name, value, encrypted from config where name = 'mapping_protocol'",
+            );
+        let (cs_name, cs_value, cs_encrypted): (String, Option<String>, u16) =
+            assurance_query_for_config_table(
+                &connection,
+                "select name, value, encrypted from config where name = 'schema_version'",
+            );
+        assert!(result
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ConnectionWrapperReal>()
+            .is_some());
+        assert_eq!(mp_name, "mapping_protocol".to_string());
+        assert_eq!(mp_value, None);
+        assert_eq!(mp_encrypted, 0);
+        assert_eq!(cs_name, "schema_version".to_string());
+        assert_eq!(cs_value, Some("1".to_string()));
+        assert_eq!(cs_encrypted, 0)
     }
 }

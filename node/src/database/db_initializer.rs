@@ -494,7 +494,9 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::database::test_utils::DbMigratorMock;
+    use crate::test_utils::database_utils::{
+        revive_tables_of_the_version_0_and_return_connection_to_the_db, DbMigratorMock,
+    };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
@@ -751,9 +753,9 @@ mod tests {
             "db_initializer",
             "existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_gradually_migrated_to_upper_versions",
         );
+        let db_path = &home_dir.join(DATABASE_FILE);
         {
-            let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
-            revive_tables_of_the_version_0(&conn)
+            revive_tables_of_the_version_0_and_return_connection_to_the_db(db_path);
         }
         let subject = DbInitializerReal::new();
 
@@ -778,11 +780,11 @@ mod tests {
             "db_initializer",
             "conn_to_checked_existing_database_starts_db_migration_and_hands_in_an_error_from_database_operations",
         );
-        let migrate_database_params = Arc::new(Mutex::new(vec![]));
+        let migrate_database_params_arc = Arc::new(Mutex::new(vec![]));
         let conn = Connection::open(&home_dir.join(DATABASE_FILE)).unwrap();
         let subject = DbInitializerReal::new();
         let target_version = 5; //not relevant
-        let migrator = Box::new(DbMigratorMock::default().migrate_database_params(migrate_database_params.clone()).migrate_database_result(Err("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string())));
+        let migrator = Box::new(DbMigratorMock::default().migrate_database_params(&migrate_database_params_arc).migrate_database_result(Err("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string())));
         let chain_id = 2;
 
         let result = subject.update_if_required_and_get_connection(
@@ -799,6 +801,15 @@ mod tests {
             Err(e) => e,
         };
         assert_eq!(error,InitializationError::DbMigrationError("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string()));
+        let mut migrate_database_params = migrate_database_params_arc.lock().unwrap();
+        let migrate_database_params = migrate_database_params.remove(0);
+        assert_eq!(migrate_database_params.0, 0);
+        assert_eq!(migrate_database_params.1, 5);
+        assert!(migrate_database_params
+            .2
+            .as_any()
+            .downcast_ref::<ConnectionWrapperReal>()
+            .is_some());
     }
 
     #[test]
@@ -933,40 +944,5 @@ mod tests {
         permissions.set_readonly(true);
         fs::set_permissions(&parent_dir, permissions).unwrap();
         data_dir
-    }
-
-    fn revive_tables_of_the_version_0(conn: &Connection) {
-        &[
-            "create table if not exists config (
-            name text not null,
-            value text,
-            encrypted integer not null )",
-            "create unique index if not exists idx_config_name on config (name)",
-            "insert into config (name, value, encrypted) values ('example_encrypted', null, 1)",
-            "insert into config (name, value, encrypted) values ('clandestine_port', '2897', 0)",
-            "insert into config (name, value, encrypted) values ('consuming_wallet_derivation_path', null, 0)",
-            "insert into config (name, value, encrypted) values ('consuming_wallet_public_key', null, 0)",
-            "insert into config (name, value, encrypted) values ('earning_wallet_address', null, 0)",
-            "insert into config (name, value, encrypted) values ('schema_version', '0', 0)",
-            "insert into config (name, value, encrypted) values ('seed', null, 0)",
-            "insert into config (name, value, encrypted) values ('start_block', 8688171, 0)",
-            "insert into config (name, value, encrypted) values ('gas_price', '1', 0)",
-            "insert into config (name, value, encrypted) values ('past_neighbors', null, 1)",
-            "create table if not exists payable (
-                wallet_address text primary key,
-                balance integer not null,
-                last_paid_timestamp integer not null,
-                pending_payment_transaction text null
-            )",
-            "create unique index if not exists idx_payable_wallet_address on payable (wallet_address)",
-            "create table if not exists receivable (
-                wallet_address text primary key,
-                balance integer not null,
-                last_received_timestamp integer not null
-            )",
-            "create unique index if not exists idx_receivable_wallet_address on receivable (wallet_address)",
-            "create table banned ( wallet_address text primary key )",
-            "create unique index idx_banned_wallet_address on banned (wallet_address)"
-       ].iter().for_each(|statement|{conn.execute(statement,NO_PARAMS).unwrap();});
     }
 }
