@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database is corrupt: password example value can't be read: ConversionError(\"Invalid character \\'s\\' at position 1\")"
+        expected = "Database is corrupt: password example value can't be read: ConversionError(\"Invalid character \'s\' at position 1\")"
     )]
     fn check_password_fails_when_example_record_is_present_but_corrupt() {
         let bad_encrypted_example = "Aside from that, Mrs. Lincoln, how was the play?";

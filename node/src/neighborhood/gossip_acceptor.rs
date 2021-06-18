@@ -626,6 +626,7 @@ impl IntroductionHandler {
         }
     }
 
+    #[allow(clippy::branches_sharing_code)]
     fn identify_players(
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
