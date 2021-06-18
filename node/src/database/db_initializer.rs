@@ -16,7 +16,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
@@ -289,7 +289,7 @@ impl DbInitializerReal {
         conn: Connection,
         version_found: Option<&Option<String>>,
         target_version: usize,
-        db_file_path: &PathBuf,
+        db_file_path: &Path,
         opening_flags: OpenFlags,
         migrator: Box<dyn DbMigrator>,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
@@ -330,7 +330,7 @@ impl DbInitializerReal {
 
     fn double_check_the_result_of_db_migration(
         &self,
-        db_file_path: &PathBuf,
+        db_file_path: &Path,
         opening_flags: OpenFlags,
     ) -> Box<dyn ConnectionWrapper> {
         let conn = Connection::open_with_flags(db_file_path, opening_flags)
@@ -350,7 +350,7 @@ impl DbInitializerReal {
         }
     }
 
-    fn validate_schema_version(obtained_s_v: &String) -> usize {
+    fn validate_schema_version(obtained_s_v: &str) -> usize {
         obtained_s_v.parse::<usize>().unwrap_or_else(|val| {
             panic!(
                 "database corrupted - schema version: {}: {}",

@@ -1,6 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::DbMigrator;
 use masq_lib::test_utils::fake_stream_holder::ByteArrayReader;

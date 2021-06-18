@@ -100,7 +100,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
     fn execute_upon_transaction(&self, sql_statements: &[&'static str]) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref();
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
-            if let Ok(_) = so_far {
+            if so_far.is_ok() {
                 transaction.execute(stm, NO_PARAMS).map(|_| ())
             } else {
                 so_far
@@ -195,7 +195,7 @@ impl DbMigratorReal {
         migration_utilities.commit()
     }
 
-    fn migrate_semi_automated<'a>(
+    fn migrate_semi_automated(
         record: &dyn DatabaseMigration,
         updated_to: String,
         migration_utilities: &dyn DBMigrationUtilities,
@@ -221,9 +221,9 @@ impl DbMigratorReal {
 
     fn is_target_version_reached(current_state: usize, target_version: &usize) -> bool {
         if current_state.lt(target_version) {
-            return false;
+            false
         } else if current_state.eq(target_version) {
-            return true;
+            true
         } else {
             panic!("Nonsense: the given target is lower than the version that is considered mismatched")
         }
@@ -287,10 +287,6 @@ impl DbMigratorReal {
 
     fn log_success(&self, versions: &str) {
         info!(self.logger, "Database successfully updated {}", versions)
-    }
-
-    fn compare_two_numbers(first: usize, second: usize) -> bool {
-        first.le(&second)
     }
 }
 
@@ -511,11 +507,14 @@ mod tests {
         let iterator = list_of_updates.iter();
         let iterator_shifted = list_of_updates.iter().skip(1);
         iterator.zip(iterator_shifted).for_each(|(first, second)| {
-            if DbMigratorReal::compare_two_numbers(first.old_version(), second.old_version()).not()
-            {
+            if compare_two_numbers(first.old_version(), second.old_version()).not() {
                 panic!("The list of updates for the database is not ordered properly")
             }
         });
+    }
+
+    fn compare_two_numbers(first: usize, second: usize) -> bool {
+        first.le(&second)
     }
 
     #[test]
@@ -532,10 +531,7 @@ mod tests {
 
         let result = last_entry.unwrap().old_version();
 
-        assert!(DbMigratorReal::compare_two_numbers(
-            result,
-            CURRENT_SCHEMA_VERSION
-        ))
+        assert!(compare_two_numbers(result, CURRENT_SCHEMA_VERSION))
     }
 
     #[test]

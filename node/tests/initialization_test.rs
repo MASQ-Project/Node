@@ -13,6 +13,7 @@ use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
 #[cfg(not(target_os = "windows"))]
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
+use std::fs;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
@@ -64,6 +65,8 @@ fn initialization_sequence_integration() {
         .join("initialization_sequence_integration")
         .to_string_lossy()
         .to_string();
+    let _ = fs::remove_dir_all(&data_directory); //TODO this can go away a bit later after GH-244
+    let _ = fs::create_dir_all(&data_directory);
     let _: UiSetupRequest = initialization_client
         .transact(UiSetupRequest::new(vec![
             ("dns-servers", Some("1.1.1.1")),
