@@ -104,8 +104,7 @@ impl MockWebSocketsServer {
             if upgrade
                 .protocols()
                 .iter()
-                .find(|p| *p == &self.protocol)
-                .is_none()
+                .all(|p| *p != &self.protocol)
             {
                 panic!("Unrecognized protocol(s): {:?}", upgrade.protocols())
             }
