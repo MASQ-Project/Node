@@ -25,7 +25,6 @@ use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig,
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 use masq_lib::utils::{localhost, ExpectValue};
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
@@ -151,13 +150,9 @@ pub fn determine_config_file_path(
     .map(|vcl_arg| vcl_arg.dup())
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
-    let multi_config = make_new_multi_config(
-        &orientation_schema,
-        vec![Box::new(orientation_vcl)],
-        &mut FakeStreamHolder::new().streams(),
-    )?;
+    let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
     let config_file_path = value_m!(multi_config, "config-file", PathBuf).expect_v("config-file");
-    let user_specified = multi_config.arg_matches().occurrences_of("config-file") > 0;
+    let user_specified = multi_config.arg_matches.occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =
@@ -278,7 +273,6 @@ pub fn prepare_initialization_mode<'a>(
     dirs_wrapper: &dyn DirsWrapper,
     app: &'a App,
     args: &[String],
-    streams: &mut StdStreams,
 ) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
     let multi_config = make_new_multi_config(
         &app,
@@ -286,7 +280,6 @@ pub fn prepare_initialization_mode<'a>(
             Box::new(CommandLineVcl::new(args.to_vec())),
             Box::new(EnvironmentVcl::new(&app)),
         ],
-        streams,
     )?;
 
     let (real_user, data_directory_opt, chain_name) =

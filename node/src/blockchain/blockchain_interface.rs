@@ -441,7 +441,8 @@ where
 mod tests {
     use super::*;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::{await_value, make_paying_wallet, make_wallet};
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::{await_value, make_paying_wallet};
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core as rpc;

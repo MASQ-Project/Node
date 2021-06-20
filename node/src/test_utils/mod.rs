@@ -16,7 +16,6 @@ pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
-use crate::apps::app_node;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::blockchain_interface::contract_address;
 use crate::blockchain::payer::Payer;
@@ -37,14 +36,10 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
-use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -59,11 +54,9 @@ use std::iter::repeat;
 use std::net::SocketAddr;
 use std::net::{Shutdown, TcpStream};
 use std::str::FromStr;
-use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -142,7 +135,7 @@ pub fn assert_matches(string: &str, regex: &str) {
 }
 
 pub fn to_millis(dur: &Duration) -> u64 {
-    (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
+    dur.as_millis() as u64
 }
 
 pub fn signal() -> (Signaler, Waiter) {
@@ -208,26 +201,6 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
             .flatten()
             .collect::<Vec<u8>>(),
     )
-}
-
-pub fn make_multi_config<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
-    let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(args.into()))];
-    make_new_multi_config(&app_node(), vcls, &mut FakeStreamHolder::new().streams()).unwrap()
-}
-
-pub fn make_simplified_multi_config(args: &[String]) -> MultiConfig {
-    let arg_matches = app_node().get_matches_from_safe(args).unwrap();
-    MultiConfig::new_test_only(arg_matches)
-}
-
-pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-    PersistentConfigurationMock::new()
-        .earning_wallet_from_address_result(Ok(None))
-        .consuming_wallet_derivation_path_result(Ok(None))
-        .mnemonic_seed_result(Ok(None))
-        .mnemonic_seed_exists_result(Ok(false))
-        .past_neighbors_result(Ok(None))
-        .gas_price_result(Ok(1))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -361,6 +334,7 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
     }
 }
 
+//must stay without cfg(test) -- used in another crate
 pub fn wait_for<F>(interval_ms: Option<u64>, limit_ms: Option<u64>, mut f: F)
 where
     F: FnMut() -> bool,
@@ -377,6 +351,7 @@ where
     .unwrap();
 }
 
+//must stay without cfg(test) -- used in another crate
 pub fn await_value<F, T, E>(
     interval_and_limit_ms: Option<(u64, u64)>,
     mut f: F,
@@ -445,6 +420,7 @@ where
     set
 }
 
+//must stay without cfg(test) -- used in another crate
 pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     let mut response: Vec<u8> = vec![];
     let mut buf = [0u8; 16384];
@@ -500,6 +476,7 @@ pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
     )
 }
 
+//must stay without cfg(test) -- used in another crate
 pub fn make_wallet(address: &str) -> Wallet {
     Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
 }
@@ -508,6 +485,36 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     let a_str = format!("{:?}", a);
     let b_str = format!("{:?}", b);
     assert_eq!(a_str, b_str);
+}
+
+#[cfg(test)]
+pub mod verified_test_utils_crate_local {
+    use crate::apps::app_node;
+    use crate::sub_lib::utils::make_new_multi_config;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::ArgsBuilder;
+    use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
+
+    pub fn make_multi_config_test_only<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        make_new_multi_config(&app_node(), vcls).unwrap()
+    }
+
+    pub fn make_simplified_multi_config(args: &[String]) -> MultiConfig {
+        let arg_matches = app_node().get_matches_from_safe(args).unwrap();
+        MultiConfig { arg_matches }
+    }
+
+    pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
+        PersistentConfigurationMock::new()
+            .earning_wallet_from_address_result(Ok(None))
+            .consuming_wallet_derivation_path_result(Ok(None))
+            .mnemonic_seed_result(Ok(None))
+            .mnemonic_seed_exists_result(Ok(false))
+            .past_neighbors_result(Ok(None))
+            .gas_price_result(Ok(1))
+    }
 }
 
 #[cfg(test)]

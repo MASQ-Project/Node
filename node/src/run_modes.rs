@@ -42,15 +42,13 @@ impl RunModes {
 
     pub fn go(&self, args: &[String], streams: &mut StdStreams<'_>) -> i32 {
         let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
-        match Self::help_or_version_processing(args, &mode, streams) {
+        match Self::help_or_version_on_demand(args, &mode, streams) {
             Enter => (),
             LeaveGood => return 0,
             LeaveWrong => return 1,
         };
 
-        if let LeaveWrong =
-            self.check_rightness_of_given_privilege_level(privilege_required, &mode, streams)
-        {
+        if let LeaveWrong = self.verify_privilege_level(privilege_required, &mode, streams) {
             return 1;
         }
 
@@ -61,19 +59,19 @@ impl RunModes {
         } {
             Ok(_) => 0,
             Err(RunnerError::Numeric(e_num)) => e_num,
-            Err(RunnerError::Configurator(e_conf)) => {
-                Self::process_a_configurator_error(e_conf, streams)
+            Err(RunnerError::Configurator(conf_e)) => {
+                Self::configurator_err_final_processing(conf_e, streams);
+                1
             }
         }
     }
 
-    fn process_a_configurator_error(error: ConfiguratorError, streams: &mut StdStreams) -> i32 {
+    fn configurator_err_final_processing(error: ConfiguratorError, streams: &mut StdStreams) {
         short_writeln!(streams.stderr, "Configuration error");
-        Self::write_unified_err_msgs(streams, error.param_errors);
-        1
+        Self::write_unified_err_msgs(streams, error.param_errors)
     }
 
-    fn help_or_version_processing(
+    fn help_or_version_on_demand(
         args: &[String],
         mode: &Mode,
         streams: &mut StdStreams<'_>,
@@ -114,7 +112,7 @@ impl RunModes {
         }
     }
 
-    fn check_rightness_of_given_privilege_level(
+    fn verify_privilege_level(
         &self,
         privilege_required: bool,
         mode: &Mode,
@@ -727,7 +725,7 @@ parm2 - msg2\n"
         assert_eq!(node_h_holder.stderr.get_string(), "");
     }
 
-    #[ignore] //put this away when Clap is more stable or transform it into an integration test
+    #[ignore] //remove this attribute when Clap is more stable or transform this test into an integration test
     #[test]
     fn daemon_and_node_modes_version_call() {
         let subject = RunModes::new();
@@ -769,7 +767,7 @@ parm2 - msg2\n"
     }
 
     #[test]
-    fn attempt_for_help_call_together_with_false_and_badly_written_parameters_simply_results_in_terminating(
+    fn a_help_call_together_with_false_and_badly_written_parameters_simply_results_in_terminating_of_the_app(
     ) {
         let subject = RunModes::new();
         let mut stream_holder = FakeStreamHolder::new();
@@ -783,7 +781,7 @@ parm2 - msg2\n"
         assert!(stream_holder
             .stderr
             .get_string()
-            .contains("Unfamiliar message: error: Found argument \'--initiabababa\'"))
+            .contains("Unfamiliar message: error: Found argument '--initiabababa'"))
     }
 
     #[test]
@@ -797,8 +795,6 @@ parm2 - msg2\n"
         let dropper_params_arc = Arc::new(Mutex::new(vec![]));
         let privilege_dropper = PrivilegeDropperMock::new()
             .expect_privilege_params(&dropper_params_arc)
-            .expect_privilege_result(false)
-            .expect_privilege_result(false)
             .expect_privilege_result(false);
         subject.privilege_dropper = Box::new(privilege_dropper);
         let mut dump_config_holder = FakeStreamHolder::new();

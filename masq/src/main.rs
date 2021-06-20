@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::non_interactive_mode::Main;
-use masq_lib::command::{CommandNumeric, StdStreams};
+use masq_lib::command::{Command, StdStreams};
 use std::io;
 
 fn main() {

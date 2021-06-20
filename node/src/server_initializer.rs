@@ -3,9 +3,9 @@ use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
-use crate::node_configurator::node_configurator_standard::standard::collected_user_params_for_service_mode;
+use crate::node_configurator::node_configurator_standard::standard::collected_input_params_for_service_mode;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
-use crate::run_modes_factories::{ServerInitializer, RunModeResult};
+use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
@@ -39,7 +39,7 @@ impl Command<RunModeResult> for ServerInitializerReal {
         args: &[String],
     ) -> Result<(), ConfiguratorError> {
         let (multi_config, data_directory, real_user) =
-            collected_user_params_for_service_mode(self.dir_wrapper.as_ref(), args, streams)?;
+            collected_input_params_for_service_mode(self.dir_wrapper.as_ref(), args)?;
 
         let mut result: Result<(), ConfiguratorError> = Ok(());
         result = Self::combine_results(
@@ -291,7 +291,7 @@ pub fn real_format_function(
 pub mod test_utils {
     use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
-    use crate::run_modes_factories::{ServerInitializer, RunModeResult};
+    use crate::run_modes_factories::{RunModeResult, ServerInitializer};
     use crate::server_initializer::LoggerInitializerWrapper;
     #[cfg(not(target_os = "windows"))]
     use crate::test_utils::logging::init_test_logging;
@@ -468,7 +468,7 @@ pub mod tests {
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::multi_config::{MultiConfig, MultiConfigExtractedValues};
+    use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
@@ -495,11 +495,12 @@ pub mod tests {
         }
     }
 
+    #[derive(Default)]
     struct ConfiguredByPrivilegeMock {
         demanded_values_from_multi_config: RefCell<Vec<String>>,
-        initialize_as_privileged_params: RefCell<Arc<Mutex<Vec<MultiConfigExtractedValues>>>>,
+        initialize_as_privileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         initialize_as_privileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
-        initialize_as_unprivileged_params: RefCell<Arc<Mutex<Vec<MultiConfigExtractedValues>>>>,
+        initialize_as_unprivileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         initialize_as_unprivileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
     }
 
@@ -508,17 +509,17 @@ pub mod tests {
         type Error = ();
 
         fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-            unimplemented!()
+            intentionally_blank!()
         }
     }
 
     pub fn extract_values_from_multi_config(
         requested_params: &RefCell<Vec<String>>,
-        resulting_values: &RefCell<Arc<Mutex<Vec<MultiConfigExtractedValues>>>>,
+        resulting_values: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         multi_config: &MultiConfig,
     ) {
         if requested_params.borrow().is_empty().not() {
-            resulting_values.borrow().lock().unwrap().push(
+            resulting_values.lock().unwrap().push(
                 MultiConfigExtractedValues::default()
                     .extract_entries_on_demand(&requested_params.borrow(), multi_config),
             )
@@ -555,16 +556,6 @@ pub mod tests {
     }
 
     impl ConfiguredByPrivilegeMock {
-        pub fn new() -> ConfiguredByPrivilegeMock {
-            Self {
-                demanded_values_from_multi_config: RefCell::new(vec![]),
-                initialize_as_privileged_params: RefCell::new(Arc::new(Mutex::new(vec![]))),
-                initialize_as_privileged_results: RefCell::new(vec![]),
-                initialize_as_unprivileged_params: RefCell::new(Arc::new(Mutex::new(vec![]))),
-                initialize_as_unprivileged_results: RefCell::new(vec![]),
-            }
-        }
-
         pub fn set_demanded_values_from_multi_config(self, mut values: Vec<String>) -> Self {
             self.demanded_values_from_multi_config
                 .borrow_mut()
@@ -572,16 +563,14 @@ pub mod tests {
             self
         }
 
-        #[allow(dead_code)]
         pub fn initialize_as_privileged_params(
-            self,
+            mut self,
             params: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         ) -> Self {
-            self.initialize_as_privileged_params.replace(params.clone());
+            self.initialize_as_privileged_params = params.clone();
             self
         }
 
-        #[allow(dead_code)]
         pub fn initialize_as_privileged_result(
             self,
             result: Result<(), ConfiguratorError>,
@@ -592,17 +581,14 @@ pub mod tests {
             self
         }
 
-        #[allow(dead_code)]
         pub fn initialize_as_unprivileged_params(
-            self,
+            mut self,
             params: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         ) -> Self {
-            self.initialize_as_unprivileged_params
-                .replace(params.clone());
+            self.initialize_as_unprivileged_params = params.clone();
             self
         }
 
-        #[allow(dead_code)]
         pub fn initialize_as_unprivileged_result(
             self,
             result: Result<(), ConfiguratorError>,
@@ -610,6 +596,26 @@ pub mod tests {
             self.initialize_as_unprivileged_results
                 .borrow_mut()
                 .push(result);
+            self
+        }
+    }
+
+    //TODO consider if this tool is valuable or needless
+    #[derive(Default)]
+    pub struct MultiConfigExtractedValues {
+        pub arg_matches_requested_entries: Vec<String>,
+    }
+
+    impl MultiConfigExtractedValues {
+        pub fn extract_entries_on_demand(
+            mut self,
+            required: &[String],
+            multi_config: &MultiConfig,
+        ) -> Self {
+            self.arg_matches_requested_entries = required
+                .iter()
+                .map(|key| multi_config.arg_matches.value_of(key).unwrap().to_string())
+                .collect();
             self
         }
     }
@@ -692,7 +698,7 @@ pub mod tests {
     fn panic_hook_handles_missing_location_and_unprintable_payload() {
         init_test_logging();
         let panic_info = AltPanicInfo {
-            payload: &ConfiguredByPrivilegeMock::new(), // not a String or a &str
+            payload: &ConfiguredByPrivilegeMock::default(), // not a String or a &str
             location: None,
         };
 
@@ -851,7 +857,7 @@ pub mod tests {
         let bootstrapper_init_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_privileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let bootstrapper = ConfiguredByPrivilegeMock::new()
+        let bootstrapper = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Ok(()))
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
@@ -860,7 +866,7 @@ pub mod tests {
                 "dns-servers".to_string(),
                 "real-user".to_string(),
             ]);
-        let dns_socket_server = ConfiguredByPrivilegeMock::new()
+        let dns_socket_server = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Ok(()))
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
@@ -932,7 +938,7 @@ pub mod tests {
 
     pub fn convert_str_vec_slice_into_vec_of_strings(slice: &[&str]) -> Vec<String> {
         slice
-            .into_iter()
+            .iter()
             .map(|item| item.to_string())
             .collect::<Vec<String>>()
     }
@@ -940,7 +946,7 @@ pub mod tests {
     #[test]
     fn go_should_combine_errors() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
-        let dns_socket_server = ConfiguredByPrivilegeMock::new()
+        let dns_socket_server = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Err(ConfiguratorError::required(
                 "dns-iap",
                 "dns-iap-reason",
@@ -949,7 +955,7 @@ pub mod tests {
                 "dns-iau",
                 "dns-iau-reason",
             )));
-        let bootstrapper = ConfiguredByPrivilegeMock::new()
+        let bootstrapper = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Err(ConfiguratorError::required(
                 "boot-iap",
                 "boot-iap-reason",

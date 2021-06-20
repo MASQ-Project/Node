@@ -612,14 +612,15 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLog;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+    use crate::test_utils::verified_test_utils_crate_local::make_simplified_multi_config;
     use crate::test_utils::{assert_contains, rate_pack, ArgsBuilder};
-    use crate::test_utils::{main_cryptde, make_simplified_multi_config};
     use actix::Recipient;
     use actix::System;
     use lazy_static::lazy_static;

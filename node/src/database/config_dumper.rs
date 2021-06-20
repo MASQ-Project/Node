@@ -41,7 +41,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         streams: &mut StdStreams,
     ) -> Result<(), ConfiguratorError> {
         let (real_user, data_directory, chain_id, password_opt) =
-            distill_args(&DirsWrapperReal {}, args, streams)?;
+            distill_args(&DirsWrapperReal {}, args)?;
         let cryptde = CryptDEReal::new(chain_id);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
         let config_dao = make_config_dao(&data_directory, chain_id);
@@ -139,14 +139,13 @@ fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
 fn distill_args(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-    streams: &mut StdStreams,
 ) -> Result<(RealUser, PathBuf, u8, Option<String>), ConfiguratorError> {
     let app = app_config_dumper();
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(CommandLineVcl::new(args.to_vec())),
         Box::new(EnvironmentVcl::new(&app)),
     ];
-    let multi_config = make_new_multi_config(&app, vcls, streams)?;
+    let multi_config = make_new_multi_config(&app, vcls)?;
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =

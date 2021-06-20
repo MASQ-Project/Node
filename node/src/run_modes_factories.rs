@@ -14,12 +14,13 @@ use crate::server_initializer::{
 };
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::ExpectDecent;
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::utils::ExpectValue;
 use std::cell::RefCell;
 
-pub type RunModeResult = Result<(),ConfiguratorError>;
+#[cfg(test)]
+use std::any::Any;
+
+pub type RunModeResult = Result<(), ConfiguratorError>;
 
 pub struct DumpConfigRunnerFactoryReal;
 pub struct ServerInitializerFactoryReal;
@@ -57,7 +58,7 @@ impl DaemonInitializerFactoryReal {
     }
 
     fn expect<T>(mut value_opt: Option<T>, param: &str) -> T {
-        value_opt.take().expect_decent(param)
+        value_opt.take().expect_v(param)
     }
 }
 
@@ -122,15 +123,15 @@ impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
     ) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError> {
         let configurator = Self::expect(self.configurator.take(), "Configurator");
         let multi_config =
-            NodeConfiguratorInitializationReal::make_multi_config_daemon_specific(args, streams)?;
+            NodeConfiguratorInitializationReal::make_multi_config_daemon_specific(args)?;
         let initialization_config = configurator.configure(&multi_config, Some(streams))?;
         let initializer_clustered_params = Self::expect(self.inner.take(), "clustered params");
         let daemon_initializer = Box::new(DaemonInitializerReal::new(
             &*initializer_clustered_params.dirs_wrapper,
-                initializer_clustered_params.logger_initializer_wrapper,
+            initializer_clustered_params.logger_initializer_wrapper,
             initialization_config,
-                initializer_clustered_params.channel_factory,
-                initializer_clustered_params.recipients_factory, //recipient factory--here the Daemon is born
+            initializer_clustered_params.channel_factory,
+            initializer_clustered_params.recipients_factory, //recipient factory--here the Daemon is born
             initializer_clustered_params.rerunner,
         ));
         Ok(daemon_initializer)
@@ -175,7 +176,7 @@ mod tests {
             logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
             channel_factory: Box::new(ChannelFactoryMock::new()),
             recipients_factory: Box::new(RecipientsFactoryReal::new()),
-            rerunner:Box::new(RerunnerReal::new()),
+            rerunner: Box::new(RerunnerReal::new()),
         }
     }
 
@@ -285,7 +286,10 @@ mod tests {
 
 #[cfg(test)]
 pub mod mocks {
-    use crate::run_modes_factories::{DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner, DumpConfigRunnerFactory, ServerInitializer, ServerInitializerFactory, RunModeResult};
+    use crate::run_modes_factories::{
+        DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner, DumpConfigRunnerFactory,
+        RunModeResult, ServerInitializer, ServerInitializerFactory,
+    };
     use crate::server_initializer::test_utils::ServerInitializerMock;
     use masq_lib::command::{Command, StdStreams};
     use masq_lib::shared_schema::ConfiguratorError;
@@ -393,8 +397,8 @@ pub mod mocks {
 
     #[derive(Default)]
     pub struct DumpConfigRunnerMock {
+        dump_config_params: Arc<Mutex<Vec<Vec<String>>>>,
         dump_config_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
-        dump_config_params: RefCell<Arc<Mutex<Vec<Vec<String>>>>>,
     }
 
     impl DumpConfigRunner for DumpConfigRunnerMock {
@@ -403,11 +407,7 @@ pub mod mocks {
             args: &[String],
             _streams: &mut StdStreams,
         ) -> Result<(), ConfiguratorError> {
-            self.dump_config_params
-                .borrow()
-                .lock()
-                .unwrap()
-                .push(args.to_vec());
+            self.dump_config_params.lock().unwrap().push(args.to_vec());
             self.dump_config_results.borrow_mut().remove(0)
         }
     }
@@ -418,8 +418,8 @@ pub mod mocks {
             self
         }
 
-        pub fn dump_config_params(self, params_arc: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
-            self.dump_config_params.replace(params_arc.clone());
+        pub fn dump_config_params(mut self, params_arc: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+            self.dump_config_params = params_arc.clone();
             self
         }
     }

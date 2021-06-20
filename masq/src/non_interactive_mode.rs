@@ -12,7 +12,7 @@ use crate::communications::broadcast_handler::{
 use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{NIClapFactory, NIClapFactoryReal};
 use crate::terminal_interface::TerminalWrapper;
-use masq_lib::command::{StdStreams, Command};
+use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
 use std::io::Write;
 use std::ops::Not;

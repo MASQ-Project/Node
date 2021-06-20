@@ -11,6 +11,7 @@ use masq_lib::constants::{
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
@@ -48,9 +49,13 @@ pub trait DbInitializer {
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         intentionally_blank!()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        intentionally_blank!()
+    }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DbInitializerReal {}
 
 impl DbInitializer for DbInitializerReal {
@@ -105,6 +110,10 @@ impl DbInitializer for DbInitializerReal {
                 }
             }
         }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

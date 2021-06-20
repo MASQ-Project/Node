@@ -2,12 +2,9 @@
 
 use crate::sub_lib::logger::Logger;
 use clap::App;
-use masq_lib::command::StdStreams;
 use masq_lib::messages::UiCrashRequest;
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
-#[cfg(test)]
-use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 use std::io::ErrorKind;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -102,9 +99,8 @@ pub fn node_descriptor_delimiter(chain_id: u8) -> char {
 pub fn make_new_multi_config<'a>(
     schema: &App<'a, 'a>,
     vcls: Vec<Box<dyn VirtualCommandLine>>,
-    streams: &mut StdStreams,
 ) -> Result<MultiConfig<'a>, ConfiguratorError> {
-    MultiConfig::try_new(schema, vcls, streams)
+    MultiConfig::try_new(schema, vcls)
 }
 
 pub fn handle_ui_crash_request(
@@ -128,13 +124,15 @@ pub fn make_new_test_multi_config<'a>(
     schema: &App<'a, 'a>,
     vcls: Vec<Box<dyn VirtualCommandLine>>,
 ) -> Result<MultiConfig<'a>, ConfiguratorError> {
-    make_new_multi_config(schema, vcls, &mut FakeStreamHolder::new().streams())
+    make_new_multi_config(schema, vcls)
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::apps::app_node;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::multi_config::CommandLineVcl;
 
     #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {
@@ -229,5 +227,33 @@ pub mod tests {
         };
 
         handle_ui_crash_request(msg, &logger, true, "CRASHKEY");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "The check at the entry point of the program should have taken care of this instead."
+    )]
+    fn make_new_multi_config_should_panic_after_trying_to_process_help_request() {
+        let app = app_node();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
+            String::from("program"),
+            "--help".to_string(),
+        ]))];
+
+        let _ = make_new_multi_config(&app, vcls);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "The check at the entry point of the program should have taken care of this instead."
+    )]
+    fn make_new_multi_config_should_panic_after_trying_to_process_version_request() {
+        let app = app_node();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
+            String::from("program"),
+            "--version".to_string(),
+        ]))];
+
+        let _ = make_new_multi_config(&app, vcls);
     }
 }

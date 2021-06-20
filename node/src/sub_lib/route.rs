@@ -346,7 +346,8 @@ mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{main_cryptde, make_paying_wallet, make_wallet};
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::{main_cryptde, make_paying_wallet};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use serde_cbor;
 

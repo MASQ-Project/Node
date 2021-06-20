@@ -18,9 +18,9 @@ use flexi_logger::LevelFilter;
 use itertools::Itertools;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::ExpectDecent;
 use std::collections::HashMap;
 
+use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 
@@ -131,7 +131,7 @@ impl DaemonInitializerReal {
         logger_initializer_wrapper.init(
             dirs_wrapper
                 .data_dir()
-                .expect_decent("data directory")
+                .expect_v("data directory")
                 .join("MASQ"),
             &RealUser::new(None, None, None).populate(dirs_wrapper),
             LevelFilter::Trace,

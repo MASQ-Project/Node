@@ -456,7 +456,8 @@ mod tests {
     }
 
     #[test]
-    //with
+    //interconnected with seeing how dispatcher is given the information of the descriptor
+    //kind of a little integration test
     fn descriptor_request_results_in_descriptor_response() {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -466,6 +467,7 @@ mod tests {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),
         };
+        //here dispatcher takes what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
             ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -476,7 +478,7 @@ mod tests {
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(15)); //TODO why cannot I get along without this delay
+        thread::sleep(std::time::Duration::from_millis(15)); //TODO why cannot I get along without this delay; let's look at it with Dan
         System::current().stop_with_code(0);
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
