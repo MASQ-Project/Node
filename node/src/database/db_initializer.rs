@@ -38,13 +38,16 @@ pub trait DbInitializer {
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 
+    #[allow(unused_variables)]
     fn initialize_to_version(
         &self,
         path: &Path,
         chain_id: u8,
         target_version: usize,
         create_if_necessary: bool,
-    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
+    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+        intentionally_blank!()
+    }
 }
 
 #[derive(Default)]
@@ -307,7 +310,10 @@ impl DbInitializerReal {
                 if v_from_db == CURRENT_SCHEMA_VERSION {
                     Ok(Box::new(ConnectionWrapperReal::new(conn)))
                 } else {
-                    migrator.log_warn("Database is incompatible and its updating is necessary");
+                    warning!(
+                        migrator.log(),
+                        "Database is incompatible and its updating is necessary"
+                    );
                     let wrapped_connection = ConnectionWrapperReal::new(conn);
                     match migrator.migrate_database(
                         v_from_db,
@@ -339,22 +345,22 @@ impl DbInitializerReal {
         let schema_version_entry = config_table_content.get("schema_version");
         let found_schema = Self::validate_schema_version(
             &schema_version_entry
-                .expect("Db migration failed; did not find a row")
+                .expect("Db migration failed; cannot find a row with the schema version")
                 .as_ref()
-                .expect("Db migration failed; a value is missing"),
+                .expect("Db migration failed; the value for the schema version is missing"),
         );
         if found_schema.eq(&CURRENT_SCHEMA_VERSION) {
             Box::new(ConnectionWrapperReal::new(conn))
         } else {
-            panic!("DB migration failed; the records after it are incorrect again")
+            panic!("DB migration failed; the resulting records are still incorrect")
         }
     }
 
     fn validate_schema_version(obtained_s_v: &str) -> usize {
-        obtained_s_v.parse::<usize>().unwrap_or_else(|val| {
+        obtained_s_v.parse::<usize>().unwrap_or_else(|_| {
             panic!(
-                "database corrupted - schema version: {}: {}",
-                val, obtained_s_v
+                "Database version should be purely numeric, but was: {}",
+                obtained_s_v
             )
         })
     }
@@ -424,25 +430,23 @@ pub mod test_utils {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
-    #[derive(Debug, Default, Clone)]
+    #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
         prepare_parameters: Arc<Mutex<Vec<String>>>,
-        prepare_results: Arc<Mutex<Vec<Result<Statement<'a>, Error>>>>,
-        transaction_results: Arc<Mutex<Vec<Result<Transaction<'b>, Error>>>>,
-        execute_upon_transaction_results: Arc<Mutex<Vec<rusqlite::Result<Transaction<'b>>>>>,
-        execute_upon_transaction_params: RefCell<Arc<Mutex<Vec<Vec<String>>>>>,
+        prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
+        transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
     }
 
     unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
 
     impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
-            self.prepare_results.lock().unwrap().push(result);
+            self.prepare_results.borrow_mut().push(result);
             self
         }
 
         pub fn transaction_result(self, result: Result<Transaction<'b>, Error>) -> Self {
-            self.transaction_results.lock().unwrap().push(result);
+            self.transaction_results.borrow_mut().push(result);
             self
         }
     }
@@ -453,11 +457,11 @@ pub mod test_utils {
                 .lock()
                 .unwrap()
                 .push(String::from(query));
-            self.prepare_results.lock().unwrap().remove(0)
+            self.prepare_results.borrow_mut().remove(0)
         }
 
-        fn transaction<'x: 'y, 'y>(&'x mut self) -> Result<Transaction<'y>, Error> {
-            self.transaction_results.lock().unwrap().remove(0)
+        fn transaction<'_a: '_b, '_b>(&'_a mut self) -> Result<Transaction<'_b>, Error> {
+            self.transaction_results.borrow_mut().remove(0)
         }
     }
 
@@ -481,18 +485,6 @@ pub mod test_utils {
                 create_if_necessary,
             ));
             self.initialize_results.borrow_mut().remove(0)
-        }
-
-        fn initialize_to_version(
-            &self,
-            _path: &Path,
-            _chain_id: u8,
-            _target_version: usize,
-            _create_if_necessary: bool,
-        ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-            intentionally_blank!()
-            //it doesn't make too much sense to test this method separately, it's a test aid itself from a certain perspective;
-            //we want to access it from various files though
         }
     }
 
@@ -660,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "DB migration failed; the records after it are incorrect again")]
+    #[should_panic(expected = "DB migration failed; the resulting records are still incorrect")]
     fn double_check_the_result_of_db_migration_panics_if_the_data_of_schema_version_does_not_fit_to_current_schema_after_an_allegedly_successful_update(
     ) {
         let home_dir = ensure_node_home_directory_exists(
@@ -784,9 +776,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "database corrupted - schema version: invalid digit found in string: boooobles"
-    )]
+    #[should_panic(expected = "Database version should be purely numeric, but was: boooobles")]
     fn existing_database_with_junk_in_place_of_its_schema_version_is_caught() {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
@@ -811,7 +801,7 @@ mod tests {
     }
 
     #[test]
-    fn existing_database_with_the_wrong_version_comes_to_migrator_and_is_happily_gradually_migrated_to_upper_versions(
+    fn existing_database_with_the_wrong_version_comes_to_migrator_in_which_it_gradually_migrates_to_upper_versions(
     ) {
         init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
@@ -834,13 +824,15 @@ mod tests {
             .query_row(NO_PARAMS, |row| Ok(row.get(1).unwrap()))
             .unwrap();
         assert_eq!(schema, CURRENT_SCHEMA_VERSION.to_string());
-        TestLogHandler::new()
-            .exists_log_containing("Database is incompatible and its updating is necessary");
+        TestLogHandler::new().exists_log_containing(
+            "WARN: DbMigrator: Database is incompatible and its updating is necessary",
+        );
     }
 
     #[test]
     fn update_if_necessary_and_get_connection_starts_db_migration_and_hands_in_an_error_from_database_operations(
     ) {
+        init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
             "conn_to_checked_existing_database_starts_db_migration_and_hands_in_an_error_from_database_operations",
@@ -850,7 +842,9 @@ mod tests {
         let conn = Connection::open(&db_file_path).unwrap();
         let subject = DbInitializerReal::new();
         let target_version = 5; //not relevant
-        let migrator = Box::new(DbMigratorMock::default().migrate_database_params(&migrate_database_params_arc).migrate_database_result(Err("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string())));
+        let migrator = Box::new(DbMigratorMock::default().inject_logger()
+            .migrate_database_params(&migrate_database_params_arc)
+            .migrate_database_result(Err("Updating database from version 0 to 1 failed: Transaction couldn't be processed".to_string())));
 
         let result = subject.update_if_required_and_get_connection(
             conn,
@@ -865,16 +859,25 @@ mod tests {
             Ok(_) => panic!("expected Err got Ok"),
             Err(e) => e,
         };
-        assert_eq!(error,InitializationError::DbMigrationError("Updating database from version 0.0.10 to 0.11 failed: Transaction couldn't be processed".to_string()));
+        assert_eq!(
+            error,
+            InitializationError::DbMigrationError(
+                "Updating database from version 0 to 1 failed: Transaction couldn't be processed"
+                    .to_string()
+            )
+        );
         let mut migrate_database_params = migrate_database_params_arc.lock().unwrap();
-        let migrate_database_params = migrate_database_params.remove(0);
-        assert_eq!(migrate_database_params.0, 0);
-        assert_eq!(migrate_database_params.1, 5);
-        assert!(migrate_database_params
-            .2
+        let (mismatched_schema, target_version, connection_wrapper) =
+            migrate_database_params.remove(0);
+        assert_eq!(mismatched_schema, 0);
+        assert_eq!(target_version, 5);
+        assert!(connection_wrapper
             .as_any()
             .downcast_ref::<ConnectionWrapperReal>()
             .is_some());
+        TestLogHandler::new().exists_log_containing(
+            "WARN: DbMigrator: Database is incompatible and its updating is necessary",
+        );
     }
 
     #[test]

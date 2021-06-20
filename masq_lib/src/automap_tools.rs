@@ -56,14 +56,8 @@ mod test_mod {
 
     #[test]
     #[should_panic(expected = "something is wrong")]
-    fn lower_number_should_panic() {
-        let _: AutomapProtocol = "0".to_string().into();
-    }
-
-    #[test]
-    #[should_panic(expected = "something is wrong")]
-    fn higher_number_should_panic() {
-        let _: AutomapProtocol = "4".to_string().into();
+    fn any_value_different_from_those_specified_should_panic() {
+        let _: AutomapProtocol = "blah".to_string().into();
     }
 
     #[test]

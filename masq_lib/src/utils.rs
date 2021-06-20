@@ -130,11 +130,11 @@ pub fn exit_process_with_sigterm(message: &str) {
 }
 
 pub trait ExpectValue<T> {
+    #[track_caller]
     fn expect_v(self, msg: &str) -> T;
 }
 
 impl<T> ExpectValue<T> for Option<T> {
-    #[track_caller]
     fn expect_v(self, subject: &str) -> T {
         match self {
             Some(v) => v,
@@ -144,7 +144,6 @@ impl<T> ExpectValue<T> for Option<T> {
 }
 
 impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
-    #[track_caller]
     fn expect_v(self, subject: &str) -> T {
         self.unwrap_or_else(|e| expect_value_panic(subject, Some(&e)))
     }
@@ -155,13 +154,28 @@ fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
         "value for '{}' badly prepared{}",
         subject,
         found
-            .map(|cause| result_type_ending(cause))
+            .map(|cause| format!(", got: {:?}", cause))
             .unwrap_or_else(|| "".to_string())
     )
 }
 
-fn result_type_ending(cause: &dyn Debug) -> String {
-    format!(", got: {:?}", cause)
+pub trait WrapResult {
+    fn wrap_to_ok<E>(self) -> Result<Self, E>
+    where
+        Self: Sized;
+    fn wrap_to_err<T>(self) -> Result<T, Self>
+    where
+        Self: Sized;
+}
+
+impl<T> WrapResult for T {
+    fn wrap_to_ok<E>(self) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn wrap_to_err<V>(self) -> Result<V, Self> {
+        Err(self)
+    }
 }
 
 #[macro_export]

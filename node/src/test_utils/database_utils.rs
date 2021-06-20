@@ -2,7 +2,7 @@
 
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::DbMigrator;
-use masq_lib::test_utils::fake_stream_holder::ByteArrayReader;
+use crate::sub_lib::logger::Logger;
 use rusqlite::{Connection, NO_PARAMS};
 use std::cell::RefCell;
 use std::fs::remove_file;
@@ -56,7 +56,7 @@ pub fn revive_tables_of_the_version_0_and_return_the_connection_to_the_db(
 
 #[derive(Default)]
 pub struct DbMigratorMock {
-    logger: Option<ByteArrayReader>,
+    logger: Option<Logger>,
     migrate_database_result: RefCell<Vec<Result<(), String>>>,
     migrate_database_params: Arc<Mutex<Vec<(usize, usize, Box<dyn ConnectionWrapper>)>>>,
 }
@@ -74,8 +74,9 @@ impl DbMigratorMock {
         self
     }
 
-    pub fn inject_logger(mut self, reader: ByteArrayReader) {
-        self.logger = Some(reader)
+    pub fn inject_logger(mut self) -> Self {
+        self.logger = Some(Logger::new("DbMigrator"));
+        self
     }
 }
 
@@ -93,8 +94,8 @@ impl DbMigrator for DbMigratorMock {
         self.migrate_database_result.borrow_mut().pop().unwrap()
     }
 
-    fn log_warn(&self, _msg: &str) {
-        ()
+    fn log(&self) -> &Logger {
+        self.logger.as_ref().unwrap()
     }
 }
 

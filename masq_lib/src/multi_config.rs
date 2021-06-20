@@ -52,28 +52,8 @@ macro_rules! values_m {
 
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
+    #[allow(dead_code)]
     content: Box<dyn VirtualCommandLine>,
-}
-
-//TODO I found this hadn't been either tested nor ever being used.
-impl<'a> Debug for MultiConfig<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let representation = self
-            .content
-            .vcl_args()
-            .into_iter()
-            .map(|vcl_arg| {
-                let strings = vcl_arg.to_args();
-                if strings.len() == 1 {
-                    strings[0].clone()
-                } else {
-                    format!("{} {}", strings[0], strings[1])
-                }
-            })
-            .collect::<Vec<String>>()
-            .join(" ");
-        write!(f, "{{{}}}", representation)
-    }
 }
 
 impl<'a> MultiConfig<'a> {
