@@ -111,8 +111,8 @@ impl ConfigurationCommand {
             "Port mapping protocol:",
             &configuration
                 .port_mapping_protocol_opt
-                .map(|num| num.to_string())
-                .unwrap_or_else(|| "".to_string()),
+                .map(|protocol| protocol.to_string())
+                .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
         Self::dump_configuration_line(
@@ -151,6 +151,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
+    use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use std::sync::{Arc, Mutex};
@@ -227,7 +228,7 @@ mod tests {
             mnemonic_seed_opt: Some("mnemonic seed".to_string()),
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
-            port_mapping_protocol_opt: Some(1),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
             start_block: 3456,
         };
@@ -264,7 +265,7 @@ mod tests {
 |Mnemonic seed:                    mnemonic seed\n\
 |Consuming wallet derivation path: consuming path\n\
 |Earning wallet address:           earning address\n\
-|Port mapping protocol:            1
+|Port mapping protocol:            PCP\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
 |Start block:                      3456\n\
@@ -285,7 +286,7 @@ mod tests {
             mnemonic_seed_opt: None,
             consuming_wallet_derivation_path_opt: None,
             earning_wallet_address_opt: None,
-            port_mapping_protocol_opt: Some(2),
+            port_mapping_protocol_opt: None,
             past_neighbors: vec![],
             start_block: 3456,
         };
@@ -320,7 +321,7 @@ Gas price:                        2345\n\
 Mnemonic seed:                    [?]\n\
 Consuming wallet derivation path: [?]\n\
 Earning wallet address:           [?]\n\
-Port mapping protocol:            2\n\
+Port mapping protocol:            [?]\n\
 Past neighbors:                   [?]\n\
 Start block:                      3456\n\
 "

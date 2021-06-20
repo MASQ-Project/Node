@@ -129,37 +129,53 @@ pub fn exit_process_with_sigterm(message: &str) {
     }
 }
 
-pub trait ExpectDecent<T> {
-    fn expect_decent(self, msg: &str) -> T;
+pub trait ExpectValue<T> {
+    #[track_caller]
+    fn expect_v(self, msg: &str) -> T;
 }
 
-impl<T> ExpectDecent<T> for Option<T> {
-    fn expect_decent(self, subject: &str) -> T {
+impl<T> ExpectValue<T> for Option<T> {
+    fn expect_v(self, subject: &str) -> T {
         match self {
             Some(v) => v,
-            None => expect_decent_panic(subject, None),
+            None => expect_value_panic(subject, None),
         }
     }
 }
 
-impl<T, E: Debug> ExpectDecent<T> for Result<T, E> {
-    fn expect_decent(self, subject: &str) -> T {
-        self.unwrap_or_else(|e| expect_decent_panic(subject, Some(&e)))
+impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
+    fn expect_v(self, subject: &str) -> T {
+        self.unwrap_or_else(|e| expect_value_panic(subject, Some(&e)))
     }
 }
 
-fn expect_decent_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
+fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
     panic!(
         "value for '{}' badly prepared{}",
         subject,
         found
-            .map(|cause| result_type_ending(cause))
+            .map(|cause| format!(", got: {:?}", cause))
             .unwrap_or_else(|| "".to_string())
     )
 }
 
-fn result_type_ending(cause: &dyn Debug) -> String {
-    format!(", got: {:?}", cause)
+pub trait WrapResult {
+    fn wrap_to_ok<E>(self) -> Result<Self, E>
+    where
+        Self: Sized;
+    fn wrap_to_err<T>(self) -> Result<T, Self>
+    where
+        Self: Sized;
+}
+
+impl<T> WrapResult for T {
+    fn wrap_to_ok<E>(self) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn wrap_to_err<V>(self) -> Result<V, Self> {
+        Err(self)
+    }
 }
 
 #[macro_export]
@@ -305,7 +321,7 @@ mod tests {
     fn expect_decent_panics_for_none() {
         let subject: Option<u16> = None;
 
-        let _ = subject.expect_decent("meaningful code");
+        let _ = subject.expect_v("meaningful code");
     }
 
     #[test]
@@ -313,14 +329,14 @@ mod tests {
     fn expect_decent_panics_for_error_variant() {
         let subject: Result<String, String> = Err("alarm".to_string());
 
-        let _ = subject.expect_decent("safety feature");
+        let _ = subject.expect_v("safety feature");
     }
 
     #[test]
     fn expect_decent_unwraps_option() {
         let subject = Some(456);
 
-        let result = subject.expect_decent("meaningful code");
+        let result = subject.expect_v("meaningful code");
 
         assert_eq!(result, 456)
     }
@@ -329,7 +345,7 @@ mod tests {
     fn expect_decent_unwraps_result() {
         let subject: Result<String, String> = Ok("all right".to_string());
 
-        let result = subject.expect_decent("safety feature");
+        let result = subject.expect_v("safety feature");
 
         assert_eq!(result, "all right".to_string())
     }

@@ -1,19 +1,19 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
-use rusqlite::{Connection, Error, Statement, Transaction, NO_PARAMS};
+use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
+
+#[cfg(test)]
+use std::any::Any;
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, rusqlite::Error>;
 
-    fn execute(&self, statement: &str) -> rusqlite::Result<usize>;
-
-    //this method is handy with its roll-back transaction but also allows asserting on the sql statements to be transacted
-    fn execute_upon_transaction<'a: 'b, 'b>(
-        &'a mut self,
-        statements: &[&str],
-    ) -> rusqlite::Result<Transaction<'b>>;
+    #[cfg(test)]
+    fn as_any(&self) -> &dyn Any {
+        intentionally_blank!()
+    }
 }
 
 #[derive(Debug)]
@@ -29,19 +29,9 @@ impl ConnectionWrapper for ConnectionWrapperReal {
         self.conn.transaction()
     }
 
-    fn execute(&self, statement: &str) -> rusqlite::Result<usize> {
-        self.conn.execute(statement, NO_PARAMS)
-    }
-
-    fn execute_upon_transaction<'a: 'b, 'b>(
-        &'a mut self,
-        statements: &[&str],
-    ) -> rusqlite::Result<Transaction<'b>> {
-        let transaction = self.transaction()?;
-        for stm in statements {
-            transaction.execute(stm, NO_PARAMS)?;
-        }
-        Ok(transaction)
+    #[cfg(test)]
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

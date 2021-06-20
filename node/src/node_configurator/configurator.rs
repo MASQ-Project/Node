@@ -522,8 +522,7 @@ impl Configurator {
         )?;
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
         let port_mapping_protocol_opt =
-            Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
-                .map(|version| String::from(version).parse::<u16>().unwrap());
+            Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?;
         let (mnemonic_seed_opt, past_neighbors) = match good_password {
             Some(password) => {
                 let mnemonic_seed_opt = Self::value_not_required(
@@ -742,10 +741,10 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::bip39::Bip39;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::database::MappingProtocol;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
+    use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
 
@@ -1946,7 +1945,7 @@ mod tests {
             .gas_price_result(Ok(2345))
             .mnemonic_seed_result(Ok(None))
             .consuming_wallet_derivation_path_result(Ok(None))
-            .mapping_protocol_result(Ok(Some(MappingProtocol::Igdp)))
+            .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .past_neighbors_result(Ok(Some(vec![])))
             .earning_wallet_address_result(Ok(None))
             .start_block_result(Ok(3456));
@@ -1971,7 +1970,7 @@ mod tests {
                 mnemonic_seed_opt: None,
                 consuming_wallet_derivation_path_opt: None,
                 earning_wallet_address_opt: None,
-                port_mapping_protocol_opt: Some(3),
+                port_mapping_protocol_opt: Some(AutomapProtocol::Igdp),
                 past_neighbors: vec![],
                 start_block: 3456
             }
