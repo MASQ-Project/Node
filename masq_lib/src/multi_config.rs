@@ -163,7 +163,7 @@ pub struct MultiConfigExtractedValues {
     pub cloned_content_field: Vec<String>,
 }
 //TODO don't know why this cannot be test only
-//#[cfg(test)]
+// #[cfg(test)]
 impl MultiConfigExtractedValues {
     pub fn extract_entries_on_demand(
         mut self,

@@ -944,12 +944,12 @@ mod tests {
                 path: MessagePath::Conversation(4321),
                 payload: Err((
                     CONFIGURATOR_WRITE_ERROR,
-                    r#"DatabaseError("Didn\'t work good")"#.to_string()
+                    r#"DatabaseError("Didn't work good")"#.to_string()
                 )),
             }
         );
         TestLogHandler::new().exists_log_containing(
-            r#"WARN: Configurator: Failed to change password: DatabaseError("Didn\'t work good")"#,
+            r#"WARN: Configurator: Failed to change password: DatabaseError("Didn't work good")"#,
         );
     }
 

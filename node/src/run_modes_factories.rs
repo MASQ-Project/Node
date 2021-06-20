@@ -39,14 +39,13 @@ impl DaemonInitializerFactoryReal {
         }
     }
 
-    //using Option for handing an owned value over to a caller because these trait objects don't have Defaults
     pub fn make_clustered_params() -> ClusteredParams {
         ClusteredParams {
-            dirs_wrapper: Some(Box::new(DirsWrapperReal)),
-            logger_initializer_wrapper: Some(Box::new(LoggerInitializerWrapperReal)),
-            channel_factory: Some(Box::new(ChannelFactoryReal::new())),
-            recipients_factory: Some(Box::new(RecipientsFactoryReal::new())),
-            rerunner: Some(Box::new(RerunnerReal::new())),
+            dirs_wrapper: Box::new(DirsWrapperReal),
+            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperReal),
+            channel_factory: Box::new(ChannelFactoryReal::new()),
+            recipients_factory: Box::new(RecipientsFactoryReal::new()),
+            rerunner: Box::new(RerunnerReal::new()),
         }
     }
 
@@ -59,17 +58,6 @@ impl DaemonInitializerFactoryReal {
 
     fn expect<T>(mut value_opt: Option<T>, param: &str) -> T {
         value_opt.take().expect_decent(param)
-    }
-
-    #[cfg(test)]
-    fn null_cluster_params() -> ClusteredParams {
-        ClusteredParams {
-            dirs_wrapper: None,
-            logger_initializer_wrapper: None,
-            channel_factory: None,
-            recipients_factory: None,
-            rerunner: None,
-        }
     }
 }
 
@@ -138,32 +126,23 @@ impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
         let initialization_config = configurator.configure(&multi_config, Some(streams))?;
         let initializer_clustered_params = Self::expect(self.inner.take(), "clustered params");
         let daemon_initializer = Box::new(DaemonInitializerReal::new(
-            &*Self::expect(initializer_clustered_params.dirs_wrapper, "dirs wrapper"),
-            Self::expect(
+            &*initializer_clustered_params.dirs_wrapper,
                 initializer_clustered_params.logger_initializer_wrapper,
-                "logger init wrapper",
-            ),
             initialization_config,
-            Self::expect(
                 initializer_clustered_params.channel_factory,
-                "channel factory",
-            ),
-            Self::expect(
-                initializer_clustered_params.recipients_factory,
-                "recipient factory",
-            ), //recipient factory--here the Daemon is born
-            Self::expect(initializer_clustered_params.rerunner, "rerunner"),
+                initializer_clustered_params.recipients_factory, //recipient factory--here the Daemon is born
+            initializer_clustered_params.rerunner,
         ));
         Ok(daemon_initializer)
     }
 }
 
 pub struct ClusteredParams {
-    dirs_wrapper: Option<Box<dyn DirsWrapper>>,
-    logger_initializer_wrapper: Option<Box<dyn LoggerInitializerWrapper>>,
-    channel_factory: Option<Box<dyn ChannelFactory>>,
-    recipients_factory: Option<Box<dyn RecipientsFactory>>,
-    rerunner: Option<Box<dyn Rerunner>>,
+    dirs_wrapper: Box<dyn DirsWrapper>,
+    logger_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
+    channel_factory: Box<dyn ChannelFactory>,
+    recipients_factory: Box<dyn RecipientsFactory>,
+    rerunner: Box<dyn Rerunner>,
 }
 
 #[cfg(test)]
@@ -190,6 +169,16 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
 
+    fn test_cluster_params() -> ClusteredParams {
+        ClusteredParams {
+            dirs_wrapper: Box::new(make_pre_populated_mock_directory_wrapper()),
+            logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
+            channel_factory: Box::new(ChannelFactoryMock::new()),
+            recipients_factory: Box::new(RecipientsFactoryReal::new()),
+            rerunner:Box::new(RerunnerReal::new()),
+        }
+    }
+
     #[test]
     fn make_for_dump_config_runner_factory_produces_a_proper_object() {
         let subject = DumpConfigRunnerFactoryReal;
@@ -214,13 +203,7 @@ mod tests {
 
     #[test]
     fn make_for_daemon_initializer_factory_labours_hard_and_produces_a_proper_object() {
-        let daemon_clustered_params = ClusteredParams {
-            dirs_wrapper: Some(Box::new(make_pre_populated_mock_directory_wrapper())),
-            logger_initializer_wrapper: Some(Box::new(LoggerInitializerWrapperMock::new())),
-            channel_factory: Some(Box::new(ChannelFactoryMock::new())),
-            recipients_factory: Some(Box::new(RecipientsFactoryReal::new())),
-            rerunner: Some(Box::new(RerunnerReal::new())),
-        };
+        let daemon_clustered_params = test_cluster_params();
         let subject = DaemonInitializerFactoryReal::new(
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
@@ -244,7 +227,7 @@ mod tests {
     #[test]
     fn make_for_daemon_initializer_factory_produces_an_error_when_trying_to_pass_trough_multi_config(
     ) {
-        let daemon_clustered_params = DaemonInitializerFactoryReal::null_cluster_params();
+        let daemon_clustered_params = test_cluster_params();
         let subject = DaemonInitializerFactoryReal::new(
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
@@ -272,7 +255,7 @@ mod tests {
     fn make_for_daemon_initializer_factory_produces_an_error_when_trying_to_pass_trough_configure()
     {
         let configure_params_arc = Arc::new(Mutex::new(vec![]));
-        let daemon_clustered_params = DaemonInitializerFactoryReal::null_cluster_params();
+        let daemon_clustered_params = test_cluster_params();
         let subject = DaemonInitializerFactoryReal::new(
             Box::new(
                 NodeConfiguratorInitializationMock::default()
