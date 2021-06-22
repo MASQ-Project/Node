@@ -9,6 +9,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::shared_schema::{shared_app, ui_port_arg};
 use masq_lib::shared_schema::{ConfiguratorError, UI_PORT_HELP};
+use masq_lib::utils::AutomapProtocol;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -298,6 +299,17 @@ pub mod standard {
                 },
                 None => 1,
             }
+        };
+        let persistent_mapping_protocol_opt = match persistent_config_opt.as_ref().map(|pc| pc.mapping_protocol()) {
+            Some (Ok(mp_opt)) => mp_opt,
+            Some (Err(_)) => todo! (),
+            None => None
+        };
+        unprivileged_config.mapping_protocol_opt = match (
+            value_m!(multi_config, "mapping-protocol", AutomapProtocol),
+            persistent_mapping_protocol_opt) {
+            (None, Some (mp)) => Some (mp),
+            (ap_opt, _) => ap_opt,
         };
         let mnc_result = if let Some(persistent_config) = persistent_config_opt {
             get_wallets(
@@ -1106,9 +1118,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
-    use crate::db_config::persistent_configuration::{
-        PersistentConfigError, PersistentConfigurationReal,
-    };
+    use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal};
     use crate::node_configurator::RealDirsWrapper;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
@@ -1134,7 +1144,7 @@ mod tests {
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
-    use masq_lib::utils::running_test;
+    use masq_lib::utils::{running_test, AutomapProtocol};
     use rustc_hex::FromHex;
     use std::fs::File;
     use std::io::Cursor;
@@ -1819,174 +1829,6 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_creates_configurations() {
-        running_test();
-        let home_dir = ensure_node_home_directory_exists(
-            "node_configurator",
-            "unprivileged_parse_args_creates_configurations",
-        );
-        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
-            DbInitializerReal::new()
-                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true)
-                .unwrap(),
-        ));
-        let consuming_private_key_text =
-            "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01";
-        let consuming_private_key = PlainData::from_str(consuming_private_key_text).unwrap();
-        let mut persistent_config = PersistentConfigurationReal::new(config_dao);
-        let password = "secret-db-password";
-        let args = ArgsBuilder::new()
-            .param("--config-file", "specified_config.toml")
-            .param("--dns-servers", "12.34.56.78,23.45.67.89")
-            .param(
-                "--neighbors",
-                "QmlsbA@1.2.3.4:1234;2345,VGVk@2.3.4.5:3456;4567",
-            )
-            .param("--ip", "34.56.78.90")
-            .param("--clandestine-port", "1234")
-            .param("--ui-port", "5335")
-            .param("--data-directory", home_dir.to_str().unwrap())
-            .param("--blockchain-service-url", "http://127.0.0.1:8545")
-            .param("--log-level", "trace")
-            .param("--fake-public-key", "AQIDBA")
-            .param("--db-password", password)
-            .param(
-                "--earning-wallet",
-                "0x0123456789012345678901234567890123456789",
-            )
-            .param("--consuming-private-key", consuming_private_key_text)
-            .param("--real-user", "999:999:/home/booga");
-        let mut config = BootstrapperConfig::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
-
-        standard::unprivileged_parse_args(
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-            Some(&mut persistent_config),
-        )
-        .unwrap();
-
-        assert_eq!(
-            value_m!(multi_config, "config-file", PathBuf),
-            Some(PathBuf::from("specified_config.toml")),
-        );
-        assert_eq!(
-            config.earning_wallet,
-            Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
-        );
-        assert_eq!(Some(1234u16), config.clandestine_port_opt);
-        assert_eq!(
-            config.earning_wallet,
-            Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
-        );
-        assert_eq!(
-            config.consuming_wallet_opt,
-            Some(Wallet::from(
-                Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap()
-            )),
-        );
-        assert_eq!(
-            config.neighborhood_config,
-            NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
-                    vec![
-                        NodeDescriptor::from_str(main_cryptde(), "QmlsbA@1.2.3.4:1234;2345")
-                            .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "VGVk@2.3.4.5:3456;4567").unwrap(),
-                    ],
-                    DEFAULT_RATE_PACK.clone()
-                )
-            }
-        );
-    }
-
-    #[test]
-    fn unprivileged_parse_args_creates_configuration_with_defaults() {
-        running_test();
-        let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
-        let mut config = BootstrapperConfig::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
-
-        standard::unprivileged_parse_args(
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
-        )
-        .unwrap();
-
-        assert_eq!(
-            Some(PathBuf::from("config.toml")),
-            value_m!(multi_config, "config-file", PathBuf)
-        );
-        assert_eq!(None, config.clandestine_port_opt);
-        assert!(config
-            .neighborhood_config
-            .mode
-            .neighbor_configs()
-            .is_empty());
-        assert_eq!(
-            config
-                .neighborhood_config
-                .mode
-                .node_addr_opt()
-                .unwrap()
-                .ip_addr(),
-            IpAddr::from_str("1.2.3.4").unwrap(),
-        );
-        assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone(),);
-        assert_eq!(config.consuming_wallet_opt, None,);
-    }
-
-    #[test]
-    fn unprivileged_parse_args_with_neighbor_in_database_but_not_command_line() {
-        running_test();
-        let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4")
-            .param("--fake-public-key", "BORSCHT")
-            .param("--db-password", "password");
-        let mut config = BootstrapperConfig::new();
-        config.db_password_opt = Some("password".to_string());
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
-        let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_configuration = make_persistent_config(
-            None,
-            Some("password"),
-            None,
-            None,
-            None,
-            Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
-        )
-        .past_neighbors_params(&past_neighbors_params_arc);
-
-        standard::unprivileged_parse_args(
-            &multi_config,
-            &mut config,
-            &mut FakeStreamHolder::new().streams(),
-            Some(&mut persistent_configuration),
-        )
-        .unwrap();
-
-        assert_eq!(
-            config.neighborhood_config.mode.neighbor_configs(),
-            &[
-                NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234").unwrap(),
-                NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
-            ]
-        );
-        let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
-        assert_eq!(past_neighbors_params[0], "password".to_string());
-    }
-
-    #[test]
     fn privileged_parse_args_creates_configuration_with_defaults() {
         running_test();
         let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
@@ -2053,6 +1895,237 @@ mod tests {
         );
     }
 
+    ///////////////////////
+    ///////////////////////
+    ///////////////////////
+
+    #[test]
+    fn unprivileged_parse_args_creates_configurations() {
+        running_test();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator",
+            "unprivileged_parse_args_creates_configurations",
+        );
+        let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
+            DbInitializerReal::new()
+                .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true)
+                .unwrap(),
+        ));
+        let consuming_private_key_text =
+            "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01";
+        let consuming_private_key = PlainData::from_str(consuming_private_key_text).unwrap();
+        let mut persistent_config = PersistentConfigurationReal::new(config_dao);
+        let password = "secret-db-password";
+        let args = ArgsBuilder::new()
+            .param("--config-file", "specified_config.toml")
+            .param("--dns-servers", "12.34.56.78,23.45.67.89")
+            .param(
+                "--neighbors",
+                "QmlsbA@1.2.3.4:1234;2345,VGVk@2.3.4.5:3456;4567",
+            )
+            .param("--ip", "34.56.78.90")
+            .param("--clandestine-port", "1234")
+            .param("--ui-port", "5335")
+            .param("--data-directory", home_dir.to_str().unwrap())
+            .param("--blockchain-service-url", "http://127.0.0.1:8545")
+            .param("--log-level", "trace")
+            .param("--fake-public-key", "AQIDBA")
+            .param("--db-password", password)
+            .param(
+                "--earning-wallet",
+                "0x0123456789012345678901234567890123456789",
+            )
+            .param("--consuming-private-key", consuming_private_key_text)
+            .param("--mapping-protocol", "pcp")
+            .param("--real-user", "999:999:/home/booga");
+        let mut config = BootstrapperConfig::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+
+        standard::unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+            Some(&mut persistent_config),
+        )
+            .unwrap();
+
+        assert_eq!(
+            value_m!(multi_config, "config-file", PathBuf),
+            Some(PathBuf::from("specified_config.toml")),
+        );
+        assert_eq!(
+            config.earning_wallet,
+            Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
+        );
+        assert_eq!(Some(1234u16), config.clandestine_port_opt);
+        assert_eq!(
+            config.earning_wallet,
+            Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
+        );
+        assert_eq!(
+            config.consuming_wallet_opt,
+            Some(Wallet::from(
+                Bip32ECKeyPair::from_raw_secret(consuming_private_key.as_slice()).unwrap()
+            )),
+        );
+        assert_eq!(
+            config.neighborhood_config,
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
+                    vec![
+                        NodeDescriptor::from_str(main_cryptde(), "QmlsbA@1.2.3.4:1234;2345")
+                            .unwrap(),
+                        NodeDescriptor::from_str(main_cryptde(), "VGVk@2.3.4.5:3456;4567").unwrap(),
+                    ],
+                    DEFAULT_RATE_PACK.clone()
+                )
+            }
+        );
+        assert_eq!(config.mapping_protocol_opt, Some (AutomapProtocol::Pcp));
+    }
+
+    #[test]
+    fn unprivileged_parse_args_creates_configuration_with_defaults() {
+        running_test();
+        let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
+        let mut config = BootstrapperConfig::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+
+        standard::unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+        )
+            .unwrap();
+
+        assert_eq!(
+            Some(PathBuf::from("config.toml")),
+            value_m!(multi_config, "config-file", PathBuf)
+        );
+        assert_eq!(None, config.clandestine_port_opt);
+        assert!(config
+            .neighborhood_config
+            .mode
+            .neighbor_configs()
+            .is_empty());
+        assert_eq!(
+            config
+                .neighborhood_config
+                .mode
+                .node_addr_opt()
+                .unwrap()
+                .ip_addr(),
+            IpAddr::from_str("1.2.3.4").unwrap(),
+        );
+        assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone(),);
+        assert_eq!(config.consuming_wallet_opt, None,);
+        assert_eq!(config.mapping_protocol_opt, None);
+    }
+
+    #[test]
+    fn unprivileged_parse_args_with_neighbor_and_mapping_protocol_in_database_but_not_command_line() {
+        running_test();
+        let args = ArgsBuilder::new()
+            .param("--ip", "1.2.3.4")
+            .param("--fake-public-key", "BORSCHT")
+            .param("--db-password", "password");
+        let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+        let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_configuration = make_persistent_config(
+            None,
+            Some("password"),
+            None,
+            None,
+            None,
+            Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
+        )
+            .past_neighbors_params(&past_neighbors_params_arc);
+
+        standard::unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+            Some(&mut persistent_configuration),
+        )
+            .unwrap();
+
+        assert_eq!(
+            config.neighborhood_config.mode.neighbor_configs(),
+            &[
+                NodeDescriptor::from_str(main_cryptde(), "AQIDBA:1.2.3.4:1234").unwrap(),
+                NodeDescriptor::from_str(main_cryptde(), "AgMEBQ:2.3.4.5:2345").unwrap(),
+            ]
+        );
+        let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
+        assert_eq!(past_neighbors_params[0], "password".to_string());
+        assert_eq!(config.mapping_protocol_opt, Some (AutomapProtocol::Pcp));
+    }
+
+    #[test]
+    fn unprivileged_parse_args_with_mapping_protocol_on_command_line_but_not_in_database() {
+        running_test();
+        let args = ArgsBuilder::new()
+            .param("--ip", "1.2.3.4")// TODO: Figure out whether this should be removable
+            .param("--mapping-protocol", "pcp");
+        let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+        let mut persistent_configuration = make_default_persistent_configuration();
+
+        standard::unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+            Some(&mut persistent_configuration),
+        )
+            .unwrap();
+
+        assert_eq!(config.mapping_protocol_opt, Some (AutomapProtocol::Pcp));
+    }
+
+    #[test]
+    fn unprivileged_parse_args_with_mapping_protocol_both_on_command_line_and_in_database() {
+        running_test();
+        let args = ArgsBuilder::new()
+            .param("--ip", "1.2.3.4")// TODO: Figure out whether this should be removable
+            .param("--mapping-protocol", "pmp");
+        let mut config = BootstrapperConfig::new();
+        config.db_password_opt = Some("password".to_string());
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+        let mut persistent_configuration = make_persistent_config(
+            None,
+            Some("password"),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        standard::unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut FakeStreamHolder::new().streams(),
+            Some(&mut persistent_configuration),
+        )
+            .unwrap();
+
+        assert_eq!(config.mapping_protocol_opt, Some (AutomapProtocol::Pmp));
+    }
+
     fn make_persistent_config(
         mnemonic_seed_prefix_opt: Option<&str>,
         db_password_opt: Option<&str>,
@@ -2095,6 +2168,7 @@ mod tests {
             .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
+            .mapping_protocol_result (Ok(Some (AutomapProtocol::Pcp)))
     }
 
     fn make_mnemonic_seed(prefix: &str) -> PlainData {

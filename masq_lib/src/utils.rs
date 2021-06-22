@@ -7,6 +7,7 @@ use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::str::FromStr;
 
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
 const FIND_FREE_PORT_HIGHEST: u16 = 65535;
@@ -29,6 +30,19 @@ impl Display for AutomapProtocol {
             AutomapProtocol::Pmp => write!(f, "PMP"),
             AutomapProtocol::Pcp => write!(f, "PCP"),
             AutomapProtocol::Igdp => write!(f, "IGDP"),
+        }
+    }
+}
+
+impl FromStr for AutomapProtocol {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "PCP" => Ok (AutomapProtocol::Pcp),
+            "PMP" => Ok (AutomapProtocol::Pmp),
+            "IGDP" => Ok (AutomapProtocol::Igdp),
+            _ => Err(format! ("Valid protocol names are PCP, PMP, and IGDP; not '{}'", s))
         }
     }
 }
@@ -187,6 +201,32 @@ mod tests {
                 AutomapProtocol::Igdp
             ]
         )
+    }
+
+    #[test]
+    fn automap_protocol_from_str_works() {
+        let input = vec![
+            "pcp", "PCP",
+            "pmp", "PMP",
+            "igdp", "IGDP",
+        ];
+
+        let result: Vec<AutomapProtocol> = input.into_iter()
+            .map (|s| AutomapProtocol::from_str(s).unwrap())
+            .collect ();
+
+        assert_eq! (result, vec![
+            AutomapProtocol::Pcp, AutomapProtocol::Pcp,
+            AutomapProtocol::Pmp, AutomapProtocol::Pmp,
+            AutomapProtocol::Igdp, AutomapProtocol::Igdp,
+        ]);
+    }
+
+    #[test]
+    fn automap_protocol_from_str_rejects_bad_name() {
+        let result = AutomapProtocol::from_str("booga");
+
+        assert_eq! (result, Err("Valid protocol names are PCP, PMP, and IGDP; not 'booga'".to_string()));
     }
 
     #[test]

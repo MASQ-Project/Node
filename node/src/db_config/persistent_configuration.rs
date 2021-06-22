@@ -15,6 +15,7 @@ use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
+use masq_lib::utils::AutomapProtocol;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -110,6 +111,8 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
+    fn set_mapping_protocol(&self, value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -355,6 +358,16 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         let mut writer = self.dao.start_transaction()?;
         writer.set("start_block", encode_u64(Some(value))?)?;
         Ok(writer.commit()?)
+    }
+
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        // TODO: Merge in implementation from GH-244
+        Ok(Some (AutomapProtocol::Igdp))
+    }
+
+    fn set_mapping_protocol(&self, _value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError> {
+        // TODO: Merge in implementation from GH-244
+        Ok(())
     }
 }
 

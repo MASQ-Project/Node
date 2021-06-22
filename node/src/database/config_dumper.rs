@@ -205,16 +205,17 @@ mod tests {
             other => panic!("Was expecting Value::Object, got {:?} instead", other),
         };
         let expected_value = json!({
-           "clandestinePort": actual_map.get ("clandestinePort"),
-           "consumingWalletDerivationPath": null,
-           "consumingWalletPublicKey": null,
-           "earningWalletAddress": null,
-           "exampleEncrypted": null,
-           "gasPrice": "1",
-           "pastNeighbors": null,
-           "schemaVersion": CURRENT_SCHEMA_VERSION,
-           "seed": null,
-           "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
+            "clandestinePort": actual_map.get ("clandestinePort"),
+            "consumingWalletDerivationPath": null,
+            "consumingWalletPublicKey": null,
+            "earningWalletAddress": null,
+            "exampleEncrypted": null,
+            "gasPrice": "1",
+            "mappingProtocol": null,
+            "pastNeighbors": null,
+            "schemaVersion": CURRENT_SCHEMA_VERSION,
+            "seed": null,
+            "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
         });
         assert_eq!(actual_value, expected_value);
     }

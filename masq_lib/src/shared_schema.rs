@@ -80,6 +80,15 @@ pub const NEIGHBORHOOD_MODE_HELP: &str = "This configures the way the Node relat
      standard means that your Node will operate fully unconstrained, both originating and accepting \
      connections, both consuming and providing services, and when you operate behind a router, it \
      requires that you forward your clandestine port through that router to your Node's machine.";
+pub const MAPPING_PROTOCOL_HELP: &str =
+    "The Node can speak three protocols to your router to make it allow outside Nodes to connect inward \
+    through it to your machine. These three protocols are pcp, pmp, and igdp. The Node can try them one \
+    by one to determine which your router supports, but if you happen to know already, you can supply the \
+    name of the protocol here. If you've taken care of port mapping in some other way, \
+    and you don't need Node to negotiate with your router, say 'none' here and be sure to specify your \
+    public IP address with the --ip parameter. If the Node communicates successfully with your router, \
+    it will remember the protocol it used, and on its next run it will try that protocol first, unless \
+    you specify a different protocol (or 'none') on the command line.";
 pub const REAL_USER_HELP: &str =
     "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
@@ -290,6 +299,14 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .possible_values(&["off", "error", "warn", "info", "debug", "trace"])
             .case_insensitive(true)
             .help(LOG_LEVEL_HELP),
+    )
+    .arg(
+        Arg::with_name("mapping-protocol")
+            .long("mapping-protocol")
+            .value_name("MAPPING-PROTOCOL")
+            .possible_values(&["pcp", "pmp", "igdp", "none"])
+            .case_insensitive(true)
+            .help(MAPPING_PROTOCOL_HELP),
     )
     .arg(
         Arg::with_name("neighborhood-mode")

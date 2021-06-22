@@ -301,6 +301,7 @@ pub struct BootstrapperConfig {
     pub data_directory: PathBuf,
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
+    pub mapping_protocol_opt: Option<AutomapProtocol>,
     pub real_user: RealUser,
 
     // These fields must be set without privilege: otherwise the database will be created as root
@@ -345,6 +346,7 @@ impl BootstrapperConfig {
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::new(None, None, None),
 
             // These fields must be set without privilege: otherwise the database will be created as root
@@ -390,7 +392,7 @@ impl AutomapControlFactory for AutomapControlFactoryReal {
 }
 
 impl AutomapControlFactoryReal {
-    fn new() -> Self {
+    fn _new() -> Self {
         Self {}
     }
 }
@@ -400,7 +402,6 @@ pub struct Bootstrapper {
     listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
     actor_system_factory: Box<dyn ActorSystemFactory>,
     logger_initializer: Box<dyn LoggerInitializerWrapper>,
-    _automap_control_factory: Box<dyn AutomapControlFactory>,
     config: BootstrapperConfig,
 }
 
@@ -467,7 +468,7 @@ impl SocketServer<BootstrapperConfig> for Bootstrapper {
         let unprivileged_config = NodeConfiguratorStandardUnprivileged::new(&self.config)
             .configure(&args.to_vec(), streams)?;
         self.config.merge_unprivileged(unprivileged_config);
-        self.set_up_clandestine_port();
+        let _ = self.set_up_clandestine_port();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
             &self.config.main_cryptde_null_opt,
             &self.config.alias_cryptde_null_opt,
@@ -498,7 +499,6 @@ impl Bootstrapper {
                 FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
             actor_system_factory: Box::new(ActorSystemFactoryReal {}),
             logger_initializer,
-            _automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
             config: BootstrapperConfig::new(),
         }
     }
@@ -562,8 +562,8 @@ impl Bootstrapper {
         descriptor
     }
 
-    fn set_up_clandestine_port(&mut self) {
-        if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
+    fn set_up_clandestine_port(&mut self) -> Option<u16> {
+        let clandestine_port_opt = if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
             &self.config.neighborhood_config.mode
         {
             let conn = DbInitializerReal::new()
@@ -594,10 +594,15 @@ impl Bootstrapper {
                     rate_pack.clone(),
                 ),
             };
+            Some (clandestine_port)
         }
+        else {
+            None
+        };
         self.config
             .clandestine_discriminator_factories
             .push(Box::new(JsonDiscriminatorFactory::new()));
+        clandestine_port_opt
     }
 
     fn establish_clandestine_port(
@@ -656,7 +661,6 @@ mod tests {
     use crate::test_utils::{assert_contains, rate_pack, ArgsBuilder};
     use actix::Recipient;
     use actix::System;
-    use automap_lib::comm_layer::AutomapError;
     use lazy_static::lazy_static;
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -783,46 +787,6 @@ mod tests {
         fn bind_port_result(mut self, result: io::Result<()>) -> ListenerHandlerNull {
             self.bind_port_and_discriminator_factories_result = Some(result);
             self
-        }
-    }
-
-    struct AutomapControlMock {}
-
-    impl AutomapControl for AutomapControlMock {
-        fn get_public_ip(&mut self) -> Result<IpAddr, AutomapError> {
-            todo!()
-        }
-
-        fn add_mapping(&mut self, _hole_port: u16) -> Result<u32, AutomapError> {
-            todo!()
-        }
-
-        fn delete_mappings(&mut self) -> Result<(), AutomapError> {
-            todo!()
-        }
-    }
-
-    impl AutomapControlMock {
-        fn _new() -> Self {
-            Self {}
-        }
-    }
-
-    struct AutomapControlFactoryMock {}
-
-    impl AutomapControlFactory for AutomapControlFactoryMock {
-        fn make(
-            &self,
-            _usual_protocol_opt: Option<AutomapProtocol>,
-            _change_handler: ChangeHandler,
-        ) -> Box<dyn AutomapControl> {
-            todo!()
-        }
-    }
-
-    impl AutomapControlFactoryMock {
-        fn new() -> Self {
-            Self {}
         }
     }
 
@@ -1678,8 +1642,9 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
+        assert_eq! (result, Some (1234u16));
         let conn = DbInitializerReal::new()
             .initialize(&data_dir, chain_id, true)
             .unwrap();
@@ -1747,7 +1712,7 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
         let conn = DbInitializerReal::new()
             .initialize(&data_dir, chain_id, true)
@@ -1755,6 +1720,7 @@ mod tests {
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         let clandestine_port = persistent_config.clandestine_port().unwrap();
+        assert_eq! (result, Some (clandestine_port));
         assert_eq!(
             subject
                 .config
@@ -1795,8 +1761,9 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
+        assert_eq! (result, None);
         assert!(subject
             .config
             .neighborhood_config
@@ -1830,8 +1797,9 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
+        assert_eq! (result, None);
         assert!(subject
             .config
             .neighborhood_config
@@ -1858,8 +1826,9 @@ mod tests {
             .config(config)
             .build();
 
-        subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port();
 
+        assert_eq! (result, None);
         assert!(subject
             .config
             .neighborhood_config
@@ -2026,7 +1995,6 @@ mod tests {
         actor_system_factory: Box<dyn ActorSystemFactory>,
         log_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
         listener_handler_factory: ListenerHandlerFactoryMock,
-        automap_control_factory: Box<dyn AutomapControlFactory>,
         config: BootstrapperConfig,
     }
 
@@ -2037,7 +2005,6 @@ mod tests {
                 log_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
                 // Don't modify this line unless you've already looked at DispatcherBuilder::add_listener_handler().
                 listener_handler_factory: ListenerHandlerFactoryMock::new(),
-                automap_control_factory: Box::new(AutomapControlFactoryMock::new()),
                 config: BootstrapperConfig::new(),
             }
         }
@@ -2058,14 +2025,6 @@ mod tests {
             self
         }
 
-        fn _automap_control_factory(
-            mut self,
-            automap_control_factory: Box<dyn AutomapControlFactory>,
-        ) -> BootstrapperBuilder {
-            self.automap_control_factory = automap_control_factory;
-            self
-        }
-
         fn config(mut self, config: BootstrapperConfig) -> Self {
             self.config = config;
             self
@@ -2079,7 +2038,6 @@ mod tests {
                     Box<dyn ListenerHandler<Item = (), Error = ()>>,
                 >::new(),
                 logger_initializer: self.log_initializer_wrapper,
-                _automap_control_factory: self.automap_control_factory,
                 config: self.config,
             }
         }

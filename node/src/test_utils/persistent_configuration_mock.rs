@@ -6,6 +6,7 @@ use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use masq_lib::utils::AutomapProtocol;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -42,6 +43,9 @@ pub struct PersistentConfigurationMock {
     start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_start_block_params: Arc<Mutex<Vec<u64>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
+    set_mapping_protocol_params: Arc<Mutex<Vec<Option<AutomapProtocol>>>>,
+    set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
@@ -164,6 +168,15 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.set_start_block_params.lock().unwrap().push(value);
         Self::result_from(&self.set_start_block_results)
+    }
+
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        self.mapping_protocol_results.borrow_mut().remove (0)
+    }
+
+    fn set_mapping_protocol(&self, value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError> {
+        self.set_mapping_protocol_params.lock().unwrap().push (value);
+        self.set_mapping_protocol_results.borrow_mut().remove (0)
     }
 }
 
@@ -378,6 +391,21 @@ impl PersistentConfigurationMock {
 
     pub fn set_start_block_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_start_block_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn mapping_protocol_result(self, result: Result<Option<AutomapProtocol>, PersistentConfigError>) -> Self {
+        self.mapping_protocol_results.borrow_mut().push (result);
+        self
+    }
+
+    pub fn set_mapping_protocol_params(mut self, params: &Arc<Mutex<Vec<Option<AutomapProtocol>>>>) -> Self {
+        self.set_mapping_protocol_params = params.clone();
+        self
+    }
+
+    pub fn set_mapping_protocol_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_mapping_protocol_results.borrow_mut().push (result);
         self
     }
 

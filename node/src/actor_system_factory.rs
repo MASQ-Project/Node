@@ -193,13 +193,17 @@ impl ActorSystemFactoryReal {
             })
             .expect("Dispatcher is dead");
 
-        // TODO: Open firewall port here
+        Self::start_automap(&config);
 
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
 
         //send out the stream handler pool subs (to be bound to listeners)
         tx.send(stream_handler_pool_subs).ok();
+    }
+
+    fn start_automap (config: &BootstrapperConfig) {
+        // TODO: Use Automap to open firewall port here
     }
 }
 
@@ -859,6 +863,7 @@ mod tests {
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::null(),
             automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
@@ -925,6 +930,7 @@ mod tests {
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::null(),
             automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
@@ -1035,6 +1041,7 @@ mod tests {
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::null(),
             automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
@@ -1096,6 +1103,7 @@ mod tests {
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
+            mapping_protocol_opt: None,
             real_user: RealUser::null(),
             automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {

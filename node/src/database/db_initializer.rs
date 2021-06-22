@@ -188,6 +188,7 @@ impl DbInitializerReal {
             "gas price",
         );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
+        Self::set_config_value(conn, "mapping_protocol", None, false, "mapping protocol");
     }
 
     fn create_payable_table(&self, conn: &Connection) {
@@ -593,6 +594,7 @@ mod tests {
         verify(&mut config_vec, "earning_wallet_address", None);
         verify(&mut config_vec, EXAMPLE_ENCRYPTED, None);
         verify(&mut config_vec, "gas_price", Some(DEFAULT_GAS_PRICE));
+        verify(&mut config_vec, "mapping_protocol", None);
         verify(&mut config_vec, "past_neighbors", None);
         verify(&mut config_vec, "preexisting", Some("yes")); // makes sure we just created this database
         verify(

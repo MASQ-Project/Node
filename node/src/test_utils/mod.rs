@@ -67,6 +67,7 @@ pub mod recorder;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
+pub mod automap_mocks;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
@@ -213,6 +214,7 @@ pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
         .mnemonic_seed_exists_result(Ok(false))
         .past_neighbors_result(Ok(None))
         .gas_price_result(Ok(1))
+        .mapping_protocol_result(Ok(None))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
