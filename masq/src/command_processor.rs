@@ -76,13 +76,14 @@ impl CommandProcessor for CommandProcessorReal {
 mod tests {
     use super::*;
     use crate::command_context::CommandContext;
+    use crate::commands::change_password_command::ChangePasswordCommand;
     use crate::communications::broadcast_handler::{
         BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
     };
     use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::{bounded, Sender};
-    use masq_lib::messages::UiShutdownRequest;
-    use masq_lib::messages::{ToMessageBody, UiBroadcastTrigger, UiUndeliveredFireAndForget};
+    use masq_lib::messages::{ToMessageBody, UiUndeliveredFireAndForget};
+    use masq_lib::messages::{UiChangePasswordResponse, UiShutdownRequest};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
@@ -141,23 +142,6 @@ mod tests {
         }
     }
 
-    #[derive(Debug)]
-    struct ToUiBroadcastTrigger {
-        pub signal_position: Option<usize>,
-    }
-
-    impl Command for ToUiBroadcastTrigger {
-        fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            let input = UiBroadcastTrigger {
-                number_of_broadcasts_in_one_batch: None,
-                position_to_send_the_signal_opt: self.signal_position,
-            }
-            .tmb(0);
-            context.send(input).unwrap(); //send instead of transact; using FFM.
-            Ok(())
-        }
-    }
-
     #[test]
     fn process_locks_writing_and_prevents_interferences_from_broadcast_messages() {
         running_test();
@@ -167,8 +151,8 @@ mod tests {
         }
         .tmb(0);
         let (tx, rx) = bounded(1);
-        let position_of_the_signal_message = 1; //means the one after the first
         let server = MockWebSocketsServer::new(ui_port)
+            .queue_response(UiChangePasswordResponse {}.tmb(1)) //this message serves only to loose the broadcasts so that they can start coming
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
@@ -190,10 +174,12 @@ mod tests {
             .make(Some(terminal_interface), generic_broadcast_handle, ui_port)
             .unwrap();
         processor
-            .process(Box::new(ToUiBroadcastTrigger {
-                signal_position: Some(position_of_the_signal_message),
+            .process(Box::new(ChangePasswordCommand {
+                old_password: Some("irrelevant".to_string()),
+                new_password: "double-irrelevant".to_string(),
             }))
             .unwrap();
+
         rx.recv_timeout(Duration::from_millis(200)).unwrap();
         processor
             .process(Box::new(TameCommand {
