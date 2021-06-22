@@ -32,6 +32,7 @@ use std::fmt::Debug;
 use std::io;
 use std::io::Read;
 use std::net::{SocketAddr, TcpListener};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
@@ -152,7 +153,7 @@ pub fn determine_config_file_path(
     let orientation_vcl = CommandLineVcl::from(orientation_args);
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
     let config_file_path = value_m!(multi_config, "config-file", PathBuf).expect_v("config-file");
-    let user_specified = multi_config.arg_matches.occurrences_of("config-file") > 0;
+    let user_specified = multi_config.deref().occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =

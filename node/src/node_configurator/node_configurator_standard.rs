@@ -115,6 +115,7 @@ pub mod standard {
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
+    use std::ops::Deref;
     use std::path::PathBuf;
     use std::str::FromStr;
 
@@ -238,7 +239,7 @@ pub mod standard {
         persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
     ) -> Result<(), ConfiguratorError> {
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
-        let user_specified = multi_config.arg_matches.occurrences_of("gas-price") > 0;
+        let user_specified = multi_config.deref().occurrences_of("gas-price") > 0;
         unprivileged_config.blockchain_bridge_config.gas_price = if user_specified {
             value_m!(multi_config, "gas-price", u64).expect("Value disappeared")
         } else {

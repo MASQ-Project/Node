@@ -474,7 +474,7 @@ pub mod tests {
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
     use std::cell::RefCell;
-    use std::ops::Not;
+    use std::ops::{Deref, Not};
     use std::sync::Arc;
     use std::sync::Mutex;
 
@@ -614,7 +614,7 @@ pub mod tests {
         ) -> Self {
             self.arg_matches_requested_entries = required
                 .iter()
-                .map(|key| multi_config.arg_matches.value_of(key).unwrap().to_string())
+                .map(|key| multi_config.deref().value_of(key).unwrap().to_string())
                 .collect();
             self
         }

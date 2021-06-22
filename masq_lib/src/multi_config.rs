@@ -7,10 +7,12 @@ use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
 use regex::Regex;
 use serde::export::Formatter;
+use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use toml::value::Table;
 use toml::Value;
@@ -18,7 +20,8 @@ use toml::Value;
 #[macro_export]
 macro_rules! value_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = &$m.arg_matches;
+        use std::ops::Deref;
+        let matches = $m.deref();
         match value_t!(matches, $v, $t) {
             Ok(v) => Some(v),
             Err(_) => None,
@@ -29,7 +32,8 @@ macro_rules! value_m {
 #[macro_export]
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = &$m.arg_matches;
+        use std::ops::Deref;
+        let matches = $m.deref();
         let user_specified = matches.occurrences_of($v) > 0;
         match value_t!(matches, $v, $t) {
             Ok(v) => (Some(v), user_specified),
@@ -41,7 +45,8 @@ macro_rules! value_user_specified_m {
 #[macro_export]
 macro_rules! values_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = &$m.arg_matches;
+        use std::ops::Deref;
+        let matches = $m.deref();
         match values_t!(matches, $v, $t) {
             Ok(vs) => vs,
             Err(_) => vec![],
@@ -50,7 +55,15 @@ macro_rules! values_m {
 }
 
 pub struct MultiConfig<'a> {
-    pub arg_matches: ArgMatches<'a>,
+    arg_matches: ArgMatches<'a>,
+}
+
+impl<'a> Deref for MultiConfig<'a> {
+    type Target = ArgMatches<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.arg_matches
+    }
 }
 
 impl<'a> MultiConfig<'a> {
@@ -113,6 +126,24 @@ impl<'a> MultiConfig<'a> {
             return ConfiguratorError::new(requireds);
         }
         ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", e.message))
+    }
+}
+
+//this way I can protect the inner field from being public (Default + deref_mut())
+
+impl Default for MultiConfig<'_> {
+    //use of this method in the production code should be considered alarming
+    //it's not easy to initiate this literally empty default with values, so it should stop people from doing that
+    fn default() -> Self {
+        Self {
+            arg_matches: Default::default(),
+        }
+    }
+}
+
+impl DerefMut for MultiConfig<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.arg_matches.borrow_mut()
     }
 }
 

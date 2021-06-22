@@ -494,6 +494,8 @@ pub mod verified_test_utils_crate_local {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
+    use std::mem::swap;
+    use std::ops::DerefMut;
 
     pub fn make_multi_config_test_only<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
@@ -502,8 +504,10 @@ pub mod verified_test_utils_crate_local {
     }
 
     pub fn make_simplified_multi_config(args: &[String]) -> MultiConfig {
-        let arg_matches = app_node().get_matches_from_safe(args).unwrap();
-        MultiConfig { arg_matches }
+        let mut arg_matches = app_node().get_matches_from_safe(args).unwrap();
+        let mut multi_config = MultiConfig::default();
+        swap(multi_config.deref_mut(), &mut arg_matches);
+        multi_config
     }
 
     pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
