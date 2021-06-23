@@ -38,16 +38,13 @@ pub trait DbInitializer {
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 
-    #[allow(unused_variables)]
     fn initialize_to_version(
         &self,
         path: &Path,
         chain_id: u8,
         target_version: usize,
         create_if_necessary: bool,
-    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-        intentionally_blank!()
-    }
+    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
 
 #[derive(Default)]
@@ -485,6 +482,20 @@ pub mod test_utils {
                 create_if_necessary,
             ));
             self.initialize_results.borrow_mut().remove(0)
+        }
+
+        #[allow(unused_variables)]
+        fn initialize_to_version(
+            &self,
+            path: &Path,
+            chain_id: u8,
+            target_version: usize,
+            create_if_necessary: bool,
+        ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+            intentionally_blank!()
+            //all existing test calls only initialize() in the mocked version,
+            //but we need to call initialize_to_version() for the real object
+            //in order to carry out some important test too
         }
     }
 
