@@ -121,7 +121,11 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 
     fn panic_if_the_version_found_is_too_high(&self, mismatched_schema: usize) {
         if mismatched_schema > self.db_migrator_configuration.current_schema_version {
-            panic!("Database claims to be more advanced ({}) than the version {} which is the latest released.", mismatched_schema, CURRENT_SCHEMA_VERSION)
+            panic!(
+                "Database claims to be more advanced ({}) than the version {} which is the latest \
+             version this Node knows about.",
+                mismatched_schema, CURRENT_SCHEMA_VERSION
+            )
         }
     }
 }
@@ -292,7 +296,7 @@ mod tests {
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::{BASE_TEST_DIR, DEFAULT_CHAIN_ID};
-    use rusqlite::{Connection, Error, NO_PARAMS};
+    use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
@@ -429,7 +433,14 @@ mod tests {
         .unwrap_err();
 
         let panic_message = captured_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(*panic_message,format!("Database claims to be more advanced ({}) than the version {} which is the latest released.",too_advanced,CURRENT_SCHEMA_VERSION))
+        assert_eq!(
+            *panic_message,
+            format!(
+                "Database claims to be more advanced ({}) than the version {} which \
+         is the latest version this Node knows about.",
+                too_advanced, CURRENT_SCHEMA_VERSION
+            )
+        )
     }
 
     #[derive(Default, Debug)]
@@ -500,13 +511,15 @@ mod tests {
         let iterator = list_of_updates.iter();
         let iterator_shifted = list_of_updates.iter().skip(1);
         iterator.zip(iterator_shifted).for_each(|(first, second)| {
-            if assert_on_two_numbers_continuity(first.old_version(), second.old_version()).not() {
+            if assert_on_two_numbers_tight_continuity(first.old_version(), second.old_version())
+                .not()
+            {
                 panic!("The list of updates for the database is not ordered properly")
             }
         });
     }
 
-    fn assert_on_two_numbers_continuity(first: usize, second: usize) -> bool {
+    fn assert_on_two_numbers_tight_continuity(first: usize, second: usize) -> bool {
         (first + 1) == second
     }
 
@@ -524,7 +537,7 @@ mod tests {
 
         let result = last_entry.unwrap().old_version();
 
-        assert!(assert_on_two_numbers_continuity(
+        assert!(assert_on_two_numbers_tight_continuity(
             result,
             CURRENT_SCHEMA_VERSION
         ))
@@ -597,12 +610,15 @@ mod tests {
         );
         let connection = Connection::open(&db_path).unwrap();
         //when an error occurs, the underlying transaction gets rolled back, and we cannot see any changes to the database
-        let assertion: Result<(String, String), Error> = connection.query_row(
-            "SELECT count FROM test WHERE name='mushrooms'",
-            NO_PARAMS,
-            |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
-        );
-        assert_eq!(assertion.unwrap_err().to_string(), "Query returned no rows")
+        let assertion: Option<(String, String)> = connection
+            .query_row(
+                "SELECT count FROM test WHERE name='mushrooms'",
+                NO_PARAMS,
+                |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
+            )
+            .optional()
+            .unwrap();
+        assert!(assertion.is_none()) //means no result for this query
     }
 
     #[test]
@@ -628,10 +644,12 @@ mod tests {
         let subject = DbMigratorReal::new();
         let list_of_updates: &[&dyn DatabaseMigration] =
             &[&DBMigrationRecordMock::default().old_version_result(5)];
+        let mismatched_schema = 5;
+        let target_version = 3;
 
         let _ = subject.make_updates(
-            5,
-            3,
+            mismatched_schema,
+            target_version,
             Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
             list_of_updates,
         );
@@ -694,7 +712,7 @@ mod tests {
             .unwrap();
         connection
             .execute(
-                "INSERT INTO test (name, value) VALUES ('schema_version', '3')",
+                "INSERT INTO test (name, value) VALUES ('schema_version', '2')",
                 NO_PARAMS,
             )
             .unwrap();
@@ -704,10 +722,12 @@ mod tests {
             current_schema_version: 5,
         };
         let subject = DbMigratorReal::new();
+        let mismatched_schema = 2;
+        let target_version = 5;
 
         let result = subject.make_updates(
-            2,
-            5,
+            mismatched_schema,
+            target_version,
             Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
             list_of_updates,
         );
@@ -746,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn make_updates_stops_doing_updates_at_the_version_specified_as_a_parameter() {
+    fn make_updates_terminates_at_the_specified_version() {
         let first_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
         let second_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
         let third_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
@@ -805,10 +825,12 @@ mod tests {
             current_schema_version: 5,
         };
         let subject = DbMigratorReal::new();
+        let mismatched_schema = 0;
+        let target_version = 3;
 
         let result = subject.make_updates(
-            0,
-            3,
+            mismatched_schema,
+            target_version,
             Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
             list_of_updates,
         );
