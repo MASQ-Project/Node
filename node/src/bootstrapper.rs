@@ -33,9 +33,6 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::SocketServer;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::wallet::Wallet;
-use automap_lib::control_layer::automap_control::{
-    AutomapControl, AutomapControlReal, ChangeHandler,
-};
 use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
@@ -371,32 +368,6 @@ impl BootstrapperConfig {
     }
 }
 
-pub trait AutomapControlFactory: Send {
-    fn make(
-        &self,
-        usual_protocol_opt: Option<AutomapProtocol>,
-        change_handler: ChangeHandler,
-    ) -> Box<dyn AutomapControl>;
-}
-
-pub struct AutomapControlFactoryReal {}
-
-impl AutomapControlFactory for AutomapControlFactoryReal {
-    fn make(
-        &self,
-        usual_protocol_opt: Option<AutomapProtocol>,
-        change_handler: ChangeHandler,
-    ) -> Box<dyn AutomapControl> {
-        Box::new(AutomapControlReal::new(usual_protocol_opt, change_handler))
-    }
-}
-
-impl AutomapControlFactoryReal {
-    fn _new() -> Self {
-        Self {}
-    }
-}
-
 pub struct Bootstrapper {
     listener_handler_factory: Box<dyn ListenerHandlerFactory>,
     listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
@@ -497,7 +468,7 @@ impl Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
             listener_handlers:
                 FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
-            actor_system_factory: Box::new(ActorSystemFactoryReal {}),
+            actor_system_factory: Box::new(ActorSystemFactoryReal::new()),
             logger_initializer,
             config: BootstrapperConfig::new(),
         }

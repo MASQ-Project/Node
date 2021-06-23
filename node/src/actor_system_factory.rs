@@ -47,6 +47,8 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
+use automap_lib::control_layer::automap_control::{AutomapControl, ChangeHandler, AutomapControlReal};
+use masq_lib::utils::AutomapProtocol;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -56,7 +58,9 @@ pub trait ActorSystemFactory: Send {
     ) -> StreamHandlerPoolSubs;
 }
 
-pub struct ActorSystemFactoryReal {}
+pub struct ActorSystemFactoryReal {
+    automap_control_factory: Box<dyn AutomapControlFactory>,
+}
 
 impl ActorSystemFactory for ActorSystemFactoryReal {
     fn make_and_start_actors(
@@ -83,6 +87,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 
 impl ActorSystemFactoryReal {
     fn prepare_initial_messages(
+        &self,
         main_cryptde: &'static dyn CryptDE,
         alias_cryptde: &'static dyn CryptDE,
         config: BootstrapperConfig,
@@ -204,6 +209,7 @@ impl ActorSystemFactoryReal {
 
     fn start_automap (config: &BootstrapperConfig) {
         // TODO: Use Automap to open firewall port here
+
     }
 }
 
@@ -424,6 +430,40 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
+impl ActorSystemFactoryReal {
+    pub fn new () -> Self {
+        Self {
+            automap_control_factory: Box::new (AutomapControlFactoryReal::new()),
+        }
+    }
+}
+
+pub trait AutomapControlFactory: Send {
+    fn make(
+        &self,
+        usual_protocol_opt: Option<AutomapProtocol>,
+        change_handler: ChangeHandler,
+    ) -> Box<dyn AutomapControl>;
+}
+
+pub struct AutomapControlFactoryReal {}
+
+impl AutomapControlFactory for AutomapControlFactoryReal {
+    fn make(
+        &self,
+        usual_protocol_opt: Option<AutomapProtocol>,
+        change_handler: ChangeHandler,
+    ) -> Box<dyn AutomapControl> {
+        Box::new(AutomapControlReal::new(usual_protocol_opt, change_handler))
+    }
+}
+
+impl AutomapControlFactoryReal {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +524,8 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
+    use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
+    use std::str::FromStr;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -878,7 +920,12 @@ mod tests {
             &Some(main_cryptde().clone()),
             &Some(alias_cryptde().clone()),
         );
-        let subject = ActorSystemFactoryReal {};
+        let mut subject = ActorSystemFactoryReal::new();
+        subject.automap_control_factory = Box::new (AutomapControlFactoryMock::new()
+            .make_result (AutomapControlMock::new()
+                .get_public_ip_result (Ok (IpAddr::from_str ("1.2.3.4").unwrap()))
+                .add_mapping_result(Ok (100))
+            ));
 
         let system = System::new("test");
         subject.make_and_start_actors(config, Box::new(actor_factory));

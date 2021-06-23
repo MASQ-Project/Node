@@ -4,9 +4,9 @@ use std::sync::{Mutex, Arc};
 use masq_lib::utils::AutomapProtocol;
 use automap_lib::control_layer::automap_control::{ChangeHandler, AutomapControl};
 use std::cell::RefCell;
-use crate::bootstrapper::AutomapControlFactory;
 use automap_lib::comm_layer::AutomapError;
 use std::net::IpAddr;
+use crate::actor_system_factory::AutomapControlFactory;
 
 pub struct AutomapControlFactoryMock {
     make_params: Arc<Mutex<Vec<(Option<AutomapProtocol>, ChangeHandler)>>>,
