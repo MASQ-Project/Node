@@ -1,6 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use lazy_static::lazy_static;
+use std::fmt;
+use std::fmt::Debug;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::sync::Arc;
@@ -106,12 +108,12 @@ pub fn running_test() {
     }
 }
 
-pub fn exit_process(code: i32, message: &str) {
+pub fn exit_process(code: i32, message: &str) -> ! {
     if unsafe { RUNNING_TEST } {
         panic!("{}: {}", code, message);
     } else {
         eprintln!("{}", message);
-        ::std::process::exit(code);
+        ::std::process::exit(code)
     }
 }
 
@@ -124,6 +126,55 @@ pub fn exit_process_with_sigterm(message: &str) {
         not_win_cfg::signal::raise(not_win_cfg::signal::SIGTERM).expect("sigterm failure");
         //This function must not return; so wait for death.
         std::thread::sleep(not_win_cfg::Duration::from_secs(600))
+    }
+}
+
+pub trait ExpectValue<T> {
+    #[track_caller]
+    fn expect_v(self, msg: &str) -> T;
+}
+
+impl<T> ExpectValue<T> for Option<T> {
+    fn expect_v(self, subject: &str) -> T {
+        match self {
+            Some(v) => v,
+            None => expect_value_panic(subject, None),
+        }
+    }
+}
+
+impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
+    fn expect_v(self, subject: &str) -> T {
+        self.unwrap_or_else(|e| expect_value_panic(subject, Some(&e)))
+    }
+}
+
+fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
+    panic!(
+        "value for '{}' badly prepared{}",
+        subject,
+        found
+            .map(|cause| format!(", got: {:?}", cause))
+            .unwrap_or_else(|| "".to_string())
+    )
+}
+
+pub trait WrapResult {
+    fn wrap_to_ok<E>(self) -> Result<Self, E>
+    where
+        Self: Sized;
+    fn wrap_to_err<T>(self) -> Result<T, Self>
+    where
+        Self: Sized;
+}
+
+impl<T> WrapResult for T {
+    fn wrap_to_ok<E>(self) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn wrap_to_err<V>(self) -> Result<V, Self> {
+        Err(self)
     }
 }
 
@@ -263,5 +314,39 @@ mod tests {
             read_only_file_handle,
             "This is the first line and others will come...maybe"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "value for 'meaningful code' badly prepared")]
+    fn expect_decent_panics_for_none() {
+        let subject: Option<u16> = None;
+
+        let _ = subject.expect_v("meaningful code");
+    }
+
+    #[test]
+    #[should_panic(expected = r#"value for 'safety feature' badly prepared, got: "alarm"#)]
+    fn expect_decent_panics_for_error_variant() {
+        let subject: Result<String, String> = Err("alarm".to_string());
+
+        let _ = subject.expect_v("safety feature");
+    }
+
+    #[test]
+    fn expect_decent_unwraps_option() {
+        let subject = Some(456);
+
+        let result = subject.expect_v("meaningful code");
+
+        assert_eq!(result, 456)
+    }
+
+    #[test]
+    fn expect_decent_unwraps_result() {
+        let subject: Result<String, String> = Ok("all right".to_string());
+
+        let result = subject.expect_v("safety feature");
+
+        assert_eq!(result, "all right".to_string())
     }
 }

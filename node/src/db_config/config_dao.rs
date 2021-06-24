@@ -258,7 +258,11 @@ mod tests {
 
         assert_contains(
             &result,
-            &ConfigDaoRecord::new("schema_version", Some(CURRENT_SCHEMA_VERSION), false),
+            &ConfigDaoRecord::new(
+                "schema_version",
+                Some(&CURRENT_SCHEMA_VERSION.to_string()),
+                false,
+            ),
         );
         assert_contains(
             &result,

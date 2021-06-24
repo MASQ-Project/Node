@@ -57,7 +57,7 @@ impl TerminalWrapper {
                 prod_cfg::IntegrationTestTerminal::default(),
             )))
         } else {
-            //we have no positive automatic test aimed on this (only negative and as an integration test)
+            //we have no positive test aimed at this (only negative and as an integration test)
             Self::configure_interface_generic(Box::new(prod_cfg::DefaultTerminal::new))
         }
     }

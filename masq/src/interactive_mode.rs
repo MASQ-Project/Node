@@ -153,7 +153,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn interactive_mode_works_for_unrecognized_command() {
@@ -316,7 +316,7 @@ mod tests {
         handle.join().unwrap();
         assert!(
             time_period_when_locked > 3 * time_period_when_loosen,
-            "{:?} is not longer than {:?}",
+            "{:?} is not longer than 3* {:?}",
             time_period_when_locked,
             time_period_when_loosen
         );
@@ -341,7 +341,7 @@ mod tests {
         let handle = thread::spawn(move || {
             let _lock = background_interface_clone.lock();
             tx.send(()).unwrap();
-            thread::sleep(time_period_when_loosen * 15);
+            thread::sleep((time_period_when_loosen + Duration::from_nanos(10)) * 40);
         });
         rx.recv().unwrap();
         let now = Instant::now();
@@ -356,7 +356,7 @@ mod tests {
         handle.join().unwrap();
         assert!(
             time_period_when_locked > 3 * time_period_when_loosen,
-            "{:?} is not longer than {:?}",
+            "{:?} is not longer than 3* {:?}",
             time_period_when_locked,
             time_period_when_loosen
         );

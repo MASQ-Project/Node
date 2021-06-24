@@ -26,7 +26,7 @@ use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
 use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-use masq_lib::utils::localhost;
+use masq_lib::utils::{localhost, ExpectValue};
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
 use std::fmt::Debug;
@@ -156,8 +156,7 @@ pub fn determine_config_file_path(
         vec![Box::new(orientation_vcl)],
         &mut FakeStreamHolder::new().streams(),
     )?;
-    let config_file_path =
-        value_m!(multi_config, "config-file", PathBuf).expect("config-file should be defaulted");
+    let config_file_path = value_m!(multi_config, "config-file", PathBuf).expect_v("config-file");
     let user_specified = multi_config.arg_matches().occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);

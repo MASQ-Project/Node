@@ -102,12 +102,7 @@ impl MockWebSocketsServer {
             ready_tx.send(()).unwrap();
             log(do_log, index, "Waiting for upgrade");
             let upgrade = server.accept().unwrap();
-            if upgrade
-                .protocols()
-                .iter()
-                .find(|p| *p == &self.protocol)
-                .is_none()
-            {
+            if upgrade.protocols().iter().all(|p| *p != self.protocol) {
                 panic!("Unrecognized protocol(s): {:?}", upgrade.protocols())
             }
             log(do_log, index, "Waiting for handshake");
