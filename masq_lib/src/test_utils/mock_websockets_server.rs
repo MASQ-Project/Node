@@ -280,9 +280,9 @@ impl MockWebSocketsServer {
                 log(do_log, index, "No fire-and-forget message found; starting to head to conversational messages");
                 break
             }
-            thread::sleep(Duration::from_millis(1)); //TODO necessary? Seems like otherwise they are treated as one piece
+            thread::sleep(Duration::from_millis(1));
             counter += 1;
-            //because true, we continue looping
+            //for true, we keep looping
         }
     }
 
@@ -388,60 +388,46 @@ fn log(log: bool, index: u64, msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::UiSetupResponseValueStatus::Set;
     use crate::messages::{
-        CrashReason, FromMessageBody, ToMessageBody, UiCheckPasswordRequest,
-        UiCheckPasswordResponse, UiConfigurationChangedBroadcast, UiDescriptorRequest,
-        UiDescriptorResponse, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupRequest,
-        UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, NODE_UI_PROTOCOL,
+        CrashReason, FromMessageBody, ToMessageBody, UiChangePasswordRequest,
+        UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
+        UiConfigurationChangedBroadcast, UiDescriptorRequest, UiDescriptorResponse,
+        UiNewPasswordBroadcast, UiNodeCrashedBroadcast, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
     use crate::utils::find_free_port;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
     fn conversational_communication_happy_path_with_full_assertion() {
         let port = find_free_port();
-        let expected_response = UiSetupResponse {
-            running: true,
-            values: vec![UiSetupResponseValue {
-                name: "direction".to_string(),
-                value: "to UI".to_string(),
-                status: Set,
-            }],
-            errors: vec![
-                ("param1".to_string(), "reason1".to_string()),
-                ("param2".to_string(), "reason2".to_string()),
-            ],
-        };
+        let expected_response = UiCheckPasswordResponse { matches: false };
         let stop_handle = MockWebSocketsServer::new(port)
             .queue_response(expected_response.clone().tmb(123))
             .start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
-
-        let request = UiSetupRequest {
-            values: vec![UiSetupRequestValue {
-                name: "direction".to_string(),
-                value: Some("to UI".to_string()),
-            }],
+        let request = UiCheckPasswordRequest {
+            db_password_opt: None,
         };
 
-        let actual_response: UiSetupResponse = connection
+        let actual_response: UiCheckPasswordResponse = connection
             .transact_with_context_id(request.clone(), 123)
             .unwrap();
 
         let requests = stop_handle.stop();
-        let actual_body_gotten_by_the_server =
-            UiSetupRequest::fmb(requests[0].clone().unwrap()).unwrap().0;
-        assert_eq!(actual_body_gotten_by_the_server, request);
+        let actual_message_gotten_by_the_server =
+            UiCheckPasswordRequest::fmb(requests[0].clone().unwrap())
+                .unwrap()
+                .0;
+        assert_eq!(actual_message_gotten_by_the_server, request);
         assert_eq!(
             (actual_response, 123),
-            UiSetupResponse::fmb(expected_response.tmb(123)).unwrap()
+            UiCheckPasswordResponse::fmb(expected_response.tmb(123)).unwrap()
         );
     }
 
     #[test]
     fn conversational_and_broadcast_messages_can_work_together_testing_corner_cases() {
-        //The test follows these presumptions:
         // Queue:
         // Conversation 1
         // Conversation 2
@@ -449,25 +435,20 @@ mod tests {
         // Broadcast 2
         // Conversation 3
         // Broadcast 5
-        //
+
         // Code:
         // connection.transact(stimulus) -> Conversation 1
         // connection.transact(stimulus) -> Conversation 2
         // connection.receive() -> Broadcast 1
         // connection.receive() -> Broadcast 2
-        // connection.receive() -> error: No more Broadcasts available, waiting more than 1000 ms
         // connection.transact(stimulus) -> Conversation 3
-        // connection.receive() -> Broadcast 5
-        // connection.receive() -> error: No more Broadcasts available
-        // connection.transact(stimulus) -> error: the queue
+        // connection.receive() -> Broadcast 3
 
-        //Content of those messages is practically irrelevant because it's not under the scope of this test.
-        //Also, a lot of lines could be highlighted with text like this "TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED",
-        //but it might make the test (even) harder to read.
+        //Content of those messages is practically irrelevant because it's not in the scope of this test.
 
-        //Lists of messages used in this test
+        //you should view some lines in this test as if highlighted with text like "TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED"
 
-        //A) All messages "sent from UI to D/N" (in an exact order)
+        //A) All messages "sent from UI to D/N", an exact order
         ////////////////////////////////////////////////////////////////////////////////////////////
         let conversation_number_one_request = UiCheckPasswordRequest {
             db_password_opt: None,
@@ -478,10 +459,10 @@ mod tests {
 
         let conversation_number_three_request = UiDescriptorRequest {};
 
-        //B) All messages "responding the opposite way" (in an exact order)
+        //B) All messages "responding the opposite way", an exact order
         ////////////////////////////////////////////////////////////////////////////////////////////
-        let conversation_number_one_response = UiCheckPasswordResponse { matches: false }.tmb(1);
-        let conversation_number_two_response = UiCheckPasswordResponse { matches: true }.tmb(2);
+        let conversation_number_one_response = UiCheckPasswordResponse { matches: false };
+        let conversation_number_two_response = UiCheckPasswordResponse { matches: true };
         let broadcast_number_one = UiConfigurationChangedBroadcast {}.tmb(0);
         let broadcast_number_two = UiNodeCrashedBroadcast {
             process_id: 0,
@@ -491,82 +472,86 @@ mod tests {
         let conversation_number_three_response = UiDescriptorResponse {
             node_descriptor: "ae15fe6".to_string(),
         }
-        .tmb(4);
+        .tmb(3);
         let broadcast_number_three = UiNewPasswordBroadcast {}.tmb(0);
         ////////////////////////////////////////////////////////////////////////////////////////////
         let port = find_free_port();
-        //preparing the server and filling the queue
         let server = MockWebSocketsServer::new(port)
-            .queue_response(conversation_number_one_response)
-            .queue_response(conversation_number_two_response)
+            .queue_response(conversation_number_one_response.clone().tmb(1))
+            .queue_response(conversation_number_two_response.clone().tmb(2))
             .queue_response(broadcast_number_one)
             .queue_response(broadcast_number_two)
             .queue_response(conversation_number_three_response)
-            .queue_response(broadcast_number_three)
-            .write_logs();
+            .queue_response(broadcast_number_three);
         let stop_handle = server.start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
         let received_message_number_one: UiCheckPasswordResponse = connection
-            .transact_with_context_id(conversation_number_one_request, 1)
+            .transact_with_context_id(conversation_number_one_request.clone(), 1)
             .unwrap();
+        assert_eq!(
+            received_message_number_one.matches,
+            conversation_number_one_response.matches
+        );
 
         let received_message_number_two: UiCheckPasswordResponse = connection
-            .transact_with_context_id(conversation_number_two_request, 2)
+            .transact_with_context_id(conversation_number_two_request.clone(), 2)
             .unwrap();
+        assert_eq!(
+            received_message_number_two.matches,
+            conversation_number_two_response.matches
+        );
 
-        //checking what is arriving
-        let received_message_number_three: UiConfigurationChangedBroadcast =
+        let _received_message_number_three: UiConfigurationChangedBroadcast =
             connection.receive().unwrap();
 
-        let received_message_number_four: UiNodeCrashedBroadcast = connection.receive().unwrap();
+        let _received_message_number_four: UiNodeCrashedBroadcast = connection.receive().unwrap();
 
-        connection.send_with_context_id(conversation_number_three_request, 3);
-        let naive_attempt_number_two_now_to_receive_a_conversational_message: Result<
-            UiDescriptorResponse,
-            (u64, String),
-        > = connection.receive();
+        let _received_message_number_five: UiDescriptorResponse = connection
+            .transact_with_context_id(conversation_number_three_request.clone(), 3)
+            .unwrap();
 
-        let naive_attempt_number_three_to_receive_another_broadcast_from_the_queue: Result<
-            UiNewPasswordBroadcast,
-            (u64, String),
-        > = connection.receive();
+        let _received_message_number_six: UiNewPasswordBroadcast = connection.receive().unwrap();
 
-        let _ = stop_handle.stop();
-        ////////////////////////////////////////////////////////////////////////////////////////////
+        let requests = stop_handle.stop();
 
-        // assert!(
-        //     error_message_number_one.contains(expected_time_out_message),
-        //     "this text was unexpected: {}",
-        //     error_message_number_one
-        // );
-        // let error_message_number_two =
-        //     naive_attempt_number_two_now_to_receive_a_conversational_message
-        //         .unwrap_err()
-        //         .1;
-        // assert!(error_message_number_two.contains("You tried to call up a fire-and-forget message from the queue by sending a conversational request; \
-        // try to adjust the queue or similar"),"this text was unexpected: {}",error_message_number_two);
-        // let error_message_number_three =
-        //     naive_attempt_number_three_to_receive_another_broadcast_from_the_queue
-        //         .unwrap_err()
-        //         .1;
-        // assert!(
-        //     error_message_number_three.contains(expected_time_out_message),
-        //     "this text was unexpected: {}",
-        //     error_message_number_three
-        // );
-        // let error_message_number_four = naive_attempt_number_four.unwrap_err().1;
-        // assert!(
-        //     error_message_number_four.contains(expected_time_out_message),
-        //     "this text was unexpected: {}",
-        //     error_message_number_four
-        // );
-        //
-        // let error_message_number_five = naive_attempt_number_five.unwrap_err().1;
-        // assert!(
-        //     error_message_number_five.contains("The queue is empty"),
-        //     "this text was unexpected: {}",
-        //     error_message_number_five
-        // )
+        assert_eq!(
+            requests
+                .into_iter()
+                .flat_map(|x| x)
+                .collect::<Vec<MessageBody>>(),
+            vec![
+                conversation_number_one_request.tmb(1),
+                conversation_number_two_request.tmb(2),
+                conversation_number_three_request.tmb(3)
+            ]
+        )
+    }
+
+    #[test]
+    fn attempt_to_get_a_message_from_an_empty_queue_causes_a_panic() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let stop_handle = server.start();
+        let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
+        let conversation_request = UiChangePasswordRequest {
+            old_password_opt: None,
+            new_password: "password".to_string(),
+        };
+
+        //catch_unwind so that we have a chance to shut down the server manually and not to let a thread with it leak away
+        let encapsulated_panic: Result<
+            Result<UiChangePasswordResponse, (u64, std::string::String)>,
+            Box<dyn std::any::Any + Send>,
+        > = catch_unwind(AssertUnwindSafe(|| {
+            connection.transact(conversation_request)
+        }));
+
+        stop_handle.stop();
+        let panic_message = *encapsulated_panic
+            .unwrap_err()
+            .downcast_ref::<&str>()
+            .unwrap();
+        assert_eq!(panic_message, "The queue is empty; all messages are gone.")
     }
 }

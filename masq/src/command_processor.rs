@@ -152,7 +152,7 @@ mod tests {
         .tmb(0);
         let (tx, rx) = bounded(1);
         let server = MockWebSocketsServer::new(ui_port)
-            .queue_response(UiChangePasswordResponse {}.tmb(1)) //this message serves only to loose the broadcasts so that they can start coming
+            .queue_response(UiChangePasswordResponse {}.tmb(1)) //this message serves to loose the broadcasts so that they can start coming
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
@@ -169,7 +169,6 @@ mod tests {
             generic_broadcast_handler.start(Box::new(broadcast_stream_factory));
         let processor_factory = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
-
         let mut processor = processor_factory
             .make(Some(terminal_interface), generic_broadcast_handle, ui_port)
             .unwrap();
