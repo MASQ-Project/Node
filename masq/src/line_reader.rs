@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::io::{stdin, stdout, Read, Write};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+//most of these events depends on the default signal handler which ignores them so that these are never signaled
 #[derive(Debug, PartialEq)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
@@ -49,13 +50,10 @@ impl MasqTerminal for TerminalReal {
     }
 
     #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
+    fn struct_id(&self) -> String {
         format!(
             "TerminalReal<{}>",
-            self.interface
-                .lock_writer_append()
-                .unwrap()
-                .tell_me_who_you_are()
+            self.interface.lock_writer_append().unwrap().struct_id()
         )
     }
 }
@@ -252,7 +250,7 @@ mod tests {
         let subject = TerminalReal::new(Box::new(
             InterfaceRawMock::new()
                 .read_line_result(Ok(ReadResult::Input("setup --ip 4.4.4.4".to_string())))
-                .add_history_unique_params(add_history_unique_params_arc.clone()),
+                .add_history_unique_params(&add_history_unique_params_arc),
         ));
 
         let result = subject.read_line();

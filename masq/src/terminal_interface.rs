@@ -1,8 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::line_reader::{TerminalEvent, TerminalReal};
-use linefeed::{Interface, ReadResult, Writer};
+use linefeed::{Interface, ReadResult, Signal, Writer};
 use masq_lib::constants::MASQ_PROMPT;
+use masq_lib::utils::WrapResult;
 use std::sync::Arc;
 
 #[cfg(not(test))]
@@ -17,12 +18,9 @@ mod test_cfg {
     pub use masq_lib::intentionally_blank;
 }
 
-//I'm using the system stdout handles for writing which has been a standard way in the project for a long time;
-//so instead of writing into linefeed's Writer directly I'm making use of just its locking functionality
-
-pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
-pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb\
-74b2eac7b8a3be8xzt";
+//Not correspondingly to the normal way of an implementation of linefeed, I keep using the system stdout handles for writing instead of its native writers
+//because the former is more traditional and in our case it serves its purpose as well.
+//So I take benefits of linefeed's synchronization abilities, and a lot of other stuff it offers for interacting with the terminal
 
 pub struct TerminalWrapper {
     interface: Arc<Box<dyn MasqTerminal>>,
@@ -35,6 +33,10 @@ impl Clone for TerminalWrapper {
         }
     }
 }
+
+pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
+pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb\
+74b2eac7b8a3be8xzt";
 
 impl TerminalWrapper {
     pub fn new(interface: Box<dyn MasqTerminal>) -> Self {
@@ -53,9 +55,8 @@ impl TerminalWrapper {
     pub fn configure_interface() -> Result<Self, String> {
         if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
-            Ok(TerminalWrapper::new(Box::new(
-                prod_cfg::IntegrationTestTerminal::default(),
-            )))
+            TerminalWrapper::new(Box::new(prod_cfg::IntegrationTestTerminal::default()))
+                .wrap_to_ok()
         } else {
             //we have no positive test aimed at this (only negative and as an integration test)
             Self::configure_interface_generic(Box::new(prod_cfg::DefaultTerminal::new))
@@ -70,8 +71,8 @@ impl TerminalWrapper {
         TerminalType: linefeed::Terminal + 'static,
     {
         let interface = interface_configurator(
-            Box::new(Interface::with_term),
             terminal_creator_of_certain_type,
+            Box::new(Interface::with_term),
         )?;
         Ok(Self::new(Box::new(interface)))
     }
@@ -93,33 +94,29 @@ fn result_wrapper_for_in_memory_terminal() -> std::io::Result<test_cfg::MemoryTe
     Ok(test_cfg::MemoryTerminal::new())
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//so to say skeleton which takes injections of closures where I can exactly say how the mocked, injected
-//function shall behave and what it shall produce
+//so to say skeleton which accepts injections of closures where I can exactly say how these mocked, injected
+//constructors shall behave and what it shall produce
 
-fn interface_configurator<InterfaceConstructor, TerminalConstructor, Terminal, Interface>(
-    interface_raw: Box<InterfaceConstructor>,
-    terminal_type: Box<TerminalConstructor>,
+fn interface_configurator<Terminal, Interface, TeConstructor, InConstructor>(
+    construct_terminal_by_type: Box<TeConstructor>,
+    construct_interface: Box<InConstructor>,
 ) -> Result<TerminalReal, String>
 where
-    InterfaceConstructor: FnOnce(&'static str, Terminal) -> std::io::Result<Interface>,
-    TerminalConstructor: FnOnce() -> std::io::Result<Terminal>,
+    TeConstructor: FnOnce() -> std::io::Result<Terminal>,
+    InConstructor: FnOnce(&'static str, Terminal) -> std::io::Result<Interface>,
     Terminal: linefeed::Terminal,
     Interface: InterfaceWrapper + 'static,
 {
-    let terminal: Terminal = match terminal_type() {
-        Ok(term) => term,
-        Err(e) => return Err(format!("Local terminal recognition: {}", e)),
-    };
+    let terminal_type: Terminal =
+        construct_terminal_by_type().map_err(|e| format!("Local terminal recognition: {}", e))?;
 
-    let mut interface: Box<dyn InterfaceWrapper> = match interface_raw("masq", terminal) {
-        Ok(interface) => Box::new(interface),
-        Err(e) => return Err(format!("Preparing terminal interface: {}", e)),
-    };
+    let mut interface: Box<Interface> = construct_interface("masq", terminal_type)
+        .map_err(|e| format!("Preparing terminal interface: {}", e))
+        .map(Box::new)?;
 
-    if let Err(e) = set_all_settable_parameters(&mut *interface) {
-        return Err(e);
-    };
-    Ok(TerminalReal::new(interface))
+    let _ = set_all_settable_parameters(&mut *interface)?;
+
+    TerminalReal::new(interface).wrap_to_ok()
 }
 
 fn set_all_settable_parameters<I: ?Sized>(interface: &mut I) -> Result<(), String>
@@ -127,10 +124,15 @@ where
     I: InterfaceWrapper,
 {
     if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
-        return Err(format!("Setting prompt: {}", e));
+        return format!("Setting prompt: {}", e).wrap_to_err();
     }
+
+    //according to linefeed docs we await no failure here
+    interface.set_report_signal(Signal::Interrupt, true);
+
     //here we can add another parameter to be configured,
     //such as "completer" (see linefeed library)
+
     Ok(())
 }
 
@@ -144,7 +146,7 @@ pub trait MasqTerminal: Send + Sync {
         test_cfg::intentionally_blank!()
     }
     #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
+    fn struct_id(&self) -> String {
         test_cfg::intentionally_blank!()
     }
 }
@@ -154,14 +156,14 @@ pub trait MasqTerminal: Send + Sync {
 //needed for being able to use both DefaultTerminal and MemoryTerminal (synchronization tests)
 pub trait WriterLock {
     #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
+    fn struct_id(&self) -> String {
         test_cfg::intentionally_blank!()
     }
 }
 
 impl<U: linefeed::Terminal> WriterLock for Writer<'_, '_, U> {
     #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
+    fn struct_id(&self) -> String {
         "linefeed::Writer<_>".to_string()
     }
 }
@@ -175,6 +177,7 @@ pub trait InterfaceWrapper: Send + Sync {
     fn add_history(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>>;
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
+    fn set_report_signal(&self, signal: Signal, set: bool);
 }
 
 impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
@@ -198,6 +201,10 @@ impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
         self.set_prompt(prompt)
     }
+
+    fn set_report_signal(&self, signal: Signal, set: bool) {
+        self.set_report_signal(signal, set)
+    }
 }
 
 #[cfg(test)]
@@ -207,7 +214,7 @@ mod tests {
     use crossbeam_channel::unbounded;
     use linefeed::DefaultTerminal;
     use std::io::{Error, Write};
-    use std::sync::Barrier;
+    use std::sync::{Barrier, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -301,19 +308,19 @@ mod tests {
     }
 
     #[test]
-    fn configure_interface_catches_an_error_at_the_first_level_of_result_matching() {
-        let subject = interface_configurator(
-                Box::new(Interface::with_term),
+    fn configure_interface_catches_an_error_at_initiating_a_terminal_of_a_certain_type() {
+        let result = interface_configurator(
                 Box::new(producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error),
+                Box::new(Interface::with_term)
             );
 
-        let result = match subject {
-            Ok(_) => panic!("should have been an error, got OK"),
-            Err(e) => e,
+        let err_message = if let Err(e) = result {
+            e
+        } else {
+            panic!("should have been an error, got Ok")
         };
-
         assert_eq!(
-            result,
+            err_message,
             format!(
                 "Local terminal recognition: {}",
                 Error::from_raw_os_error(1)
@@ -334,25 +341,25 @@ mod tests {
             move || -> std::io::Result<test_cfg::MemoryTerminal> { Ok(term_mock_clone) };
 
         let result =
-            interface_configurator(Box::new(Interface::with_term), Box::new(terminal_type));
+            interface_configurator(Box::new(terminal_type), Box::new(Interface::with_term));
 
         assert!(result.is_ok())
     }
 
     #[test]
     fn configure_interface_catches_an_error_when_creating_an_interface_instance() {
-        let subject = interface_configurator(
-            Box::new(producer_of_interface_raw_resulting_in_an_early_error),
+        let result = interface_configurator(
             Box::new(result_wrapper_for_in_memory_terminal),
+            Box::new(producer_of_interface_raw_resulting_in_an_early_error),
         );
 
-        let result = match subject {
-            Err(e) => e,
-            Ok(_) => panic!("should have been Err, got Ok with TerminalReal"),
+        let err_message = if let Err(e) = result {
+            e
+        } else {
+            panic!("should have been an error, got Ok")
         };
-
         assert_eq!(
-            result,
+            err_message,
             format!(
                 "Preparing terminal interface: {}",
                 Error::from_raw_os_error(1)
@@ -369,26 +376,45 @@ mod tests {
 
     #[test]
     fn configure_interface_catches_an_error_when_setting_the_prompt() {
-        let subject = interface_configurator(
-            Box::new(producer_of_interface_raw_causing_set_prompt_error),
+        let set_prompt_params_arc = Arc::new(Mutex::new(vec![]));
+
+        let result = interface_configurator(
             Box::new(result_wrapper_for_in_memory_terminal),
+            Box::new(|_name, _terminal| {
+                Ok(InterfaceRawMock::new()
+                    .set_prompt_result(Err(Error::from_raw_os_error(10)))
+                    .set_prompt_params(&set_prompt_params_arc))
+            }),
         );
 
-        let result = match subject {
-            Err(e) => e,
-            Ok(_) => panic!("should have been Err, got Ok with TerminalReal"),
+        let err_message = if let Err(e) = result {
+            e
+        } else {
+            panic!("should have been an error, got Ok")
         };
-
         assert_eq!(
-            result,
+            err_message,
             format!("Setting prompt: {}", Error::from_raw_os_error(10))
-        )
+        );
+        let set_prompt_params = set_prompt_params_arc.lock().unwrap();
+        assert_eq!(*set_prompt_params, vec![MASQ_PROMPT.to_string()])
     }
 
-    fn producer_of_interface_raw_causing_set_prompt_error(
-        _name: &str,
-        _terminal: impl linefeed::Terminal,
-    ) -> std::io::Result<impl InterfaceWrapper + Send + Sync + 'static> {
-        Ok(InterfaceRawMock::new().set_prompt_result(Err(Error::from_raw_os_error(10))))
+    #[test]
+    fn configure_interface_with_set_report_signal_works() {
+        let set_report_signal_arc = Arc::new(Mutex::new(vec![]));
+
+        let result = interface_configurator(
+            Box::new(result_wrapper_for_in_memory_terminal),
+            Box::new(|_name, _terminal| {
+                Ok(InterfaceRawMock::new()
+                    .set_prompt_result(Ok(()))
+                    .set_report_signal_params(&set_report_signal_arc))
+            }),
+        );
+
+        assert!(result.is_ok());
+        let set_report_signal = set_report_signal_arc.lock().unwrap();
+        assert_eq!(*set_report_signal, vec![(Signal::Interrupt, true)])
     }
 }

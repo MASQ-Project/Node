@@ -11,7 +11,7 @@ use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClap};
 use crate::terminal_interface::{InterfaceWrapper, MasqTerminal, TerminalWrapper, WriterLock};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
-use linefeed::{Interface, ReadResult};
+use linefeed::{Interface, ReadResult, Signal};
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::intentionally_blank;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
@@ -577,16 +577,19 @@ pub struct WriterInactive {}
 
 impl WriterLock for WriterInactive {
     #[cfg(test)]
-    fn tell_me_who_you_are(&self) -> String {
+    fn struct_id(&self) -> String {
         "WriterInactive".to_string()
     }
 }
 
 #[derive(Default)]
 pub struct InterfaceRawMock {
+    //this mock seems crippled, but the seeming overuse of Arc<Mutex<>> stems from InterfaceRawMock have Send and Sync
     read_line_result: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
     add_history_unique_params: Arc<Mutex<Vec<String>>>,
+    set_prompt_params: Arc<Mutex<Vec<String>>>,
     set_prompt_result: Arc<Mutex<Vec<std::io::Result<()>>>>,
+    set_report_signal_params: Arc<Mutex<Vec<(Signal, bool)>>>,
 }
 
 impl InterfaceWrapper for InterfaceRawMock {
@@ -599,8 +602,19 @@ impl InterfaceWrapper for InterfaceRawMock {
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + 'static>> {
         intentionally_blank!()
     }
-    fn set_prompt(&self, _prompt: &str) -> std::io::Result<()> {
+    fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
+        self.set_prompt_params
+            .lock()
+            .unwrap()
+            .push(prompt.to_string());
         self.set_prompt_result.lock().unwrap().remove(0)
+    }
+
+    fn set_report_signal(&self, signal: Signal, set: bool) {
+        self.set_report_signal_params
+            .lock()
+            .unwrap()
+            .push((signal, set))
     }
 }
 
@@ -609,19 +623,29 @@ impl InterfaceRawMock {
         Self {
             read_line_result: Arc::new(Mutex::new(vec![])),
             add_history_unique_params: Arc::new(Mutex::new(vec![])),
+            set_prompt_params: Arc::new(Mutex::new(vec![])),
             set_prompt_result: Arc::new(Mutex::new(vec![])),
+            set_report_signal_params: Arc::new(Mutex::new(vec![])),
         }
     }
     pub fn read_line_result(self, result: std::io::Result<ReadResult>) -> Self {
         self.read_line_result.lock().unwrap().push(result);
         self
     }
-    pub fn add_history_unique_params(mut self, params: Arc<Mutex<Vec<String>>>) -> Self {
-        self.add_history_unique_params = params;
+    pub fn add_history_unique_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.add_history_unique_params = params.clone();
         self
     }
     pub fn set_prompt_result(self, result: std::io::Result<()>) -> Self {
         self.set_prompt_result.lock().unwrap().push(result);
+        self
+    }
+    pub fn set_prompt_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_prompt_params = params.clone();
+        self
+    }
+    pub fn set_report_signal_params(mut self, params: &Arc<Mutex<Vec<(Signal, bool)>>>) -> Self {
+        self.set_report_signal_params = params.clone();
         self
     }
 }
