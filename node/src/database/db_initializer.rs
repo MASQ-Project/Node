@@ -5,6 +5,7 @@ use crate::blockchain::blockchain_interface::{
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 use crate::database::db_migrations::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+use crate::sub_lib::logger::Logger;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -47,8 +48,9 @@ pub trait DbInitializer {
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
 
-#[derive(Default)]
-pub struct DbInitializerReal {}
+pub struct DbInitializerReal {
+    logger: Logger,
+}
 
 impl DbInitializer for DbInitializerReal {
     fn initialize(
@@ -107,7 +109,9 @@ impl DbInitializer for DbInitializerReal {
 
 impl DbInitializerReal {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            logger: Logger::new("DbInitializer"),
+        }
     }
 
     fn is_creation_necessary(data_directory: &Path) -> bool {
