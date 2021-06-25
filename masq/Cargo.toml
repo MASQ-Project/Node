@@ -19,6 +19,9 @@ masq_lib = { path = "../masq_lib" }
 regex = "1.0.5"
 websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
 
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+libc = "0.2.97"
+
 [lib]
 name = "masq_cli_lib"
 path = "src/lib.rs"

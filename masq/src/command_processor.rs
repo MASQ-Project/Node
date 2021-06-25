@@ -60,6 +60,8 @@ impl CommandProcessor for CommandProcessorReal {
     }
 
     fn close(&mut self) {
+        unimplemented!() //unset prompt self.terminal_wrapper_ref().unset_prompt()
+        ;
         self.context.close();
     }
 

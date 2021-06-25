@@ -111,6 +111,10 @@ impl StopHandle {
         }
     }
 
+    pub fn child_id(&self) -> u32 {
+        self.child.id()
+    }
+
     pub fn kill(mut self) {
         self.child.kill().unwrap();
 

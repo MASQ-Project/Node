@@ -119,7 +119,7 @@ fn print_protected(
     let _lock = terminal_interface.lock();
     match event_with_message {
         CLBreak => {
-            short_writeln!(streams.stdout, "Terminated");
+            short_writeln!(streams.stdout, "\n\nTerminated");
             CLBreak
         }
         CLContinue => {
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(stream_holder.stderr.get_string(), "".to_string());
         assert_eq!(
             stream_holder.stdout.get_string(),
-            "Received a signal interpretable as continue\nTerminated\n".to_string()
+            "Received a signal interpretable as continue\n\n\nTerminated\n".to_string()
         )
     }
 
@@ -254,7 +254,7 @@ mod tests {
 
         assert_eq!(result, CLBreak);
         assert_eq!(stream_holder.stderr.get_string(), "");
-        assert_eq!(stream_holder.stdout.get_string(), "Terminated\n");
+        assert_eq!(stream_holder.stdout.get_string(), "\n\nTerminated\n");
     }
 
     #[test]
