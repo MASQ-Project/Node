@@ -532,7 +532,7 @@ impl Bootstrapper {
         if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
             &self.config.neighborhood_config.mode
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(
                     &self.config.data_directory,
                     self.config.blockchain_bridge_config.chain_id,
@@ -1605,7 +1605,7 @@ mod tests {
 
         subject.set_up_clandestine_port();
 
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, chain_id, true)
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
@@ -1674,7 +1674,7 @@ mod tests {
 
         subject.set_up_clandestine_port();
 
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, chain_id, true)
             .unwrap();
         let config_dao = ConfigDaoReal::new(conn);

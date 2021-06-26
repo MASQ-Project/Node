@@ -12,7 +12,7 @@ use websocket::ClientBuilder;
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
-const DELAY_FOR_RESPONSE_MS: u64 = 1000;
+const DELAY_FOR_RESPONSE_MS: u64 = 10000;
 const RESPONSE_CHECK_INTERVAL_MS: u64 = 250;
 const DELAY_FOR_DEATH_MS: u64 = 1000;
 const DEATH_CHECK_INTERVAL_MS: u64 = 250;

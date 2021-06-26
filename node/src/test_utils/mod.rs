@@ -4,6 +4,8 @@
 pub mod channel_wrapper_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
+#[cfg(test)]
+pub mod database_utils;
 pub mod little_tcp_server;
 pub mod logfile_name_guard;
 pub mod logging;
@@ -113,9 +115,8 @@ impl ArgsBuilder {
 }
 
 pub fn assert_ends_with(string: &str, suffix: &str) {
-    assert_eq!(
+    assert!(
         string.ends_with(suffix),
-        true,
         "'{}' did not end with '{}'",
         string,
         suffix
@@ -124,9 +125,8 @@ pub fn assert_ends_with(string: &str, suffix: &str) {
 
 pub fn assert_matches(string: &str, regex: &str) {
     let validator = Regex::new(regex).unwrap();
-    assert_eq!(
+    assert!(
         validator.is_match(string),
-        true,
         "'{}' was not matched by '{}'",
         string,
         regex
@@ -399,9 +399,8 @@ pub fn assert_contains<T>(haystack: &[T], needle: &T)
 where
     T: Debug + PartialEq,
 {
-    assert_eq!(
+    assert!(
         haystack.contains(needle),
-        true,
         "\n{:?}\ndoes not contain\n{:?}",
         haystack,
         needle

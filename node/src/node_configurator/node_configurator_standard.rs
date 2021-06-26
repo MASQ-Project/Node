@@ -1626,7 +1626,7 @@ mod tests {
             "can_read_wallet_parameters_from_config_file",
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         )));
@@ -1773,7 +1773,7 @@ mod tests {
             "unprivileged_parse_args_creates_configurations",
         );
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir.clone(), DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         ));
