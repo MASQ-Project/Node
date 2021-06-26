@@ -327,7 +327,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let status = {
             let subject = PayableDaoReal::new(
-                DbInitializerReal::new()
+                DbInitializerReal::default()
                     .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
@@ -363,7 +363,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = {
             let subject = PayableDaoReal::new(
-                DbInitializerReal::new()
+                DbInitializerReal::default()
                     .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
@@ -399,7 +399,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -417,7 +417,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -449,7 +449,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -479,7 +479,7 @@ mod tests {
             ensure_node_home_directory_exists("payable_dao", "payment_sent_works_for_overflow");
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -498,7 +498,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -521,7 +521,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -539,7 +539,7 @@ mod tests {
         );
 
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -555,7 +555,7 @@ mod tests {
         );
 
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -616,7 +616,7 @@ mod tests {
             "payable_amount_precision_loss_panics_on_insert",
         );
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -633,7 +633,7 @@ mod tests {
             "payable_amount_precision_loss_panics_on_update_balance",
         );
         let subject = PayableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -650,7 +650,7 @@ mod tests {
     #[test]
     fn top_records_and_total() {
         let home_dir = ensure_node_home_directory_exists("payable_dao", "top_records_and_total");
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let insert = |wallet: &str,
@@ -728,7 +728,7 @@ mod tests {
     fn correctly_totals_zero_records() {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "correctly_totals_zero_records");
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let subject = PayableDaoReal::new(conn);

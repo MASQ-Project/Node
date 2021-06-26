@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn commit_works() {
         let data_dir = ensure_node_home_directory_exists("connection_wrapper", "commit_works");
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, chain_id_from_name("dev"), true)
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn drop_works() {
         let data_dir = ensure_node_home_directory_exists("connection_wrapper", "drop_works");
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, chain_id_from_name("dev"), true)
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);

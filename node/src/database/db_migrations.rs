@@ -263,7 +263,7 @@ impl DbMigratorReal {
         list_of_updates
             .iter()
             .skip_while(|entry| entry.old_version() != mismatched_schema)
-            .filter(|entry| entry.old_version() < target_version)
+            .take_while(|entry| entry.old_version() < target_version)
             .map(Self::deref)
             .collect::<Vec<&(dyn DatabaseMigration + 'a)>>()
     }
@@ -320,15 +320,15 @@ mod tests {
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
-    use std::ops::{Deref, Not};
+    use std::ops::Not;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
-        too_high_mismatched_schema_will_panic_params: Arc<Mutex<Vec<usize>>>,
-        make_update_declaration_utilities_results: RefCell<Vec<Box<dyn MigDeclarationUtilities>>>,
+        too_high_found_schema_will_panic_params: Arc<Mutex<Vec<usize>>>,
+        make_mig_declaration_utils_results: RefCell<Vec<Box<dyn MigDeclarationUtilities>>>,
         update_schema_version_params: Arc<Mutex<Vec<usize>>>,
         update_schema_version_results: RefCell<Vec<rusqlite::Result<()>>>,
         commit_results: RefCell<Vec<Result<(), String>>>,
@@ -350,11 +350,11 @@ mod tests {
             self
         }
 
-        pub fn make_update_declaration_utilities_result(
+        pub fn make_mig_declaration_utils_result(
             self,
             result: Box<dyn MigDeclarationUtilities>,
         ) -> Self {
-            self.make_update_declaration_utilities_results
+            self.make_mig_declaration_utils_results
                 .borrow_mut()
                 .push(result);
             self
@@ -375,13 +375,13 @@ mod tests {
         }
 
         fn make_mig_declaration_utils<'a>(&'a self) -> Box<dyn MigDeclarationUtilities + 'a> {
-            self.make_update_declaration_utilities_results
+            self.make_mig_declaration_utils_results
                 .borrow_mut()
                 .remove(0)
         }
 
         fn too_high_found_schema_will_panic(&self, mismatched_schema: usize) {
-            self.too_high_mismatched_schema_will_panic_params
+            self.too_high_found_schema_will_panic_params
                 .lock()
                 .unwrap()
                 .push(mismatched_schema);
@@ -427,8 +427,8 @@ mod tests {
     }
 
     lazy_static! {
-        static ref TEST_DIRECTORY_FOR_DB_MIGRATION: String =
-            format!("{}/db_migration", BASE_TEST_DIR);
+        static ref TEST_DIRECTORY_FOR_DB_MIGRATION: PathBuf =
+            PathBuf::new().join(BASE_TEST_DIR).join("db_migration");
     }
 
     #[test]
@@ -482,17 +482,12 @@ mod tests {
 
     #[derive(Default, Debug)]
     struct DBMigrationRecordMock {
-        old_version_params: Arc<Mutex<Vec<()>>>,
         old_version_result: RefCell<usize>,
         migrate_params: Arc<Mutex<Vec<()>>>,
         migrate_result: RefCell<Vec<rusqlite::Result<()>>>,
     }
 
     impl DBMigrationRecordMock {
-        fn old_version_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-            self.old_version_params = params.clone();
-            self
-        }
         fn old_version_result(self, result: usize) -> Self {
             self.old_version_result.replace(result);
             self
@@ -508,15 +503,13 @@ mod tests {
             self
         }
 
-        fn set_full_tooling_for_mock_migration_record(
+        fn set_necessary_tooling_for_mock_migration_record(
             self,
             result_o_v: usize,
-            params_o_v: &Arc<Mutex<Vec<()>>>,
             result_m: rusqlite::Result<()>,
             params_m: &Arc<Mutex<Vec<()>>>,
         ) -> Self {
             self.old_version_result(result_o_v)
-                .old_version_params(params_o_v)
                 .migrate_result(result_m)
                 .migrate_params(params_m)
         }
@@ -532,13 +525,12 @@ mod tests {
         }
 
         fn old_version(&self) -> usize {
-            self.old_version_params.lock().unwrap().push(());
             *self.old_version_result.borrow()
         }
     }
 
     #[test]
-    #[should_panic(expected = "The list of updates for the database is not ordered properly")]
+    #[should_panic(expected = "The list of the updates for the database is not ordered properly")]
     fn list_validation_check_works() {
         let fake_one = DBMigrationRecordMock::default().old_version_result(6);
         let fake_two = DBMigrationRecordMock::default().old_version_result(3);
@@ -551,15 +543,13 @@ mod tests {
         let iterator = list_of_updates.iter();
         let iterator_shifted = list_of_updates.iter().skip(1);
         iterator.zip(iterator_shifted).for_each(|(first, second)| {
-            if assert_on_two_numbers_tight_progression(first.old_version(), second.old_version())
-                .not()
-            {
-                panic!("The list of updates for the database is not ordered properly")
+            if two_numbers_are_sequential(first.old_version(), second.old_version()).not() {
+                panic!("The list of the updates for the database is not ordered properly")
             }
         });
     }
 
-    fn assert_on_two_numbers_tight_progression(first: usize, second: usize) -> bool {
+    fn two_numbers_are_sequential(first: usize, second: usize) -> bool {
         (first + 1) == second
     }
 
@@ -577,10 +567,7 @@ mod tests {
 
         let result = last_entry.unwrap().old_version();
 
-        assert!(assert_on_two_numbers_tight_progression(
-            result,
-            CURRENT_SCHEMA_VERSION
-        ))
+        assert!(two_numbers_are_sequential(result, CURRENT_SCHEMA_VERSION))
     }
 
     #[test]
@@ -590,9 +577,9 @@ mod tests {
             .old_version_result(4)
             .migrate_result(Ok(()));
         let migration_utilities = DBMigrationUtilitiesMock::default()
-            .make_update_declaration_utilities_result(Box::new(
-                DBUpdateDeclarationUtilitiesMock::default(),
-            ))
+            .make_mig_declaration_utils_result(
+                Box::new(DBUpdateDeclarationUtilitiesMock::default()),
+            )
             .update_schema_version_result(Err(Error::InvalidQuery))
             .update_schema_version_params(&update_schema_version_params_arc);
 
@@ -613,7 +600,7 @@ mod tests {
             as &dyn DatabaseMigration];
         let update_declaration_utils = DBUpdateDeclarationUtilitiesMock::default();
         let migration_utils = DBMigrationUtilitiesMock::default()
-            .make_update_declaration_utilities_result(Box::new(update_declaration_utils));
+            .make_mig_declaration_utils_result(Box::new(update_declaration_utils));
         let mismatched_schema = 0;
         let target_version = 5; //not relevant
         let subject = DbMigratorReal::default();
@@ -640,7 +627,7 @@ mod tests {
     #[test]
     fn execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled(
     ) {
-        let dir_path: PathBuf = PathBuf::from(TEST_DIRECTORY_FOR_DB_MIGRATION.deref()).join("execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled");
+        let dir_path: PathBuf = TEST_DIRECTORY_FOR_DB_MIGRATION.join("execute_upon_transaction_returns_the_first_error_encountered_and_the_transaction_is_canceled");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join("test_database.db");
         let connection = Connection::open(&db_path).unwrap();
@@ -689,44 +676,34 @@ mod tests {
     #[test]
     fn make_updates_skips_records_already_included_in_the_current_database_and_updates_only_the_others(
     ) {
-        let first_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let second_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let third_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let fourth_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let fifth_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
         let first_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let second_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let third_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let fourth_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let fifth_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let list_of_updates: &[&dyn DatabaseMigration] = &[
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 0,
-                &first_record_old_version_p_arc,
                 Ok(()),
                 &first_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 1,
-                &second_record_old_version_p_arc,
                 Ok(()),
                 &second_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 2,
-                &third_record_old_version_p_arc,
                 Ok(()),
                 &third_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 3,
-                &fourth_record_old_version_p_arc,
                 Ok(()),
                 &fourth_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 4,
-                &fifth_record_old_version_p_arc,
                 Ok(()),
                 &fifth_record_migration_p_arc,
             ),
@@ -764,16 +741,6 @@ mod tests {
         );
 
         assert_eq!(result, Ok(()));
-        let first_record_old_version_param = first_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(first_record_old_version_param.len(), 1);
-        let second_record_old_version_param = second_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(second_record_old_version_param.len(), 1);
-        let third_record_old_version_param = third_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(third_record_old_version_param.len(), 4);
-        let fourth_record_old_version_param = fourth_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(fourth_record_old_version_param.len(), 3);
-        let fifth_record_old_version_param = fifth_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(fifth_record_old_version_param.len(), 3);
         let first_record_migration_params = first_record_migration_p_arc.lock().unwrap();
         assert_eq!(*first_record_migration_params, vec![]);
         let second_record_migration_params = second_record_migration_p_arc.lock().unwrap();
@@ -798,44 +765,34 @@ mod tests {
 
     #[test]
     fn make_updates_terminates_at_the_specified_version() {
-        let first_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let second_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let third_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let fourth_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let fifth_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
         let first_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let second_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let third_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let fourth_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let fifth_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let list_of_updates: &[&dyn DatabaseMigration] = &[
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 0,
-                &first_record_old_version_p_arc,
                 Ok(()),
                 &first_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 1,
-                &second_record_old_version_p_arc,
                 Ok(()),
                 &second_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 2,
-                &third_record_old_version_p_arc,
                 Ok(()),
                 &third_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 3,
-                &fourth_record_old_version_p_arc,
                 Ok(()),
                 &fourth_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 4,
-                &fifth_record_old_version_p_arc,
                 Ok(()),
                 &fifth_record_migration_p_arc,
             ),
@@ -867,16 +824,6 @@ mod tests {
         );
 
         assert_eq!(result, Ok(()));
-        let first_record_old_version_param = first_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(first_record_old_version_param.len(), 4);
-        let second_record_old_version_param = second_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(second_record_old_version_param.len(), 3);
-        let third_record_old_version_param = third_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(third_record_old_version_param.len(), 3);
-        let fourth_record_old_version_param = fourth_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(fourth_record_old_version_param.len(), 1);
-        let fifth_record_old_version_param = fifth_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(fifth_record_old_version_param.len(), 1);
         let first_record_migration_params = first_record_migration_p_arc.lock().unwrap();
         assert_eq!(*first_record_migration_params, vec![()]);
         let second_record_migration_params = second_record_migration_p_arc.lock().unwrap();
@@ -900,7 +847,7 @@ mod tests {
             .execute_upon_transaction_params(&execute_upon_transaction_params_arc)
             .execute_upon_transaction_result(Ok(()));
         let migration_utils = DBMigrationUtilitiesMock::default()
-            .make_update_declaration_utilities_result(Box::new(db_update_declaration_utilities))
+            .make_mig_declaration_utils_result(Box::new(db_update_declaration_utilities))
             .update_schema_version_params(&update_schema_version_params_arc)
             .update_schema_version_result(Ok(()))
             .commit_result(Ok(()));
@@ -931,31 +878,27 @@ mod tests {
 
     #[test]
     fn final_commit_of_the_root_transaction_sad_path() {
-        let first_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
-        let second_record_old_version_p_arc = Arc::new(Mutex::new(vec![]));
         let first_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let second_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let list_of_updates: &[&dyn DatabaseMigration] = &[
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 0,
-                &first_record_old_version_p_arc,
                 Ok(()),
                 &first_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_full_tooling_for_mock_migration_record(
+            &DBMigrationRecordMock::default().set_necessary_tooling_for_mock_migration_record(
                 1,
-                &second_record_old_version_p_arc,
                 Ok(()),
                 &second_record_migration_p_arc,
             ),
         ];
         let migration_utils = DBMigrationUtilitiesMock::default()
-            .make_update_declaration_utilities_result(Box::new(
-                DBUpdateDeclarationUtilitiesMock::default(),
-            ))
-            .make_update_declaration_utilities_result(Box::new(
-                DBUpdateDeclarationUtilitiesMock::default(),
-            ))
+            .make_mig_declaration_utils_result(
+                Box::new(DBUpdateDeclarationUtilitiesMock::default()),
+            )
+            .make_mig_declaration_utils_result(
+                Box::new(DBUpdateDeclarationUtilitiesMock::default()),
+            )
             .update_schema_version_result(Ok(()))
             .update_schema_version_result(Ok(()))
             .commit_result(Err("Committing transaction failed".to_string()));
@@ -964,10 +907,6 @@ mod tests {
         let result = subject.make_updates(0, 2, Box::new(migration_utils), list_of_updates);
 
         assert_eq!(result, Err(String::from("Committing transaction failed")));
-        let first_record_old_version_param = first_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(first_record_old_version_param.len(), 4);
-        let second_record_old_version_param = second_record_old_version_p_arc.lock().unwrap();
-        assert_eq!(second_record_old_version_param.len(), 3);
         let first_record_migration_params = first_record_migration_p_arc.lock().unwrap();
         assert_eq!(*first_record_migration_params, vec![()]);
         let second_record_migration_params = second_record_migration_p_arc.lock().unwrap();
@@ -976,12 +915,12 @@ mod tests {
 
     #[test]
     fn migration_from_0_to_1_is_properly_set() {
-        let dir_path = PathBuf::from(TEST_DIRECTORY_FOR_DB_MIGRATION.deref()).join("0_to_1");
+        let dir_path = TEST_DIRECTORY_FOR_DB_MIGRATION.join("0_to_1");
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
         let connection =
             revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
-        let subject = DbInitializerReal::new();
+        let subject = DbInitializerReal::default();
 
         let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 1, true);
 

@@ -161,7 +161,7 @@ mod tests {
             "banned_dao",
             "banned_dao_can_ban_a_wallet_address",
         );
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let subject = {
             let conn = db_initializer
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn ban_is_idempotent() {
         let home_dir = ensure_node_home_directory_does_not_exist("banned_dao", "ban_is_idempotent");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let subject = {
             let conn = db_initializer
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -208,7 +208,7 @@ mod tests {
     fn ban_error_when_table_doesnt_exist() {
         let home_dir =
             ensure_node_home_directory_exists("banned_dao", "ban_error_when_table_doesnt_exist");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let subject = {
             let conn = db_initializer
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -225,7 +225,7 @@ mod tests {
             "banned_dao",
             "banned_dao_can_unban_a_wallet_address",
         );
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
 
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -255,7 +255,7 @@ mod tests {
     fn unban_is_okay_for_non_banned() {
         let home_dir =
             ensure_node_home_directory_does_not_exist("banned_dao", "unban_is_okay_for_non_banned");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
 
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -273,7 +273,7 @@ mod tests {
             "banned_dao",
             "is_banned_returns_true_for_banned",
         );
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
 
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -300,7 +300,7 @@ mod tests {
     fn ban_inserts_into_ban_cache() {
         let home_dir =
             ensure_node_home_directory_does_not_exist("banned_dao", "ban_inserts_into_ban_cache");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
 
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
@@ -317,7 +317,7 @@ mod tests {
     fn unban_removes_from_ban_cache() {
         let home_dir =
             ensure_node_home_directory_does_not_exist("banned_dao", "unban_removes_from_ban_cache");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();

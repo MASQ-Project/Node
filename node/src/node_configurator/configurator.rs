@@ -98,7 +98,7 @@ type MessageError = (u64, String);
 
 impl Configurator {
     pub fn new(data_directory: PathBuf, chain_id: u8) -> Self {
-        let initializer = DbInitializerReal::new();
+        let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(&data_directory, chain_id, false)
             .expect("Couldn't initialize database");
@@ -753,7 +753,7 @@ mod tests {
         let data_dir =
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
         let verifier = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         )));

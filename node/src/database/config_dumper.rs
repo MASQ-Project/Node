@@ -109,7 +109,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 }
 
 fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
-    let conn = DbInitializerReal::new()
+    let conn = DbInitializerReal::default()
         .initialize(&data_directory, chain_id, true) // TODO: Probably should be false
         .unwrap_or_else(|e| {
             panic!(
@@ -235,7 +235,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -276,7 +276,7 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
@@ -326,7 +326,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -374,7 +374,7 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
@@ -426,7 +426,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -474,7 +474,7 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
