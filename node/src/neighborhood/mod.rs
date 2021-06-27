@@ -425,7 +425,7 @@ impl Neighborhood {
 
     fn connect_database(&mut self) {
         if self.persistent_config_opt.is_none() {
-            let db_initializer = DbInitializerReal::new();
+            let db_initializer = DbInitializerReal::default();
             let conn = db_initializer
                 .initialize(&self.data_directory, self.chain_id, true) // TODO: Probably should be false
                 .expect("Neighborhood could not connect to database");

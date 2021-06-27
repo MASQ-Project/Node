@@ -422,7 +422,7 @@ mod tests {
             "try_multi_insert_payment_handles_error_of_number_sign_check",
         );
         let mut subject = ReceivableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -448,7 +448,7 @@ mod tests {
             "receivable_dao",
             "try_multi_insert_payment_handles_error_setting_start_block",
         );
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         {
@@ -480,7 +480,7 @@ mod tests {
             "receivable_dao",
             "try_multi_insert_payment_handles_error_adding_receivables",
         );
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         {
@@ -508,7 +508,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let status = {
             let subject = ReceivableDaoReal::new(
-                DbInitializerReal::new()
+                DbInitializerReal::default()
                     .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
@@ -544,7 +544,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = {
             let subject = ReceivableDaoReal::new(
-                DbInitializerReal::new()
+                DbInitializerReal::default()
                     .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
@@ -579,7 +579,7 @@ mod tests {
             "more_money_receivable_works_for_overflow",
         );
         let subject = ReceivableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -600,7 +600,7 @@ mod tests {
         let debtor2 = make_wallet("debtor2");
         let mut subject = {
             let subject = ReceivableDaoReal::new(
-                DbInitializerReal::new()
+                DbInitializerReal::default()
                     .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                     .unwrap(),
             );
@@ -645,7 +645,7 @@ mod tests {
         assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
 
         let config_dao = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -662,7 +662,7 @@ mod tests {
         );
         let debtor = make_wallet("unknown_wallet");
         let mut subject = ReceivableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -727,7 +727,7 @@ mod tests {
         );
 
         let mut receivable_dao = ReceivableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -747,7 +747,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let subject = ReceivableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -768,7 +768,7 @@ mod tests {
         let time_stub = SystemTime::now();
 
         let subject = ReceivableDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -838,7 +838,7 @@ mod tests {
         not_delinquent_above_slope_after_stop.last_received_timestamp =
             from_time_t(pcs.sugg_thru_decreasing(now) - 2);
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
@@ -876,7 +876,7 @@ mod tests {
         delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
@@ -909,7 +909,7 @@ mod tests {
         delinquent.last_received_timestamp = from_time_t(pcs.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
@@ -945,7 +945,7 @@ mod tests {
             "receivable_dao",
             "new_delinquencies_does_not_find_existing_delinquencies",
         );
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
@@ -975,7 +975,7 @@ mod tests {
         let mut unpaid_delinquent = make_receivable_account(2345, true);
         unpaid_delinquent.balance = 51;
         let home_dir = ensure_node_home_directory_exists("accountant", "paid_delinquencies");
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
@@ -1010,7 +1010,7 @@ mod tests {
             "receivable_dao",
             "paid_delinquencies_does_not_find_existing_nondelinquencies",
         );
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
@@ -1028,7 +1028,7 @@ mod tests {
     #[test]
     fn top_records_and_total() {
         let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let insert = |wallet: &str, balance: i64, timestamp: i64| {
@@ -1091,7 +1091,7 @@ mod tests {
     fn correctly_totals_zero_records() {
         let home_dir =
             ensure_node_home_directory_exists("receivable_dao", "correctly_totals_zero_records");
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
             .unwrap();
         let subject = ReceivableDaoReal::new(conn);

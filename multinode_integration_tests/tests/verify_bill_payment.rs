@@ -116,7 +116,7 @@ fn verify_bill_payment() {
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = MASQRealNode::node_home_dir(&project_root, &consuming_node_name);
-    let consuming_node_connection = DbInitializerReal::new()
+    let consuming_node_connection = DbInitializerReal::default()
         .initialize(Path::new(&consuming_node_path), cluster.chain_id, true)
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
@@ -151,7 +151,7 @@ fn verify_bill_payment() {
     let (serving_node_1_name, serving_node_1_index) =
         cluster.prepare_real_node(&serving_node_1_config);
     let serving_node_1_path = MASQRealNode::node_home_dir(&project_root, &serving_node_1_name);
-    let serving_node_1_connection = DbInitializerReal::new()
+    let serving_node_1_connection = DbInitializerReal::default()
         .initialize(Path::new(&serving_node_1_path), cluster.chain_id, true)
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
@@ -163,7 +163,7 @@ fn verify_bill_payment() {
     let (serving_node_2_name, serving_node_2_index) =
         cluster.prepare_real_node(&serving_node_2_config);
     let serving_node_2_path = MASQRealNode::node_home_dir(&project_root, &serving_node_2_name);
-    let serving_node_2_connection = DbInitializerReal::new()
+    let serving_node_2_connection = DbInitializerReal::default()
         .initialize(Path::new(&serving_node_2_path), cluster.chain_id, true)
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
@@ -175,7 +175,7 @@ fn verify_bill_payment() {
     let (serving_node_3_name, serving_node_3_index) =
         cluster.prepare_real_node(&serving_node_3_config);
     let serving_node_3_path = MASQRealNode::node_home_dir(&project_root, &serving_node_3_name);
-    let serving_node_3_connection = DbInitializerReal::new()
+    let serving_node_3_connection = DbInitializerReal::default()
         .initialize(Path::new(&serving_node_3_path), cluster.chain_id, true)
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
@@ -378,7 +378,7 @@ fn make_seed() -> Seed {
 }
 
 fn expire_payables(path: PathBuf, chain_id: u8) {
-    let conn = DbInitializerReal::new()
+    let conn = DbInitializerReal::default()
         .initialize(&path, chain_id, true)
         .unwrap();
     let mut statement = conn
@@ -395,7 +395,7 @@ fn expire_payables(path: PathBuf, chain_id: u8) {
 }
 
 fn expire_receivables(path: PathBuf, chain_id: u8) {
-    let conn = DbInitializerReal::new()
+    let conn = DbInitializerReal::default()
         .initialize(&path, chain_id, true)
         .unwrap();
     let mut statement = conn
