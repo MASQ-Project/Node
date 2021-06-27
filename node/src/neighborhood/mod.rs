@@ -38,7 +38,7 @@ use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
+use crate::sub_lib::peer_actors::{BindMessage, StartMessage, NewPublicIp};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
@@ -113,6 +113,14 @@ impl Handler<StartMessage> for Neighborhood {
 
     fn handle(&mut self, _msg: StartMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.handle_start_message();
+    }
+}
+
+impl Handler<NewPublicIp> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, _msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
+        todo!()
     }
 }
 
@@ -386,6 +394,7 @@ impl Neighborhood {
         NeighborhoodSubs {
             bind: addr.clone().recipient::<BindMessage>(),
             start: addr.clone().recipient::<StartMessage>(),
+            new_public_ip: addr.clone().recipient::<NewPublicIp>(),
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
             update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),

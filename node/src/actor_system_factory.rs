@@ -31,8 +31,8 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
-use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::peer_actors::PeerActors;
+use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodMode};
+use crate::sub_lib::peer_actors::{PeerActors, NewPublicIp};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
@@ -47,8 +47,9 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
-use automap_lib::control_layer::automap_control::{AutomapControl, ChangeHandler, AutomapControlReal};
+use automap_lib::control_layer::automap_control::{AutomapControl, ChangeHandler, AutomapControlReal, AutomapChange};
 use masq_lib::utils::AutomapProtocol;
+use std::net::{Ipv4Addr, IpAddr};
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -72,7 +73,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
         let (tx, rx) = mpsc::channel();
 
-        ActorSystemFactoryReal::prepare_initial_messages(
+        self.prepare_initial_messages(
             main_cryptde,
             alias_cryptde,
             config,
@@ -198,7 +199,7 @@ impl ActorSystemFactoryReal {
             })
             .expect("Dispatcher is dead");
 
-        Self::start_automap(&config);
+        self.start_automap(&config, vec![peer_actors.neighborhood.new_public_ip.clone()]);
 
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
@@ -207,8 +208,41 @@ impl ActorSystemFactoryReal {
         tx.send(stream_handler_pool_subs).ok();
     }
 
-    fn start_automap (config: &BootstrapperConfig) {
-        // TODO: Use Automap to open firewall port here
+    fn notify_of_public_ip_change (new_ip_recipients: &Vec<Recipient<NewPublicIp>>, public_ip: IpAddr) {
+        new_ip_recipients.iter()
+            .for_each(|r| r.try_send(NewPublicIp { ip: public_ip }).expect("NewPublicIp recipient is dead"));
+    }
+
+    fn start_automap (&self, config: &BootstrapperConfig, new_ip_recipients: Vec<Recipient<NewPublicIp>>) {
+        if let NeighborhoodMode::Standard(node_addr, _, _) = &config.neighborhood_config.mode {
+            if node_addr.ip_addr() != IpAddr::V4(Ipv4Addr::new (0, 0, 0, 0)) {
+                return;
+            }
+            let inner_recipients = new_ip_recipients.clone();
+            let change_handler = move |change: AutomapChange| {
+                match change {
+                    AutomapChange::NewIp(public_ip) => {
+                        Self::notify_of_public_ip_change(&inner_recipients, public_ip)
+                    }
+                    AutomapChange::Error(e) => todo! ("{:?}", e),
+                }
+            };
+            let mut automap_control = self.automap_control_factory.make(
+                config.mapping_protocol_opt,
+                Box::new(change_handler)
+            );
+            let public_ip = match automap_control.get_public_ip() {
+                Ok(ip) => ip,
+                Err(e) => todo!("{:?}", e),
+            };
+            Self::notify_of_public_ip_change(&new_ip_recipients, public_ip);
+            node_addr.ports().iter()
+                .for_each (|port|
+                   if let Err (e) = automap_control.add_mapping(*port) {
+                       todo! ("{:?}", e)
+                   }
+                );
+        }
 
     }
 }
@@ -487,7 +521,7 @@ mod tests {
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
-    use crate::sub_lib::neighborhood::RouteQueryMessage;
+    use crate::sub_lib::neighborhood::{RouteQueryMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{
         DispatcherNodeQueryMessage, GossipFailure_0v1, NodeRecordMetadataMessage,
     };
@@ -505,7 +539,7 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
-    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::recorder::{Recorder, make_recorder};
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
@@ -526,6 +560,7 @@ mod tests {
     use std::time::Duration;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use std::str::FromStr;
+    use automap_lib::control_layer::automap_control::AutomapChange;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -634,6 +669,7 @@ mod tests {
             NeighborhoodSubs {
                 bind: recipient!(addr, BindMessage),
                 start: recipient!(addr, StartMessage),
+                new_public_ip: recipient!(addr, NewPublicIp),
                 node_query: recipient!(addr, NodeQueryMessage),
                 route_query: recipient!(addr, RouteQueryMessage),
                 update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
@@ -981,13 +1017,27 @@ mod tests {
             real_user: RealUser::null(),
             automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop,
+                mode: NeighborhoodMode::Standard(
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234, 2345]),
+                    vec![],
+                    rate_pack(100),
+                ),
             },
         };
         let (tx, rx) = mpsc::channel();
         let system = System::new("MASQNode");
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = ActorSystemFactoryReal::new();
+        subject.automap_control_factory = Box::new (AutomapControlFactoryMock::new()
+            .make_result(AutomapControlMock::new()
+                .get_public_ip_result (Ok (IpAddr::from_str ("1.2.3.4").unwrap()))
+                .add_mapping_params (&add_mapping_params_arc)
+                .add_mapping_result (Ok(0))
+                .add_mapping_result (Ok(0))
+            )
+        );
 
-        ActorSystemFactoryReal::prepare_initial_messages(
+        subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
@@ -1004,15 +1054,16 @@ mod tests {
         check_bind_message(&recordings.neighborhood, false);
         check_bind_message(&recordings.ui_gateway, false);
         check_bind_message(&recordings.accountant, false);
-        check_start_message(&recordings.neighborhood);
+        check_new_ip_message(&recordings.neighborhood, IpAddr::from_str("1.2.3.4").unwrap(), 1);
+        check_start_message(&recordings.neighborhood, 2);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.main_cryptde);
-        assert_eq!(hopper_config.per_routing_service, 0);
-        assert_eq!(hopper_config.per_routing_byte, 0);
+        assert_eq!(hopper_config.per_routing_service, 102);
+        assert_eq!(hopper_config.per_routing_byte, 101);
         let proxy_client_config = Parameters::get(parameters.proxy_client_params);
         check_cryptde(proxy_client_config.cryptde);
-        assert_eq!(proxy_client_config.exit_service_rate, 0);
-        assert_eq!(proxy_client_config.exit_byte_rate, 0);
+        assert_eq!(proxy_client_config.exit_service_rate, 104);
+        assert_eq!(proxy_client_config.exit_byte_rate, 103);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
         let (
             actual_main_cryptde,
@@ -1026,7 +1077,7 @@ mod tests {
             actual_main_cryptde.public_key(),
             actual_alias_cryptde.public_key()
         );
-        assert_eq!(actual_is_decentralized, false);
+        assert_eq!(actual_is_decentralized, true);
         assert_eq!(consuming_wallet_balance, Some(0));
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
         check_cryptde(cryptde);
@@ -1054,12 +1105,14 @@ mod tests {
             bootstrapper_config.consuming_wallet_opt,
             Some(make_wallet("consuming"))
         );
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        assert_eq! (*add_mapping_params, vec![1234, 2345]);
         let _stream_handler_pool_subs = rx.recv().unwrap();
         // more...more...what? How to check contents of _stream_handler_pool_subs?
     }
 
     #[test]
-    fn prepare_initial_messages_doesnt_start_up_proxy_client_if_consume_only_mode() {
+    fn prepare_initial_messages_doesnt_start_up_proxy_client_or_automap_if_consume_only_mode() {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
         let config = BootstrapperConfig {
@@ -1096,8 +1149,10 @@ mod tests {
             },
         };
         let system = System::new("MASQNode");
+        let mut subject = ActorSystemFactoryReal::new();
+        subject.automap_control_factory = Box::new (AutomapControlFactoryMock::new());
 
-        ActorSystemFactoryReal::prepare_initial_messages(
+        subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
@@ -1116,7 +1171,7 @@ mod tests {
         check_bind_message(&recordings.neighborhood, true);
         check_bind_message(&recordings.ui_gateway, true);
         check_bind_message(&recordings.accountant, true);
-        check_start_message(&recordings.neighborhood);
+        check_start_message(&recordings.neighborhood, 1);
     }
 
     #[test]
@@ -1150,12 +1205,12 @@ mod tests {
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
-            mapping_protocol_opt: None,
+            mapping_protocol_opt: Some (AutomapProtocol::Pmp),
             real_user: RealUser::null(),
             automap_public_ip_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &[]),
+                    NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
                     vec![],
                     rate_pack(100),
                 ),
@@ -1163,8 +1218,17 @@ mod tests {
         };
         let (tx, _) = mpsc::channel();
         let system = System::new("MASQNode");
+        let mut subject = ActorSystemFactoryReal::new();
+        let make_params_arc = Arc::new (Mutex::new (vec![]));
+        subject.automap_control_factory = Box::new (AutomapControlFactoryMock::new()
+            .make_params (&make_params_arc)
+            .make_result(AutomapControlMock::new()
+                .get_public_ip_result(Ok(IpAddr::from_str ("1.2.3.4").unwrap()))
+                .add_mapping_result (Ok(0))
+            )
+        );
 
-        ActorSystemFactoryReal::prepare_initial_messages(
+        subject.prepare_initial_messages(
             main_cryptde(),
             alias_cryptde(),
             config.clone(),
@@ -1176,6 +1240,63 @@ mod tests {
         system.run();
         let (_, _, _, consuming_wallet_balance) = Parameters::get(parameters.proxy_server_params);
         assert_eq!(consuming_wallet_balance, None);
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq! (make_params[0].0, Some (AutomapProtocol::Pmp));
+        assert_eq! (make_params.len(), 1);
+    }
+
+    #[test]
+    fn start_automap_aborts_if_neighborhood_mode_is_standard_and_public_ip_is_supplied() {
+        let mut subject = ActorSystemFactoryReal::new();
+        let automap_control = AutomapControlMock::new();
+        subject.automap_control_factory = Box::new (AutomapControlFactoryMock::new()
+            .make_result (automap_control));
+        let mut config = BootstrapperConfig::default();
+        config.neighborhood_config.mode =
+            NeighborhoodMode::Standard(NodeAddr::new (
+                &IpAddr::from_str ("1.2.3.4").unwrap(),
+                &[1234]
+            ), vec![], DEFAULT_RATE_PACK);
+        let (recorder, _, _) = make_recorder();
+        let new_ip_recipient = recorder.start().recipient();
+
+        subject.start_automap (&config, vec![new_ip_recipient]);
+
+        // no not-enough-results-provided error: test passes
+    }
+
+    #[test]
+    fn start_automap_change_handler_operates_properly() {
+        let mut subject = ActorSystemFactoryReal::new();
+        let make_params_arc = Arc::new (Mutex::new (vec![]));
+        let automap_control = AutomapControlMock::new()
+            .get_public_ip_result (Ok (IpAddr::from_str("1.2.3.4").unwrap()))
+            .add_mapping_result (Ok (0));
+        subject.automap_control_factory = Box::new (AutomapControlFactoryMock::new()
+            .make_params (&make_params_arc)
+            .make_result (automap_control));
+        let mut config = BootstrapperConfig::default();
+        config.mapping_protocol_opt = None;
+        config.neighborhood_config.mode =
+            NeighborhoodMode::Standard(NodeAddr::new (
+                &IpAddr::from_str ("0.0.0.0").unwrap(),
+                &[1234]
+            ), vec![], DEFAULT_RATE_PACK);
+        let (recorder, _, recording_arc) = make_recorder();
+        let new_ip_recipient = recorder.start().recipient();
+
+        subject.start_automap (&config, vec![new_ip_recipient]);
+
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq! (make_params[0].0, None);
+        let system = System::new("test");
+        let change_handler = &make_params[0].1;
+        change_handler (AutomapChange::NewIp (IpAddr::from_str ("4.3.2.1").unwrap()));
+        System::current().stop();
+        system.run();
+        let recording = recording_arc.lock().unwrap();
+        assert_eq! (recording.get_record::<NewPublicIp>(0), &NewPublicIp {ip: IpAddr::from_str ("1.2.3.4").unwrap()});
+        assert_eq! (recording.get_record::<NewPublicIp>(1), &NewPublicIp {ip: IpAddr::from_str ("4.3.2.1").unwrap()});
     }
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
@@ -1220,8 +1341,13 @@ mod tests {
         };
     }
 
-    fn check_start_message(recording: &Arc<Mutex<Recording>>) {
-        let _start_message = Recording::get::<StartMessage>(recording, 1);
+    fn check_start_message(recording: &Arc<Mutex<Recording>>, idx: usize) {
+        let _start_message = Recording::get::<StartMessage>(recording, idx);
+    }
+
+    fn check_new_ip_message(recording: &Arc<Mutex<Recording>>, new_ip: IpAddr, idx: usize) {
+        let new_ip_message = Recording::get::<NewPublicIp>(recording, idx);
+        assert_eq! (new_ip_message.ip, new_ip);
     }
 
     fn check_cryptde(candidate: &dyn CryptDE) {

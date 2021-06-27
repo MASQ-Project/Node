@@ -7,7 +7,7 @@ use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
+use crate::sub_lib::peer_actors::{BindMessage, StartMessage, NewPublicIp};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -245,6 +245,7 @@ lazy_static! {
 pub struct NeighborhoodSubs {
     pub bind: Recipient<BindMessage>,
     pub start: Recipient<StartMessage>,
+    pub new_public_ip: Recipient<NewPublicIp>,
     pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
@@ -433,6 +434,7 @@ mod tests {
         let subject = NeighborhoodSubs {
             bind: recipient!(recorder, BindMessage),
             start: recipient!(recorder, StartMessage),
+            new_public_ip: recipient!(recorder, NewPublicIp),
             node_query: recipient!(recorder, NodeQueryMessage),
             route_query: recipient!(recorder, RouteQueryMessage),
             update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),

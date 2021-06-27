@@ -306,7 +306,7 @@ pub struct BootstrapperConfig {
     pub clandestine_port_opt: Option<u16>,
     pub consuming_wallet_opt: Option<Wallet>,
     pub earning_wallet: Wallet,
-    pub automap_public_ip_opt: Option<IpAddr>,
+    pub automap_public_ip_opt: Option<IpAddr>, // TODO: This should probably be deleted
     pub neighborhood_config: NeighborhoodConfig,
 }
 
