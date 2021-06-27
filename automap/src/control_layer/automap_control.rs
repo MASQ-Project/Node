@@ -179,8 +179,11 @@ impl AutomapControlReal {
                 (Ok(_), None) => {
                     unreachable!("Experiment succeeded but produced no Inner structure")
                 }
-                (Ok(protocol_info), Some(inner)) => self.transactors[inner.transactor_idx]
-                    .start_change_handler(change_handler, protocol_info.router_ip),
+                (Ok(protocol_info), Some(inner)) => {
+                    // TODO "We're throwing away the remap interval here; the change handler should be using it."
+                    self.transactors[inner.transactor_idx]
+                        .start_change_handler(change_handler, protocol_info.router_ip)
+                },
                 (Err(e), _) => {
                     self.change_handler_opt = Some(change_handler);
                     Err(e.clone())
