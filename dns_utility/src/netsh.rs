@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::netsh::NetshError::IOError;
+use crate::netsh::NetshError::IoError;
 use std::{io, process};
 
 pub trait Netsh {
@@ -15,7 +15,7 @@ pub struct NetshCommand {}
 pub enum NetshError {
     NonZeroExit(i32),
     NoCodeExit,
-    IOError(io::Error),
+    IoError(io::Error),
 }
 
 impl NetshCommand {
@@ -46,7 +46,7 @@ impl Netsh for NetshCommand {
                 Some(code) => Err(NetshError::NonZeroExit(code)),
                 None => Err(NetshError::NoCodeExit),
             },
-            Err(e) => Err(IOError(e)),
+            Err(e) => Err(IoError(e)),
         }
     }
 }

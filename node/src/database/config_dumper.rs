@@ -109,7 +109,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 }
 
 fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
-    let conn = DbInitializerReal::new()
+    let conn = DbInitializerReal::default()
         .initialize(&data_directory, chain_id, true) // TODO: Probably should be false
         .unwrap_or_else(|e| {
             panic!(
@@ -213,7 +213,7 @@ mod tests {
             "gasPrice": "1",
             "mappingProtocol": null,
             "pastNeighbors": null,
-            "schemaVersion": CURRENT_SCHEMA_VERSION,
+            "schemaVersion": CURRENT_SCHEMA_VERSION.to_string(),
             "seed": null,
             "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
         });
@@ -235,7 +235,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -276,7 +276,7 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
@@ -298,7 +298,7 @@ mod tests {
             "pastNeighbors",
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
         );
-        check("schemaVersion", CURRENT_SCHEMA_VERSION);
+        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
@@ -326,7 +326,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -374,7 +374,7 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
@@ -393,7 +393,7 @@ mod tests {
         );
         check("gasPrice", "1");
         check("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345");
-        check("schemaVersion", CURRENT_SCHEMA_VERSION);
+        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
@@ -426,7 +426,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -474,7 +474,7 @@ mod tests {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
@@ -496,7 +496,7 @@ mod tests {
             "pastNeighbors",
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
         );
-        check("schemaVersion", CURRENT_SCHEMA_VERSION);
+        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))

@@ -5,6 +5,7 @@ use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::common_validators;
 use masq_lib::shared_schema::GAS_PRICE_HELP;
 use masq_lib::short_writeln;
+use masq_lib::utils::{ExpectValue, WrapResult};
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
@@ -14,20 +15,21 @@ pub struct SetConfigurationCommand {
 }
 
 impl SetConfigurationCommand {
-    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
-        // if anything wrong, Clap will handle it at get_matches_from_safe
-        let mut preserved_name: String = String::new();
-        if pieces.len() != 1 {
-            preserved_name.push_str(&pieces[1].clone().replace("--", ""))
-        };
+    pub fn new(pieces: &[String]) -> Result<Self, String> {
+        let parameter_opt = pieces.get(1).map(|s| s.replace("--", ""));
         match set_configuration_subcommand().get_matches_from_safe(pieces) {
-            Ok(matches) => Ok(SetConfigurationCommand {
-                name: preserved_name.clone(),
-                value: matches
-                    .value_of(preserved_name)
-                    .expect("should not reach this state")
-                    .to_string(),
-            }),
+            Ok(matches) => {
+                let parameter = parameter_opt.expect_v("required param");
+                SetConfigurationCommand {
+                    name: parameter.clone(),
+                    value: matches
+                        .value_of(parameter)
+                        .expect_v("required param")
+                        .to_string(),
+                }
+                .wrap_to_ok()
+            }
+
             Err(e) => Err(format!("{}", e)),
         }
     }

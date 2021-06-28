@@ -50,7 +50,7 @@ impl Command for CheckPasswordCommand {
 }
 
 impl CheckPasswordCommand {
-    pub fn new(pieces: Vec<String>) -> Result<Self, String> {
+    pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match check_password_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
@@ -76,7 +76,7 @@ mod tests {
         let subject = CommandFactoryReal::new();
 
         let result = subject
-            .make(vec!["check-password".to_string(), "bonkers".to_string()])
+            .make(&["check-password".to_string(), "bonkers".to_string()])
             .unwrap();
 
         let check_password_command: &CheckPasswordCommand = result.as_any().downcast_ref().unwrap();
@@ -92,7 +92,7 @@ mod tests {
     fn testing_command_factory_with_bad_command() {
         let subject = CommandFactoryReal::new();
 
-        let result = subject.make(vec![
+        let result = subject.make(&[
             "check-password".to_string(),
             "bonkers".to_string(),
             "invalid".to_string(),
@@ -122,7 +122,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
-            .make(vec!["check-password".to_string(), "bonkers".to_string()])
+            .make(&["check-password".to_string(), "bonkers".to_string()])
             .unwrap();
 
         let result = subject.execute(&mut context);
@@ -155,7 +155,7 @@ mod tests {
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
-        let subject = factory.make(vec!["check-password".to_string()]).unwrap();
+        let subject = factory.make(&["check-password".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -184,7 +184,7 @@ mod tests {
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
         let subject =
-            CheckPasswordCommand::new(vec!["check-password".to_string(), "bonkers".to_string()])
+            CheckPasswordCommand::new(&["check-password".to_string(), "bonkers".to_string()])
                 .unwrap();
 
         let result = subject.execute(&mut context);

@@ -1,5 +1,21 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+#[macro_use]
+pub mod channel_wrapper_mocks;
+pub mod data_hunk;
+pub mod data_hunk_framer;
+#[cfg(test)]
+pub mod database_utils;
+pub mod little_tcp_server;
+pub mod logfile_name_guard;
+pub mod neighborhood_test_utils;
+pub mod persistent_configuration_mock;
+pub mod recorder;
+pub mod stream_connector_mock;
+pub mod tcp_wrapper_mocks;
+pub mod tokio_wrapper_mocks;
+pub mod automap_mocks;
+
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
@@ -55,20 +71,6 @@ use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
-#[macro_use]
-pub mod channel_wrapper_mocks;
-pub mod data_hunk;
-pub mod data_hunk_framer;
-pub mod little_tcp_server;
-pub mod logfile_name_guard;
-pub mod neighborhood_test_utils;
-pub mod persistent_configuration_mock;
-pub mod recorder;
-pub mod stream_connector_mock;
-pub mod tcp_wrapper_mocks;
-pub mod tokio_wrapper_mocks;
-pub mod automap_mocks;
-
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
     static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
@@ -116,9 +118,8 @@ impl ArgsBuilder {
 }
 
 pub fn assert_ends_with(string: &str, suffix: &str) {
-    assert_eq!(
+    assert!(
         string.ends_with(suffix),
-        true,
         "'{}' did not end with '{}'",
         string,
         suffix
@@ -127,9 +128,8 @@ pub fn assert_ends_with(string: &str, suffix: &str) {
 
 pub fn assert_matches(string: &str, regex: &str) {
     let validator = Regex::new(regex).unwrap();
-    assert_eq!(
+    assert!(
         validator.is_match(string),
-        true,
         "'{}' was not matched by '{}'",
         string,
         regex
@@ -399,9 +399,8 @@ pub fn assert_contains<T>(haystack: &[T], needle: &T)
 where
     T: Debug + PartialEq,
 {
-    assert_eq!(
+    assert!(
         haystack.contains(needle),
-        true,
         "\n{:?}\ndoes not contain\n{:?}",
         haystack,
         needle

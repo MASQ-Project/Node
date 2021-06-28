@@ -422,7 +422,7 @@ impl SetupReporterReal {
                 error_so_far.extend(ce);
             }
         };
-        let initializer = DbInitializerReal::new();
+        let initializer = DbInitializerReal::default();
         match initializer.initialize(data_directory, chain_id, false) {
             Ok(conn) => {
                 let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -986,7 +986,7 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_database_populated_only_requireds_set",
         );
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(&home_dir, chain_id_from_name(DEFAULT_CHAIN_NAME), true)
             .unwrap();

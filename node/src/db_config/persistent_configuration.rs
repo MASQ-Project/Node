@@ -112,7 +112,7 @@ pub trait PersistentConfiguration {
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
-    fn set_mapping_protocol(&self, value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError>;
+    fn set_mapping_protocol(&mut self, value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -361,13 +361,25 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        // TODO: Merge in implementation from GH-244
-        Ok(Some (AutomapProtocol::Igdp))
+        let result = self
+            .dao
+            .get("mapping_protocol")?
+            .value_opt
+            .map(|val| AutomapProtocol::from_str (&val));
+        match result {
+            None => Ok(None),
+            Some (Ok(protocol)) => Ok(Some (protocol)),
+            Some (Err(msg)) => Err (PersistentConfigError::DatabaseError(msg)),
+        }
     }
 
-    fn set_mapping_protocol(&self, _value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError> {
-        // TODO: Merge in implementation from GH-244
-        Ok(())
+    fn set_mapping_protocol(
+        &mut self,
+        value: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError> {
+        let mut writer = self.dao.start_transaction()?;
+        writer.set("mapping_protocol", value.map(|v| v.to_string()))?;
+        Ok(writer.commit()?)
     }
 }
 
@@ -1562,5 +1574,66 @@ mod tests {
         .unwrap();
         assert_eq!(actual_node_descriptors, node_descriptors);
         assert_eq!(set_params.len(), 1);
+    }
+
+    #[test]
+    fn mapping_protocol() {
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "mapping_protocol",
+                Some("PCP"),
+                false,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.mapping_protocol().unwrap();
+
+        assert_eq!(result.unwrap(), AutomapProtocol::Pcp);
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(*get_params, vec!["mapping_protocol".to_string()]);
+    }
+
+    #[test]
+    fn set_mapping_protocol_to_some() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoWriteableMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(
+            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+        ));
+
+        let result = subject.set_mapping_protocol(Some (AutomapProtocol::Pmp));
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("mapping_protocol".to_string(), Some("PMP".to_string()))]
+        );
+    }
+
+    #[test]
+    fn set_mapping_protocol_to_none() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoWriteableMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()))
+            .commit_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(
+            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
+        ));
+
+        let result = subject.set_mapping_protocol(None);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("mapping_protocol".to_string(), None)]
+        );
     }
 }

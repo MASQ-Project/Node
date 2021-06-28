@@ -174,7 +174,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.mapping_protocol_results.borrow_mut().remove (0)
     }
 
-    fn set_mapping_protocol(&self, value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError> {
+    fn set_mapping_protocol(&mut self, value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError> {
         self.set_mapping_protocol_params.lock().unwrap().push (value);
         self.set_mapping_protocol_results.borrow_mut().remove (0)
     }

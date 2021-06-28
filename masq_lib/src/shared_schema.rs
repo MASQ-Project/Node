@@ -113,7 +113,7 @@ lazy_static! {
     );
     pub static ref GAS_PRICE_HELP: String = format!(
        "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
-       If left unspecified, MASQ Node will use the previously stored value (Default {}). Valid range is 1-99 Gwei.",
+       If left unspecified, MASQ Node will use the previously stored value (Default {}).",
        DEFAULT_GAS_PRICE);
 }
 
@@ -378,8 +378,8 @@ pub mod common_validators {
     }
 
     pub fn validate_gas_price(gas_price: String) -> Result<(), String> {
-        match gas_price.parse::<u8>() {
-            Ok(gp) if gp > 0 && gp < 100 => Ok(()),
+        match gas_price.parse::<u64>() {
+            Ok(gp) if gp > 0 => Ok(()),
             _ => Err(gas_price),
         }
     }
@@ -497,6 +497,7 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
+
     use crate::shared_schema::common_validators;
 
     #[test]
@@ -626,16 +627,10 @@ mod tests {
 
     #[test]
     fn validate_gas_price_max() {
-        let result = common_validators::validate_gas_price("99".to_string());
-        assert!(result.is_ok());
+        let max = 0xFFFFFFFFFFFFFFFFu64;
+        let max_string = max.to_string();
+        let result = common_validators::validate_gas_price(max_string);
         assert_eq!(Ok(()), result);
-    }
-
-    #[test]
-    fn validate_gas_price_too_large_and_fails() {
-        let result = common_validators::validate_gas_price("100".to_string());
-        assert!(result.is_err());
-        assert_eq!(Err(String::from("100")), result);
     }
 
     #[test]

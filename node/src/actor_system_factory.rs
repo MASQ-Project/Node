@@ -95,7 +95,7 @@ impl ActorSystemFactoryReal {
         actor_factory: Box<dyn ActorFactory>,
         tx: Sender<StreamHandlerPoolSubs>,
     ) {
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(

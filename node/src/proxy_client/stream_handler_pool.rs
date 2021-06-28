@@ -355,10 +355,7 @@ impl StreamHandlerPoolReal {
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
         let sender_wrapper_opt = inner.stream_writer_channels.get(&stream_key);
-        match sender_wrapper_opt {
-            Some(sender_wrapper_box_ref) => Some(sender_wrapper_box_ref.as_ref().clone()),
-            None => None,
-        }
+        sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.as_ref().clone())
     }
 
     fn make_logger_copy(inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>) -> Logger {

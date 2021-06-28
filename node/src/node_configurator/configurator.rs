@@ -100,7 +100,7 @@ type MessageError = (u64, String);
 
 impl Configurator {
     pub fn new(data_directory: PathBuf, chain_id: u8) -> Self {
-        let initializer = DbInitializerReal::new();
+        let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(&data_directory, chain_id, false)
             .expect("Couldn't initialize database");
@@ -199,47 +199,67 @@ impl Configurator {
     }
 
     fn get_wallet_addresses(&self, db_password: String) -> Result<(String, String), (u64, String)> {
-        let mnemonic = match self.persistent_config.mnemonic_seed(&db_password) {
-            Ok(mnemonic_opt) => match mnemonic_opt {
-                None => {
-                    return Err((
-                        EARLY_QUESTIONING_ABOUT_DATA,
-                        "Wallets must exist prior to \
-                 demanding info on them (recover or generate wallets first)"
-                            .to_string(),
-                    ))
-                }
-                Some(mnemonic) => mnemonic,
+        let mnemonic = match Self::process_value_with_dif_treatment_of_none(
+            self.persistent_config.mnemonic_seed(&db_password),
+            || {
+                (
+                    EARLY_QUESTIONING_ABOUT_DATA,
+                    "Wallets must exist prior to demanding info \
+                    on them (recover or generate wallets first)"
+                        .to_string(),
+                )
             },
-            Err(e) => return Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
+        ) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
         };
-        let derivation_path = match self.persistent_config.consuming_wallet_derivation_path() {
-            Ok(deriv_path_opt) => match deriv_path_opt {
-                None => panic!(
-                    "Database corrupted: consuming derivation path not present despite \
-                 mnemonic seed in place!"
-                ),
-                Some(deriv_path) => deriv_path,
+
+        let derivation_path = match Self::process_value_with_dif_treatment_of_none(
+            self.persistent_config.consuming_wallet_derivation_path(),
+            || {
+                panic!(
+                    "Database corrupted: consuming derivation path \
+                     not present despite mnemonic seed in place!"
+                )
             },
-            Err(e) => return Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
+        ) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
         };
+
         let consuming_wallet_address =
             match Self::recalculate_consuming_wallet(mnemonic, derivation_path) {
                 Ok(wallet) => wallet.string_address_from_keypair(),
                 Err(e) => return Err((KEY_PAIR_CONSTRUCTION_ERROR, e)),
             };
-        let earning_wallet_address = match self.persistent_config.earning_wallet_address() {
-            Ok(address) => match address {
-                None => panic!(
-                    "Database corrupted: missing earning wallet address despite other \
-                 values for wallets in place!"
-                ),
-                Some(address) => address,
+
+        let earning_wallet_address = match Self::process_value_with_dif_treatment_of_none(
+            self.persistent_config.earning_wallet_address(),
+            || {
+                panic!(
+                    "Database corrupted: missing earning wallet address \
+                      despite other values for wallets in place!"
+                )
             },
-            Err(e) => return Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
+        ) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
         };
 
         Ok((consuming_wallet_address, earning_wallet_address))
+    }
+
+    fn process_value_with_dif_treatment_of_none<T>(
+        data: Result<Option<T>, PersistentConfigError>,
+        closure_for_none: fn() -> (u64, String),
+    ) -> Result<T, (u64, String)> {
+        match data {
+            Ok(value) => match value {
+                None => Err(closure_for_none()),
+                Some(value) => Ok(value),
+            },
+            Err(e) => Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
+        }
     }
 
     fn recalculate_consuming_wallet(
@@ -503,6 +523,9 @@ impl Configurator {
             "earningWalletAddressOpt",
         )?;
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
+        let port_mapping_protocol_opt =
+            Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
+                .map (|p| p.to_string());
         let (mnemonic_seed_opt, past_neighbors) = match good_password {
             Some(password) => {
                 let mnemonic_seed_opt = Self::value_not_required(
@@ -532,6 +555,7 @@ impl Configurator {
             mnemonic_seed_opt,
             consuming_wallet_derivation_path_opt,
             earning_wallet_address_opt,
+            port_mapping_protocol_opt,
             past_neighbors,
             start_block,
         };
@@ -724,14 +748,14 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
-    use masq_lib::utils::derivation_path;
+    use masq_lib::utils::{derivation_path, AutomapProtocol};
 
     #[test]
     fn constructor_connects_with_database() {
         let data_dir =
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
         let verifier = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         )));
@@ -921,12 +945,12 @@ mod tests {
                 path: MessagePath::Conversation(4321),
                 payload: Err((
                     CONFIGURATOR_WRITE_ERROR,
-                    r#"DatabaseError("Didn\'t work good")"#.to_string()
+                    r#"DatabaseError("Didn't work good")"#.to_string()
                 )),
             }
         );
         TestLogHandler::new().exists_log_containing(
-            r#"WARN: Configurator: Failed to change password: DatabaseError("Didn\'t work good")"#,
+            r#"WARN: Configurator: Failed to change password: DatabaseError("Didn't work good")"#,
         );
     }
 
@@ -1923,6 +1947,7 @@ mod tests {
             .gas_price_result(Ok(2345))
             .mnemonic_seed_result(Ok(None))
             .consuming_wallet_derivation_path_result(Ok(None))
+            .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .past_neighbors_result(Ok(Some(vec![])))
             .earning_wallet_address_result(Ok(None))
             .start_block_result(Ok(3456));
@@ -1947,6 +1972,7 @@ mod tests {
                 mnemonic_seed_opt: None,
                 consuming_wallet_derivation_path_opt: None,
                 earning_wallet_address_opt: None,
+                port_mapping_protocol_opt: Some("IGDP".to_string()),
                 past_neighbors: vec![],
                 start_block: 3456
             }

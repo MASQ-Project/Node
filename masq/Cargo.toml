@@ -8,15 +8,16 @@ description = "Reference implementation of user interface for MASQ Node"
 edition = "2018"
 workspace = "../node"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# See more keys and their definitions at  https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 clap = "2.33.1"
-lazy_static = "1.4.0"
-masq_lib = { path = "../masq_lib" }
-rustyline = "7.1.0"
-websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
 crossbeam-channel = "0.5.0"
+lazy_static = "1.4.0"
+linefeed = "0.6.0"
+masq_lib = { path = "../masq_lib" }
+regex = "1.0.5"
+websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
 
 [lib]
 name = "masq_cli_lib"

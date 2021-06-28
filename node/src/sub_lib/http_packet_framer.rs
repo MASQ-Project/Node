@@ -117,13 +117,10 @@ impl HttpPacketFramer {
             return None;
         }
         if self.framer_state.packet_progress_state == PacketProgressState::SeekingBodyEnd {
-            match self.seek_body_end() {
-                Some(request) => Some(FramedChunk {
-                    chunk: request,
-                    last_chunk: false,
-                }),
-                None => None,
-            }
+            self.seek_body_end().map(|request| FramedChunk {
+                chunk: request,
+                last_chunk: false,
+            })
         } else {
             None
         }

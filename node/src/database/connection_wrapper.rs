@@ -3,9 +3,17 @@
 use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
 
+#[cfg(test)]
+use std::any::Any;
+
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, rusqlite::Error>;
+
+    #[cfg(test)]
+    fn as_any(&self) -> &dyn Any {
+        intentionally_blank!()
+    }
 }
 
 #[derive(Debug)]
@@ -19,6 +27,11 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     }
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, Error> {
         self.conn.transaction()
+    }
+
+    #[cfg(test)]
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -40,7 +53,7 @@ mod tests {
     #[test]
     fn commit_works() {
         let data_dir = ensure_node_home_directory_exists("connection_wrapper", "commit_works");
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, chain_id_from_name("dev"), true)
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);
@@ -60,7 +73,7 @@ mod tests {
     #[test]
     fn drop_works() {
         let data_dir = ensure_node_home_directory_exists("connection_wrapper", "drop_works");
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, chain_id_from_name("dev"), true)
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);

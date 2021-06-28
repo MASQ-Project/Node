@@ -252,10 +252,7 @@ impl<'a> From<&'a PanicInfo<'a>> for AltPanicInfo<'a> {
     fn from(panic_info: &'a PanicInfo) -> Self {
         AltPanicInfo {
             payload: panic_info.payload(),
-            location: match panic_info.location() {
-                None => None,
-                Some(location) => Some(AltLocation::from(location)),
-            },
+            location: panic_info.location().map(AltLocation::from),
         }
     }
 }

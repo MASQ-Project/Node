@@ -145,17 +145,13 @@ impl Handler<NodeQueryMessage> for Neighborhood {
             NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
         };
 
-        MessageResult(match node_record_ref_opt {
-            Some(node_record_ref) => Some(NodeQueryResponseMetadata::new(
+        MessageResult(node_record_ref_opt.map(|node_record_ref| {
+            NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
-                match node_record_ref.node_addr_opt() {
-                    Some(node_addr_ref) => Some(node_addr_ref),
-                    None => None,
-                },
+                node_record_ref.node_addr_opt(),
                 node_record_ref.rate_pack().clone(),
-            )),
-            None => None,
-        })
+            )
+        }))
     }
 }
 
@@ -172,17 +168,13 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
             NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
         };
 
-        let node_descriptor = match node_record_ref_opt {
-            Some(node_record_ref) => Some(NodeQueryResponseMetadata::new(
+        let node_descriptor = node_record_ref_opt.map(|node_record_ref| {
+            NodeQueryResponseMetadata::new(
                 node_record_ref.public_key().clone(),
-                match node_record_ref.node_addr_opt() {
-                    Some(node_addr) => Some(node_addr),
-                    None => None,
-                },
+                node_record_ref.node_addr_opt(),
                 node_record_ref.rate_pack().clone(),
-            )),
-            None => None,
-        };
+            )
+        });
 
         let response = DispatcherNodeQueryResponse {
             result: node_descriptor,
@@ -442,7 +434,7 @@ impl Neighborhood {
 
     fn connect_database(&mut self) {
         if self.persistent_config_opt.is_none() {
-            let db_initializer = DbInitializerReal::new();
+            let db_initializer = DbInitializerReal::default();
             let conn = db_initializer
                 .initialize(&self.data_directory, self.chain_id, true) // TODO: Probably should be false
                 .expect("Neighborhood could not connect to database");
