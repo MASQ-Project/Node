@@ -77,6 +77,7 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
     )
 }
 
+// Note: If you don't supply a neighbor_opt, here, your root node's IP address will be removed.
 pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,

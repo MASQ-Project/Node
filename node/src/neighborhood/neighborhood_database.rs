@@ -18,6 +18,7 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
+use masq_lib::utils::ExpectValue;
 
 pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
@@ -249,6 +250,17 @@ impl NeighborhoodDatabase {
         // Local Node is always referenced
         keys.insert(self.root().public_key().clone());
         keys
+    }
+
+    pub fn new_public_ip (&mut self, public_ip: IpAddr) {
+        let record = self.root_mut();
+        let public_key = record.public_key().clone();
+        let node_addr_opt = record.metadata.node_addr_opt.clone();
+        let old_node_addr = node_addr_opt.expect_v ("Root node");
+        let new_node_addr = NodeAddr::new (&public_ip, &old_node_addr.ports());
+        record.metadata.node_addr_opt = Some (new_node_addr);
+        self.by_ip_addr.remove (&old_node_addr.ip_addr());
+        self.by_ip_addr.insert (public_ip, public_key);
     }
 
     fn to_dot_renderables(&self) -> Vec<Box<dyn DotRenderable>> {
@@ -752,6 +764,28 @@ mod tests {
         assert_string_contains(&result, "\"BAUGBw\" -> \"AwQFBg\";");
         assert_string_contains(&result, "\"AwQFBg\" -> \"BAUGBw\";");
         assert_string_contains(&result, "\"BAUGBw\" -> \"AQIDBA\";");
+    }
+
+    #[test]
+    fn new_public_ip_replaces_ip_address_and_nothing_else() {
+        let this_node = make_node_record(1234, true);
+        let old_node = this_node.clone();
+        let mut subject = NeighborhoodDatabase::new(
+            this_node.public_key(),
+            (&this_node).into(),
+            this_node.earning_wallet(),
+            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+        );
+        let new_public_ip = IpAddr::from_str ("4.3.2.1").unwrap();
+
+        subject.new_public_ip(new_public_ip);
+
+        let mut new_node = subject.root().clone();
+        assert_eq! (subject.node_by_ip(&new_public_ip), Some (&new_node));
+        assert_eq! (subject.node_by_ip(&old_node.metadata.node_addr_opt.clone().unwrap().ip_addr()), None);
+        assert_eq! (new_node.node_addr_opt().unwrap().ip_addr(), new_public_ip);
+        new_node.metadata.node_addr_opt = old_node.metadata.node_addr_opt.clone(); // undo the only change
+        assert_eq! (new_node, old_node); // now they should be identical
     }
 
     #[test]

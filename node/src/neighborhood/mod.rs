@@ -63,7 +63,7 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::exit_process;
+use masq_lib::utils::{exit_process, ExpectValue};
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
@@ -119,8 +119,8 @@ impl Handler<StartMessage> for Neighborhood {
 impl Handler<NewPublicIp> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, _msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
-        todo!()
+    fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_new_public_ip(msg);
     }
 }
 
@@ -406,6 +406,13 @@ impl Neighborhood {
     fn handle_start_message(&mut self) {
         self.connect_database();
         self.send_debut_gossip();
+    }
+
+    fn handle_new_public_ip(&mut self, msg: NewPublicIp) {
+        let new_public_ip = msg.ip;
+        let old_public_ip = self.neighborhood_database.root().node_addr_opt().expect_v("Root node").ip_addr();
+        self.neighborhood_database.new_public_ip(new_public_ip);
+        info! (self.logger, "Changed public IP from {} to {}", old_public_ip, new_public_ip);
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -3046,6 +3053,21 @@ mod tests {
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
         TestLogHandler::new().exists_log_containing("ERROR: Neighborhood: Could not persist immediate-neighbor changes: DatabaseError(\"Booga\")");
+    }
+
+    #[test]
+    fn handle_new_public_ip_changes_public_ip_and_nothing_else() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(1234, true);
+        let neighbor = make_node_record(1050, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node,
+            Some (&neighbor));
+        let new_public_ip = IpAddr::from_str ("4.3.2.1").unwrap();
+
+        subject.handle_new_public_ip(NewPublicIp {ip: new_public_ip});
+
+        assert_eq! (subject.neighborhood_database.root().node_addr_opt().unwrap().ip_addr(), new_public_ip);
+        TestLogHandler::new().exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
 
     #[test]
