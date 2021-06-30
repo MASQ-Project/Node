@@ -81,7 +81,7 @@ impl Transactor for PcpTransactor {
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
-        let (result_code, _epoch_time, opcode_data) =
+        let (result_code, _approved_lifetime, opcode_data) =
             Self::mapping_transaction(&self.factories_arc, router_ip, self.router_port, 0x0009, 0)?;
         match result_code {
             ResultCode::Success => Ok(opcode_data.external_ip_address),
@@ -95,21 +95,21 @@ impl Transactor for PcpTransactor {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
-        self.change_handler_config
-            .borrow_mut()
-            .replace(ChangeHandlerConfig {
-                hole_port,
-                lifetime,
-            });
-        let (result_code, _epoch_time, _opcode_data) = Self::mapping_transaction(
+        let (result_code, approved_lifetime, _opcode_data) = Self::mapping_transaction(
             &self.factories_arc,
             router_ip,
             self.router_port,
             hole_port,
             lifetime,
         )?;
+        self.change_handler_config
+            .borrow_mut()
+            .replace(ChangeHandlerConfig {
+                hole_port,
+                lifetime: approved_lifetime,
+            });
         match result_code {
-            ResultCode::Success => Ok(lifetime / 2),
+            ResultCode::Success => Ok(approved_lifetime / 2),
             code => Err(AutomapError::TransactionFailure(format!("{:?}", code))),
         }
     }
@@ -123,7 +123,7 @@ impl Transactor for PcpTransactor {
     }
 
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
-        let (result_code, _epoch_time, _opcode_data) = Self::mapping_transaction(
+        let (result_code, _approved_lifetime, _opcode_data) = Self::mapping_transaction(
             &self.factories_arc,
             router_ip,
             self.router_port,
@@ -294,15 +294,13 @@ impl PcpTransactor {
         let result_code = response
             .result_code_opt
             .expect("Response parsing inoperative - result code");
-        let epoch_time = response
-            .epoch_time_opt
-            .expect("Response parsing inoperative - epoch time");
+        let approved_lifetime = response.lifetime;
         let opcode_data = response
             .opcode_data
             .as_any()
             .downcast_ref::<MapOpcodeData>()
             .expect("Response parsing inoperative - opcode data");
-        Ok((result_code, epoch_time, opcode_data.clone()))
+        Ok((result_code, approved_lifetime, opcode_data.clone()))
     }
 
     #[allow(clippy::type_complexity)]
@@ -807,12 +805,14 @@ mod tests {
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
         let mut packet = vanilla_request();
         packet.opcode = Opcode::Map;
+        packet.lifetime = 10000;
         packet.opcode_data = vanilla_map_request();
         let mut request = [0x00u8; 1100];
         let request_len = packet.marshal(&mut request).unwrap();
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
         packet.opcode_data = vanilla_map_response();
+        packet.lifetime = 8000;
         let mut response = [0u8; 1100];
         let response_len = packet.marshal(&mut response).unwrap();
         let socket = UdpSocketMock::new()
@@ -842,12 +842,12 @@ mod tests {
             factories.free_port_factory = Box::new(free_port_factory);
         }
 
-        let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 1234);
+        let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 10000);
 
-        assert_eq!(result, Ok(617));
+        assert_eq!(result, Ok(4000));
         if let Some(chc) = subject.change_handler_config.borrow().deref() {
             assert_eq!(chc.hole_port, 6666);
-            assert_eq!(chc.lifetime, 1234);
+            assert_eq!(chc.lifetime, 8000);
         } else {
             panic!("change_handler_config not set");
         }

@@ -786,32 +786,32 @@ pub mod tests {
         assert_eq!(*drop_privileges_params, vec![real_user]);
     }
 
-    #[test]
-    #[should_panic(expected = "0: ")]
-    fn go_with_help_should_print_help_and_artificially_panic() {
-        go_with_something_should_print_something_and_artificially_panic("--help");
-    }
-
-    #[test]
-    #[should_panic(expected = "0: ")]
-    fn go_with_version_should_print_version_and_artificially_panic() {
-        go_with_something_should_print_something_and_artificially_panic("--version");
-    }
-
-    fn go_with_something_should_print_something_and_artificially_panic(parameter: &str) {
-        let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
-        let dns_socket_server = SocketServerMock::new(());
-        let bootstrapper = SocketServerMock::new(BootstrapperConfig::new());
-        let privilege_dropper = PrivilegeDropperMock::new();
-        let mut subject = ServerInitializer {
-            dns_socket_server: Box::new(dns_socket_server),
-            bootstrapper: Box::new(bootstrapper),
-            privilege_dropper: Box::new(privilege_dropper),
-        };
-        let args = vec!["MASQ Node".to_string(), parameter.to_string()];
-
-        subject.go(&mut FakeStreamHolder::new().streams(), &args);
-    }
+    // #[test]
+    // #[should_panic(expected = "0: ")]
+    // fn go_with_help_should_print_help_and_artificially_panic() {
+    //     go_with_something_should_print_something_and_artificially_panic("--help");
+    // }
+    //
+    // #[test]
+    // #[should_panic(expected = "0: ")]
+    // fn go_with_version_should_print_version_and_artificially_panic() {
+    //     go_with_something_should_print_something_and_artificially_panic("--version");
+    // }
+    //
+    // fn go_with_something_should_print_something_and_artificially_panic(parameter: &str) {
+    //     let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
+    //     let dns_socket_server = SocketServerMock::new(());
+    //     let bootstrapper = SocketServerMock::new(BootstrapperConfig::new());
+    //     let privilege_dropper = PrivilegeDropperMock::new();
+    //     let mut subject = ServerInitializer {
+    //         dns_socket_server: Box::new(dns_socket_server),
+    //         bootstrapper: Box::new(bootstrapper),
+    //         privilege_dropper: Box::new(privilege_dropper),
+    //     };
+    //     let args = vec!["MASQ Node".to_string(), parameter.to_string()];
+    //
+    //     subject.go(&mut FakeStreamHolder::new().streams(), &args);
+    // }
 
     #[test]
     fn go_should_combine_errors() {

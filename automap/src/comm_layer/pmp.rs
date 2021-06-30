@@ -102,11 +102,17 @@ impl Transactor for PmpTransactor {
             }),
         };
         let response = Self::transact(&self.factories_arc, router_ip, self.router_port, &request)?;
+        if response.opcode != Opcode::MapTcp {
+            return Err(AutomapError::ProtocolError(format! ("Expected MapTcp response; got {:?} response instead",
+                                                            response.opcode)));
+        }
+        let opcode_data: &MapOpcodeData = response.opcode_data.as_any().downcast_ref()
+            .expect ("MapTcp response contained other than MapOpcodeData");
         match response
             .result_code_opt
             .expect("transact allowed absent result code")
         {
-            ResultCode::Success => Ok(lifetime / 2),
+            ResultCode::Success => Ok(opcode_data.lifetime / 2),
             rc => Err(AutomapError::TransactionFailure(format!("{:?}", rc))),
         }
     }
@@ -651,13 +657,13 @@ mod tests {
     fn add_mapping_works() {
         let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let mut request_buffer = [0u8; 1100];
-        let request = make_request(Opcode::MapTcp, make_map_request(7777, 1234));
+        let request = make_request(Opcode::MapTcp, make_map_request(7777, 10000));
         let request_len = request.marshal(&mut request_buffer).unwrap();
         let mut response_buffer = [0u8; 1100];
         let response = make_response(
             Opcode::MapTcp,
             ResultCode::Success,
-            make_map_response(4321, 7777, 1234),
+            make_map_response(4321, 7777, 8000),
         );
         let response_len = response.marshal(&mut response_buffer).unwrap();
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
@@ -676,9 +682,9 @@ mod tests {
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let subject = make_subject(socket_factory);
 
-        let result = subject.add_mapping(router_ip, 7777, 1234);
+        let result = subject.add_mapping(router_ip, 7777, 10000);
 
-        assert_eq!(result, Ok(617));
+        assert_eq!(result, Ok(4000));
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
             *set_read_timeout_params,
@@ -694,6 +700,35 @@ mod tests {
         );
         let recv_from_params = recv_from_params_arc.lock().unwrap();
         assert_eq!(*recv_from_params, vec![()])
+    }
+
+    #[test]
+    fn add_mapping_handles_unexpected_opcode() {
+        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        let mut response_buffer = [0u8; 1100];
+        let mut response = make_response(
+            Opcode::MapUdp,
+            ResultCode::Success,
+            make_map_response(4321, 7777, 1234),
+        );
+        response.result_code_opt = Some(ResultCode::Success);
+        let response_len = response.marshal(&mut response_buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(24))
+            .recv_from_result(
+                Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
+                response_buffer[0..response_len].to_vec(),
+            );
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let subject = make_subject(socket_factory);
+
+        let result = subject.add_mapping(router_ip, 7777, 1234);
+
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError("Expected MapTcp response; got MapUdp response instead".to_string()))
+        );
     }
 
     #[test]
