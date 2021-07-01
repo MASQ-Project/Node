@@ -140,7 +140,7 @@ impl Transactor for PcpTransactor {
         AutomapProtocol::Pcp
     }
 
-    fn start_change_handler(
+    fn start_housekeeping_thread(
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
@@ -187,7 +187,7 @@ impl Transactor for PcpTransactor {
         Ok(())
     }
 
-    fn stop_change_handler(&mut self) {
+    fn stop_housekeeping_thread(&mut self) {
         if let Some(stopper) = self.change_handler_stopper.take() {
             let _ = stopper.send(());
         }
@@ -337,7 +337,7 @@ impl PcpTransactor {
         let change_handler_lifetime = change_handler_config.lifetime;
         let mut buffer = [0u8; 100];
         socket
-            .set_read_timeout(Some(Duration::from_millis(250)))
+            .set_read_timeout(Some(Duration::from_millis(1000)))
             .expect("Can't set read timeout");
         loop {
             match socket.recv_from(&mut buffer) {
@@ -1036,7 +1036,7 @@ mod tests {
         };
 
         subject
-            .start_change_handler(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
         assert!(subject.change_handler_stopper.is_some());
@@ -1076,7 +1076,7 @@ mod tests {
             .unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
-        subject.stop_change_handler();
+        subject.stop_housekeeping_thread();
         assert!(subject.change_handler_stopper.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(
@@ -1104,7 +1104,7 @@ mod tests {
         };
 
         subject
-            .start_change_handler(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
         assert!(subject.change_handler_stopper.is_some());
@@ -1142,7 +1142,7 @@ mod tests {
                 );
             }
         }
-        subject.stop_change_handler();
+        subject.stop_housekeeping_thread();
     }
 
     #[test]
@@ -1151,7 +1151,7 @@ mod tests {
         subject.change_handler_stopper = Some(unbounded().0);
         let change_handler = move |_| {};
 
-        let result = subject.start_change_handler(Box::new(change_handler), localhost());
+        let result = subject.start_housekeeping_thread(Box::new(change_handler), localhost());
 
         assert_eq!(result, Err(AutomapError::ChangeHandlerAlreadyRunning))
     }
@@ -1162,7 +1162,7 @@ mod tests {
         subject.change_handler_config = RefCell::new(None);
         let change_handler = move |_| {};
 
-        let result = subject.start_change_handler(Box::new(change_handler), localhost());
+        let result = subject.start_housekeeping_thread(Box::new(change_handler), localhost());
 
         assert_eq!(result, Err(AutomapError::ChangeHandlerUnconfigured))
     }
@@ -1172,7 +1172,7 @@ mod tests {
         let mut subject = PcpTransactor::default();
         subject.change_handler_stopper = None;
 
-        subject.stop_change_handler();
+        subject.stop_housekeeping_thread();
 
         // no panic: test passes
     }

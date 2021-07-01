@@ -3,11 +3,12 @@
 use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
-use crate::comm_layer::{AutomapError, Transactor};
+use crate::comm_layer::{AutomapError, Transactor, HousekeepingThreadCommand};
 use masq_lib::utils::{plus, AutomapProtocol};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::IpAddr;
+use crossbeam_channel::Sender;
 
 const MAPPING_LIFETIME_SECONDS: u32 = 600; // ten minutes
 
@@ -44,6 +45,7 @@ struct ProtocolInfo<T: PartialEq + Debug> {
 pub struct AutomapControlReal {
     transactors: Vec<Box<dyn Transactor>>,
     change_handler_opt: Option<ChangeHandler>,
+    housekeeping_thread_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     usual_protocol_opt: Option<AutomapProtocol>,
     hole_ports: HashSet<u16>,
     inner_opt: Option<AutomapControlRealInner>,
@@ -78,10 +80,7 @@ impl AutomapControl for AutomapControlReal {
             match transactor.add_mapping(router_ip, hole_port, MAPPING_LIFETIME_SECONDS) {
                 Ok(remap_after) => Ok(remap_after),
                 Err(AutomapError::PermanentLeasesOnly) => {
-                    match transactor.add_permanent_mapping(router_ip, hole_port) {
-                        Ok(remap_after) => Ok(remap_after),
-                        Err(e) => Err(e),
-                    }
+                    transactor.add_permanent_mapping(router_ip, hole_port)
                 }
                 Err(e) => Err(e),
             }
@@ -135,7 +134,7 @@ impl AutomapControl for AutomapControlReal {
                             Err(e) => plus(so_far, e),
                         }
                     });
-                transactor.stop_change_handler();
+                transactor.stop_housekeeping_thread();
                 if errors.is_empty() {
                     Ok(())
                 } else {
@@ -155,6 +154,7 @@ impl AutomapControlReal {
                 Box::new(IgdpTransactor::default()),
             ],
             change_handler_opt: Some(change_handler),
+            housekeeping_thread_commander_opt: None,
             usual_protocol_opt,
             hole_ports: HashSet::new(),
             inner_opt: None,
@@ -180,9 +180,16 @@ impl AutomapControlReal {
                     unreachable!("Experiment succeeded but produced no Inner structure")
                 }
                 (Ok(protocol_info), Some(inner)) => {
-                    // TODO "We're throwing away the remap interval here; the change handler should be using it."
-                    self.transactors[inner.transactor_idx]
-                        .start_change_handler(change_handler, protocol_info.router_ip)
+                    match self.transactors[inner.transactor_idx]
+                        .start_housekeeping_thread(change_handler, protocol_info.router_ip) {
+                        Err(e) => Err (e),
+                        Ok (commander) => {
+                            // TODO SPIKE
+                            self.housekeeping_thread_commander_opt = Some(commander);
+                            // TODO SPIKE
+                            Ok(())
+                        }
+                    }
                 },
                 (Err(e), _) => {
                     self.change_handler_opt = Some(change_handler);
@@ -298,7 +305,7 @@ mod tests {
         delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
         delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
         start_change_handler_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
-        start_change_handler_results: RefCell<Vec<Result<(), AutomapError>>>,
+        start_change_handler_results: RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
         stop_change_handler_params: Arc<Mutex<Vec<()>>>,
     }
 
@@ -349,11 +356,11 @@ mod tests {
             self.protocol
         }
 
-        fn start_change_handler(
+        fn start_housekeeping_thread(
             &mut self,
             change_handler: ChangeHandler,
             router_ip: IpAddr,
-        ) -> Result<(), AutomapError> {
+        ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
             self.start_change_handler_params
                 .lock()
                 .unwrap()
@@ -361,7 +368,7 @@ mod tests {
             self.start_change_handler_results.borrow_mut().remove(0)
         }
 
-        fn stop_change_handler(&mut self) {
+        fn stop_housekeeping_thread(&mut self) {
             self.stop_change_handler_params.lock().unwrap().push(());
         }
 

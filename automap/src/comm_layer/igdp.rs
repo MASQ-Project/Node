@@ -210,7 +210,7 @@ impl Transactor for IgdpTransactor {
         AutomapProtocol::Igdp
     }
 
-    fn start_change_handler(
+    fn start_housekeeping_thread(
         &mut self,
         change_handler: ChangeHandler,
         _router_ip: IpAddr,
@@ -231,7 +231,7 @@ impl Transactor for IgdpTransactor {
         Ok(())
     }
 
-    fn stop_change_handler(&mut self) {
+    fn stop_housekeeping_thread(&mut self) {
         match &self
             .inner_arc
             .lock()
@@ -766,7 +766,7 @@ mod tests {
         let mut subject = IgdpTransactor::new();
         subject.inner_arc.lock().unwrap().change_handler_stopper_opt = Some(unbounded().0);
 
-        let result = subject.start_change_handler(Box::new(|_| ()), localhost());
+        let result = subject.start_housekeeping_thread(Box::new(|_| ()), localhost());
 
         assert_eq!(result, Err(AutomapError::ChangeHandlerAlreadyRunning))
     }
@@ -798,11 +798,11 @@ mod tests {
             Box::new(move |change: AutomapChange| inner_arc.lock().unwrap().push(change));
 
         subject
-            .start_change_handler(change_handler, router_ip)
+            .start_housekeeping_thread(change_handler, router_ip)
             .unwrap();
 
         thread::sleep(Duration::from_millis(100));
-        subject.stop_change_handler();
+        subject.stop_housekeeping_thread();
         let change_log = change_log_arc.lock().unwrap();
         assert_eq!(
             *change_log,
@@ -833,7 +833,7 @@ mod tests {
             Box::new(move |change: AutomapChange| inner_arc.lock().unwrap().push(change));
 
         subject
-            .start_change_handler(change_handler, router_ip)
+            .start_housekeeping_thread(change_handler, router_ip)
             .unwrap();
 
         thread::sleep(Duration::from_millis(100));

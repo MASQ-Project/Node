@@ -5,7 +5,7 @@ use crate::comm_layer::pcp_pmp_common::{
     FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper,
     CHANGE_HANDLER_PORT, ROUTER_PORT,
 };
-use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor, HousekeepingThreadCommand};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
@@ -134,11 +134,11 @@ impl Transactor for PmpTransactor {
         AutomapProtocol::Pmp
     }
 
-    fn start_change_handler(
+    fn start_housekeeping_thread(
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
-    ) -> Result<(), AutomapError> {
+    ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         if let Some(_change_handler_stopper) = &self.change_handler_stopper {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
@@ -181,7 +181,7 @@ impl Transactor for PmpTransactor {
         Ok(())
     }
 
-    fn stop_change_handler(&mut self) {
+    fn stop_housekeeping_thread(&mut self) {
         if let Some(stopper) = self.change_handler_stopper.take() {
             let _ = stopper.send(());
         }
@@ -273,7 +273,7 @@ impl PmpTransactor {
         logger: Logger,
     ) {
         socket
-            .set_read_timeout(Some(Duration::from_millis(250)))
+            .set_read_timeout(Some(Duration::from_millis(1000)))
             .expect("Can't set read timeout");
         loop {
             if !Self::thread_guts_iteration(
@@ -853,7 +853,7 @@ mod tests {
         };
 
         subject
-            .start_change_handler(Box::new(change_handler), localhost())
+            .start_housekeeping_thread(Box::new(change_handler), localhost())
             .unwrap();
 
         assert!(subject.change_handler_stopper.is_some());
@@ -897,7 +897,7 @@ mod tests {
             .unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
-        subject.stop_change_handler();
+        subject.stop_housekeeping_thread();
         assert!(subject.change_handler_stopper.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(
@@ -925,7 +925,7 @@ mod tests {
         };
 
         subject
-            .start_change_handler(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
         assert!(subject.change_handler_stopper.is_some());
@@ -948,7 +948,7 @@ mod tests {
         let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
-        subject.stop_change_handler();
+        subject.stop_housekeeping_thread();
         assert!(subject.change_handler_stopper.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
@@ -974,7 +974,7 @@ mod tests {
         };
 
         subject
-            .start_change_handler(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
         assert!(subject.change_handler_stopper.is_some());
@@ -997,7 +997,7 @@ mod tests {
         let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
-        subject.stop_change_handler();
+        subject.stop_housekeeping_thread();
         assert!(subject.change_handler_stopper.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);

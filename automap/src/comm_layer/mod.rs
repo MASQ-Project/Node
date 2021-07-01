@@ -8,6 +8,7 @@ use std::str::FromStr;
 use crate::control_layer::automap_control::ChangeHandler;
 use crate::protocols::utils::ParseError;
 use masq_lib::utils::AutomapProtocol;
+use crossbeam_channel::Sender;
 
 pub mod igdp;
 pub mod pcp;
@@ -96,12 +97,12 @@ pub trait Transactor {
         -> Result<u32, AutomapError>;
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError>;
     fn protocol(&self) -> AutomapProtocol;
-    fn start_change_handler(
+    fn start_housekeeping_thread(
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
-    ) -> Result<(), AutomapError>;
-    fn stop_change_handler(&mut self);
+    ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError>;
+    fn stop_housekeeping_thread(&mut self);
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -109,6 +110,12 @@ impl Debug for dyn Transactor {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} Transactor", self.protocol())
     }
+}
+
+#[derive (Clone, Copy, PartialEq, Debug)]
+pub enum HousekeepingThreadCommand {
+    Stop,
+    SetRemapInterval(u32),
 }
 
 pub trait LocalIpFinder: Send {
