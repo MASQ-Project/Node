@@ -5,9 +5,7 @@ use crate::comm_layer::pcp_pmp_common::{
     FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper,
     CHANGE_HANDLER_PORT, ROUTER_PORT,
 };
-use crate::comm_layer::{
-    AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Transactor,
-};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Transactor, HousekeepingThreadCommand};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
@@ -71,7 +69,7 @@ pub struct PcpTransactor {
     router_port: u16,
     listen_port: u16,
     change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
-    change_handler_stopper: Option<Sender<()>>,
+    housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     logger: Logger,
 }
 
@@ -144,8 +142,8 @@ impl Transactor for PcpTransactor {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
-    ) -> Result<(), AutomapError> {
-        if let Some(_change_handler_stopper) = &self.change_handler_stopper {
+    ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
+        if let Some(_change_handler_stopper) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
         let change_handler_config = match self.change_handler_config.borrow().deref() {
@@ -168,7 +166,7 @@ impl Transactor for PcpTransactor {
             }
         };
         let (tx, rx) = unbounded();
-        self.change_handler_stopper = Some(tx);
+        self.housekeeper_commander_opt = Some(tx.clone());
         let factories_arc = self.factories_arc.clone();
         let router_port = self.router_port;
         let logger = self.logger.clone();
@@ -184,12 +182,12 @@ impl Transactor for PcpTransactor {
                 logger,
             )
         });
-        Ok(())
+        Ok(tx)
     }
 
     fn stop_housekeeping_thread(&mut self) {
-        if let Some(stopper) = self.change_handler_stopper.take() {
-            let _ = stopper.send(());
+        if let Some(stopper) = self.housekeeper_commander_opt.take() {
+            let _ = stopper.send(HousekeepingThreadCommand::Stop);
         }
     }
 
@@ -205,7 +203,7 @@ impl Default for PcpTransactor {
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
             change_handler_config: RefCell::new(None),
-            change_handler_stopper: None,
+            housekeeper_commander_opt: None,
             logger: Logger::new("Automap"),
         }
     }
@@ -326,7 +324,7 @@ impl PcpTransactor {
 
     fn thread_guts(
         socket: &dyn UdpSocketWrapper,
-        rx: &Receiver<()>,
+        rx: &Receiver<HousekeepingThreadCommand>,
         factories_arc: Arc<Mutex<Factories>>,
         router_ip: IpAddr,
         router_port: u16,
@@ -851,7 +849,7 @@ mod tests {
         } else {
             panic!("change_handler_config not set");
         }
-        assert!(subject.change_handler_stopper.is_none());
+        assert!(subject.housekeeper_commander_opt.is_none());
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
@@ -1039,7 +1037,7 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        assert!(subject.change_handler_stopper.is_some());
+        assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
         announce_socket
@@ -1077,7 +1075,7 @@ mod tests {
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
         subject.stop_housekeeping_thread();
-        assert!(subject.change_handler_stopper.is_none());
+        assert!(subject.housekeeper_commander_opt.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(
             *changes,
@@ -1107,7 +1105,7 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        assert!(subject.change_handler_stopper.is_some());
+        assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
         announce_socket
@@ -1148,12 +1146,12 @@ mod tests {
     #[test]
     fn start_change_handler_doesnt_work_if_change_handler_stopper_is_populated() {
         let mut subject = PcpTransactor::default();
-        subject.change_handler_stopper = Some(unbounded().0);
+        subject.housekeeper_commander_opt = Some(unbounded().0);
         let change_handler = move |_| {};
 
         let result = subject.start_housekeeping_thread(Box::new(change_handler), localhost());
 
-        assert_eq!(result, Err(AutomapError::ChangeHandlerAlreadyRunning))
+        assert_eq!(result.err().unwrap(), AutomapError::ChangeHandlerAlreadyRunning)
     }
 
     #[test]
@@ -1164,13 +1162,13 @@ mod tests {
 
         let result = subject.start_housekeeping_thread(Box::new(change_handler), localhost());
 
-        assert_eq!(result, Err(AutomapError::ChangeHandlerUnconfigured))
+        assert_eq!(result.err().unwrap(), AutomapError::ChangeHandlerUnconfigured)
     }
 
     #[test]
     fn stop_change_handler_handles_missing_change_handler_stopper() {
         let mut subject = PcpTransactor::default();
-        subject.change_handler_stopper = None;
+        subject.housekeeper_commander_opt = None;
 
         subject.stop_housekeeping_thread();
 
@@ -1188,7 +1186,7 @@ mod tests {
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
         let logger = Logger::new("Automap");
-        tx.send(()).unwrap();
+        tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
         PcpTransactor::thread_guts(
             socket.as_ref(),
@@ -1221,7 +1219,7 @@ mod tests {
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
         let logger = Logger::new("Automap");
-        tx.send(()).unwrap();
+        tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
         PcpTransactor::thread_guts(
             socket.as_ref(),

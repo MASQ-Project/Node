@@ -46,7 +46,7 @@ pub struct PmpTransactor {
     router_port: u16,
     listen_port: u16,
     change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
-    change_handler_stopper: Option<Sender<()>>,
+    housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     logger: Logger,
 }
 
@@ -139,7 +139,7 @@ impl Transactor for PmpTransactor {
         change_handler: ChangeHandler,
         router_ip: IpAddr,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
-        if let Some(_change_handler_stopper) = &self.change_handler_stopper {
+        if let Some(_housekeeper_commander) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
         let change_handler_config = match self.change_handler_config.borrow().deref() {
@@ -162,7 +162,7 @@ impl Transactor for PmpTransactor {
             }
         };
         let (tx, rx) = unbounded();
-        self.change_handler_stopper = Some(tx);
+        self.housekeeper_commander_opt = Some(tx.clone());
         let factories_arc = self.factories_arc.clone();
         let router_port = self.router_port;
         let logger = self.logger.clone();
@@ -178,12 +178,12 @@ impl Transactor for PmpTransactor {
                 logger,
             )
         });
-        Ok(())
+        Ok(tx)
     }
 
     fn stop_housekeeping_thread(&mut self) {
-        if let Some(stopper) = self.change_handler_stopper.take() {
-            let _ = stopper.send(());
+        if let Some(commander) = self.housekeeper_commander_opt.take() {
+            let _ = commander.send(HousekeepingThreadCommand::Stop);
         }
     }
 
@@ -199,7 +199,7 @@ impl Default for PmpTransactor {
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
             change_handler_config: RefCell::new(None),
-            change_handler_stopper: None,
+            housekeeper_commander_opt: None,
             logger: Logger::new("Automap"),
         }
     }
@@ -264,7 +264,7 @@ impl PmpTransactor {
 
     fn thread_guts(
         socket: &dyn UdpSocketWrapper,
-        rx: &Receiver<()>,
+        rx: &Receiver<HousekeepingThreadCommand>,
         factories_arc: Arc<Mutex<Factories>>,
         router_ip: IpAddr,
         router_port: u16,
@@ -293,7 +293,7 @@ impl PmpTransactor {
 
     fn thread_guts_iteration(
         socket: &dyn UdpSocketWrapper,
-        rx: &Receiver<()>,
+        rx: &Receiver<HousekeepingThreadCommand>,
         factories_arc: &Arc<Mutex<Factories>>,
         router_ip: IpAddr,
         router_port: u16,
@@ -856,7 +856,7 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), localhost())
             .unwrap();
 
-        assert!(subject.change_handler_stopper.is_some());
+        assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
         announce_socket
@@ -898,7 +898,7 @@ mod tests {
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
         subject.stop_housekeeping_thread();
-        assert!(subject.change_handler_stopper.is_none());
+        assert!(subject.housekeeper_commander_opt.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(
             *changes,
@@ -928,7 +928,7 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        assert!(subject.change_handler_stopper.is_some());
+        assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
         announce_socket
@@ -949,7 +949,7 @@ mod tests {
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
         subject.stop_housekeeping_thread();
-        assert!(subject.change_handler_stopper.is_none());
+        assert!(subject.housekeeper_commander_opt.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
     }
@@ -977,7 +977,7 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        assert!(subject.change_handler_stopper.is_some());
+        assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
         announce_socket
@@ -998,7 +998,7 @@ mod tests {
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
         subject.stop_housekeeping_thread();
-        assert!(subject.change_handler_stopper.is_none());
+        assert!(subject.housekeeper_commander_opt.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
         let err_msg = "Unexpected PMP Get request (request!) from router at ";

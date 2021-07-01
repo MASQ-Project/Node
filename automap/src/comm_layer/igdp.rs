@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor};
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal, Transactor, HousekeepingThreadCommand};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use igd::{
@@ -103,7 +103,7 @@ impl GatewayWrapperReal {
 
 struct IgdpTransactorInner {
     gateway_opt: Option<Box<dyn GatewayWrapper>>,
-    change_handler_stopper_opt: Option<Sender<()>>,
+    housekeeping_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     public_ip_opt: Option<Ipv4Addr>,
     logger: Logger,
 }
@@ -214,21 +214,21 @@ impl Transactor for IgdpTransactor {
         &mut self,
         change_handler: ChangeHandler,
         _router_ip: IpAddr,
-    ) -> Result<(), AutomapError> {
+    ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         let (tx, rx) = unbounded();
         let public_ip_poll_delay_ms = {
             let mut inner = self.inner_arc.lock().expect("Change handler is dead");
-            if inner.change_handler_stopper_opt.is_some() {
+            if inner.housekeeping_commander_opt.is_some() {
                 return Err(AutomapError::ChangeHandlerAlreadyRunning);
             }
-            inner.change_handler_stopper_opt = Some(tx);
+            inner.housekeeping_commander_opt = Some(tx.clone());
             self.public_ip_poll_delay_ms
         };
         let inner_inner = self.inner_arc.clone();
         thread::spawn(move || {
             Self::thread_guts(public_ip_poll_delay_ms, change_handler, inner_inner, rx)
         });
-        Ok(())
+        Ok(tx)
     }
 
     fn stop_housekeeping_thread(&mut self) {
@@ -236,10 +236,10 @@ impl Transactor for IgdpTransactor {
             .inner_arc
             .lock()
             .expect("Change handler is dead")
-            .change_handler_stopper_opt
+            .housekeeping_commander_opt
         {
             Some(stopper) => {
-                let _ = stopper.try_send(());
+                let _ = stopper.try_send(HousekeepingThreadCommand::Stop);
             }
             None => (),
         }
@@ -264,7 +264,7 @@ impl IgdpTransactor {
             public_ip_poll_delay_ms: PUBLIC_IP_POLL_DELAY_SECONDS * 1000,
             inner_arc: Arc::new(Mutex::new(IgdpTransactorInner {
                 gateway_opt: None,
-                change_handler_stopper_opt: None,
+                housekeeping_commander_opt: None,
                 public_ip_opt: None,
                 logger: Logger::new("IgdpTransactor"),
             })),
@@ -292,7 +292,7 @@ impl IgdpTransactor {
         public_ip_poll_delay_ms: u32,
         change_handler: ChangeHandler,
         inner_arc: Arc<Mutex<IgdpTransactorInner>>,
-        rx: Receiver<()>,
+        rx: Receiver<HousekeepingThreadCommand>,
     ) {
         loop {
             thread::sleep(Duration::from_millis(public_ip_poll_delay_ms as u64));
@@ -346,7 +346,7 @@ impl IgdpTransactor {
                 true
             }
             None => {
-                let _ = inner.change_handler_stopper_opt.take();
+                let _ = inner.housekeeping_commander_opt.take();
                 change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
                 false
             }
@@ -764,11 +764,11 @@ mod tests {
     #[test]
     fn start_change_handler_complains_if_change_handler_is_already_running() {
         let mut subject = IgdpTransactor::new();
-        subject.inner_arc.lock().unwrap().change_handler_stopper_opt = Some(unbounded().0);
+        subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some(unbounded().0);
 
         let result = subject.start_housekeeping_thread(Box::new(|_| ()), localhost());
 
-        assert_eq!(result, Err(AutomapError::ChangeHandlerAlreadyRunning))
+        assert_eq!(result.err().unwrap(), AutomapError::ChangeHandlerAlreadyRunning)
     }
 
     #[test]
@@ -844,7 +844,7 @@ mod tests {
         );
         let inner = subject.inner_arc.lock().unwrap();
         assert_eq!(inner.public_ip_opt, Some(public_ip));
-        assert!(inner.change_handler_stopper_opt.is_none());
+        assert!(inner.housekeeping_commander_opt.is_none());
     }
 
     #[test]
@@ -866,7 +866,7 @@ mod tests {
         let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(new_public_ip));
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
-            change_handler_stopper_opt: None,
+            housekeeping_commander_opt: None,
             public_ip_opt: None,
             logger: Logger::new("test"),
         }));
@@ -895,7 +895,7 @@ mod tests {
             .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
-            change_handler_stopper_opt: None,
+            housekeeping_commander_opt: None,
             public_ip_opt: Some(Ipv4Addr::from_str("1.2.3.4").unwrap()),
             logger: Logger::new("test"),
         }));

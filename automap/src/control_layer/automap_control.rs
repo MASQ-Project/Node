@@ -287,6 +287,7 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use crossbeam_channel::unbounded;
 
     lazy_static! {
         static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -444,7 +445,7 @@ mod tests {
             self
         }
 
-        pub fn start_change_handler_result(self, result: Result<(), AutomapError>) -> Self {
+        pub fn start_change_handler_result(self, result: Result<Sender<HousekeepingThreadCommand>, AutomapError>) -> Self {
             self.start_change_handler_results.borrow_mut().push(result);
             self
         }
@@ -1035,7 +1036,7 @@ mod tests {
         let router_ip_count = router_ips.len();
         let mut transactor = TransactorMock::new(protocol)
             .find_routers_result(Ok(router_ips))
-            .start_change_handler_result(Ok(()));
+            .start_change_handler_result(Ok(unbounded().0));
         for _ in 0..router_ip_count {
             transactor = transactor
                 .get_public_ip_result(Ok(*PUBLIC_IP))
@@ -1094,7 +1095,7 @@ mod tests {
                 .add_mapping_params(add_mapping_params_arc)
                 .add_mapping_result(Ok(1000))
                 .start_change_handler_params(start_change_handler_params_arc)
-                .start_change_handler_result(Ok(())),
+                .start_change_handler_result(Ok(unbounded().0)),
         )
     }
 
