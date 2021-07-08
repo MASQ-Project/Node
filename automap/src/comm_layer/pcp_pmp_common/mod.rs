@@ -26,6 +26,7 @@ use std::time::Duration;
 
 pub const ROUTER_PORT: u16 = 5351;
 pub const CHANGE_HANDLER_PORT: u16 = 5350;
+pub const READ_TIMEOUT_MILLIS: u64 = 1000;
 
 #[derive(Clone)]
 pub struct ChangeHandlerConfig {

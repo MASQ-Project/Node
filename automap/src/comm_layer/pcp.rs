@@ -1,10 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    find_routers, make_local_socket_address, ChangeHandlerConfig, FreePortFactory,
-    FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper,
-    CHANGE_HANDLER_PORT, ROUTER_PORT,
-};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, ChangeHandlerConfig, FreePortFactory, FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper, CHANGE_HANDLER_PORT, ROUTER_PORT, READ_TIMEOUT_MILLIS};
 use crate::comm_layer::{AutomapError, AutomapErrorCause, LocalIpFinder, LocalIpFinderReal, Transactor, HousekeepingThreadCommand};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
@@ -70,6 +66,7 @@ pub struct PcpTransactor {
     listen_port: u16,
     change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
+    read_timeout_millis: u64,
     logger: Logger,
 }
 
@@ -169,6 +166,7 @@ impl Transactor for PcpTransactor {
         self.housekeeper_commander_opt = Some(tx.clone());
         let factories_arc = self.factories_arc.clone();
         let router_port = self.router_port;
+        let read_timeout_millis = self.read_timeout_millis;
         let logger = self.logger.clone();
         thread::spawn(move || {
             Self::thread_guts(
@@ -179,6 +177,7 @@ impl Transactor for PcpTransactor {
                 router_port,
                 &change_handler,
                 change_handler_config,
+                read_timeout_millis,
                 logger,
             )
         });
@@ -204,6 +203,7 @@ impl Default for PcpTransactor {
             listen_port: CHANGE_HANDLER_PORT,
             change_handler_config: RefCell::new(None),
             housekeeper_commander_opt: None,
+            read_timeout_millis: READ_TIMEOUT_MILLIS,
             logger: Logger::new("Automap"),
         }
     }
@@ -330,12 +330,13 @@ impl PcpTransactor {
         router_port: u16,
         change_handler: &ChangeHandler,
         change_handler_config: ChangeHandlerConfig,
+        read_timeout_millis: u64,
         logger: Logger,
     ) {
         let change_handler_lifetime = change_handler_config.lifetime;
         let mut buffer = [0u8; 100];
         socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
         loop {
             match socket.recv_from(&mut buffer) {
@@ -371,8 +372,10 @@ impl PcpTransactor {
                 }
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
-            if rx.try_recv().is_ok() {
-                break;
+            match rx.try_recv () {
+                Ok(HousekeepingThreadCommand::Stop) => break,
+                Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => todo! (),
+                Err (_) => (),
             }
         }
     }
@@ -1176,6 +1179,48 @@ mod tests {
     }
 
     #[test]
+    fn thread_guts_does_not_remap_if_interval_does_not_run_out () {
+        init_test_logging();
+        let (tx, rx) = unbounded();
+        let socket: Box<dyn UdpSocketWrapper> = Box::new(
+            UdpSocketMock::new()
+                .set_read_timeout_result(Ok(()))
+                .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), vec![]),
+        );
+        let socket_factory = Box::new (
+            UdpSocketFactoryMock::new () // no results specified; demanding one will fail the test
+        );
+        let mut factories = Factories::default();
+        factories.socket_factory = socket_factory;
+        let change_handler: ChangeHandler = Box::new(move |_| {});
+        let change_handler_config = ChangeHandlerConfig{ hole_port: 0, lifetime: 1000 };
+        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000));
+
+        let handle = thread::spawn (move || {
+            PcpTransactor::thread_guts(
+                socket.as_ref(),
+                &rx,
+                Arc::new(Mutex::new(factories)),
+                localhost(),
+                0,
+                &change_handler,
+                change_handler_config,
+                10,
+                Logger::new ("no_remap_test")
+            );
+        });
+
+        tx.send(HousekeepingThreadCommand::Stop).unwrap();
+        handle.join();
+        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
+    }
+
+    #[test]
+    fn thread_guts_remaps_when_interval_runs_out () {
+        todo! ();
+    }
+
+    #[test]
     fn thread_guts_logs_if_error_receiving_pcp_packet() {
         init_test_logging();
         let (tx, rx) = unbounded();
@@ -1199,6 +1244,7 @@ mod tests {
                 hole_port: 0,
                 lifetime: 0,
             },
+            10,
             logger,
         );
 
@@ -1232,6 +1278,7 @@ mod tests {
                 hole_port: 0,
                 lifetime: 0,
             },
+            10,
             logger,
         );
 

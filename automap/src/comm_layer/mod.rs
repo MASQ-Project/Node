@@ -115,7 +115,7 @@ impl Debug for dyn Transactor {
 #[derive (Clone, Copy, PartialEq, Debug)]
 pub enum HousekeepingThreadCommand {
     Stop,
-    SetRemapInterval(u32),
+    SetRemapIntervalMs(u32),
 }
 
 pub trait LocalIpFinder: Send {

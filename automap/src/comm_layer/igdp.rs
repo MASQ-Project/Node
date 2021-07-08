@@ -299,8 +299,10 @@ impl IgdpTransactor {
             if !Self::thread_guts_iteration(&change_handler, &inner_arc) {
                 break;
             }
-            if rx.try_recv().is_ok() {
-                break;
+            match rx.try_recv () {
+                Ok(HousekeepingThreadCommand::Stop) => break,
+                Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => todo! (),
+                Err (_) => continue,
             }
         }
     }
