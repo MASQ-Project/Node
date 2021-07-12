@@ -1,6 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::config_dumper::DUMP_CONFIG_HELP;
 use crate::node_configurator::app_head;
 use clap::{App, Arg};
 use indoc::indoc;
@@ -50,6 +49,10 @@ lazy_static! {
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
 }
+
+const DUMP_CONFIG_HELP: &str =
+    "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
+
 
 const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:

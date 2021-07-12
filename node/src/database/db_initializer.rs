@@ -47,8 +47,11 @@ pub trait DbInitializer {
         target_version: usize,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
+
+    fn as_any(&self)->&dyn Any{intentionally_blank!()}
 }
 
+#[derive(Clone)]
 pub struct DbInitializerReal {
     logger: Logger,
 }
@@ -66,16 +69,6 @@ impl DbInitializer for DbInitializerReal {
         &self,
         path: &Path,
         chain_id: u8,
-        create_if_necessary: bool,
-    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-        self.initialize_to_version(path, chain_id, CURRENT_SCHEMA_VERSION, create_if_necessary)
-    }
-
-    fn initialize_to_version(
-        &self,
-        path: &Path,
-        chain_id: u8,
-        target_version: usize,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         self.initialize_to_version(path, chain_id, CURRENT_SCHEMA_VERSION, create_if_necessary)

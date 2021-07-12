@@ -14,7 +14,6 @@ pub trait DbMigrator {
         target_version: usize,
         conn: Box<dyn ConnectionWrapper>,
     ) -> Result<(), String>;
-    fn log(&self) -> &Logger;
 }
 
 pub struct DbMigratorReal {
@@ -39,9 +38,6 @@ impl DbMigrator for DbMigratorReal {
             Box::new(migration_utils),
             Self::list_of_approved_updates(),
         )
-    }
-    fn log(&self) -> &Logger {
-        &self.logger
     }
 }
 

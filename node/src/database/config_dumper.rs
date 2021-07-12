@@ -29,9 +29,6 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::any::Any;
 
-pub const DUMP_CONFIG_HELP: &str =
-    "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
-
 pub struct DumpConfigRunnerReal;
 
 impl DumpConfigRunner for DumpConfigRunnerReal {
