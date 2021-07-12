@@ -61,7 +61,7 @@ impl Main {
 
     fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, Option<TerminalWrapper>)
     {
-        (Box::new(BroadcastHandleInactive::new()), None)
+        (Box::new(BroadcastHandleInactive), None)
     }
 
     fn populate_interactive_dependencies(

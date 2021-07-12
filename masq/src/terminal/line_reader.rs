@@ -54,12 +54,14 @@ impl MasqTerminal for TerminalReal {
         self.interface.lock_writer_append().expect("l_w_a failed")
     }
 
-    //used when we don't want to see the prompt show up after this last-second printing operation
-    // to assure a decent screen appearance while the whole app's terminating
+    //used because we don't want to see the prompt show up after this last-second printing operation;
+    //to assure a decent screen appearance while the whole app's going down
     fn lock_ultimately(&self) -> Box<dyn WriterLock + '_> {
         //TODO test drive this out
         let kept_buffer = self.interface.get_buffer();
-        self.interface.set_prompt("").expect("unsetting the prompt failed");
+        self.interface
+            .set_prompt("")
+            .expect("unsetting the prompt failed");
         self.interface.clear_buffer();
         let lock = self.interface.lock_writer_append().expect("l_w_a failed");
         short_writeln!(stdout(), "{}", format!("{}{}", MASQ_PROMPT, kept_buffer));

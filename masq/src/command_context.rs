@@ -207,7 +207,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let handle = server.start();
-        let broadcast_handle = BroadcastHandleInactive::new();
+        let broadcast_handle = BroadcastHandleInactive;
 
         let subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
@@ -226,7 +226,7 @@ mod tests {
         let stderr_arc = stderr.inner_arc();
         let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
         let stop_handle = server.start();
-        let broadcast_handle = BroadcastHandleInactive::new();
+        let broadcast_handle = BroadcastHandleInactive;
 
         let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
         subject.stdin = Box::new(stdin);
@@ -259,7 +259,7 @@ mod tests {
     fn works_when_server_isnt_present() {
         running_test();
         let port = find_free_port();
-        let broadcast_handle = BroadcastHandleInactive::new();
+        let broadcast_handle = BroadcastHandleInactive;
 
         let result = CommandContextReal::new(port, None, Box::new(broadcast_handle));
 
@@ -280,7 +280,7 @@ mod tests {
             payload: Err((101, "booga".to_string())),
         });
         let stop_handle = server.start();
-        let broadcast_handle = BroadcastHandleInactive::new();
+        let broadcast_handle = BroadcastHandleInactive;
         let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
@@ -295,7 +295,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
         let stop_handle = server.start();
-        let broadcast_handle = BroadcastHandleInactive::new();
+        let broadcast_handle = BroadcastHandleInactive;
         let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
@@ -318,7 +318,7 @@ mod tests {
         let stderr_arc = stderr.inner_arc();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
-        let broadcast_handle = BroadcastHandleInactive::new();
+        let broadcast_handle = BroadcastHandleInactive;
         let subject_result = CommandContextReal::new(port, None, Box::new(broadcast_handle));
         let mut subject = subject_result.unwrap();
         subject.stdin = Box::new(stdin);

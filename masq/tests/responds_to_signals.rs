@@ -11,7 +11,8 @@ use std::time::Duration;
 mod utils;
 
 #[test]
-fn masq_terminates_because_of_the_release_of_an_interrupt_signal_integration() {
+#[ignore]
+fn masq_terminates_because_of_an_interrupt_signal_integration() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(300));
@@ -23,7 +24,7 @@ fn masq_terminates_because_of_the_release_of_an_interrupt_signal_integration() {
         libc::kill(masq_process_id as i32, libc::SIGINT);
     }
 
-    thread::sleep(Duration::from_millis(300));
+    thread::sleep(Duration::from_millis(3000));
     let (stdout, stderr, exit_code) = masq_handle.stop();
     assert_eq!(exit_code, None);
     assert_eq!(stderr, "".to_string());

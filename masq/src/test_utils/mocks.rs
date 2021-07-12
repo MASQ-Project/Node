@@ -526,7 +526,7 @@ impl MasqTerminal for TerminalPassiveMock {
     }
 
     fn lock_ultimately(&self) -> Box<dyn WriterLock> {
-        todo!()
+        Box::new(WriterInactive {})
     }
 }
 

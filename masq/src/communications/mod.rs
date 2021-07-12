@@ -9,7 +9,7 @@ use masq_lib::messages::UiUndeliveredFireAndForget;
 use masq_lib::short_writeln;
 use std::io::Write;
 
-fn handle_node_not_running_for_fire_and_forget_on_the_way(
+fn handle_node_not_running_when_fire_and_forget_on_the_way(
     body: UiUndeliveredFireAndForget,
     stdout: &mut dyn Write,
     term_interface: &TerminalWrapper,

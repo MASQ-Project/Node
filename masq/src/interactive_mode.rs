@@ -250,12 +250,12 @@ mod tests {
         assert_eq!(stream_holder.stderr.get_string(), "".to_string());
         assert_eq!(
             stream_holder.stdout.get_string(),
-            "Received a signal interpretable as continue\n\n\nTerminated\n".to_string()
+            "Received a signal interpretable as continue\n\nTerminated\n".to_string()
         )
     }
 
     #[test]
-    fn pass_on_args_or_print_messages_announces_break_signal_from_line_reader() {
+    fn pass_args_or_print_messages_announces_break_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
         let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
@@ -263,11 +263,11 @@ mod tests {
 
         assert_eq!(result, Break);
         assert_eq!(stream_holder.stderr.get_string(), "");
-        assert_eq!(stream_holder.stdout.get_string(), "\n\nTerminated\n");
+        assert_eq!(stream_holder.stdout.get_string(), "\nTerminated\n");
     }
 
     #[test]
-    fn pass_on_args_or_print_messages_announces_continue_signal_from_line_reader() {
+    fn pass_args_or_print_messages_announces_continue_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
         let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn pass_on_args_or_print_messages_announces_error_from_line_reader() {
+    fn pass_args_or_print_messages_announces_error_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
         let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
