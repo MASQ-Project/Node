@@ -249,7 +249,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("config_dao", "get_all_returns_multiple_results");
         let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -282,7 +282,7 @@ mod tests {
             "get_returns_not_present_if_row_doesnt_exist",
         );
         let subject = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -299,12 +299,12 @@ mod tests {
             "set_and_get_and_committed_transactions_work",
         );
         let mut dao = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let confirmer = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -351,7 +351,7 @@ mod tests {
     fn extract_works() {
         let home_dir = ensure_node_home_directory_exists("config_dao", "extract_works");
         let mut dao = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -394,12 +394,12 @@ mod tests {
             "set_and_get_and_rolled_back_transactions_work",
         );
         let mut dao = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
         let confirmer = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, false)
                 .unwrap(),
         );
@@ -446,7 +446,7 @@ mod tests {
             "setting_nonexistent_value_returns_not_present",
         );
         let mut dao = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );
@@ -464,7 +464,7 @@ mod tests {
             "setting_value_to_none_removes_value_but_not_row",
         );
         let mut dao = ConfigDaoReal::new(
-            DbInitializerReal::new()
+            DbInitializerReal::default()
                 .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         );

@@ -39,7 +39,7 @@ impl DaoFactoryReal {
 
     pub fn make_connection(&self) -> Box<dyn ConnectionWrapper> {
         connection_or_panic(
-            &DbInitializerReal::new(),
+            &DbInitializerReal::default(),
             &self.data_directory,
             self.chain_id,
             self.create_if_necessary,
