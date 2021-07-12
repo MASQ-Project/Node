@@ -6,9 +6,10 @@ use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
-use crate::line_reader::TerminalEvent;
 use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClap};
-use crate::terminal_interface::{InterfaceWrapper, MasqTerminal, TerminalWrapper, WriterLock};
+use crate::terminal::line_reader::TerminalEvent;
+use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
+use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Signal};
@@ -523,6 +524,10 @@ impl MasqTerminal for TerminalPassiveMock {
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(WriterInactive {})
     }
+
+    fn lock_ultimately(&self) -> Box<dyn WriterLock> {
+        todo!()
+    }
 }
 
 impl TerminalPassiveMock {
@@ -551,6 +556,10 @@ impl MasqTerminal for TerminalActiveMock {
     }
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
+    }
+
+    fn lock_ultimately(&self) -> Box<dyn WriterLock> {
+        todo!()
     }
 }
 
@@ -602,6 +611,15 @@ impl InterfaceWrapper for InterfaceRawMock {
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + 'static>> {
         intentionally_blank!()
     }
+
+    fn get_buffer(&self) -> String {
+        todo!()
+    }
+
+    fn clear_buffer(&self) {
+        todo!()
+    }
+
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
         self.set_prompt_params
             .lock()

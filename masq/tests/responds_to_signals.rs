@@ -11,7 +11,7 @@ use std::time::Duration;
 mod utils;
 
 #[test]
-fn masq_terminates_based_on_the_loss_of_connection_to_the_daemon_integration() {
+fn masq_terminates_because_of_the_release_of_an_interrupt_signal_integration() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(300));

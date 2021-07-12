@@ -1,19 +1,21 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::line_reader::{TerminalEvent, TerminalReal};
-use linefeed::{Interface, ReadResult, Signal, Writer};
+use crate::terminal::line_reader::{TerminalEvent, TerminalReal};
+use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
+use linefeed::{Interface, Signal};
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::utils::WrapResult;
 use std::sync::Arc;
 
 #[cfg(not(test))]
 mod prod_cfg {
-    pub use crate::line_reader::IntegrationTestTerminal;
+    pub use crate::terminal::integration_tests_utils::IntegrationTestTerminal;
     pub use linefeed::DefaultTerminal;
 }
 
 #[cfg(test)]
 mod test_cfg {
+    pub use crate::terminal::terminal_interface::tests::result_wrapper_for_in_memory_terminal;
     pub use linefeed::memory::MemoryTerminal;
     pub use masq_lib::intentionally_blank;
 }
@@ -35,8 +37,8 @@ impl Clone for TerminalWrapper {
 }
 
 pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
-pub const MASQ_TEST_INTEGRATION_VALUE: &str = "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb\
-74b2eac7b8a3be8xzt";
+pub const MASQ_TEST_INTEGRATION_VALUE: &str =
+    "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb74b2eac7b8a3be8xzt";
 
 impl TerminalWrapper {
     pub fn new(interface: Box<dyn MasqTerminal>) -> Self {
@@ -47,6 +49,11 @@ impl TerminalWrapper {
     pub fn lock(&self) -> Box<dyn WriterLock + '_> {
         self.interface.lock()
     }
+
+    pub fn lock_ultimately(&self) -> Box<dyn WriterLock + '_> {
+        self.interface.lock_ultimately()
+    }
+
     pub fn read_line(&self) -> TerminalEvent {
         self.interface.read_line()
     }
@@ -79,7 +86,7 @@ impl TerminalWrapper {
 
     #[cfg(test)]
     pub fn configure_interface() -> Result<Self, String> {
-        Self::configure_interface_generic(Box::new(result_wrapper_for_in_memory_terminal))
+        Self::configure_interface_generic(Box::new(test_cfg::result_wrapper_for_in_memory_terminal))
     }
 
     #[cfg(test)]
@@ -88,44 +95,38 @@ impl TerminalWrapper {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::unnecessary_wraps)]
-fn result_wrapper_for_in_memory_terminal() -> std::io::Result<test_cfg::MemoryTerminal> {
-    Ok(test_cfg::MemoryTerminal::new())
-}
-////////////////////////////////////////////////////////////////////////////////////////////////////
 //so to say skeleton which accepts injections of closures where I can exactly say how these mocked, injected
 //constructors shall behave and what it shall produce
 
-fn interface_configurator<Terminal, Interface, TeConstructor, InConstructor>(
-    construct_terminal_by_type: Box<TeConstructor>,
-    construct_interface: Box<InConstructor>,
+fn interface_configurator<Term, Itf, TeConstructor, ItfConstructor>(
+    construct_terminal_of_a_type: Box<TeConstructor>,
+    construct_interface: Box<ItfConstructor>,
 ) -> Result<TerminalReal, String>
 where
-    TeConstructor: FnOnce() -> std::io::Result<Terminal>,
-    InConstructor: FnOnce(&'static str, Terminal) -> std::io::Result<Interface>,
-    Terminal: linefeed::Terminal,
-    Interface: InterfaceWrapper + 'static,
+    TeConstructor: FnOnce() -> std::io::Result<Term>,
+    ItfConstructor: FnOnce(&'static str, Term) -> std::io::Result<Itf>,
+    Term: linefeed::Terminal,
+    Itf: InterfaceWrapper + 'static,
 {
-    let terminal_type: Terminal =
-        construct_terminal_by_type().map_err(|e| format!("Local terminal recognition: {}", e))?;
+    let terminal_type: Term =
+        construct_terminal_of_a_type().map_err(|e| format!("Local terminal recognition: {}", e))?;
 
-    let mut interface: Box<Interface> = construct_interface("masq", terminal_type)
+    let mut interface: Box<Itf> = construct_interface("masq", terminal_type)
         .map_err(|e| format!("Preparing terminal interface: {}", e))
         .map(Box::new)?;
 
-    let _ = set_all_settable_parameters(&mut *interface)?;
+    set_all_settable_parameters(&mut *interface)?;
 
     TerminalReal::new(interface).wrap_to_ok()
 }
 
-fn set_all_settable_parameters<I: ?Sized>(interface: &mut I) -> Result<(), String>
+fn set_all_settable_parameters<I>(interface: &mut I) -> Result<(), String>
 where
-    I: InterfaceWrapper,
+    I: InterfaceWrapper + ?Sized,
 {
-    if let Err(e) = interface.set_prompt(MASQ_PROMPT) {
-        return format!("Setting prompt: {}", e).wrap_to_err();
-    }
+    interface
+        .set_prompt(MASQ_PROMPT)
+        .map_err(|e| format!("Setting prompt: {}", e))?;
 
     //according to linefeed docs we await no failure here
     interface.set_report_signal(Signal::Interrupt, true);
@@ -136,79 +137,8 @@ where
     Ok(())
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-pub trait MasqTerminal: Send + Sync {
-    fn read_line(&self) -> TerminalEvent;
-    fn lock(&self) -> Box<dyn WriterLock + '_>;
-    #[cfg(test)]
-    fn test_interface(&self) -> test_cfg::MemoryTerminal {
-        test_cfg::intentionally_blank!()
-    }
-    #[cfg(test)]
-    fn struct_id(&self) -> String {
-        test_cfg::intentionally_blank!()
-    }
-}
-//you may be looking for the declaration of TerminalReal which is in another file
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-//needed for being able to use both DefaultTerminal and MemoryTerminal (synchronization tests)
-pub trait WriterLock {
-    #[cfg(test)]
-    fn struct_id(&self) -> String {
-        test_cfg::intentionally_blank!()
-    }
-}
-
-impl<U: linefeed::Terminal> WriterLock for Writer<'_, '_, U> {
-    #[cfg(test)]
-    fn struct_id(&self) -> String {
-        "linefeed::Writer<_>".to_string()
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-//complication caused by the fact that linefeed::Interface cannot be mocked directly so I created a superior
-//trait that finally allows me to have a full mock
-
-pub trait InterfaceWrapper: Send + Sync {
-    fn read_line(&self) -> std::io::Result<ReadResult>;
-    fn add_history(&self, line: String);
-    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>>;
-    fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
-    fn set_report_signal(&self, signal: Signal, set: bool);
-}
-
-impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
-    fn read_line(&self) -> std::io::Result<ReadResult> {
-        self.read_line()
-    }
-
-    fn add_history(&self, line: String) {
-        self.add_history(line);
-    }
-
-    fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>> {
-        match self.lock_writer_append() {
-            Ok(writer) => Ok(Box::new(writer)),
-            //untested ...mocking here would require own definition of a terminal type;
-            //it isn't worth it due to its complexity
-            Err(error) => Err(error),
-        }
-    }
-
-    fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
-        self.set_prompt(prompt)
-    }
-
-    fn set_report_signal(&self, signal: Signal, set: bool) {
-        self.set_report_signal(signal, set)
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender, TerminalActiveMock};
     use crossbeam_channel::unbounded;
@@ -217,6 +147,11 @@ mod tests {
     use std::sync::{Barrier, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    #[allow(clippy::unnecessary_wraps)]
+    pub fn result_wrapper_for_in_memory_terminal() -> std::io::Result<test_cfg::MemoryTerminal> {
+        Ok(test_cfg::MemoryTerminal::new())
+    }
 
     #[test]
     fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {

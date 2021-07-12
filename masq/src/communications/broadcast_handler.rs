@@ -4,7 +4,7 @@ use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::communications::handle_node_not_running_for_fire_and_forget_on_the_way;
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::intentionally_blank;
 use masq_lib::messages::{

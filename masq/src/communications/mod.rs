@@ -4,7 +4,7 @@ mod client_listener_thread;
 pub mod connection_manager;
 pub mod node_conversation;
 
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::messages::UiUndeliveredFireAndForget;
 use masq_lib::short_writeln;
 use std::io::Write;

@@ -4,7 +4,7 @@ use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::BroadcastHandle;
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 
 pub trait CommandProcessorFactory {
     fn make(
@@ -60,8 +60,6 @@ impl CommandProcessor for CommandProcessorReal {
     }
 
     fn close(&mut self) {
-        unimplemented!() //unset prompt self.terminal_wrapper_ref().unset_prompt()
-        ;
         self.context.close();
     }
 

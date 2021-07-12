@@ -4,7 +4,7 @@ use crate::command_context::ContextError::ConnectionRefused;
 use crate::communications::broadcast_handler::BroadcastHandle;
 use crate::communications::connection_manager::{ConnectionManager, REDIRECT_TIMEOUT_MILLIS};
 use crate::communications::node_conversation::ClientError;
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};

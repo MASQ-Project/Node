@@ -11,7 +11,7 @@ use crate::communications::broadcast_handler::{
 };
 use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{NIClapFactory, NIClapFactoryReal};
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::command;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
@@ -169,7 +169,7 @@ mod tests {
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
-    use crate::line_reader::TerminalEvent;
+    use crate::terminal::line_reader::TerminalEvent;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory,
@@ -592,9 +592,8 @@ mod tests {
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
             .inject_terminal_interface(TerminalWrapper::new(Box::new(
-                TerminalPassiveMock::new().read_line_result(TerminalEvent::CLError(Some(
-                    "ConnectionRefused".to_string(),
-                ))),
+                TerminalPassiveMock::new()
+                    .read_line_result(TerminalEvent::Error(Some("ConnectionRefused".to_string()))),
             )));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
