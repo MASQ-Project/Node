@@ -159,6 +159,7 @@ pub mod mocks {
     use masq_lib::utils::localhost;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
+    use std::io::ErrorKind;
 
     pub struct UdpSocketMock {
         recv_from_params: Arc<Mutex<Vec<()>>>,
@@ -172,6 +173,9 @@ pub mod mocks {
     impl UdpSocketWrapper for UdpSocketMock {
         fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
             self.recv_from_params.lock().unwrap().push(());
+            if self.recv_from_results.borrow().is_empty() {
+                return Err (io::Error::from (ErrorKind::WouldBlock))
+            }
             let (result, bytes) = self.recv_from_results.borrow_mut().remove(0);
             for n in 0..bytes.len() {
                 buf[n] = bytes[n];

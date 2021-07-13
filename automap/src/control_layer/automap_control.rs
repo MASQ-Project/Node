@@ -78,7 +78,7 @@ impl AutomapControl for AutomapControlReal {
     fn add_mapping(&mut self, hole_port: u16) -> Result<(), AutomapError> {
         let experiment = Box::new(move |transactor: &dyn Transactor, router_ip: IpAddr| {
             match transactor.add_mapping(router_ip, hole_port, MAPPING_LIFETIME_SECONDS) {
-                Ok(remap_after) => Ok(remap_after),
+                Ok(remap_after_sec) => Ok(remap_after_sec),
                 Err(AutomapError::PermanentLeasesOnly) => {
                     transactor.add_permanent_mapping(router_ip, hole_port)
                 }
@@ -92,8 +92,8 @@ impl AutomapControl for AutomapControlReal {
                     inner.router_ip,
                 );
                 match result {
-                    Ok(remap_after) => Ok(ProtocolInfo {
-                        payload: remap_after,
+                    Ok(remap_after_sec) => Ok(ProtocolInfo {
+                        payload: remap_after_sec,
                         router_ip: inner.router_ip,
                     }),
                     Err(e) => Err(e),
@@ -114,11 +114,11 @@ impl AutomapControl for AutomapControlReal {
             },
         };
         self.maybe_start_housekeeper(&protocol_info_result)?;
-        let remap_after: u32 = protocol_info_result?.payload;
+        let remap_after_sec: u32 = protocol_info_result?.payload;
         self.housekeeping_thread_commander_opt
             .as_ref()
             .expect ("housekeeping_thread_commander was unpopulated after maybe_start_housekeeper()")
-            .send (HousekeepingThreadCommand::SetRemapIntervalMs(remap_after))
+            .send (HousekeepingThreadCommand::SetRemapIntervalMs(remap_after_sec as u64 * 1000u64))
             .expect ("Housekeeping thread is dead");
         Ok (())
     }

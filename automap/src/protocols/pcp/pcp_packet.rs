@@ -7,6 +7,7 @@ use crate::protocols::utils::{
 };
 use std::convert::{From, TryFrom};
 use std::net::IpAddr;
+use std::fmt::{Debug};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Opcode {
@@ -110,12 +111,13 @@ impl ResultCode {
     }
 }
 
-pub trait PcpOpcodeData: OpcodeData {}
+pub trait PcpOpcodeData: OpcodeData + Debug {}
 
 impl PcpOpcodeData for UnrecognizedData {}
 
-pub trait PcpOption {}
+pub trait PcpOption: Debug {}
 
+#[derive (Debug)]
 pub struct PcpPacket {
     pub direction: Direction,
     pub opcode: Opcode,
