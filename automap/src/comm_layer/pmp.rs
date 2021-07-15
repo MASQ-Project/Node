@@ -305,7 +305,7 @@ impl PmpTransactor {
             }
             match rx.try_recv () {
                 Ok(HousekeepingThreadCommand::Stop) => break,
-                Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => todo! (),
+                Ok(HousekeepingThreadCommand::SetRemapIntervalMs(_remap_after)) => todo! (),
                 Err (_) => continue,
             }
         }

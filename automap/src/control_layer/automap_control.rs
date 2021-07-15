@@ -777,7 +777,7 @@ mod tests {
 
         subject.add_mapping(4567).unwrap();
 
-        assert_eq! (rx.try_recv(), Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000)));
+        assert_eq! (rx.try_recv(), Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000000)));
         assert_eq!(subject.usual_protocol_opt, Some(AutomapProtocol::Pcp));
         assert_eq!(
             subject.hole_ports.iter().collect::<Vec<&u16>>(),
@@ -837,7 +837,7 @@ mod tests {
 
         subject.add_mapping(4567).unwrap();
 
-        assert_eq!(rx.try_recv(), Ok (HousekeepingThreadCommand::SetRemapIntervalMs(1000)));
+        assert_eq!(rx.try_recv(), Ok (HousekeepingThreadCommand::SetRemapIntervalMs(1000000)));
         assert!(get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
@@ -928,7 +928,7 @@ mod tests {
 
         subject.add_mapping(4567).unwrap();
 
-        assert_eq!(rx.try_recv(), Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000)));
+        assert_eq!(rx.try_recv(), Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000000)));
         assert!(get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);

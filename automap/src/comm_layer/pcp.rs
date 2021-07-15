@@ -64,7 +64,7 @@ impl Default for Factories {
 pub struct PcpTransactor {
     mapping_transactor_arc: Arc<Mutex<Box<dyn MappingTransactor>>>,
     factories_arc: Arc<Mutex<Factories>>,
-    router_port: u16, // TODO: Make this a full SocketAddr and pass around one thing rather than two
+    router_port: u16,
     listen_port: u16,
     change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
@@ -1408,7 +1408,7 @@ mod tests {
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
         handle.join().unwrap();
         let mut mapping_socket_send_to_params = mapping_socket_send_to_params_arc.lock().unwrap();
-        let (actual_outgoing_packet_bytes, actual_router_addr) =
+        let (actual_outgoing_packet_bytes, _) =
             mapping_socket_send_to_params.remove (0);
         assert_eq! (actual_outgoing_packet_bytes, expected_outgoing_packet_buf[0..expected_outgoing_packet_length].to_vec(),
             "Was:\n{:?}\nbut should have been:\n{:?}", PcpPacket::try_from(actual_outgoing_packet_bytes.as_slice()).unwrap(),
@@ -1522,7 +1522,7 @@ mod tests {
             .mapping_transaction_params (&mapping_transactor_params_arc)
             .mapping_transaction_result (Err (AutomapError::Unknown));
 
-        PcpTransactor::remap_port(
+        let result = PcpTransactor::remap_port(
             &mapping_transactor,
             &Arc::new (Mutex::new (Factories::default())),
             localhost(),
@@ -1532,6 +1532,7 @@ mod tests {
             &Logger::new ("test"),
         );
 
+        assert_eq! (result, Err(AutomapError::Unknown));
         let mut mapping_transactor_params = mapping_transactor_params_arc.lock().unwrap();
         let requested_lifetime: u32 = mapping_transactor_params.remove(0).4;
         assert_eq! (requested_lifetime, 100);
@@ -1544,7 +1545,7 @@ mod tests {
             .mapping_transaction_params (&mapping_transactor_params_arc)
             .mapping_transaction_result (Err (AutomapError::Unknown));
 
-        PcpTransactor::remap_port(
+        let result = PcpTransactor::remap_port(
             &mapping_transactor,
             &Arc::new (Mutex::new (Factories::default())),
             localhost(),
@@ -1554,6 +1555,7 @@ mod tests {
             &Logger::new ("test"),
         );
 
+        assert_eq! (result, Err(AutomapError::Unknown));
         let mut mapping_transactor_params = mapping_transactor_params_arc.lock().unwrap();
         let requested_lifetime: u32 = mapping_transactor_params.remove(0).4;
         assert_eq! (requested_lifetime, 1);
