@@ -291,7 +291,8 @@ impl PcpTransactor {
                     remap_interval,
                     &logger,
                 ) {
-                    todo! ("{:?}", e)
+                    error! (logger, "Remapping failure: {:?}", e);
+                    change_handler (AutomapChange::Error(e));
                 }
                 last_remapped = Instant::now();
             }
@@ -321,7 +322,12 @@ impl PcpTransactor {
         let (result_code, approved_lifetime, _) =
             mapping_transactor_arc.mapping_transaction(factories_arc, router_ip, router_port, hole_port, requested_lifetime_secs)?;
         if result_code != ResultCode::Success {
-            todo! ()
+            let msg = format! ("{:?}", result_code);
+            return if result_code.is_permanent() {
+                Err(AutomapError::PermanentRemappingError(msg))
+            } else {
+                Err(AutomapError::TemporaryRemappingError(msg))
+            }
         }
         Ok(approved_lifetime)
     }
@@ -1484,6 +1490,52 @@ mod tests {
     }
 
     #[test]
+    fn thread_guts_complains_if_remapping_fails() {
+        init_test_logging();
+        let socket_addr = SocketAddr::from_str("1.1.1.1:1").unwrap();
+        let (tx, rx) = unbounded();
+        let socket: Box<dyn UdpSocketWrapper> = Box::new(
+            UdpSocketMock::new()
+                .set_read_timeout_result(Ok(()))
+                .recv_from_result(Ok((5, socket_addr)), b"booga".to_vec()),
+        );
+        let mapping_transactor = Box::new (MappingTransactorMock::new ()
+            .mapping_transaction_result (Ok((ResultCode::NoResources, 1000, MapOpcodeData::default()))));
+        let change_opt_arc = Arc::new (Mutex::new (None));
+        let change_opt_arc_inner = change_opt_arc.clone();
+        let change_handler: ChangeHandler = Box::new(move |change| {
+            change_opt_arc_inner.lock().unwrap().replace (change);
+        });
+        let logger = Logger::new("Automap");
+        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80));
+
+        let handle = thread::spawn (move || {
+            PcpTransactor::thread_guts(
+                socket.as_ref(),
+                &rx,
+                Arc::new (Mutex::new (mapping_transactor)),
+                Arc::new(Mutex::new(Factories::default())),
+                IpAddr::from_str("1.1.1.1").unwrap(),
+                0,
+                &change_handler,
+                ChangeHandlerConfig {
+                    hole_port: 0,
+                    lifetime: u32::MAX,
+                },
+                10,
+                logger,
+            );
+        });
+
+        thread::sleep (Duration::from_millis(100));
+        tx.send(HousekeepingThreadCommand::Stop).unwrap();
+        handle.join().unwrap();
+        let change_opt = change_opt_arc.lock().unwrap();
+        assert_eq! (*change_opt, Some (AutomapChange::Error (AutomapError::TemporaryRemappingError("NoResources".to_string()))));
+        TestLogHandler::new().exists_log_containing("ERROR: Automap: Remapping failure: TemporaryRemappingError(\"NoResources\")");
+    }
+
+    #[test]
     fn handle_announcement_logs_if_remapping_fails() {
         init_test_logging();
         let mut factories = Factories::default();
@@ -1559,6 +1611,42 @@ mod tests {
         let mut mapping_transactor_params = mapping_transactor_params_arc.lock().unwrap();
         let requested_lifetime: u32 = mapping_transactor_params.remove(0).4;
         assert_eq! (requested_lifetime, 1);
+    }
+
+    #[test]
+    fn remap_port_handles_temporary_mapping_failure() {
+        let mapping_transactor = MappingTransactorMock::new ()
+            .mapping_transaction_result (Ok ((ResultCode::NetworkFailure, 1000, MapOpcodeData::default())));
+
+        let result = PcpTransactor::remap_port(
+            &mapping_transactor,
+            &Arc::new (Mutex::new (Factories::default())),
+            localhost(),
+            0,
+            0,
+            Duration::from_millis (1000),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::TemporaryRemappingError("NetworkFailure".to_string())));
+    }
+
+    #[test]
+    fn remap_port_handles_permanent_mapping_failure() {
+        let mapping_transactor = MappingTransactorMock::new ()
+            .mapping_transaction_result (Ok ((ResultCode::MalformedRequest, 1000, MapOpcodeData::default())));
+
+        let result = PcpTransactor::remap_port(
+            &mapping_transactor,
+            &Arc::new (Mutex::new (Factories::default())),
+            localhost(),
+            0,
+            0,
+            Duration::from_millis (1000),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::PermanentRemappingError("MalformedRequest".to_string())));
     }
 
     fn vanilla_request() -> PcpPacket {

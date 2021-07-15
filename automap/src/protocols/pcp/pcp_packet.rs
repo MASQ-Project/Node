@@ -109,6 +109,26 @@ impl ResultCode {
             ResultCode::Other(code) => *code,
         }
     }
+
+    pub fn is_permanent(&self) -> bool {
+        match self {
+            ResultCode::Success => false,
+            ResultCode::UnsuppVersion => true,
+            ResultCode::NotAuthorized => true,
+            ResultCode::MalformedRequest => true,
+            ResultCode::UnsuppOpcode => true,
+            ResultCode::UnsuppOption => true,
+            ResultCode::MalformedOption => true,
+            ResultCode::NetworkFailure => false,
+            ResultCode::NoResources => false,
+            ResultCode::UnsuppProtocol => true,
+            ResultCode::UserExQuota => false,
+            ResultCode::CannotProvideExternal => false,
+            ResultCode::AddressMismatch => true,
+            ResultCode::ExcessiveRemotePeers => true,
+            ResultCode::Other(_) => true,
+        }
+    }
 }
 
 pub trait PcpOpcodeData: OpcodeData + Debug {}
@@ -608,8 +628,9 @@ mod tests {
         assert_eq!(ResultCode::CannotProvideExternal.code(), 11);
         assert_eq!(ResultCode::AddressMismatch.code(), 12);
         assert_eq!(ResultCode::ExcessiveRemotePeers.code(), 13);
-        assert_eq!(ResultCode::Other(14).code(), 14);
-        assert_eq!(ResultCode::Other(255).code(), 255);
+        for code in 14..=u8::MAX {
+            assert_eq! (ResultCode::Other(code).code(), code);
+        }
     }
 
     #[test]
@@ -628,7 +649,29 @@ mod tests {
         assert_eq!(ResultCode::from(11), ResultCode::CannotProvideExternal);
         assert_eq!(ResultCode::from(12), ResultCode::AddressMismatch);
         assert_eq!(ResultCode::from(13), ResultCode::ExcessiveRemotePeers);
-        assert_eq!(ResultCode::from(14), ResultCode::Other(14));
-        assert_eq!(ResultCode::from(255), ResultCode::Other(255));
+        for code in 14..=u8::MAX {
+            assert_eq! (ResultCode::from(code), ResultCode::Other (code));
+        }
+    }
+
+    #[test]
+    fn result_code_is_permanent_works() {
+        assert_eq!(ResultCode::Success.is_permanent(), false);
+        assert_eq!(ResultCode::UnsuppVersion.is_permanent(), true);
+        assert_eq!(ResultCode::NotAuthorized.is_permanent(), true);
+        assert_eq!(ResultCode::MalformedRequest.is_permanent(), true);
+        assert_eq!(ResultCode::UnsuppOpcode.is_permanent(), true);
+        assert_eq!(ResultCode::UnsuppOption.is_permanent(), true);
+        assert_eq!(ResultCode::MalformedOption.is_permanent(), true);
+        assert_eq!(ResultCode::NetworkFailure.is_permanent(), false);
+        assert_eq!(ResultCode::NoResources.is_permanent(), false);
+        assert_eq!(ResultCode::UnsuppProtocol.is_permanent(), true);
+        assert_eq!(ResultCode::UserExQuota.is_permanent(), false);
+        assert_eq!(ResultCode::CannotProvideExternal.is_permanent(), false);
+        assert_eq!(ResultCode::AddressMismatch.is_permanent(), true);
+        assert_eq!(ResultCode::ExcessiveRemotePeers.is_permanent(), true);
+        for code in 14..=u8::MAX {
+            assert_eq! (ResultCode::Other(code).is_permanent(), true);
+        }
     }
 }
