@@ -26,10 +26,19 @@ impl TerminalReal {
         Self { interface }
     }
 
+    //here are rather auxiliary functions
+
     fn process_captured_command_line(&self, line: String) -> TerminalEvent {
         self.add_history(line.clone());
         let args = split_quoted_line(line);
         TerminalEvent::CommandLine(args)
+    }
+
+    fn make_prompt_vanish(&self) {
+        self.interface
+            .set_prompt("")
+            .expect("unsetting the prompt failed");
+        self.interface.clear_buffer();
     }
 
     fn add_history(&self, line: String) {
@@ -55,14 +64,11 @@ impl MasqTerminal for TerminalReal {
     }
 
     //used because we don't want to see the prompt show up after this last-second printing operation;
-    //to assure a decent screen appearance while the whole app's going down
+    //to assure decent screen appearance while the whole app's going down
     fn lock_ultimately(&self) -> Box<dyn WriterLock + '_> {
         //TODO test drive this out
         let kept_buffer = self.interface.get_buffer();
-        self.interface
-            .set_prompt("")
-            .expect("unsetting the prompt failed");
-        self.interface.clear_buffer();
+        self.make_prompt_vanish();
         let lock = self.interface.lock_writer_append().expect("l_w_a failed");
         short_writeln!(stdout(), "{}", format!("{}{}", MASQ_PROMPT, kept_buffer));
         lock

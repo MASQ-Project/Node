@@ -1,7 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::utils::DaemonProcess;
-use crate::utils::MasqProcess;
+use crate::utils::{MasqProcess,DaemonProcess};
 use masq_lib::utils::find_free_port;
 use regex::Regex;
 use std::thread;

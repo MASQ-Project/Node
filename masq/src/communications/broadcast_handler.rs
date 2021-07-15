@@ -12,6 +12,7 @@ use masq_lib::messages::{
     UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
+use masq_lib::utils::ExpectValue;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
@@ -62,7 +63,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
             let terminal_interface = self
                 .terminal_interface
                 .take()
-                .expect("BroadcastHandlerReal: start: some was expected");
+                .expect_v("Some(TerminalWrapper)");
             //release the loop if masq has died (testing concerns)
             let mut flag = true;
             while flag {
@@ -106,6 +107,7 @@ impl BroadcastHandlerReal {
                         terminal_interface,
                     );
                 } else {
+                    //TODO this branch isn't protected under sync lock
                     write!(
                         stderr,
                         "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",

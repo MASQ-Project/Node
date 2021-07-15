@@ -585,6 +585,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctrlc"
+version = "3.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "232295399409a8b7ae41276757b5a1cc21032848d42bff2352261f958b3ca29a"
+dependencies = [
+ "nix 0.20.0",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "daemonize"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1515,11 +1525,13 @@ version = "1.0.0"
 dependencies = [
  "clap",
  "crossbeam-channel 0.5.0",
+ "ctrlc",
  "lazy_static",
  "libc",
  "linefeed",
  "masq_lib",
  "regex",
+ "simple-signal",
  "websocket",
 ]
 
@@ -2853,6 +2865,16 @@ dependencies = [
  "num_cpus",
  "scoped_threadpool",
  "time",
+]
+
+[[package]]
+name = "simple-signal"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53f7da44adcc42667d57483bd93f81295f27d66897804b757573b61b6f13288b"
+dependencies = [
+ "lazy_static",
+ "libc",
 ]
 
 [[package]]

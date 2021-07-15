@@ -6,8 +6,6 @@ use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::BroadcastHandle;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::utils::ExpectValue;
-use std::thread::sleep;
-use std::time::Duration;
 
 pub trait CommandProcessorFactory {
     fn make(
@@ -64,7 +62,6 @@ impl CommandProcessor for CommandProcessorReal {
 
     fn close(&mut self) {
         self.context.close();
-        sleep(Duration::from_millis(1000)) //TODO remove this after you have a solution for the unsound 'Daemon is not running...' msg
     }
 
     fn terminal_wrapper_ref(&self) -> &TerminalWrapper {

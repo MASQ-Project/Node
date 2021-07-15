@@ -118,7 +118,6 @@ fn print_protected(
 ) -> TerminalEvent {
     match event_with_message {
         Break => {
-            //TODO here there must be another branch for EoF not using lock_ultimately()
             let _lock = terminal_interface.lock_ultimately();
             short_writeln!(streams.stdout, "\nTerminated");
             Break
