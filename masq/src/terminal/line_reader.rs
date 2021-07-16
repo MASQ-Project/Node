@@ -2,13 +2,14 @@
 
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
 use linefeed::{ReadResult, Signal};
+use masq_lib::command::StdStreams;
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::short_writeln;
 use std::fmt::Debug;
-use std::io::{stdout, Write};
+use std::io::Write;
 
 //most of these events depends on the default signal handler which ignores them so that these are never signaled
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
     Error(Option<String>), //'None' when already consumed by printing out
@@ -65,12 +66,19 @@ impl MasqTerminal for TerminalReal {
 
     //used because we don't want to see the prompt show up after this last-second printing operation;
     //to assure decent screen appearance while the whole app's going down
-    fn lock_ultimately(&self) -> Box<dyn WriterLock + '_> {
-        //TODO test drive this out
+    fn lock_ultimately(&self, streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_> {
         let kept_buffer = self.interface.get_buffer();
         self.make_prompt_vanish();
         let lock = self.interface.lock_writer_append().expect("l_w_a failed");
-        short_writeln!(stdout(), "{}", format!("{}{}", MASQ_PROMPT, kept_buffer));
+        short_writeln!(
+            if !stderr {
+                &mut streams.stdout
+            } else {
+                &mut streams.stderr
+            },
+            "{}",
+            format!("{}{}", MASQ_PROMPT, kept_buffer)
+        );
         lock
     }
 
@@ -115,7 +123,8 @@ pub fn split_quoted_line_for_integration_tests(input: String) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::InterfaceRawMock;
+    use crate::test_utils::mocks::{InterfaceRawMock, WriterInactive};
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::io::ErrorKind;
     use std::sync::{Arc, Mutex};
 
@@ -238,6 +247,53 @@ mod tests {
         let result = subject.read_line();
 
         assert_eq!(result, TerminalEvent::EoF);
+    }
+
+    #[test]
+    //unfortunately, I haven't been 't able to write a stronger test for this
+    fn lock_ultimately_utilizes_inner_components_properly() {
+        let clear_buffer_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_prompt_params_arc = Arc::new(Mutex::new(vec![]));
+        let terminal = InterfaceRawMock::default()
+            .clear_buffer_params(&clear_buffer_params_arc)
+            .set_prompt_params(&set_prompt_params_arc)
+            .set_prompt_result(Ok(()))
+            .get_buffer_result("my once opened writing".to_string())
+            .lock_writer_append_result(Ok(Box::new(WriterInactive {})));
+        let subject = TerminalReal::new(Box::new(terminal));
+        let mut streams_holder = FakeStreamHolder::default();
+        let mut streams = streams_holder.streams();
+
+        let _ = subject.lock_ultimately(&mut streams, false);
+
+        assert_eq!(
+            streams_holder.stdout.get_string(),
+            "masq> my once opened writing\n".to_string()
+        );
+        assert!(streams_holder.stderr.get_string().is_empty());
+        let clear_buffer_params = clear_buffer_params_arc.lock().unwrap();
+        assert_eq!(*clear_buffer_params, vec![()]);
+        let set_prompt_params = set_prompt_params_arc.lock().unwrap();
+        assert_eq!(*set_prompt_params, vec!["".to_string()])
+    }
+
+    #[test]
+    fn lock_ultimately_writes_in_stderr_if_specified_so() {
+        let terminal = InterfaceRawMock::default()
+            .set_prompt_result(Ok(()))
+            .get_buffer_result("my once opened writing".to_string())
+            .lock_writer_append_result(Ok(Box::new(WriterInactive {})));
+        let subject = TerminalReal::new(Box::new(terminal));
+        let mut streams_holder = FakeStreamHolder::default();
+        let mut streams = streams_holder.streams();
+
+        let _ = subject.lock_ultimately(&mut streams, true);
+
+        assert!(streams_holder.stdout.get_string().is_empty());
+        assert_eq!(
+            streams_holder.stderr.get_string(),
+            "masq> my once opened writing\n".to_string()
+        )
     }
 
     #[test]

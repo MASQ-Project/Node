@@ -172,9 +172,11 @@ impl MasqProcessMediated {
     pub fn start_masq_interactive_in_bash(
         self,
         port: u16,
-        mocked_terminal: bool
-    ) -> (StopHandle,StdinHandle, i32) {
-        if mocked_terminal {std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)};
+        mocked_terminal: bool,
+    ) -> (StopHandle, StdinHandle, i32) {
+        if mocked_terminal {
+            std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)
+        };
         let mut shell_child = Self::prepare_shell();
         let mut bash_stdin_handle = StdinHandle::new(shell_child.stdin.take().unwrap());
         let masq_executable = executable_path(executable_name("masq"));
@@ -201,7 +203,7 @@ impl MasqProcessMediated {
                 child: shell_child,
             },
             bash_stdin_handle,
-            0 //TODO make meaningful or remove, should have been the masq process's PID
+            0, //TODO make meaningful or remove, should have been the masq process's PID
         )
     }
 

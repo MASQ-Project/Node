@@ -14,7 +14,7 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(300));
-    let masq_handle = MasqProcess::new().start_interactive(port,true);
+    let masq_handle = MasqProcess::new().start_interactive(port, true);
     thread::sleep(Duration::from_millis(300));
     let masq_process_id = masq_handle.child_id();
 

@@ -2,6 +2,7 @@
 
 use crate::terminal::line_reader::TerminalEvent;
 use linefeed::{Interface, ReadResult, Signal, Writer};
+use masq_lib::command::StdStreams;
 
 #[cfg(test)]
 mod test_cfg {
@@ -12,7 +13,7 @@ mod test_cfg {
 pub trait MasqTerminal: Send + Sync {
     fn read_line(&self) -> TerminalEvent;
     fn lock(&self) -> Box<dyn WriterLock + '_>;
-    fn lock_ultimately(&self) -> Box<dyn WriterLock + '_>;
+    fn lock_ultimately(&self, streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_>;
     #[cfg(test)]
     fn test_interface(&self) -> test_cfg::MemoryTerminal {
         test_cfg::intentionally_blank!()
@@ -46,8 +47,8 @@ pub trait InterfaceWrapper: Send + Sync {
     fn read_line(&self) -> std::io::Result<ReadResult>;
     fn add_history(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>>;
-    fn get_buffer(&self) -> String; //TODO untested
-    fn clear_buffer(&self); //TODO add the proper result
+    fn get_buffer(&self) -> String;
+    fn clear_buffer(&self);
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
     fn set_report_signal(&self, signal: Signal, set: bool);
 }
@@ -75,7 +76,7 @@ impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
     }
 
     fn clear_buffer(&self) {
-        let _ = self.set_buffer("");
+        self.set_buffer("").expect("clearing buffer failed")
     }
 
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {

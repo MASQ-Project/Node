@@ -3,6 +3,7 @@
 use crate::terminal::line_reader::{TerminalEvent, TerminalReal};
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
 use linefeed::{Interface, Signal};
+use masq_lib::command::StdStreams;
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::utils::WrapResult;
 use std::sync::Arc;
@@ -50,8 +51,12 @@ impl TerminalWrapper {
         self.interface.lock()
     }
 
-    pub fn lock_ultimately(&self) -> Box<dyn WriterLock + '_> {
-        self.interface.lock_ultimately()
+    pub fn lock_ultimately(
+        &self,
+        streams: &mut StdStreams,
+        stderr: bool,
+    ) -> Box<dyn WriterLock + '_> {
+        self.interface.lock_ultimately(streams, stderr)
     }
 
     pub fn read_line(&self) -> TerminalEvent {

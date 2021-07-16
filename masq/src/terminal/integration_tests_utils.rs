@@ -4,10 +4,11 @@ use crate::terminal::line_reader::{split_quoted_line_for_integration_tests, Term
 use crate::terminal::secondary_infrastructure::{MasqTerminal, WriterLock};
 use crossbeam_channel::{bounded, Sender};
 use ctrlc;
+use masq_lib::command::StdStreams;
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
-use std::io::{stdin, stdout, Read, Write};
+use std::io::{stderr, stdin, stdout, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
@@ -18,6 +19,7 @@ use std::time::Duration;
 pub struct IntegrationTestTerminal {
     lock: Arc<Mutex<()>>,
     stdin: Arc<Mutex<Box<dyn Read + Send>>>,
+    stderr: Arc<Mutex<Box<dyn Write + Send>>>,
     stdout: Arc<Mutex<Box<dyn Write + Send>>>,
     ctrl_c_flag: Arc<AtomicBool>,
 }
@@ -29,11 +31,12 @@ impl Default for IntegrationTestTerminal {
         ctrlc::set_handler(move || {
             r.store(false, Ordering::SeqCst);
         })
-            .expect("Error setting Ctrl-C handler");
+        .expect("Error setting Ctrl-C handler");
 
         IntegrationTestTerminal {
             lock: Arc::new(Mutex::new(())),
             stdin: Arc::new(Mutex::new(Box::new(stdin()))),
+            stderr: Arc::new(Mutex::new(Box::new(stderr()))),
             stdout: Arc::new(Mutex::new(Box::new(stdout()))),
             ctrl_c_flag: running,
         }
@@ -47,11 +50,7 @@ impl IntegrationTestTerminal {
             .lock()
             .expect("poisoned mutex IntegrationTestTerminal: lock");
         let mut stdout_handle = self.stdout.lock().unwrap();
-        write!(stdout_handle,
-            "{}",
-            MASQ_PROMPT
-        )
-        .unwrap();
+        write!(stdout_handle, "{}", MASQ_PROMPT).unwrap();
         stdout_handle.flush().unwrap();
         //the lock must not be around the read point
         drop(_lock);
@@ -69,12 +68,13 @@ impl IntegrationTestTerminal {
         //because of specific arrangement based on the combination of linefeed + Clap
         //TODO what the hell does version have more than just 'version' that I cannot use an equality assertion
         let mut stdout_handle = self.stdout.lock().unwrap();
-        if finalized_command_line.contains("version") || finalized_command_line == "help" {short_writeln!(stdout_handle,"")};
+        if finalized_command_line.contains("version") || finalized_command_line == "help" {
+            short_writeln!(stdout_handle, "")
+        };
         drop(stdout_handle);
-        let _ = result_sender
-            .send(TerminalEvent::CommandLine(
-                split_quoted_line_for_integration_tests(finalized_command_line),
-            ));
+        let _ = result_sender.send(TerminalEvent::CommandLine(
+            split_quoted_line_for_integration_tests(finalized_command_line),
+        ));
     }
 }
 
@@ -87,10 +87,10 @@ impl MasqTerminal for IntegrationTestTerminal {
         thread::spawn(move || cloned.input_reader(tx_terminal));
         loop {
             if !self.ctrl_c_flag.load(Ordering::SeqCst) {
-                return TerminalEvent::Break
+                return TerminalEvent::Break;
             }
             if let Ok(terminal_event) = rx_terminal.try_recv() {
-                break terminal_event
+                break terminal_event;
             } else {
                 sleep(Duration::from_millis(10))
             }
@@ -100,16 +100,24 @@ impl MasqTerminal for IntegrationTestTerminal {
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(IntegrationTestWriter {
             mutex_guard_that_simulates_the_core_locking: self.lock.lock().expect_v("MutexGuard"),
-            ultimate_drop_behavior: false
+            ultimate_drop_behavior: false,
         })
     }
 
-    fn lock_ultimately(&self) -> Box<dyn WriterLock+'_> {
+    fn lock_ultimately(&self, _streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_> {
         let lock = Box::new(IntegrationTestWriter {
             mutex_guard_that_simulates_the_core_locking: self.lock.lock().expect_v("MutexGuard"),
-            ultimate_drop_behavior: true
+            ultimate_drop_behavior: true,
         });
-        short_writeln!(self.stdout.lock().unwrap(),"\n{}/*here the user's unfinished line could've had its place*/",MASQ_PROMPT);
+        short_writeln!(
+            if !stderr {
+                self.stdout.lock().unwrap()
+            } else {
+                self.stderr.lock().unwrap()
+            },
+            "\n{}/*here the user's unfinished line could've had its place*/",
+            MASQ_PROMPT
+        );
         lock
     }
 }
@@ -122,9 +130,11 @@ struct IntegrationTestWriter<'a> {
 
 impl WriterLock for IntegrationTestWriter<'_> {}
 
-impl Drop for IntegrationTestWriter<'_>{
-    fn drop(&mut self){
-        if self.ultimate_drop_behavior {short_writeln!(stdout(),"")}
+impl Drop for IntegrationTestWriter<'_> {
+    fn drop(&mut self) {
+        if self.ultimate_drop_behavior {
+            short_writeln!(stdout(), "")
+        }
     }
 }
 

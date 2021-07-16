@@ -13,8 +13,8 @@ use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Signal};
+use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
-use masq_lib::intentionally_blank;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
 use std::borrow::BorrowMut;
@@ -524,8 +524,7 @@ impl MasqTerminal for TerminalPassiveMock {
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(WriterInactive {})
     }
-
-    fn lock_ultimately(&self) -> Box<dyn WriterLock> {
+    fn lock_ultimately(&self, _streams: &mut StdStreams, _stderr: bool) -> Box<dyn WriterLock> {
         Box::new(WriterInactive {})
     }
 }
@@ -558,19 +557,27 @@ impl MasqTerminal for TerminalActiveMock {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
 
-    fn lock_ultimately(&self) -> Box<dyn WriterLock> {
-        todo!()
+    fn lock_ultimately(
+        &self,
+        _streams: &mut StdStreams,
+        _stderr: bool,
+    ) -> Box<dyn WriterLock + '_> {
+        Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
 }
 
 impl TerminalActiveMock {
     pub fn new() -> Self {
         Self {
-            in_memory_terminal: Interface::with_term("test only terminal", MemoryTerminal::new())
-                .unwrap(),
+            in_memory_terminal: Interface::with_term(
+                "test only terminal",
+                MemoryTerminal::new().clone(),
+            )
+            .unwrap(),
             user_input: Arc::new(Mutex::new(vec![])),
         }
     }
+
     pub fn read_line_result(self, line: String) -> Self {
         self.user_input
             .lock()
@@ -594,30 +601,39 @@ impl WriterLock for WriterInactive {
 #[derive(Default)]
 pub struct InterfaceRawMock {
     //this mock seems crippled, but the seeming overuse of Arc<Mutex<>> stems from InterfaceRawMock have Send and Sync
-    read_line_result: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
+    read_line_results: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
     add_history_unique_params: Arc<Mutex<Vec<String>>>,
     set_prompt_params: Arc<Mutex<Vec<String>>>,
-    set_prompt_result: Arc<Mutex<Vec<std::io::Result<()>>>>,
+    set_prompt_results: Arc<Mutex<Vec<std::io::Result<()>>>>,
     set_report_signal_params: Arc<Mutex<Vec<(Signal, bool)>>>,
+    get_buffer_results: Arc<Mutex<Vec<String>>>,
+    clear_buffer_params: Arc<Mutex<Vec<()>>>,
+    lock_writer_append_results: Arc<Mutex<Vec<std::io::Result<Box<WriterInactive>>>>>,
 }
 
 impl InterfaceWrapper for InterfaceRawMock {
     fn read_line(&self) -> std::io::Result<ReadResult> {
-        self.read_line_result.lock().unwrap().remove(0)
+        self.read_line_results.lock().unwrap().remove(0)
     }
     fn add_history(&self, line: String) {
         self.add_history_unique_params.lock().unwrap().push(line)
     }
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + 'static>> {
-        intentionally_blank!()
+        //this is a case with complicated consequences
+        let taken_result = self.lock_writer_append_results.lock().unwrap().remove(0);
+        if let Err(err) = taken_result {
+            Err(err)
+        } else {
+            Ok(taken_result.unwrap() as Box<dyn WriterLock + 'static>)
+        }
     }
 
     fn get_buffer(&self) -> String {
-        todo!()
+        self.get_buffer_results.lock().unwrap().remove(0)
     }
 
     fn clear_buffer(&self) {
-        todo!()
+        self.clear_buffer_params.lock().unwrap().push(())
     }
 
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
@@ -625,7 +641,7 @@ impl InterfaceWrapper for InterfaceRawMock {
             .lock()
             .unwrap()
             .push(prompt.to_string());
-        self.set_prompt_result.lock().unwrap().remove(0)
+        self.set_prompt_results.lock().unwrap().remove(0)
     }
 
     fn set_report_signal(&self, signal: Signal, set: bool) {
@@ -639,15 +655,18 @@ impl InterfaceWrapper for InterfaceRawMock {
 impl InterfaceRawMock {
     pub fn new() -> Self {
         Self {
-            read_line_result: Arc::new(Mutex::new(vec![])),
+            read_line_results: Arc::new(Mutex::new(vec![])),
             add_history_unique_params: Arc::new(Mutex::new(vec![])),
             set_prompt_params: Arc::new(Mutex::new(vec![])),
-            set_prompt_result: Arc::new(Mutex::new(vec![])),
+            set_prompt_results: Arc::new(Mutex::new(vec![])),
             set_report_signal_params: Arc::new(Mutex::new(vec![])),
+            get_buffer_results: Arc::new(Mutex::new(vec![])),
+            clear_buffer_params: Arc::new(Mutex::new(vec![])),
+            lock_writer_append_results: Arc::new(Mutex::new(vec![])),
         }
     }
     pub fn read_line_result(self, result: std::io::Result<ReadResult>) -> Self {
-        self.read_line_result.lock().unwrap().push(result);
+        self.read_line_results.lock().unwrap().push(result);
         self
     }
     pub fn add_history_unique_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
@@ -655,7 +674,7 @@ impl InterfaceRawMock {
         self
     }
     pub fn set_prompt_result(self, result: std::io::Result<()>) -> Self {
-        self.set_prompt_result.lock().unwrap().push(result);
+        self.set_prompt_results.lock().unwrap().push(result);
         self
     }
     pub fn set_prompt_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
@@ -664,6 +683,18 @@ impl InterfaceRawMock {
     }
     pub fn set_report_signal_params(mut self, params: &Arc<Mutex<Vec<(Signal, bool)>>>) -> Self {
         self.set_report_signal_params = params.clone();
+        self
+    }
+    pub fn get_buffer_result(self, result: String) -> Self {
+        self.get_buffer_results.lock().unwrap().push(result);
+        self
+    }
+    pub fn clear_buffer_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.clear_buffer_params = params.clone();
+        self
+    }
+    pub fn lock_writer_append_result(self, result: std::io::Result<Box<WriterInactive>>) -> Self {
+        self.lock_writer_append_results.lock().unwrap().push(result);
         self
     }
 }
