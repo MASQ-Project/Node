@@ -2,9 +2,9 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::handle_node_not_running_for_fire_and_forget_on_the_way;
+use crate::communications::handle_node_not_running_when_fire_and_forget_on_the_way;
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::intentionally_blank;
 use masq_lib::messages::{
@@ -12,6 +12,7 @@ use masq_lib::messages::{
     UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
+use masq_lib::utils::ExpectValue;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
@@ -24,20 +25,13 @@ pub trait BroadcastHandle: Send {
     }
 }
 
-pub struct BroadcastHandleInactive {}
+pub struct BroadcastHandleInactive;
 
 impl BroadcastHandle for BroadcastHandleInactive {
     //simply dropped (unless we find a better use for such a message)
     fn send(&self, _message_body: MessageBody) {}
     fn as_any(&self) -> &dyn Any {
         self
-    }
-}
-
-#[allow(clippy::new_without_default)]
-impl BroadcastHandleInactive {
-    pub fn new() -> Self {
-        Self {}
     }
 }
 
@@ -69,7 +63,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
             let terminal_interface = self
                 .terminal_interface
                 .take()
-                .expect("BroadcastHandlerReal: start: some was expected");
+                .expect_v("Some(TerminalWrapper)");
             //release the loop if masq has died (testing concerns)
             let mut flag = true;
             while flag {
@@ -107,12 +101,13 @@ impl BroadcastHandlerReal {
                     ChangePasswordCommand::handle_broadcast(body, stdout, terminal_interface);
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
-                    handle_node_not_running_for_fire_and_forget_on_the_way(
+                    handle_node_not_running_when_fire_and_forget_on_the_way(
                         body,
                         stdout,
                         terminal_interface,
                     );
                 } else {
+                    //TODO this branch isn't protected under sync lock
                     write!(
                         stderr,
                         "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",
@@ -440,7 +435,7 @@ Cannot handle crash request: Node is not running.
 ";
 
         test_generic_for_handle_broadcast(
-            handle_node_not_running_for_fire_and_forget_on_the_way,
+            handle_node_not_running_when_fire_and_forget_on_the_way,
             ffm_undelivered_body,
             broadcast_output,
         )

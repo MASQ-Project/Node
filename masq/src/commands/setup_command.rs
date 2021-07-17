@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::messages::{

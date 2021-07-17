@@ -2,17 +2,18 @@
 
 use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
-use crate::interactive_mode::CustomEventForGoInteractive::{Break, Continue, Return};
-use crate::line_reader::TerminalEvent;
-use crate::line_reader::TerminalEvent::{CLBreak, CLContinue, CLError, CommandLine};
+use crate::interactive_mode::TerminalEvent::{Break, CommandLine, Continue, EoF, Error};
 use crate::non_interactive_mode::handle_command_common;
 use crate::schema::app;
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::line_reader::TerminalEvent;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
+use masq_lib::utils::ExpectValue;
 use std::io::Write;
 
-enum CustomEventForGoInteractive {
+#[derive(Debug, PartialEq)]
+enum GoInEvent {
     Break,
     Continue,
     Return(bool),
@@ -31,9 +32,9 @@ pub fn go_interactive(
             command_processor,
             read_line_result,
         ) {
-            Continue => continue,
-            Break => break,
-            Return(ending_flag) => return ending_flag,
+            GoInEvent::Continue => continue,
+            GoInEvent::Break => break,
+            GoInEvent::Return(ending_flag) => return ending_flag,
         }
     }
     true
@@ -44,16 +45,16 @@ fn handle_terminal_event(
     command_factory: &dyn CommandFactory,
     command_processor: &mut dyn CommandProcessor,
     read_line_result: TerminalEvent,
-) -> CustomEventForGoInteractive {
+) -> GoInEvent {
     match pass_args_or_print_messages(
         streams,
         read_line_result,
         command_processor.terminal_wrapper_ref(),
     ) {
         CommandLine(args) => handle_args(&args, streams, command_factory, command_processor),
-        CLBreak => Break,
-        CLContinue => Continue,
-        CLError(_) => Return(false),
+        Break | EoF => GoInEvent::Break,
+        Continue => GoInEvent::Continue,
+        Error(_) => GoInEvent::Return(false),
     }
 }
 
@@ -62,24 +63,24 @@ fn handle_args(
     streams: &mut StdStreams<'_>,
     command_factory: &dyn CommandFactory,
     command_processor: &mut dyn CommandProcessor,
-) -> CustomEventForGoInteractive {
+) -> GoInEvent {
     if args.is_empty() {
-        return Continue;
+        return GoInEvent::Continue;
     }
     match args[0].as_str() {
-        str if str == "exit" => return Break,
+        str if str == "exit" => return GoInEvent::Break,
         str if str == "help" || str == "version" => {
             handle_help_or_version(
                 str,
                 streams.stdout,
                 command_processor.terminal_wrapper_ref(),
             );
-            return Continue;
+            return GoInEvent::Continue;
         }
         _ => (),
     }
     let _ = handle_command_common(command_factory, command_processor, args, streams.stderr);
-    Continue
+    GoInEvent::Continue
 }
 
 fn handle_help_or_version(
@@ -116,24 +117,31 @@ fn print_protected(
     terminal_interface: &TerminalWrapper,
     streams: &mut StdStreams<'_>,
 ) -> TerminalEvent {
-    let _lock = terminal_interface.lock();
     match event_with_message {
-        CLBreak => {
-            short_writeln!(streams.stdout, "Terminated");
-            CLBreak
+        Break => {
+            let _lock = terminal_interface.lock_ultimately(streams, false);
+            short_writeln!(streams.stdout, "\nTerminated");
+            Break
         }
-        CLContinue => {
+        Continue => {
+            let _lock = terminal_interface.lock();
             short_writeln!(
                 streams.stdout,
                 "Received a signal interpretable as continue"
             );
-            CLContinue
+            Continue
         }
-        CLError(e) => {
-            short_writeln!(streams.stderr, "{}", e.expect("expected Some()"));
-            CLError(None)
+        Error(e) => {
+            let _lock = terminal_interface.lock_ultimately(streams, true);
+            short_writeln!(streams.stderr, "{}", e.expect_v("Some(String)"));
+            Error(None)
         }
-        _ => unreachable!("matched elsewhere"),
+        EoF => {
+            let _lock = terminal_interface.lock();
+            short_writeln!(streams.stdout, "\nTerminated\n");
+            EoF
+        }
+        _ => unreachable!("was to be matched elsewhere"),
     }
 }
 
@@ -141,11 +149,12 @@ fn print_protected(
 mod tests {
     use crate::command_factory::CommandFactoryError;
     use crate::interactive_mode::{
-        go_interactive, handle_help_or_version, pass_args_or_print_messages,
+        go_interactive, handle_help_or_version, handle_terminal_event, pass_args_or_print_messages,
+        GoInEvent,
     };
-    use crate::line_reader::TerminalEvent;
-    use crate::line_reader::TerminalEvent::{CLBreak, CLContinue, CLError};
-    use crate::terminal_interface::TerminalWrapper;
+    use crate::terminal::line_reader::TerminalEvent;
+    use crate::terminal::line_reader::TerminalEvent::{Break, Continue, Error};
+    use crate::terminal::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{
         CommandFactoryMock, CommandProcessorMock, TerminalActiveMock, TerminalPassiveMock,
     };
@@ -228,8 +237,8 @@ mod tests {
         let mut streams = stream_holder.streams();
         let terminal_interface = TerminalWrapper::new(Box::new(
             TerminalPassiveMock::new()
-                .read_line_result(TerminalEvent::CLContinue)
-                .read_line_result(TerminalEvent::CLBreak),
+                .read_line_result(TerminalEvent::Continue)
+                .read_line_result(TerminalEvent::Break),
         ));
         let command_factory = CommandFactoryMock::new();
         let mut processor =
@@ -241,31 +250,31 @@ mod tests {
         assert_eq!(stream_holder.stderr.get_string(), "".to_string());
         assert_eq!(
             stream_holder.stdout.get_string(),
-            "Received a signal interpretable as continue\nTerminated\n".to_string()
+            "Received a signal interpretable as continue\n\nTerminated\n".to_string()
         )
     }
 
     #[test]
-    fn pass_on_args_or_print_messages_announces_break_signal_from_line_reader() {
+    fn pass_args_or_print_messages_announces_break_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
         let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
-        let result = pass_args_or_print_messages(&mut stream_holder.streams(), CLBreak, &interface);
+        let result = pass_args_or_print_messages(&mut stream_holder.streams(), Break, &interface);
 
-        assert_eq!(result, CLBreak);
+        assert_eq!(result, Break);
         assert_eq!(stream_holder.stderr.get_string(), "");
-        assert_eq!(stream_holder.stdout.get_string(), "Terminated\n");
+        assert_eq!(stream_holder.stdout.get_string(), "\nTerminated\n");
     }
 
     #[test]
-    fn pass_on_args_or_print_messages_announces_continue_signal_from_line_reader() {
+    fn pass_args_or_print_messages_announces_continue_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
         let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
         let result =
-            pass_args_or_print_messages(&mut stream_holder.streams(), CLContinue, &interface);
+            pass_args_or_print_messages(&mut stream_holder.streams(), Continue, &interface);
 
-        assert_eq!(result, CLContinue);
+        assert_eq!(result, Continue);
         assert_eq!(stream_holder.stderr.get_string(), "");
         assert_eq!(
             stream_holder.stdout.get_string(),
@@ -274,19 +283,38 @@ mod tests {
     }
 
     #[test]
-    fn pass_on_args_or_print_messages_announces_error_from_line_reader() {
+    fn pass_args_or_print_messages_announces_error_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
         let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
 
         let result = pass_args_or_print_messages(
             &mut stream_holder.streams(),
-            CLError(Some("Invalid Input\n".to_string())),
+            Error(Some("Invalid Input\n".to_string())),
             &interface,
         );
 
-        assert_eq!(result, CLError(None));
+        assert_eq!(result, Error(None));
         assert_eq!(stream_holder.stderr.get_string(), "Invalid Input\n\n");
         assert_eq!(stream_holder.stdout.get_string(), "");
+    }
+
+    #[test]
+    fn handle_terminal_event_process_eof_correctly_as_break() {
+        let mut stream_holder = FakeStreamHolder::new();
+        let command_factory = CommandFactoryMock::default();
+        let mut command_processor = CommandProcessorMock::default()
+            .inject_terminal_interface(TerminalWrapper::new(Box::new(TerminalPassiveMock::new())));
+        let readline_result = TerminalEvent::EoF;
+
+        let result = handle_terminal_event(
+            &mut stream_holder.streams(),
+            &command_factory,
+            &mut command_processor,
+            readline_result,
+        );
+
+        assert_eq!(result, GoInEvent::Break);
+        assert_eq!(stream_holder.stdout.get_string(), "\nTerminated\n\n")
     }
 
     //help and version commands are tested in integration tests with focus on a bigger context
@@ -323,7 +351,16 @@ mod tests {
     }
 
     #[test]
-    fn pass_args_or_print_messages_work_under_fine_lock() {
+    fn pass_args_or_print_messages_work_under_fine_lock_for_continue() {
+        test_body_for_testing_the_classic_lock(TerminalEvent::Continue)
+    }
+
+    #[test]
+    fn pass_args_or_print_messages_work_under_fine_lock_for_eof() {
+        test_body_for_testing_the_classic_lock(TerminalEvent::EoF)
+    }
+
+    fn test_body_for_testing_the_classic_lock(tested_variant: TerminalEvent) {
         let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
         let background_interface_clone = terminal_interface.clone();
         let mut stream_holder = FakeStreamHolder::new();
@@ -331,11 +368,8 @@ mod tests {
         let (tx, rx) = bounded(1);
         let now = Instant::now();
 
-        let _ = pass_args_or_print_messages(
-            &mut streams,
-            TerminalEvent::CLContinue,
-            &terminal_interface,
-        );
+        let _ =
+            pass_args_or_print_messages(&mut streams, tested_variant.clone(), &terminal_interface);
 
         let time_period_when_loosen = now.elapsed();
         let handle = thread::spawn(move || {
@@ -346,11 +380,7 @@ mod tests {
         rx.recv().unwrap();
         let now = Instant::now();
 
-        let _ = pass_args_or_print_messages(
-            &mut streams,
-            TerminalEvent::CLContinue,
-            &terminal_interface,
-        );
+        let _ = pass_args_or_print_messages(&mut streams, tested_variant, &terminal_interface);
 
         let time_period_when_locked = now.elapsed();
         handle.join().unwrap();

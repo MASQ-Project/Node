@@ -4,7 +4,8 @@ use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::BroadcastHandle;
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
+use masq_lib::utils::ExpectValue;
 
 pub trait CommandProcessorFactory {
     fn make(
@@ -68,7 +69,7 @@ impl CommandProcessor for CommandProcessorReal {
             .context
             .terminal_interface
             .as_ref()
-            .expect("Some(TerminalWrapper) expected")
+            .expect_v("TerminalWrapper")
     }
 }
 
@@ -104,7 +105,7 @@ mod tests {
     fn handles_nonexistent_server() {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactoryReal::new();
-        let broadcast_handle = BroadcastHandleInactive::new();
+        let broadcast_handle = BroadcastHandleInactive;
 
         let result = subject.make(None, Box::new(broadcast_handle), ui_port);
 
@@ -123,20 +124,20 @@ mod tests {
     }
 
     impl TameCommand {
-        fn send_piece_of_whole_message(&self, piece: &str) {
+        fn send_piece_of_whole_message(&self, time_lap_after: u64, piece: &str) {
             self.sender.send(piece.to_string()).unwrap();
-            thread::sleep(Duration::from_millis(1));
+            thread::sleep(Duration::from_millis(time_lap_after));
         }
     }
 
     impl Command for TameCommand {
         fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            self.send_piece_of_whole_message("This is a message");
-            self.send_piece_of_whole_message(" which must be delivered as one piece");
-            self.send_piece_of_whole_message("; we'll do all possible for that.");
-            self.send_piece_of_whole_message(" If only we have enough strength and spirit");
-            self.send_piece_of_whole_message(" and determination and support and... snacks.");
-            self.sender.send(" Roger.".to_string()).unwrap();
+            self.send_piece_of_whole_message(1, "This is a message");
+            self.send_piece_of_whole_message(1, " which must be delivered as one piece");
+            self.send_piece_of_whole_message(1, "; we'll do all possible for that.");
+            self.send_piece_of_whole_message(1, " If only we have enough strength and spirit");
+            self.send_piece_of_whole_message(1, " and determination and support and... snacks.");
+            self.send_piece_of_whole_message(0, " Roger.");
             Ok(())
         }
     }
