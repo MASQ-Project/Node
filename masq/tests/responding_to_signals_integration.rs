@@ -1,5 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(not(target_os = "windows"))]
+//sadly enough, I cannot come up with an idea of how to simulate the Windows ctrl-c event
+//it should be handled by an event handler embedded within linefeed though, so we can believe they can provide what they say
+//the other lines don't have signs of cross-platform code
+
 use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
 use masq_lib::utils::find_free_port;
@@ -28,6 +33,8 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
     assert_eq!(
         stdout,
         "masq> \nmasq> /*user's unfinished line to be here*/\n\nTerminated\n\n".to_string()
-    ); //TODO think this out with more details!!
+    );
     daemon_handle.kill()
 }
+
+
