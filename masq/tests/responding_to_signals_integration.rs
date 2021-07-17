@@ -36,5 +36,3 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
     );
     daemon_handle.kill()
 }
-
-
