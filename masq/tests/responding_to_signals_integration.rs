@@ -1,6 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(not(target_os = "windows"))]
 use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
 use masq_lib::utils::find_free_port;
@@ -26,6 +25,9 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
     let (stdout, stderr, exit_code) = masq_handle.stop();
     assert_eq!(exit_code, Some(0));
     assert_eq!(stderr, "".to_string());
-    assert_eq!(stdout, "masq> \nmasq> /*here the user's unfinished line could've had its place*/\n\nTerminated\n\n".to_string()); //TODO think this out with more details!!
+    assert_eq!(
+        stdout,
+        "masq> \nmasq> /*user's unfinished line to be here*/\n\nTerminated\n\n".to_string()
+    ); //TODO think this out with more details!!
     daemon_handle.kill()
 }

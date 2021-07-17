@@ -1311,9 +1311,7 @@ mod tests {
     #[test]
     fn handles_outgoing_conversation_messages_to_dead_server() {
         let daemon_port = find_free_port();
-        let daemon_server = MockWebSocketsServer::new(daemon_port)
-            .queue_string("disconnect")
-            .write_logs();
+        let daemon_server = MockWebSocketsServer::new(daemon_port).queue_string("disconnect");
         let daemon_stop_handle = daemon_server.start();
         let (conversation1_tx, conversation1_rx) = unbounded();
         let (conversation2_tx, conversation2_rx) = unbounded();

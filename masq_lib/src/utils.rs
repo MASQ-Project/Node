@@ -200,7 +200,7 @@ mod tests {
     use super::*;
     use std::env::current_dir;
     use std::fmt::Write;
-    use std::fs::{create_dir, create_dir_all, File, OpenOptions};
+    use std::fs::{create_dir_all, File, OpenOptions};
     use std::io::Write as FmtWrite;
 
     #[test]

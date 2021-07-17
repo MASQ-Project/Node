@@ -115,7 +115,7 @@ impl MasqTerminal for IntegrationTestTerminal {
             } else {
                 self.stderr.lock().unwrap()
             },
-            "\n{}/*here the user's unfinished line could've had its place*/",
+            "\n{}/*user's unfinished line to be here*/",
             MASQ_PROMPT
         );
         lock
