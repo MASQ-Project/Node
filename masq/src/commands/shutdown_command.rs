@@ -35,9 +35,10 @@ pub fn shutdown_subcommand() -> App<'static, 'static> {
 
 impl Command for ShutdownCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+        let shutdown_special_timeout_ms = 1500; //we had troubles to fit in the standard command time-out, especially on Win
         let input = UiShutdownRequest {};
         let output: Result<UiShutdownResponse, CommandError> =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+            transaction(input, context, shutdown_special_timeout_ms);
         match output {
             Ok(_) => (),
             Err(ConnectionProblem(_)) => {

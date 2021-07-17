@@ -1,5 +1,5 @@
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS};
 use clap::{App, Arg, ArgGroup, SubCommand};
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::common_validators;
@@ -49,7 +49,7 @@ impl Command for SetConfigurationCommand {
             value: self.value.clone(),
         };
 
-        let _: UiSetConfigurationResponse = transaction(input, context, 1000)?;
+        let _: UiSetConfigurationResponse = transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
         short_writeln!(context.stdout(), "Parameter was successfully set");
         Ok(())
     }

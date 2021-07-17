@@ -5,7 +5,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClientError {
@@ -100,9 +100,11 @@ impl NodeConversation {
                 outgoing_msg.clone(),
             )) {
             Ok(_) => {
+                let first_time_stamp = Instant::now();
                 let recv_result = self
                     .manager_to_conversation_rx
                     .recv_timeout(Duration::from_millis(timeout_millis));
+                eprintln!("How many ms did it take: {:?}", first_time_stamp.elapsed());
                 match recv_result {
                     Ok(Ok(body)) => Ok(body),
                     Ok(Err(NodeConversationTermination::Graceful)) => {
