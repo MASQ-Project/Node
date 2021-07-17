@@ -104,7 +104,7 @@ impl NodeConversation {
                 let recv_result = self
                     .manager_to_conversation_rx
                     .recv_timeout(Duration::from_millis(timeout_millis));
-                eprintln!("How many ms did it take: {:?}", first_time_stamp.elapsed());
+                eprintln!("How many ms did it take: {} ms", first_time_stamp.elapsed().as_millis());
                 match recv_result {
                     Ok(Ok(body)) => Ok(body),
                     Ok(Err(NodeConversationTermination::Graceful)) => {
