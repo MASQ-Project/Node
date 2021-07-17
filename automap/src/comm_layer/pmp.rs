@@ -10,8 +10,7 @@ use crate::protocols::utils::{Direction, Packet};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use masq_lib::logger::Logger;
 use masq_lib::utils::AutomapProtocol;
-use masq_lib::warning;
-use masq_lib::{debug, error};
+use masq_lib::{debug, error, info, warning};
 use pretty_hex::PrettyHex;
 use std::any::Any;
 use std::cell::RefCell;
@@ -21,7 +20,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct Factories {
     socket_factory: Box<dyn UdpSocketFactory>,
@@ -38,6 +37,7 @@ impl Default for Factories {
 }
 
 pub struct PmpTransactor {
+    mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>>,
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
     listen_port: u16,
@@ -87,31 +87,11 @@ impl Transactor for PmpTransactor {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
-        let request = PmpPacket {
-            direction: Direction::Request,
-            opcode: Opcode::MapTcp,
-            result_code_opt: None,
-            opcode_data: Box::new(MapOpcodeData {
-                epoch_opt: None,
-                internal_port: hole_port,
-                external_port: hole_port,
-                lifetime,
-            }),
-        };
-        let response = Self::transact(&self.factories_arc, router_ip, self.router_port, &request)?;
-        if response.opcode != Opcode::MapTcp {
-            return Err(AutomapError::ProtocolError(format! ("Expected MapTcp response; got {:?} response instead",
-                                                            response.opcode)));
-        }
-        let opcode_data: &MapOpcodeData = response.opcode_data.as_any().downcast_ref()
-            .expect ("MapTcp response contained other than MapOpcodeData");
-        match response
-            .result_code_opt
-            .expect("transact allowed absent result code")
-        {
-            ResultCode::Success => Ok(opcode_data.lifetime / 2),
-            rc => Err(AutomapError::TransactionFailure(format!("{:?}", rc))),
-        }
+        self.mapping_adder_arc
+            .lock()
+            .expect("Housekeeping thread is dead")
+            .add_mapping(&self.factories_arc,
+            SocketAddr::new (router_ip, self.router_port), hole_port, lifetime)
     }
 
     fn add_permanent_mapping(
@@ -160,6 +140,7 @@ impl Transactor for PmpTransactor {
         };
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
+        let mapping_adder_arc = self.mapping_adder_arc.clone();
         let factories_arc = self.factories_arc.clone();
         let router_port = self.router_port;
         let read_timeout_millis = self.read_timeout_millis;
@@ -168,6 +149,7 @@ impl Transactor for PmpTransactor {
             Self::thread_guts(
                 socket.as_ref(),
                 &rx,
+                mapping_adder_arc,
                 factories_arc,
                 router_ip,
                 router_port,
@@ -194,6 +176,7 @@ impl Transactor for PmpTransactor {
 impl Default for PmpTransactor {
     fn default() -> Self {
         Self {
+            mapping_adder_arc: Arc::new (Mutex::new (Box::new (MappingAdderReal {}))),
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
@@ -263,22 +246,25 @@ impl PmpTransactor {
     }
 
     fn thread_guts(
-        socket: &dyn UdpSocketWrapper,
+        announcement_socket: &dyn UdpSocketWrapper,
         rx: &Receiver<HousekeepingThreadCommand>,
+        mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>>,
         factories_arc: Arc<Mutex<Factories>>,
-        router_ip: IpAddr,
+        router_ip: IpAddr, // TODO: Make this a single SocketAddr
         router_port: u16,
         change_handler: &ChangeHandler,
         change_handler_config: ChangeHandlerConfig,
         read_timeout_millis: u64,
         logger: Logger,
     ) {
-        socket
+        let mut last_remapped = Instant::now();
+        let mut remap_interval = Duration::from_secs(change_handler_config.lifetime as u64);
+        announcement_socket
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
         loop {
             let mut buffer = [0u8; 100];
-            match socket.recv_from(&mut buffer) {
+            match announcement_socket.recv_from(&mut buffer) {
                 Ok((_, announcement_source_address)) => {
                     if announcement_source_address.ip() != router_ip {
                         continue;
@@ -303,12 +289,49 @@ impl PmpTransactor {
                 }
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
+            let since_last_remapped = last_remapped.elapsed();
+            if since_last_remapped.gt (&remap_interval) {
+                let mapping_adder = mapping_adder_arc
+                    .lock()
+                    .expect("PcpTransactor is dead");
+                if let Err (_e) = Self::remap_port(
+                    (*mapping_adder).as_ref(),
+                    &factories_arc,
+                    SocketAddr::new (router_ip, router_port),
+                    change_handler_config.hole_port,
+                    Duration::from_secs (change_handler_config.lifetime as u64),
+                    &logger,
+                ) {
+                    todo! ();
+                    // error! (logger, "Remapping failure: {:?}", e);
+                    // change_handler (AutomapChange::Error(e));
+                }
+                last_remapped = Instant::now();
+            }
             match rx.try_recv () {
                 Ok(HousekeepingThreadCommand::Stop) => break,
-                Ok(HousekeepingThreadCommand::SetRemapIntervalMs(_remap_after)) => todo! (),
-                Err (_) => continue,
+                Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) =>
+                    remap_interval = Duration::from_millis(remap_after),
+                Err (_) => (),
             }
         }
+    }
+
+
+    fn remap_port (
+        mapping_adder: &dyn MappingAdder,
+        factories_arc: &Arc<Mutex<Factories>>,
+        router_addr: SocketAddr,
+        hole_port: u16,
+        requested_lifetime: Duration,
+        logger: &Logger,
+    ) -> Result<u32, AutomapError> {
+        info! (logger, "Remapping port {}", hole_port);
+        let mut requested_lifetime_secs = requested_lifetime.as_secs() as u32;
+        if requested_lifetime_secs < 1 {
+            requested_lifetime_secs = 1;
+        }
+        Ok(mapping_adder.add_mapping(factories_arc, router_addr, hole_port, requested_lifetime_secs)?)
     }
 
     fn parse_buffer(
@@ -401,7 +424,13 @@ impl PmpTransactor {
                         result_code
                     );
                     error!(logger, "{}\n{:?}", err_msg, packet);
-                    change_handler(AutomapChange::Error(AutomapError::AddMappingError(err_msg)));
+                    let automap_error = if result_code.is_permanent() {
+                        AutomapError::PermanentMappingError(err_msg)
+                    }
+                    else {
+                        AutomapError::TemporaryMappingError(err_msg)
+                    };
+                    change_handler(AutomapChange::Error(automap_error));
                     return;
                 }
                 None => {
@@ -420,6 +449,55 @@ impl PmpTransactor {
                     AutomapErrorCause::SocketFailure,
                 )));
             }
+        }
+    }
+}
+
+trait MappingAdder: Send {
+    // TODO: Maybe substitute ChangeHandlerConfig for hole_port and lifetime
+    fn add_mapping(&self, factories_arc: &Arc<Mutex<Factories>>, router_addr: SocketAddr,
+                   hole_port: u16, lifetime: u32) -> Result<u32, AutomapError>;
+}
+
+#[derive (Clone)]
+struct MappingAdderReal {}
+
+impl MappingAdder for MappingAdderReal {
+    fn add_mapping(&self, factories_arc: &Arc<Mutex<Factories>>, router_addr: SocketAddr,
+                   hole_port: u16, lifetime: u32) -> Result<u32, AutomapError> {
+        let request = PmpPacket {
+            direction: Direction::Request,
+            opcode: Opcode::MapTcp,
+            result_code_opt: None,
+            opcode_data: Box::new(MapOpcodeData {
+                epoch_opt: None,
+                internal_port: hole_port,
+                external_port: hole_port,
+                lifetime,
+            }),
+        };
+        let response = PmpTransactor::transact(factories_arc, router_addr.ip(),
+                                               router_addr.port(), &request)?;
+        if response.opcode != Opcode::MapTcp {
+            return Err(AutomapError::ProtocolError(format! ("Expected MapTcp response; got {:?} response instead",
+                                                            response.opcode)));
+        }
+        let opcode_data: &MapOpcodeData = response.opcode_data.as_any().downcast_ref()
+            .expect ("MapTcp response contained other than MapOpcodeData");
+        match response
+            .result_code_opt
+            .expect("transact allowed absent result code")
+        {
+            ResultCode::Success => Ok(opcode_data.lifetime / 2),
+            rc => {
+                let msg = format!("{:?}", rc);
+                Err (if rc.is_permanent() {
+                    AutomapError::PermanentMappingError(msg)
+                }
+                else {
+                    AutomapError::TemporaryMappingError(msg)
+                })
+            },
         }
     }
 }
@@ -446,6 +524,39 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+
+    struct MappingAdderMock {
+        add_mapping_params: Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, u16, u32)>>>,
+        add_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
+    }
+
+    impl MappingAdder for MappingAdderMock {
+        fn add_mapping(&self, factories_arc: &Arc<Mutex<Factories>>, router_addr: SocketAddr,
+                       hole_port: u16, lifetime: u32) -> Result<u32, AutomapError> {
+            self.add_mapping_params.lock().unwrap().push ((factories_arc.clone(), router_addr,
+                hole_port, lifetime));
+            self.add_mapping_results.borrow_mut().remove (0)
+        }
+    }
+
+    impl MappingAdderMock {
+        fn new () -> Self {
+            Self {
+                add_mapping_params: Default::default(),
+                add_mapping_results: Default::default(),
+            }
+        }
+
+        fn add_mapping_params (mut self, params: &Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, u16, u32)>>>) -> Self {
+            self.add_mapping_params = params.clone();
+            self
+        }
+
+        fn add_mapping_result (self, result: Result<u32, AutomapError>) -> Self {
+            self.add_mapping_results.borrow_mut().push (result);
+            self
+        }
+    }
 
     #[test]
     fn knows_its_method() {
@@ -710,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn add_mapping_handles_unsuccessful_result_code() {
+    fn add_mapping_handles_temporarily_unsuccessful_result_code() {
         let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let mut response_buffer = [0u8; 1100];
         let mut response = make_response(
@@ -734,8 +845,39 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(AutomapError::TransactionFailure(
+            Err(AutomapError::TemporaryMappingError(
                 "OutOfResources".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn add_mapping_handles_permanently_unsuccessful_result_code() {
+        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        let mut response_buffer = [0u8; 1100];
+        let mut response = make_response(
+            Opcode::MapTcp,
+            ResultCode::Success,
+            make_map_response(4321, 7777, 1234),
+        );
+        response.result_code_opt = Some(ResultCode::UnsupportedOpcode);
+        let response_len = response.marshal(&mut response_buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(24))
+            .recv_from_result(
+                Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
+                response_buffer[0..response_len].to_vec(),
+            );
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let subject = make_subject(socket_factory);
+
+        let result = subject.add_mapping(router_ip, 7777, 1234);
+
+        assert_eq!(
+            result,
+            Err(AutomapError::PermanentMappingError(
+                "UnsupportedOpcode".to_string()
             ))
         );
     }
@@ -984,6 +1126,84 @@ mod tests {
     }
 
     #[test]
+    fn thread_guts_does_not_remap_if_interval_does_not_run_out () {
+        init_test_logging();
+        let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
+            UdpSocketMock::new()
+                .set_read_timeout_result(Ok(()))
+                .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), vec![])
+        );
+        let (tx, rx) = unbounded();
+        let mapping_adder = Box::new (MappingAdderMock::new ()); // no results specified
+        let change_handler: ChangeHandler = Box::new(move |_| {});
+        let change_handler_config = ChangeHandlerConfig{ hole_port: 0, lifetime: 1000 };
+        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000)).unwrap();
+        tx.send(HousekeepingThreadCommand::Stop).unwrap();
+
+        PmpTransactor::thread_guts(
+            announcement_socket.as_ref(),
+            &rx,
+            Arc::new (Mutex::new (mapping_adder)),
+            Arc::new(Mutex::new(Factories::default())),
+            localhost(),
+            0,
+            &change_handler,
+            change_handler_config,
+            10,
+            Logger::new ("no_remap_test")
+        );
+
+        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
+    }
+
+    #[test]
+    fn thread_guts_remaps_when_interval_runs_out () {
+        init_test_logging();
+        let (tx, rx) = unbounded();
+        let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+        let mapping_adder = Box::new (MappingAdderMock::new ()
+            .add_mapping_params(&add_mapping_params_arc)
+            .add_mapping_result(Ok(300))
+        );
+        let free_port_factory = FreePortFactoryMock::new ().make_result (5555);
+        let mut factories = Factories::default();
+        factories.free_port_factory = Box::new (free_port_factory);
+        let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
+            UdpSocketMock::new()
+                .set_read_timeout_result(Ok(()))
+                .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![])
+        );
+        let change_handler: ChangeHandler = Box::new(move |_| {});
+        let change_handler_config = ChangeHandlerConfig{ hole_port: 6689, lifetime: 1000 };
+        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80)).unwrap();
+
+        let handle = thread::spawn (move || {
+            PmpTransactor::thread_guts(
+                announcement_socket.as_ref(),
+                &rx,
+                Arc::new (Mutex::new (mapping_adder)),
+                Arc::new(Mutex::new(factories)),
+                IpAddr::from_str ("6.6.6.6").unwrap(),
+                6666,
+                &change_handler,
+                change_handler_config,
+                10,
+                Logger::new ("timed_remap_test")
+            );
+        });
+
+        thread::sleep (Duration::from_millis(100));
+        tx.send(HousekeepingThreadCommand::Stop).unwrap();
+        handle.join().unwrap();
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap().remove(0);
+        assert_eq! (add_mapping_params.0.lock().unwrap().free_port_factory.make (), 5555);
+        assert_eq! (add_mapping_params.1, SocketAddr::from_str ("6.6.6.6:6666").unwrap());
+        assert_eq! (add_mapping_params.2, 6689);
+        assert_eq! (add_mapping_params.3, 1000);
+        TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
+    }
+
+    #[test]
     fn parse_buffer_rejects_request_packet() {
         init_test_logging();
         let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
@@ -1133,7 +1353,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_announcement_rejects_unsuccessful_result_code() {
+    fn handle_announcement_rejects_temporarily_unsuccessful_result_code() {
         init_test_logging();
         let router_address = SocketAddr::from_str("7.7.7.7:1234").unwrap();
         let mut packet = PmpPacket::default();
@@ -1173,11 +1393,137 @@ mod tests {
         let err_msg = "Remapping after IP change failed; Node is useless: OutOfResources";
         assert_eq!(
             *change_handler_log,
-            vec![AutomapChange::Error(AutomapError::AddMappingError(
+            vec![AutomapChange::Error(AutomapError::TemporaryMappingError(
                 err_msg.to_string()
             ))]
         );
         TestLogHandler::new().exists_log_containing(&format!("ERROR: test: {}", err_msg));
+    }
+
+    #[test]
+    fn handle_announcement_rejects_permanently_unsuccessful_result_code() {
+        init_test_logging();
+        let router_address = SocketAddr::from_str("7.7.7.7:1234").unwrap();
+        let mut packet = PmpPacket::default();
+        packet.direction = Direction::Response;
+        packet.opcode = Opcode::MapTcp;
+        packet.result_code_opt = Some(ResultCode::UnsupportedVersion);
+        packet.opcode_data = Box::new(MapOpcodeData::default());
+        let mut buffer = [0u8; 100];
+        let buflen = packet.marshal(&mut buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(100))
+            .recv_from_result(Ok((buflen, router_address)), buffer[0..buflen].to_vec());
+        let factories = Factories {
+            socket_factory: Box::new(UdpSocketFactoryMock::new().make_result(Ok(socket))),
+            free_port_factory: Box::new(FreePortFactoryMock::new().make_result(1234)),
+        };
+        let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
+        let change_handler_log_inner = change_handler_log_arc.clone();
+        let change_handler: ChangeHandler =
+            Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
+        let logger = Logger::new("test");
+
+        PmpTransactor::handle_announcement(
+            Arc::new(Mutex::new(factories)),
+            router_address,
+            Ipv4Addr::from_str("4.3.2.1").unwrap(),
+            &change_handler,
+            &ChangeHandlerConfig {
+                hole_port: 2222,
+                lifetime: 10000,
+            },
+            &logger,
+        );
+
+        let change_handler_log = change_handler_log_arc.lock().unwrap();
+        let err_msg = "Remapping after IP change failed; Node is useless: UnsupportedVersion";
+        assert_eq!(
+            *change_handler_log,
+            vec![AutomapChange::Error(AutomapError::PermanentMappingError(
+                err_msg.to_string()
+            ))]
+        );
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: test: {}", err_msg));
+    }
+
+    #[test]
+    fn remap_port_correctly_converts_lifetime_greater_than_one_second() {
+        let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+        let mapping_adder = MappingAdderMock::new ()
+            .add_mapping_params (&add_mapping_params_arc)
+            .add_mapping_result (Err (AutomapError::Unknown));
+
+        let result = PmpTransactor::remap_port(
+            &mapping_adder,
+            &Arc::new (Mutex::new (Factories::default())),
+            SocketAddr::new (localhost(), 0),
+            0,
+            Duration::from_millis (100900),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::Unknown));
+        let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        let requested_lifetime: u32 = add_mapping_params.remove(0).3;
+        assert_eq! (requested_lifetime, 100);
+    }
+
+    #[test]
+    fn remap_port_correctly_converts_lifetime_less_than_one_second() {
+        let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+        let mapping_adder = MappingAdderMock::new ()
+            .add_mapping_params (&add_mapping_params_arc)
+            .add_mapping_result (Err (AutomapError::Unknown));
+
+        let result = PmpTransactor::remap_port(
+            &mapping_adder,
+            &Arc::new (Mutex::new (Factories::default())),
+            SocketAddr::new (localhost(), 0),
+            0,
+            Duration::from_millis (80),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::Unknown));
+        let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        let requested_lifetime: u32 = add_mapping_params.remove(0).3;
+        assert_eq! (requested_lifetime, 1);
+    }
+
+    #[test]
+    fn remap_port_handles_temporary_mapping_failure() {
+        let mapping_adder = MappingAdderMock::new ()
+            .add_mapping_result (Err (AutomapError::TemporaryMappingError("NetworkFailure".to_string())));
+
+        let result = PmpTransactor::remap_port(
+            &mapping_adder,
+            &Arc::new (Mutex::new (Factories::default())),
+            SocketAddr::new (localhost(), 0),
+            0,
+            Duration::from_millis (1000),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::TemporaryMappingError("NetworkFailure".to_string())));
+    }
+
+    #[test]
+    fn remap_port_handles_permanent_mapping_failure() {
+        let mapping_transactor = MappingAdderMock::new ()
+            .add_mapping_result (Err (AutomapError::PermanentMappingError("MalformedRequest".to_string())));
+
+        let result = PmpTransactor::remap_port(
+            &mapping_transactor,
+            &Arc::new (Mutex::new (Factories::default())),
+            SocketAddr::new (localhost(), 0),
+            0,
+            Duration::from_millis (1000),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::PermanentMappingError("MalformedRequest".to_string())));
     }
 
     fn make_subject(socket_factory: UdpSocketFactoryMock) -> PmpTransactor {

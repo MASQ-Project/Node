@@ -179,7 +179,7 @@ impl Transactor for IgdpTransactor {
             {
                 Err(AutomapError::PermanentLeasesOnly)
             }
-            Err(e) => Err(AutomapError::AddMappingError(format!("{:?}", e))),
+            Err(e) => Err(AutomapError::PermanentMappingError(format!("{:?}", e))),
         }
     }
 
@@ -723,7 +723,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(AutomapError::AddMappingError("PortInUse".to_string()))
+            Err(AutomapError::PermanentMappingError("PortInUse".to_string()))
         );
     }
 

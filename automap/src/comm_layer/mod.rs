@@ -42,9 +42,8 @@ pub enum AutomapError {
     PacketParseError(ParseError),
     ProtocolError(String),
     PermanentLeasesOnly,
-    AddMappingError(String),
-    TemporaryRemappingError(String),
-    PermanentRemappingError(String),
+    TemporaryMappingError(String),
+    PermanentMappingError(String),
     ProbeServerConnectError(String),
     ProbeRequestError(AutomapErrorCause, String),
     ProbeReceiveError(String),
@@ -73,9 +72,8 @@ impl AutomapError {
             AutomapError::PermanentLeasesOnly => {
                 AutomapErrorCause::Unknown("Can't handle permanent-only leases".to_string())
             }
-            AutomapError::AddMappingError(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::PermanentRemappingError(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::TemporaryRemappingError(_) => AutomapErrorCause::RouterFailure,
+            AutomapError::PermanentMappingError(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::TemporaryMappingError(_) => AutomapErrorCause::RouterFailure,
             AutomapError::ProbeServerConnectError(_) => AutomapErrorCause::ProbeServerIssue,
             AutomapError::ProbeRequestError(aec, _) => aec.clone(),
             AutomapError::ProbeReceiveError(_) => AutomapErrorCause::ProbeFailed,
@@ -239,15 +237,11 @@ mod tests {
                 AutomapErrorCause::Unknown("Can't handle permanent-only leases".to_string()),
             ),
             (
-                AutomapError::AddMappingError(String::new()),
+                AutomapError::PermanentMappingError(String::new()),
                 AutomapErrorCause::ProtocolFailed,
             ),
             (
-                AutomapError::PermanentRemappingError(String::new()),
-                AutomapErrorCause::ProtocolFailed,
-            ),
-            (
-                AutomapError::TemporaryRemappingError(String::new()),
+                AutomapError::TemporaryMappingError(String::new()),
                 AutomapErrorCause::RouterFailure,
             ),
             (

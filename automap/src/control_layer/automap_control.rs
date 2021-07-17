@@ -851,7 +851,7 @@ mod tests {
             TransactorMock::new(AutomapProtocol::Pcp)
                 .find_routers_result(Ok(vec![*ROUTER_IP]))
                 .get_public_ip_result(Ok(*PUBLIC_IP))
-                .add_mapping_result(Err(AutomapError::AddMappingError("Booga!".to_string()))),
+                .add_mapping_result(Err(AutomapError::PermanentMappingError("Booga!".to_string()))),
         );
 
         subject.change_handler_opt = None;
@@ -864,7 +864,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(AutomapError::AddMappingError("Booga!".to_string()))
+            Err(AutomapError::PermanentMappingError("Booga!".to_string()))
         );
     }
 
@@ -876,7 +876,7 @@ mod tests {
                 .find_routers_result(Ok(vec![*ROUTER_IP]))
                 .get_public_ip_result(Ok(*PUBLIC_IP))
                 .add_mapping_result(Err(AutomapError::PermanentLeasesOnly))
-                .add_permanent_mapping_result(Err(AutomapError::AddMappingError(
+                .add_permanent_mapping_result(Err(AutomapError::PermanentMappingError(
                     "Booga!".to_string(),
                 ))),
         );
@@ -891,7 +891,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(AutomapError::AddMappingError("Booga!".to_string()))
+            Err(AutomapError::PermanentMappingError("Booga!".to_string()))
         );
     }
 

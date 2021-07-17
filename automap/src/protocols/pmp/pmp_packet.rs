@@ -76,7 +76,7 @@ impl From<u16> for ResultCode {
 }
 
 impl ResultCode {
-    fn code(&self) -> u16 {
+    pub fn code(&self) -> u16 {
         match self {
             ResultCode::Success => 0,
             ResultCode::UnsupportedVersion => 1,
@@ -85,6 +85,18 @@ impl ResultCode {
             ResultCode::OutOfResources => 4,
             ResultCode::UnsupportedOpcode => 5,
             ResultCode::Other(code) => *code,
+        }
+    }
+
+    pub fn is_permanent(&self) -> bool {
+        match self {
+            ResultCode::Success => false,
+            ResultCode::UnsupportedVersion => true,
+            ResultCode::NotAuthorized => true,
+            ResultCode::NetworkFailure => false,
+            ResultCode::OutOfResources => false,
+            ResultCode::UnsupportedOpcode => true,
+            ResultCode::Other(_) => true,
         }
     }
 }
@@ -532,7 +544,9 @@ mod tests {
         assert_eq!(ResultCode::NetworkFailure.code(), 3);
         assert_eq!(ResultCode::OutOfResources.code(), 4);
         assert_eq!(ResultCode::UnsupportedOpcode.code(), 5);
-        assert_eq!(ResultCode::Other(6).code(), 6);
+        for code in 6..=u8::MAX as u16 {
+            assert_eq! (ResultCode::Other(code).code(), code);
+        }
         assert_eq!(ResultCode::Other(65535).code(), 65535);
     }
 
@@ -544,7 +558,23 @@ mod tests {
         assert_eq!(ResultCode::from(3), ResultCode::NetworkFailure);
         assert_eq!(ResultCode::from(4), ResultCode::OutOfResources);
         assert_eq!(ResultCode::from(5), ResultCode::UnsupportedOpcode);
-        assert_eq!(ResultCode::from(6), ResultCode::Other(6));
+        for code in 6..=u8::MAX as u16 {
+            assert_eq! (ResultCode::from (code), ResultCode::Other(code));
+        }
         assert_eq!(ResultCode::from(65535), ResultCode::Other(65535));
+    }
+
+    #[test]
+    fn result_code_is_permanent_works() {
+        assert_eq!(ResultCode::Success.is_permanent(), false);
+        assert_eq!(ResultCode::UnsupportedVersion.is_permanent(), true);
+        assert_eq!(ResultCode::NotAuthorized.is_permanent(), true);
+        assert_eq!(ResultCode::NetworkFailure.is_permanent(), false);
+        assert_eq!(ResultCode::OutOfResources.is_permanent(), false);
+        assert_eq!(ResultCode::UnsupportedOpcode.is_permanent(), true);
+        for code in 6..=u8::MAX as u16 {
+            assert_eq! (ResultCode::Other(code).is_permanent(), true);
+        }
+        assert_eq!(ResultCode::Other(65535).is_permanent(), true);
     }
 }
