@@ -488,7 +488,7 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
 }
 
 #[cfg(test)]
-pub mod verified_test_utils_crate_local {
+pub mod pure_test_utils {
     use crate::apps::app_node;
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;

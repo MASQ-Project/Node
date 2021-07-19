@@ -43,6 +43,7 @@ use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::ExpectValue;
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -247,9 +248,10 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let crash_point = config.crash_point;
-        let descriptor = config.node_descriptor.clone();
-        let addr: Addr<Dispatcher> =
-            Arbiter::start(move |_| Dispatcher::new(crash_point, descriptor));
+        let descriptor = config.node_descriptor_opt.clone();
+        let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
+            Dispatcher::new(crash_point, descriptor.expect_v("node descriptor"))
+        });
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -866,7 +868,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor: "uninitialized".to_string(),
+            node_descriptor_opt: Some("uninitialized".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -929,7 +931,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor: "NODE-DESCRIPTOR".to_string(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -995,8 +997,8 @@ mod tests {
         assert_eq!(ui_gateway_config.ui_port, 5335);
         let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
-            dispatcher_param.node_descriptor,
-            "NODE-DESCRIPTOR".to_string()
+            dispatcher_param.node_descriptor_opt,
+            Some("NODE-DESCRIPTOR".to_string())
         );
         let blockchain_bridge_params = Parameters::get(parameters.blockchain_bridge_params);
         let (bootstrapper_config, _db_initializer) = blockchain_bridge_params;
@@ -1041,7 +1043,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor: "NODE-DESCRIPTOR".to_string(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -1099,7 +1101,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: None,
             data_directory: PathBuf::new(),
-            node_descriptor: "NODE-DESCRIPTOR".to_string(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),

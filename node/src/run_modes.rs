@@ -125,7 +125,11 @@ impl RunModes {
             (true, _) => Enter,
             (false, fatal) => {
                 Self::write_msg_about_privilege_mismatch(mode, privilege_required, streams);
-                if fatal {LeaveWrong} else {Enter}
+                if fatal {
+                    LeaveWrong
+                } else {
+                    Enter
+                }
             }
         }
     }

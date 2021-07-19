@@ -53,7 +53,6 @@ lazy_static! {
 const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
 
-
 const HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
     If you want to start the MASQ Daemon to manage the MASQ Node and the MASQ UIs, try:

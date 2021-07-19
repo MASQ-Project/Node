@@ -3,7 +3,7 @@ use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
-use crate::node_configurator::node_configurator_standard::standard::collected_input_params_for_service_mode;
+use crate::node_configurator::node_configurator_standard::standard::gathered_params_for_service_mode;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib;
@@ -18,7 +18,6 @@ use lazy_static::lazy_static;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
-use std::fmt::Debug;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -39,38 +38,34 @@ impl Command<RunModeResult> for ServerInitializerReal {
         args: &[String],
     ) -> Result<(), ConfiguratorError> {
         let (multi_config, data_directory, real_user) =
-            collected_input_params_for_service_mode(self.dir_wrapper.as_ref(), args)?;
+            gathered_params_for_service_mode(self.dir_wrapper.as_ref(), args)?;
 
-        let mut result: Result<(), ConfiguratorError> = Ok(());
-        result = Self::combine_results(
-            result,
-            self.dns_socket_server
-                .as_mut()
-                .initialize_as_privileged(&multi_config),
-        );
-        result = Self::combine_results(
-            result,
-            self.bootstrapper
-                .as_mut()
-                .initialize_as_privileged(&multi_config),
-        );
+        let result: RunModeResult = Ok(())
+            .combine_results(
+                self.dns_socket_server
+                    .as_mut()
+                    .initialize_as_privileged(&multi_config),
+            )
+            .combine_results(
+                self.bootstrapper
+                    .as_mut()
+                    .initialize_as_privileged(&multi_config),
+            );
 
         self.privilege_dropper.chown(&data_directory, &real_user);
         self.privilege_dropper.drop_privileges(&real_user);
 
-        result = Self::combine_results(
-            result,
-            self.dns_socket_server
-                .as_mut()
-                .initialize_as_unprivileged(&multi_config, streams),
-        );
-        result = Self::combine_results(
-            result,
-            self.bootstrapper
-                .as_mut()
-                .initialize_as_unprivileged(&multi_config, streams),
-        );
         result
+            .combine_results(
+                self.dns_socket_server
+                    .as_mut()
+                    .initialize_as_unprivileged(&multi_config, streams),
+            )
+            .combine_results(
+                self.bootstrapper
+                    .as_mut()
+                    .initialize_as_unprivileged(&multi_config, streams),
+            )
     }
 }
 
@@ -95,8 +90,8 @@ impl Future for ServerInitializerReal {
     }
 }
 
-impl ServerInitializerReal {
-    pub fn new() -> ServerInitializerReal {
+impl Default for ServerInitializerReal {
+    fn default() -> ServerInitializerReal {
         ServerInitializerReal {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
@@ -104,12 +99,15 @@ impl ServerInitializerReal {
             dir_wrapper: Box::new(DirsWrapperReal),
         }
     }
+}
 
-    fn combine_results<A: Debug, B: Debug>(
-        initial: Result<A, ConfiguratorError>,
-        additional: Result<B, ConfiguratorError>,
-    ) -> Result<(), ConfiguratorError> {
-        match (initial, additional) {
+trait CombineResults {
+    fn combine_results(self, additional: Self) -> Self;
+}
+
+impl CombineResults for RunModeResult {
+    fn combine_results(self, additional: Self) -> Self {
+        match (self, additional) {
             (Ok(_), Ok(_)) => Ok(()),
             (Ok(_), Err(e)) => Err(e),
             (Err(e), Ok(_)) => Err(e),
@@ -120,12 +118,6 @@ impl ServerInitializerReal {
                     .collect(),
             )),
         }
-    }
-}
-
-impl Default for ServerInitializerReal {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -622,24 +614,23 @@ pub mod tests {
 
     #[test]
     fn combine_results_combines_success_and_success() {
-        let initial_success = Ok("booga");
-        let additional_success = Ok(42);
+        let initial_success: RunModeResult = Ok(());
+        let additional_success: RunModeResult = Ok(());
 
-        let result = ServerInitializerReal::combine_results(initial_success, additional_success);
+        let result = initial_success.combine_results(additional_success);
 
         assert_eq!(result, Ok(()))
     }
 
     #[test]
     fn combine_results_combines_success_and_failure() {
-        let initial_success = Ok("success");
-        let additional_failure: Result<usize, ConfiguratorError> =
-            Err(ConfiguratorError::new(vec![
-                ParamError::new("param-one", "Reason One"),
-                ParamError::new("param-two", "Reason Two"),
-            ]));
+        let initial_success: RunModeResult = Ok(());
+        let additional_failure: RunModeResult = Err(ConfiguratorError::new(vec![
+            ParamError::new("param-one", "Reason One"),
+            ParamError::new("param-two", "Reason Two"),
+        ]));
 
-        let result = ServerInitializerReal::combine_results(initial_success, additional_failure);
+        let result = initial_success.combine_results(additional_failure);
 
         assert_eq!(
             result,
@@ -652,13 +643,13 @@ pub mod tests {
 
     #[test]
     fn combine_results_combines_failure_and_success() {
-        let initial_failure: Result<String, ConfiguratorError> = Err(ConfiguratorError::new(vec![
+        let initial_failure: RunModeResult = Err(ConfiguratorError::new(vec![
             ParamError::new("param-one", "Reason One"),
             ParamError::new("param-two", "Reason Two"),
         ]));
-        let additional_success = Ok(42);
+        let additional_success: RunModeResult = Ok(());
 
-        let result = ServerInitializerReal::combine_results(initial_failure, additional_success);
+        let result = initial_failure.combine_results(additional_success);
 
         assert_eq!(
             result,
@@ -671,17 +662,16 @@ pub mod tests {
 
     #[test]
     fn combine_results_combines_failure_and_failure() {
-        let initial_failure: Result<String, ConfiguratorError> = Err(ConfiguratorError::new(vec![
+        let initial_failure: RunModeResult = Err(ConfiguratorError::new(vec![
             ParamError::new("param-one", "Reason One"),
             ParamError::new("param-two", "Reason Two"),
         ]));
-        let additional_failure: Result<usize, ConfiguratorError> =
-            Err(ConfiguratorError::new(vec![
-                ParamError::new("param-two", "Reason Three"),
-                ParamError::new("param-three", "Reason Four"),
-            ]));
+        let additional_failure: RunModeResult = Err(ConfiguratorError::new(vec![
+            ParamError::new("param-two", "Reason Three"),
+            ParamError::new("param-three", "Reason Four"),
+        ]));
 
-        let result = ServerInitializerReal::combine_results(initial_failure, additional_failure);
+        let result = initial_failure.combine_results(additional_failure);
 
         assert_eq!(
             result,

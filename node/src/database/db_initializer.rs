@@ -48,7 +48,9 @@ pub trait DbInitializer {
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 
-    fn as_any(&self)->&dyn Any{intentionally_blank!()}
+    fn as_any(&self) -> &dyn Any {
+        intentionally_blank!()
+    }
 }
 
 #[derive(Clone)]

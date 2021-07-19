@@ -54,12 +54,8 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
     }
 }
 
-fn write_string(streams: &mut StdStreams, mut json: String) {
-    json.push('\n');
-    streams
-        .stdout
-        .write_all(json.as_bytes())
-        .expect("Couldn't write JSON to stdout");
+fn write_string(streams: &mut StdStreams, json: String) {
+    short_writeln!(streams.stdout, "{}", json);
     streams
         .stdout
         .flush()

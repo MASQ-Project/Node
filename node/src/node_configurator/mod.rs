@@ -63,6 +63,7 @@ pub const DB_PASSWORD_HELP: &str =
      later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
      insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
 
+//TODO we could move these Clap command-definitions including the app_head somewhere else, I don't feel it's right to have them here (one possible place is "apps.rs" or a new file created)
 pub fn app_head() -> App<'static, 'static> {
     App::new("MASQNode")
         .global_settings(if cfg!(test) {
@@ -73,7 +74,7 @@ pub fn app_head() -> App<'static, 'static> {
         //.version(crate_version!())
         //.author(crate_authors!("\n")) // TODO: Put this back in when clap is compatible with Rust 1.38.0
         .version("1.0.0")
-        .author("Substratum, MASQ")
+        .author("MASQ")
         .about(crate_description!())
 }
 
@@ -600,7 +601,7 @@ impl DirsWrapper for DirsWrapperReal {
         home_dir()
     }
     fn dup(&self) -> Box<dyn DirsWrapper> {
-        Box::new(DirsWrapperReal {})
+        Box::new(DirsWrapperReal)
     }
 }
 

@@ -59,7 +59,7 @@ use tokio::prelude::Stream;
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
-pub fn main_cryptde_ref() -> &'static dyn CryptDE {
+pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         MAIN_CRYPTDE_BOX_OPT
             .as_ref()
@@ -68,7 +68,7 @@ pub fn main_cryptde_ref() -> &'static dyn CryptDE {
     }
 }
 
-pub fn alias_cryptde_ref() -> &'static dyn CryptDE {
+pub fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         ALIAS_CRYPTDE_BOX_OPT
             .as_ref()
@@ -296,7 +296,7 @@ pub struct BootstrapperConfig {
     pub blockchain_bridge_config: BlockchainBridgeConfig,
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
-    pub node_descriptor: String,
+    pub node_descriptor_opt: Option<String>,
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub real_user: RealUser,
@@ -339,7 +339,7 @@ impl BootstrapperConfig {
             },
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
-            node_descriptor: "".to_string(),
+            node_descriptor_opt: None,
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::new(None, None, None),
@@ -390,12 +390,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         &mut self,
         multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
-        self.config = match NodeConfiguratorStandardPrivileged::new().configure(multi_config, None)
-        {
-            Ok(config) => config,
-            Err(e) => return Err(e),
-        };
-
+        self.config = NodeConfiguratorStandardPrivileged::new().configure(multi_config, None)?;
         self.logger_initializer.init(
             self.config.data_directory.clone(),
             &self.config.real_user,
@@ -404,17 +399,15 @@ impl ConfiguredByPrivilege for Bootstrapper {
         );
         self.listener_handlers =
             FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
-
         let port_configurations = self.config.port_configurations.clone();
         port_configurations
             .iter()
             .for_each(|(port, port_configuration)| {
                 let mut listener_handler = self.listener_handler_factory.make();
-                match listener_handler
-                    .bind_port_and_configuration(*port, port_configuration.clone())
+                if let Err(e) =
+                    listener_handler.bind_port_and_configuration(*port, port_configuration.clone())
                 {
-                    Ok(()) => (),
-                    Err(e) => panic!("Could not listen on port {}: {}", port, e.to_string()),
+                    panic!("Could not listen on port {}: {}", port, e)
                 }
                 self.listener_handlers.push(listener_handler);
             });
@@ -437,19 +430,19 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &self.config.alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain_id,
         );
-        self.config.node_descriptor = Bootstrapper::report_local_descriptor(
+        self.config.node_descriptor_opt = Some(Bootstrapper::report_local_descriptor(
             cryptde_ref,
             self.config.neighborhood_config.mode.node_addr_opt(),
             streams,
             self.config.blockchain_bridge_config.chain_id,
-        );
+        ));
         let stream_handler_pool_subs = self
             .actor_system_factory
             .make_and_start_actors(self.config.clone(), Box::new(ActorFactoryReal {}));
 
-        for f in self.listener_handlers.iter_mut() {
-            f.bind_subs(stream_handler_pool_subs.add_sub.clone());
-        }
+        self.listener_handlers
+            .iter_mut()
+            .for_each(|f| f.bind_subs(stream_handler_pool_subs.add_sub.clone()));
         Ok(())
     }
 }
@@ -467,10 +460,10 @@ impl Bootstrapper {
     }
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
-    pub fn pub_initialize_cryptdes_for_testing(
-        main_cryptde_null_opt: &Option<CryptDENull>,
-        alias_cryptde_null_opt: &Option<CryptDENull>,
-    ) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+    pub fn pub_initialize_cryptdes_for_testing<'a, 'b>(
+        main_cryptde_null_opt: &'a Option<CryptDENull>,
+        alias_cryptde_null_opt: &'b Option<CryptDENull>,
+    ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
         Self::initialize_cryptdes(
             main_cryptde_null_opt,
             alias_cryptde_null_opt,
@@ -478,11 +471,11 @@ impl Bootstrapper {
         )
     }
 
-    fn initialize_cryptdes(
+    fn initialize_cryptdes<'a, 'b>(
         main_cryptde_null_opt: &Option<CryptDENull>,
         alias_cryptde_null_opt: &Option<CryptDENull>,
         chain_id: u8,
-    ) -> (&'static dyn CryptDE, &'static dyn CryptDE) {
+    ) -> (&'a dyn CryptDE, &'b dyn CryptDE) {
         match main_cryptde_null_opt {
             Some(cryptde_null) => unsafe {
                 MAIN_CRYPTDE_BOX_OPT = Some(Box::new(cryptde_null.clone()))
@@ -614,12 +607,12 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::make_simplified_multi_config;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::verified_test_utils_crate_local::make_simplified_multi_config;
     use crate::test_utils::{assert_contains, rate_pack, ArgsBuilder};
     use actix::Recipient;
     use actix::System;
@@ -1037,7 +1030,7 @@ mod tests {
             .unwrap();
 
         let config = subject.config;
-        assert!(config.node_descriptor.is_empty().not());
+        assert!(config.node_descriptor_opt.unwrap().is_empty().not());
     }
 
     #[test]

@@ -374,7 +374,7 @@ impl SetupReporterReal {
                 Some(command_line) => command_line,
                 None => vec![],
             };
-            let (config_file_path, user_specified, _) =
+            let (config_file_path, user_specified, _real_user) =
                 determine_config_file_path(dirs_wrapper, &app, &command_line)?;
             let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
                 Ok(cfv) => cfv,
@@ -602,7 +602,7 @@ impl ValueRetriever for DataDirectory {
 }
 impl std::default::Default for DataDirectory {
     fn default() -> Self {
-        Self::new(&DirsWrapperReal {})
+        Self::new(&DirsWrapperReal)
     }
 }
 impl DataDirectory {

@@ -89,7 +89,7 @@ impl<'a> MultiConfig<'a> {
                 if e.kind == clap::ErrorKind::HelpDisplayed
                     || e.kind == clap::ErrorKind::VersionDisplayed =>
             {
-                unreachable!("The check at the entry point of the program should have taken care of this instead.")
+                unreachable!("The program's entry point failed to catch this.")
             }
             Err(e) => return Err(Self::make_configurator_error(e)),
         };
@@ -129,11 +129,11 @@ impl<'a> MultiConfig<'a> {
     }
 }
 
-//this way I can protect the inner field from being public (Default + deref_mut())
+//this way I can protect the inner field from having to be public (Default + deref_mut())
 
 impl Default for MultiConfig<'_> {
-    //use of this method in the production code should be considered alarming
-    //it's not easy to initiate this literally empty default with values, so it should stop people from doing that
+    /*use of this method in the production code should be consequently considered alarming
+    it's not intuitive to fill this literally empty default with values, therefore it's believed to stop people from doing so*/
     fn default() -> Self {
         Self {
             arg_matches: Default::default(),

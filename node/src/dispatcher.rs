@@ -456,13 +456,12 @@ mod tests {
     }
 
     #[test]
-    //interconnected with seeing how dispatcher is given the information of the descriptor
-    //kind of a little integration test
+    //joined with inspecting whether dispatcher obtains the information of the descriptor correctly
     fn descriptor_request_results_in_descriptor_response() {
         let system = System::new("test");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.node_descriptor = "abcdef1234".to_string();
+        bootstrapper_config.node_descriptor_opt = Some("abcdef1234".to_string());
         let msg = NodeFromUiMessage {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),

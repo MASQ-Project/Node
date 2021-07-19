@@ -114,12 +114,13 @@ pub mod standard {
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::utils::WrapResult;
     use rustc_hex::FromHex;
     use std::ops::Deref;
     use std::path::PathBuf;
     use std::str::FromStr;
 
-    pub fn collected_input_params_for_service_mode<'a>(
+    pub fn gathered_params_for_service_mode<'a>(
         dirs_wrapper: &dyn DirsWrapper,
         args: &[String],
     ) -> Result<(MultiConfig<'a>, PathBuf, RealUser), ConfiguratorError> {
@@ -142,7 +143,7 @@ pub mod standard {
             .parent()
             .map(|dir| dir.to_path_buf())
             .expect_v("data_directory");
-        Ok((multi_config, data_directory, real_user))
+        (multi_config, data_directory, real_user).wrap_to_ok()
     }
 
     pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -205,29 +206,26 @@ pub mod standard {
         privileged_config.crash_point =
             value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
 
-        match value_m!(multi_config, "fake-public-key", String) {
-            None => (),
-            Some(public_key_str) => {
-                let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
-                    Ok(mut key) => {
-                        let main_public_key = PublicKey::new(&key);
-                        key.reverse();
-                        let alias_public_key = PublicKey::new(&key);
-                        (main_public_key, alias_public_key)
-                    }
-                    Err(e) => panic!("Invalid fake public key: {} ({:?})", public_key_str, e),
-                };
-                let main_cryptde_null = CryptDENull::from(
-                    &main_public_key,
-                    privileged_config.blockchain_bridge_config.chain_id,
-                );
-                let alias_cryptde_null = CryptDENull::from(
-                    &alias_public_key,
-                    privileged_config.blockchain_bridge_config.chain_id,
-                );
-                privileged_config.main_cryptde_null_opt = Some(main_cryptde_null);
-                privileged_config.alias_cryptde_null_opt = Some(alias_cryptde_null);
-            }
+        if let Some(public_key_str) = value_m!(multi_config, "fake-public-key", String) {
+            let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
+                Ok(mut key) => {
+                    let main_public_key = PublicKey::new(&key);
+                    key.reverse();
+                    let alias_public_key = PublicKey::new(&key);
+                    (main_public_key, alias_public_key)
+                }
+                Err(e) => panic!("Invalid fake public key: {} ({:?})", public_key_str, e),
+            };
+            let main_cryptde_null = CryptDENull::from(
+                &main_public_key,
+                privileged_config.blockchain_bridge_config.chain_id,
+            );
+            let alias_cryptde_null = CryptDENull::from(
+                &alias_public_key,
+                privileged_config.blockchain_bridge_config.chain_id,
+            );
+            privileged_config.main_cryptde_null_opt = Some(main_cryptde_null);
+            privileged_config.alias_cryptde_null_opt = Some(alias_cryptde_null);
         }
         Ok(())
     }
@@ -241,7 +239,7 @@ pub mod standard {
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
         let user_specified = multi_config.deref().occurrences_of("gas-price") > 0;
         unprivileged_config.blockchain_bridge_config.gas_price = if user_specified {
-            value_m!(multi_config, "gas-price", u64).expect("Value disappeared")
+            value_m!(multi_config, "gas-price", u64).expect_v("gas price")
         } else {
             match persistent_config_opt {
                 Some(ref persistent_config) => match persistent_config.gas_price() {
@@ -267,13 +265,8 @@ pub mod standard {
         } else {
             make_neighborhood_config(multi_config, streams, None, unprivileged_config)
         };
-        match mnc_result {
-            Ok(config) => {
-                unprivileged_config.neighborhood_config = config;
-                Ok(())
-            }
-            Err(e) => Err(e),
-        }
+
+        mnc_result.map(|config| unprivileged_config.neighborhood_config = config)
     }
 
     pub fn configure_database(
@@ -688,7 +681,7 @@ pub mod standard {
         use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
         use crate::sub_lib::utils::make_new_test_multi_config;
         use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-        use crate::test_utils::verified_test_utils_crate_local::make_default_persistent_configuration;
+        use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
         use crate::test_utils::ArgsBuilder;
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -1046,7 +1039,7 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use crate::node_configurator::node_configurator_standard::standard::collected_input_params_for_service_mode;
+    use crate::node_configurator::node_configurator_standard::standard::gathered_params_for_service_mode;
     use crate::node_configurator::DirsWrapperReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::tests::{
@@ -1063,8 +1056,8 @@ mod tests {
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::verified_test_utils_crate_local;
-    use crate::test_utils::verified_test_utils_crate_local::{
+    use crate::test_utils::pure_test_utils;
+    use crate::test_utils::pure_test_utils::{
         make_default_persistent_configuration, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
@@ -1470,15 +1463,14 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_error_getting_db_password() {
         running_test();
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
-            ArgsBuilder::new().opt("--db-password"),
-        );
+        let simplified_multi_config =
+            pure_test_utils::make_multi_config_test_only(ArgsBuilder::new().opt("--db-password"));
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
         let mut unprivileged_config = BootstrapperConfig::new();
 
         let result = standard::get_past_neighbors(
-            &multi_config,
+            &simplified_multi_config,
             &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &mut unprivileged_config,
@@ -1496,15 +1488,14 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_incorrect_password() {
         running_test();
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
-            ArgsBuilder::new().opt("--db-password"),
-        );
+        let simplified_multi_config =
+            pure_test_utils::make_multi_config_test_only(ArgsBuilder::new().opt("--db-password"));
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::PasswordError));
         let mut unprivileged_config = BootstrapperConfig::new();
 
         let result = standard::get_past_neighbors(
-            &multi_config,
+            &simplified_multi_config,
             &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &mut unprivileged_config,
@@ -1563,7 +1554,7 @@ mod tests {
         }
         let directory_wrapper = make_pre_populated_mock_directory_wrapper();
 
-        let (multi_config, _, _) = collected_input_params_for_service_mode(
+        let (multi_config, _, _) = gathered_params_for_service_mode(
             &directory_wrapper,
             &convert_str_vec_slice_into_vec_of_strings(&[
                 "",
@@ -2000,8 +1991,7 @@ mod tests {
     fn get_wallets_with_brand_new_database_establishes_default_earning_wallet_without_requiring_password(
     ) {
         running_test();
-        let multi_config =
-            verified_test_utils_crate_local::make_multi_config_test_only(ArgsBuilder::new());
+        let multi_config = pure_test_utils::make_multi_config_test_only(ArgsBuilder::new());
         let mut persistent_config = make_persistent_config(None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
@@ -2019,8 +2009,7 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_mnemonic_seed_exists() {
-        let multi_config =
-            verified_test_utils_crate_local::make_multi_config_test_only(ArgsBuilder::new());
+        let multi_config = pure_test_utils::make_multi_config_test_only(ArgsBuilder::new());
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
@@ -2040,8 +2029,7 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_consuming_wallet_derivation_path() {
-        let multi_config =
-            verified_test_utils_crate_local::make_multi_config_test_only(ArgsBuilder::new());
+        let multi_config = pure_test_utils::make_multi_config_test_only(ArgsBuilder::new());
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Ok(true))
@@ -2064,9 +2052,8 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_get_db_password() {
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
-            ArgsBuilder::new().opt("--db-password"),
-        );
+        let multi_config =
+            pure_test_utils::make_multi_config_test_only(ArgsBuilder::new().opt("--db-password"));
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Ok(true))
@@ -2089,11 +2076,10 @@ mod tests {
     #[test]
     fn earning_wallet_address_different_from_database() {
         running_test();
-        let multi_config =
-            verified_test_utils_crate_local::make_multi_config_test_only(ArgsBuilder::new().param(
-                "--earning-wallet",
-                "0x0123456789012345678901234567890123456789",
-            ));
+        let multi_config = pure_test_utils::make_multi_config_test_only(ArgsBuilder::new().param(
+            "--earning-wallet",
+            "0x0123456789012345678901234567890123456789",
+        ));
         let mut persistent_config = make_persistent_config(
             None,
             None,
@@ -2120,11 +2106,10 @@ mod tests {
     #[test]
     fn earning_wallet_address_matches_database() {
         running_test();
-        let multi_config =
-            verified_test_utils_crate_local::make_multi_config_test_only(ArgsBuilder::new().param(
-                "--earning-wallet",
-                "0xb00fa567890123456789012345678901234B00FA",
-            ));
+        let multi_config = pure_test_utils::make_multi_config_test_only(ArgsBuilder::new().param(
+            "--earning-wallet",
+            "0xb00fa567890123456789012345678901234B00FA",
+        ));
         let mut persistent_config = make_persistent_config(
             None,
             None,
@@ -2154,7 +2139,7 @@ mod tests {
         running_test();
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
+        let multi_config = pure_test_utils::make_multi_config_test_only(
             ArgsBuilder::new()
                 .param("--db-password", "password")
                 .param("--consuming-private-key", &consuming_private_key_hex),
@@ -2186,7 +2171,7 @@ mod tests {
     #[test]
     fn earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
+        let multi_config = pure_test_utils::make_multi_config_test_only(
             ArgsBuilder::new().param("--db-password", "password").param(
                 "--earning-wallet",
                 "0xcafedeadbeefbabefacecafedeadbeefbabeface",
@@ -2219,7 +2204,7 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
+        let multi_config = pure_test_utils::make_multi_config_test_only(
             ArgsBuilder::new().param("--db-password", "password"),
         );
         let mnemonic_seed_prefix = "mnemonic_seed";
@@ -2256,8 +2241,7 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_parameter() {
         running_test();
-        let multi_config =
-            verified_test_utils_crate_local::make_multi_config_test_only(ArgsBuilder::new());
+        let multi_config = pure_test_utils::make_multi_config_test_only(ArgsBuilder::new());
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2288,9 +2272,8 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_value() {
         running_test();
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
-            ArgsBuilder::new().opt("--db-password"),
-        );
+        let multi_config =
+            pure_test_utils::make_multi_config_test_only(ArgsBuilder::new().opt("--db-password"));
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2457,9 +2440,8 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_read_error() {
         running_test();
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
-            ArgsBuilder::new().opt("--db-password"),
-        );
+        let multi_config =
+            pure_test_utils::make_multi_config_test_only(ArgsBuilder::new().opt("--db-password"));
         let mut streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
             stdout: &mut ByteArrayWriter::new(),
@@ -2486,7 +2468,7 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_write_error() {
         running_test();
-        let multi_config = verified_test_utils_crate_local::make_multi_config_test_only(
+        let multi_config = pure_test_utils::make_multi_config_test_only(
             ArgsBuilder::new().param("--db-password", "password"),
         );
         let mut config = BootstrapperConfig::new();
@@ -2548,8 +2530,7 @@ mod tests {
             .home_dir_result(Some(PathBuf::from("/home/alice")))
             .data_dir_result(Some(data_dir));
 
-        let result =
-            collected_input_params_for_service_mode(&dir_wrapper, args_vec.as_slice()).err();
+        let result = gathered_params_for_service_mode(&dir_wrapper, args_vec.as_slice()).err();
 
         match result {
             None => panic!("Expected a value, got None"),
@@ -2708,7 +2689,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = make_pre_populated_mock_directory_wrapper();
 
-        let result = collected_input_params_for_service_mode(&dir_wrapper, &args_vec.as_slice())
+        let result = gathered_params_for_service_mode(&dir_wrapper, &args_vec.as_slice())
             .err()
             .unwrap();
 
