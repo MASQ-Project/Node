@@ -24,6 +24,7 @@ trait GatewayFactory {
     fn make(&self, options: SearchOptions) -> Result<Box<dyn GatewayWrapper>, SearchError>;
 }
 
+#[derive (Clone)]
 struct GatewayFactoryReal {}
 
 impl GatewayFactory for GatewayFactoryReal {
@@ -110,9 +111,9 @@ struct IgdpTransactorInner {
 
 pub struct IgdpTransactor {
     gateway_factory: Box<dyn GatewayFactory>,
-    local_ip_finder: Box<dyn LocalIpFinder>,
     public_ip_poll_delay_ms: u32,
     inner_arc: Arc<Mutex<IgdpTransactorInner>>,
+    mapping_adder: Box<dyn MappingAdder>,
 }
 
 impl Transactor for IgdpTransactor {
@@ -153,34 +154,8 @@ impl Transactor for IgdpTransactor {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
-        self.ensure_gateway()?;
-        let local_ip = match self.local_ip_finder.find()? {
-            IpAddr::V4(ip) => ip,
-            IpAddr::V6(ip) => return Err(AutomapError::IPv6Unsupported(ip)),
-        };
-        let inner = self.inner_arc.lock().expect("Change handler died");
-        match inner
-            .gateway_opt
-            .as_ref()
-            .expect("Must get Gateway before using it")
-            .as_ref()
-            .add_port(
-                PortMappingProtocol::TCP,
-                hole_port,
-                SocketAddrV4::new(local_ip, hole_port),
-                lifetime,
-                "",
-            ) {
-            Ok(_) => Ok(lifetime / 2),
-            Err(e)
-                if (&format!("{:?}", e) == "OnlyPermanentLeasesSupported")
-                    || (&format!("{:?}", e)
-                        == "RequestError(ErrorCode(402, \"Invalid Args\"))") =>
-            {
-                Err(AutomapError::PermanentLeasesOnly)
-            }
-            Err(e) => Err(AutomapError::PermanentMappingError(format!("{:?}", e))),
-        }
+        self.ensure_gateway();
+        self.mapping_adder.add_mapping(hole_port, lifetime)
     }
 
     fn add_permanent_mapping(
@@ -258,25 +233,35 @@ impl Default for IgdpTransactor {
 
 impl IgdpTransactor {
     pub fn new() -> Self {
+        let gateway_factory = Box::new(GatewayFactoryReal::new());
+        let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
+            gateway_opt: None,
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            logger: Logger::new("IgdpTransactor"),
+        }));
+        let mapping_adder = MappingAdderReal::new (inner_arc.clone());
         Self {
-            gateway_factory: Box::new(GatewayFactoryReal::new()),
-            local_ip_finder: Box::new(LocalIpFinderReal::new()),
+            gateway_factory,
             public_ip_poll_delay_ms: PUBLIC_IP_POLL_DELAY_SECONDS * 1000,
-            inner_arc: Arc::new(Mutex::new(IgdpTransactorInner {
-                gateway_opt: None,
-                housekeeping_commander_opt: None,
-                public_ip_opt: None,
-                logger: Logger::new("IgdpTransactor"),
-            })),
+            inner_arc,
+            mapping_adder: Box::new (mapping_adder),
         }
     }
 
     fn ensure_gateway(&self) -> Result<(), AutomapError> {
-        let mut inner = self.inner_arc.lock().expect("Change handler is dead");
+        Self::ensure_gateway_static(&self.inner_arc, self.gateway_factory.as_ref())
+    }
+
+    fn ensure_gateway_static(
+        inner_arc: &Arc<Mutex<IgdpTransactorInner>>,
+        gateway_factory: &dyn GatewayFactory,
+    ) -> Result<(), AutomapError> {
+        let mut inner = inner_arc.lock().expect("Change handler is dead");
         if inner.gateway_opt.is_some() {
             return Ok(());
         }
-        let gateway = match self.gateway_factory.make(SearchOptions::default()) {
+        let gateway = match gateway_factory.make(SearchOptions::default()) {
             Ok(g) => g,
             Err(_) => return Err(AutomapError::CantFindDefaultGateway),
         };
@@ -352,6 +337,62 @@ impl IgdpTransactor {
                 change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
                 false
             }
+        }
+    }
+}
+
+trait MappingAdder {
+    fn add_mapping(
+        &self,
+        hole_port: u16,
+        lifetime: u32,
+    ) -> Result<u32, AutomapError>;
+}
+
+struct MappingAdderReal {
+    inner_arc: Arc<Mutex<IgdpTransactorInner>>,
+    local_ip_finder: Box<dyn LocalIpFinder>,
+}
+
+impl MappingAdder for MappingAdderReal {
+    fn add_mapping(&self, hole_port: u16, lifetime: u32) -> Result<u32, AutomapError> {
+        let local_ip = match self.local_ip_finder.find()? {
+            IpAddr::V4(ip) => ip,
+            IpAddr::V6(ip) => return Err(AutomapError::IPv6Unsupported(ip)),
+        };
+        let inner = self.inner_arc.lock().expect("Change handler died");
+        match inner
+            .gateway_opt
+            .as_ref()
+            .expect("Must get Gateway before using it")
+            .as_ref()
+            .add_port(
+                PortMappingProtocol::TCP,
+                hole_port,
+                SocketAddrV4::new(local_ip, hole_port),
+                lifetime,
+                "",
+            ) {
+            Ok(_) => Ok(lifetime / 2),
+            Err(e)
+            if (&format!("{:?}", e) == "OnlyPermanentLeasesSupported")
+                || (&format!("{:?}", e)
+                == "RequestError(ErrorCode(402, \"Invalid Args\"))") =>
+                {
+                    Err(AutomapError::PermanentLeasesOnly)
+                }
+            Err(e) => Err(AutomapError::PermanentMappingError(format!("{:?}", e))),
+        }
+    }
+}
+
+impl MappingAdderReal {
+    fn new (
+        inner_arc: Arc<Mutex<IgdpTransactorInner>>,
+    ) -> Self {
+        Self {
+            inner_arc,
+            local_ip_finder: Box::new (LocalIpFinderReal::new()),
         }
     }
 }
@@ -523,6 +564,37 @@ mod tests {
         }
     }
 
+    struct MappingAdderMock {
+        add_mapping_params: Arc<Mutex<Vec<(u16, u32)>>>,
+        add_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
+    }
+
+    impl MappingAdder for MappingAdderMock {
+        fn add_mapping(&self, hole_port: u16, lifetime: u32) -> Result<u32, AutomapError> {
+            self.add_mapping_params.lock().unwrap().push ((hole_port, lifetime));
+            self.add_mapping_results.borrow_mut().remove (0)
+        }
+    }
+
+    impl MappingAdderMock {
+        fn new () -> Self {
+            Self {
+                add_mapping_params: Arc::new (Mutex::new (vec![])),
+                add_mapping_results: RefCell::new (vec![]),
+            }
+        }
+
+        fn add_mapping_params (mut self, params: &Arc<Mutex<Vec<(u16, u32)>>>) -> Self {
+            self.add_mapping_params = params.clone();
+            self
+        }
+
+        fn add_mapping_result (self, result: Result<u32, AutomapError>) -> Self {
+            self.add_mapping_results.borrow_mut().push (result);
+            self
+        }
+    }
+
     #[test]
     fn knows_its_method() {
         let subject = IgdpTransactor::new();
@@ -616,8 +688,14 @@ mod tests {
 
     #[test]
     fn add_mapping_works() {
-        let local_ipv4 = Ipv4Addr::from_str("192.168.0.101").unwrap();
-        let local_ip = IpAddr::V4(local_ipv4);
+        let local_ip = LocalIpFinderReal::new().find().unwrap();
+        let local_ipv4 = match local_ip {
+            IpAddr::V4(ip) => ip,
+            IpAddr::V6(_) => {
+                eprintln! ("This test can't run on machines with no IPv4 IP address");
+                return;
+            }
+        };
         let add_port_params_arc = Arc::new(Mutex::new(vec![]));
         let gateway = GatewayWrapperMock::new()
             .add_port_params(&add_port_params_arc)
@@ -626,7 +704,6 @@ mod tests {
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
-        subject.local_ip_finder = Box::new(local_ip_finder);
 
         let result = subject
             .add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234)
@@ -648,8 +725,14 @@ mod tests {
 
     #[test]
     fn add_permanent_mapping_works() {
-        let local_ipv4 = Ipv4Addr::from_str("192.168.0.101").unwrap();
-        let local_ip = IpAddr::V4(local_ipv4);
+        let local_ip = LocalIpFinderReal::new().find().unwrap();
+        let local_ipv4 = match local_ip {
+            IpAddr::V4(ip) => ip,
+            IpAddr::V6(_) => {
+                eprintln! ("This test can't run on machines with no IPv4 IP address");
+                return;
+            }
+        };
         let add_port_params_arc = Arc::new(Mutex::new(vec![]));
         let gateway = GatewayWrapperMock::new()
             .add_port_params(&add_port_params_arc)
@@ -658,7 +741,6 @@ mod tests {
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
-        subject.local_ip_finder = Box::new(local_ip_finder);
 
         let result = subject
             .add_permanent_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777)
@@ -679,16 +761,56 @@ mod tests {
     }
 
     #[test]
-    fn add_mapping_handles_ipv6_local_address() {
-        let local_ipv6 = Ipv6Addr::from_str("0000:1111:2222:3333:4444:5555:6666:7777").unwrap();
-        let gateway = GatewayWrapperMock::new().add_port_result(Ok(()));
-        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
-        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(IpAddr::V6(local_ipv6)));
-        let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new(gateway_factory);
+    fn mapping_adder_works() {
+        let local_ipv4 = Ipv4Addr::from_str("192.168.0.101").unwrap();
+        let local_ip = IpAddr::V4(local_ipv4);
+        let add_port_params_arc = Arc::new(Mutex::new(vec![]));
+        let gateway = GatewayWrapperMock::new()
+            .add_port_params(&add_port_params_arc)
+            .add_port_result(Ok(()));
+        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
+        let inner = IgdpTransactorInner {
+            gateway_opt: Some (Box::new (gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            logger: Logger::new ("mapping_adder_works")
+        };
+        let mut subject = MappingAdderReal::new(Arc::new(Mutex::new(inner)));
         subject.local_ip_finder = Box::new(local_ip_finder);
 
-        let result = subject.add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234);
+        let result = subject
+            .add_mapping(7777, 1234)
+            .unwrap();
+
+        assert_eq!(result, 617);
+        let add_port_params = add_port_params_arc.lock().unwrap();
+        assert_eq!(
+            *add_port_params,
+            vec![(
+                PortMappingProtocol::TCP,
+                7777,
+                SocketAddrV4::new(local_ipv4, 7777),
+                1234,
+                "".to_string(),
+            )]
+        );
+    }
+
+    #[test]
+    fn add_mapping_complains_about_ipv6_local_address() {
+        let local_ipv6 = Ipv6Addr::from_str("0000:1111:2222:3333:4444:5555:6666:7777").unwrap();
+        let gateway = GatewayWrapperMock::new().add_port_result(Ok(()));
+        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(IpAddr::V6(local_ipv6)));
+        let inner = IgdpTransactorInner {
+            gateway_opt: Some (Box::new (gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            logger: Logger::new ("add_mapping_complains_about_ipv6_local_address")
+        };
+        let mut subject = MappingAdderReal::new(Arc::new(Mutex::new(inner)));
+        subject.local_ip_finder = Box::new(local_ip_finder);
+
+        let result = subject.add_mapping(7777, 1234);
 
         assert_eq!(result, Err(AutomapError::IPv6Unsupported(local_ipv6)));
     }
@@ -698,13 +820,37 @@ mod tests {
         let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
         let gateway = GatewayWrapperMock::new()
             .add_port_result(Err(AddPortError::OnlyPermanentLeasesSupported));
-        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
+        let inner = IgdpTransactorInner {
+            gateway_opt: Some(Box::new (gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            logger: Logger::new ("add_mapping_handles_other_error"),
+        };
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
-        let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new(gateway_factory);
-        subject.local_ip_finder = Box::new(local_ip_finder);
+        let mut subject = MappingAdderReal::new (Arc::new (Mutex::new (inner)));
+        subject.local_ip_finder = Box::new (local_ip_finder);
 
-        let result = subject.add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234);
+        let result = subject.add_mapping(7777, 1234);
+
+        assert_eq!(result, Err(AutomapError::PermanentLeasesOnly));
+    }
+
+    #[test]
+    fn add_mapping_handles_invalid_args_error_indicating_permanent_leases_only() {
+        let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
+        let gateway = GatewayWrapperMock::new()
+            .add_port_result(Err(AddPortError::RequestError(RequestError::ErrorCode(402, "Invalid Args".to_string()))));
+        let inner = IgdpTransactorInner {
+            gateway_opt: Some(Box::new (gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            logger: Logger::new ("add_mapping_handles_other_error"),
+        };
+        let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
+        let mut subject = MappingAdderReal::new (Arc::new (Mutex::new (inner)));
+        subject.local_ip_finder = Box::new (local_ip_finder);
+
+        let result = subject.add_mapping(7777, 1234);
 
         assert_eq!(result, Err(AutomapError::PermanentLeasesOnly));
     }
@@ -713,13 +859,19 @@ mod tests {
     fn add_mapping_handles_other_error() {
         let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
         let gateway = GatewayWrapperMock::new().add_port_result(Err(AddPortError::PortInUse));
-        let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
+        let inner = IgdpTransactorInner {
+            gateway_opt: Some(Box::new (gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            logger: Logger::new ("add_mapping_handles_other_error"),
+        };
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
-        let mut subject = IgdpTransactor::new();
-        subject.gateway_factory = Box::new(gateway_factory);
-        subject.local_ip_finder = Box::new(local_ip_finder);
+        let mut subject = MappingAdderReal::new(
+            Arc::new (Mutex::new (inner)),
+        );
+        subject.local_ip_finder = Box::new (local_ip_finder);
 
-        let result = subject.add_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777, 1234);
+        let result = subject.add_mapping(7777, 1234);
 
         assert_eq!(
             result,
@@ -848,6 +1000,90 @@ mod tests {
         assert_eq!(inner.public_ip_opt, Some(public_ip));
         assert!(inner.housekeeping_commander_opt.is_none());
     }
+    //
+    // #[test]
+    // fn thread_guts_does_not_remap_if_interval_does_not_run_out () {
+    //     init_test_logging();
+    //     let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
+    //         UdpSocketMock::new()
+    //             .set_read_timeout_result(Ok(()))
+    //             .recv_from_result(Err(io::Error::from(ErrorKind::TimedOut)), vec![])
+    //     );
+    //     let (tx, rx) = unbounded();
+    //     let mapping_adder = Box::new (MappingAdderMock::new ()); // no results specified
+    //     let change_handler: ChangeHandler = Box::new(move |_| {});
+    //     // let change_handler_config = ChangeHandlerConfig{ hole_port: 0, lifetime: 1000 };
+    //     let inner_arc = Arc::new (Mutex::new (IgdpTransactorInner {
+    //         gateway_opt: None,
+    //         housekeeping_commander_opt: None,
+    //         public_ip_opt: None,
+    //         logger: Logger::new ("no_remap_test"),
+    //     }));
+    //     tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000)).unwrap();
+    //     tx.send(HousekeepingThreadCommand::Stop).unwrap();
+    //
+    //     IgdpTransactor::thread_guts(
+    //         10,
+    //         change_handler,
+    //         inner_arc,
+    //         rx,
+    //     );
+    //     /*
+    //     public_ip_poll_delay_ms: u32,
+    //     change_handler: ChangeHandler,
+    //     inner_arc: Arc<Mutex<IgdpTransactorInner>>,
+    //     rx: Receiver<HousekeepingThreadCommand>,
+    //      */
+    //
+    //     TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
+    // }
+    //
+    // #[test]
+    // fn thread_guts_remaps_when_interval_runs_out () {
+    //     init_test_logging();
+    //     let (tx, rx) = unbounded();
+    //     let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+    //     let mapping_adder = Box::new (MappingAdderMock::new ()
+    //         .add_mapping_params(&add_mapping_params_arc)
+    //         .add_mapping_result(Ok(300))
+    //     );
+    //     let free_port_factory = FreePortFactoryMock::new ().make_result (5555);
+    //     let mut factories = Factories::default();
+    //     factories.free_port_factory = Box::new (free_port_factory);
+    //     let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
+    //         UdpSocketMock::new()
+    //             .set_read_timeout_result(Ok(()))
+    //             .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![])
+    //     );
+    //     let change_handler: ChangeHandler = Box::new(move |_| {});
+    //     let change_handler_config = ChangeHandlerConfig{ hole_port: 6689, lifetime: 1000 };
+    //     tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80)).unwrap();
+    //
+    //     let handle = thread::spawn (move || {
+    //         PmpTransactor::thread_guts(
+    //             announcement_socket.as_ref(),
+    //             &rx,
+    //             Arc::new (Mutex::new (mapping_adder)),
+    //             Arc::new(Mutex::new(factories)),
+    //             IpAddr::from_str ("6.6.6.6").unwrap(),
+    //             6666,
+    //             &change_handler,
+    //             change_handler_config,
+    //             10,
+    //             Logger::new ("timed_remap_test")
+    //         );
+    //     });
+    //
+    //     thread::sleep (Duration::from_millis(100));
+    //     tx.send(HousekeepingThreadCommand::Stop).unwrap();
+    //     handle.join().unwrap();
+    //     let add_mapping_params = add_mapping_params_arc.lock().unwrap().remove(0);
+    //     assert_eq! (add_mapping_params.0.lock().unwrap().free_port_factory.make (), 5555);
+    //     assert_eq! (add_mapping_params.1, SocketAddr::from_str ("6.6.6.6:6666").unwrap());
+    //     assert_eq! (add_mapping_params.2, 6689);
+    //     assert_eq! (add_mapping_params.3, 1000);
+    //     TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
+    // }
 
     #[test]
     fn ensure_gateway_handles_missing_gateway() {
@@ -922,4 +1158,82 @@ mod tests {
             err_msg
         ));
     }
+    //
+    // #[test]
+    // fn remap_port_correctly_converts_lifetime_greater_than_one_second() {
+    //     let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+    //     let mapping_adder = MappingAdderMock::new ()
+    //         .add_mapping_params (&add_mapping_params_arc)
+    //         .add_mapping_result (Err (AutomapError::Unknown));
+    //
+    //     let result = PmpTransactor::remap_port(
+    //         &mapping_adder,
+    //         &Arc::new (Mutex::new (Factories::default())),
+    //         SocketAddr::new (localhost(), 0),
+    //         0,
+    //         Duration::from_millis (100900),
+    //         &Logger::new ("test"),
+    //     );
+    //
+    //     assert_eq! (result, Err(AutomapError::Unknown));
+    //     let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
+    //     let requested_lifetime: u32 = add_mapping_params.remove(0).3;
+    //     assert_eq! (requested_lifetime, 100);
+    // }
+    //
+    // #[test]
+    // fn remap_port_correctly_converts_lifetime_less_than_one_second() {
+    //     let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+    //     let mapping_adder = MappingAdderMock::new ()
+    //         .add_mapping_params (&add_mapping_params_arc)
+    //         .add_mapping_result (Err (AutomapError::Unknown));
+    //
+    //     let result = PmpTransactor::remap_port(
+    //         &mapping_adder,
+    //         &Arc::new (Mutex::new (Factories::default())),
+    //         SocketAddr::new (localhost(), 0),
+    //         0,
+    //         Duration::from_millis (80),
+    //         &Logger::new ("test"),
+    //     );
+    //
+    //     assert_eq! (result, Err(AutomapError::Unknown));
+    //     let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
+    //     let requested_lifetime: u32 = add_mapping_params.remove(0).3;
+    //     assert_eq! (requested_lifetime, 1);
+    // }
+    //
+    // #[test]
+    // fn remap_port_handles_temporary_mapping_failure() {
+    //     let mapping_adder = MappingAdderMock::new ()
+    //         .add_mapping_result (Err (AutomapError::TemporaryMappingError("NetworkFailure".to_string())));
+    //
+    //     let result = PmpTransactor::remap_port(
+    //         &mapping_adder,
+    //         &Arc::new (Mutex::new (Factories::default())),
+    //         SocketAddr::new (localhost(), 0),
+    //         0,
+    //         Duration::from_millis (1000),
+    //         &Logger::new ("test"),
+    //     );
+    //
+    //     assert_eq! (result, Err(AutomapError::TemporaryMappingError("NetworkFailure".to_string())));
+    // }
+    //
+    // #[test]
+    // fn remap_port_handles_permanent_mapping_failure() {
+    //     let mapping_transactor = MappingAdderMock::new ()
+    //         .add_mapping_result (Err (AutomapError::PermanentMappingError("MalformedRequest".to_string())));
+    //
+    //     let result = PmpTransactor::remap_port(
+    //         &mapping_transactor,
+    //         &Arc::new (Mutex::new (Factories::default())),
+    //         SocketAddr::new (localhost(), 0),
+    //         0,
+    //         Duration::from_millis (1000),
+    //         &Logger::new ("test"),
+    //     );
+    //
+    //     assert_eq! (result, Err(AutomapError::PermanentMappingError("MalformedRequest".to_string())));
+    // }
 }

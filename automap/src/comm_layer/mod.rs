@@ -125,6 +125,7 @@ pub trait LocalIpFinder: Send {
     fn find(&self) -> Result<IpAddr, AutomapError>;
 }
 
+#[derive (Clone)]
 pub struct LocalIpFinderReal {}
 
 impl LocalIpFinder for LocalIpFinderReal {
