@@ -12,6 +12,7 @@ use masq_lib::short_writeln;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
+use masq_lib::as_any_impl;
 
 #[derive(Debug, PartialEq)]
 pub struct ConfigurationCommand {
@@ -55,9 +56,7 @@ impl Command for ConfigurationCommand {
         }
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 impl ConfigurationCommand {

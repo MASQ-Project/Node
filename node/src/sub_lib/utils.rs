@@ -230,7 +230,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "The program's entry point failed to catch this.")]
+    #[should_panic(expected = "The program's entry check failed to catch this.")]
     fn make_new_multi_config_should_panic_after_trying_to_process_help_request() {
         let app = app_node();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
@@ -242,7 +242,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "The program's entry point failed to catch this.")]
+    #[should_panic(expected = "The program's entry check failed to catch this.")]
     fn make_new_multi_config_should_panic_after_trying_to_process_version_request() {
         let app = app_node();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![

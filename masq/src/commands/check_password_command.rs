@@ -7,6 +7,7 @@ use crate::commands::commands_common::{
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
+use masq_lib::as_any_impl;
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
@@ -44,9 +45,7 @@ impl Command for CheckPasswordCommand {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 impl CheckPasswordCommand {

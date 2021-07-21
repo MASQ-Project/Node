@@ -12,7 +12,7 @@ use futures::future::Future;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use EnterProgram::{Enter, LeaveGood, LeaveWrong};
+use EnterProgram::{Enter, LeaveRight, LeaveWrong};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -42,9 +42,9 @@ impl RunModes {
 
     pub fn go(&self, args: &[String], streams: &mut StdStreams<'_>) -> i32 {
         let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
-        match Self::help_or_version_on_demand(args, &mode, streams) {
+        match Self::ensure_help_or_version(args, &mode, streams) {
             Enter => (),
-            LeaveGood => return 0,
+            LeaveRight => return 0,
             LeaveWrong => return 1,
         };
 
@@ -71,7 +71,7 @@ impl RunModes {
         Self::write_unified_err_msgs(streams, error.param_errors)
     }
 
-    fn help_or_version_on_demand(
+    fn ensure_help_or_version(
         args: &[String],
         mode: &Mode,
         streams: &mut StdStreams<'_>,
@@ -86,12 +86,12 @@ impl RunModes {
         }
         .get_matches_from_safe(args)
         {
-            Err(e) => Self::process_clap_error_which_may_contain_help_or_version(e, streams),
+            Err(e) => Self::process_clap_error_that_may_contain_help_or_version(e, streams),
             x => unreachable!("the sieve for 'help' or 'version' failed {:?}", x),
         }
     }
 
-    fn process_clap_error_which_may_contain_help_or_version(
+    fn process_clap_error_that_may_contain_help_or_version(
         clap_error: Error,
         streams: &mut StdStreams<'_>,
     ) -> EnterProgram {
@@ -100,7 +100,7 @@ impl RunModes {
                 || err.kind == clap::ErrorKind::VersionDisplayed =>
             {
                 short_writeln!(streams.stdout, "{}", err.message);
-                LeaveGood
+                LeaveRight
             }
             err => {
                 Self::write_unified_err_msgs(
@@ -153,12 +153,12 @@ impl RunModes {
     }
 
     fn write_unified_err_msgs(streams: &mut StdStreams, error: Vec<ParamError>) {
-        error.into_iter().for_each(|required| {
+        error.into_iter().for_each(|err_case| {
             short_writeln!(
                 streams.stderr,
                 "{} - {}",
-                required.parameter,
-                required.reason
+                err_case.parameter,
+                err_case.reason
             )
         })
     }
@@ -199,7 +199,7 @@ impl RunModes {
 
 enum EnterProgram {
     Enter,
-    LeaveGood,
+    LeaveRight,
     LeaveWrong,
 }
 
@@ -225,17 +225,15 @@ struct RunnerReal {
 impl Runner for RunnerReal {
     fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let system = System::new("main");
-
         let mut server_initializer = self.server_initializer_factory.make();
         server_initializer.go(streams, args)?;
 
         actix::spawn(server_initializer.map_err(|_| {
             System::current().stop_with_code(1);
         }));
-
         match system.run() {
             0 => Ok(()),
-            e => Err(RunnerError::Numeric(e)),
+            num_e => Err(RunnerError::Numeric(num_e)),
         }
     }
 
@@ -253,7 +251,7 @@ impl Runner for RunnerReal {
     fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let mut initializer = self.daemon_initializer_factory.make(args, streams)?;
         initializer.go(streams, args)?;
-        Ok(()) //listen, there's currently no way to make this fn terminate politely
+        Ok(()) //there might presently be no way to make this fn terminate politely
     }
 }
 
@@ -276,11 +274,8 @@ impl From<ConfiguratorError> for RunnerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run_modes_factories::mocks::{
-        DaemonInitializerFactoryMock, DaemonInitializerMock, DumpConfigRunnerFactoryMock,
-        DumpConfigRunnerMock, ServerInitializerFactoryMock,
-    };
-    use crate::server_initializer::test_utils::{PrivilegeDropperMock, ServerInitializerMock};
+    use crate::run_modes_factories::mocks::{DaemonInitializerFactoryMock, DaemonInitializerMock, DumpConfigRunnerFactoryMock, DumpConfigRunnerMock, ServerInitializerFactoryMock, ServerInitializerMock};
+    use crate::server_initializer::test_utils::{PrivilegeDropperMock};
     use crate::server_initializer::tests::convert_str_vec_slice_into_vec_of_strings;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use regex::Regex;

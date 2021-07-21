@@ -48,10 +48,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 fn write_string(streams: &mut StdStreams, json: String) {

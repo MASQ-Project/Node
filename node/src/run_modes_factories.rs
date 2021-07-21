@@ -82,25 +82,15 @@ pub trait DumpConfigRunner {
         args: &[String],
         streams: &mut StdStreams,
     ) -> Result<(), ConfiguratorError>;
-
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
-    }
+    as_any_dcl!();
 }
 
 pub trait ServerInitializer: Command<RunModeResult> + futures::Future {
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
-    }
+    as_any_dcl!();
 }
 
 pub trait DaemonInitializer: Command<RunModeResult> {
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
-    }
+    as_any_dcl!();
 }
 
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
@@ -170,7 +160,7 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
 
-    fn test_cluster_params() -> ClusteredParams {
+    fn test_clustered_params() -> ClusteredParams {
         ClusteredParams {
             dirs_wrapper: Box::new(make_pre_populated_mock_directory_wrapper()),
             logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
@@ -204,7 +194,7 @@ mod tests {
 
     #[test]
     fn make_for_daemon_initializer_factory_labours_hard_and_produces_a_proper_object() {
-        let daemon_clustered_params = test_cluster_params();
+        let daemon_clustered_params = test_clustered_params();
         let subject = DaemonInitializerFactoryReal::new(
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
@@ -226,9 +216,9 @@ mod tests {
     }
 
     #[test]
-    fn make_for_daemon_initializer_factory_produces_an_error_when_trying_to_pass_trough_multi_config(
+    fn make_for_daemon_initializer_factory_produces_an_error_when_trying_to_pass_through_multi_config(
     ) {
-        let daemon_clustered_params = test_cluster_params();
+        let daemon_clustered_params = test_clustered_params();
         let subject = DaemonInitializerFactoryReal::new(
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
@@ -253,10 +243,10 @@ mod tests {
     }
 
     #[test]
-    fn make_for_daemon_initializer_factory_produces_an_error_when_trying_to_pass_trough_configure()
+    fn make_for_daemon_initializer_factory_produces_an_error_when_trying_to_pass_through_configure()
     {
         let configure_params_arc = Arc::new(Mutex::new(vec![]));
-        let daemon_clustered_params = test_cluster_params();
+        let daemon_clustered_params = test_clustered_params();
         let subject = DaemonInitializerFactoryReal::new(
             Box::new(
                 NodeConfiguratorInitializationMock::default()
@@ -290,11 +280,11 @@ pub mod mocks {
         DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner, DumpConfigRunnerFactory,
         RunModeResult, ServerInitializer, ServerInitializerFactory,
     };
-    use crate::server_initializer::test_utils::ServerInitializerMock;
     use masq_lib::command::{Command, StdStreams};
     use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
+    use futures::{Async, Future};
 
     pub struct DumpConfigRunnerFactoryMock {
         dump_config: RefCell<Box<DumpConfigRunnerMock>>,
@@ -421,6 +411,55 @@ pub mod mocks {
         pub fn dump_config_params(mut self, params_arc: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
             self.dump_config_params = params_arc.clone();
             self
+        }
+    }
+
+    #[derive(Default)]
+    pub struct ServerInitializerMock {
+        go_result: RefCell<Vec<Result<(), ConfiguratorError>>>,
+        go_params: Arc<Mutex<Vec<Vec<String>>>>,
+        poll_result: RefCell<Vec<Result<Async<<Self as Future>::Item>, <Self as Future>::Error>>>,
+    }
+
+    impl ServerInitializerMock {
+        pub fn go_result(self, result: Result<(), ConfiguratorError>) -> Self {
+            self.go_result.borrow_mut().push(result);
+            self
+        }
+
+        pub fn go_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+            self.go_params = params.clone();
+            self
+        }
+
+        pub fn poll_result(
+            self,
+            result: Result<Async<<Self as Future>::Item>, <Self as Future>::Error>,
+        ) -> Self {
+            self.poll_result.borrow_mut().push(result);
+            self
+        }
+    }
+
+    impl ServerInitializer for ServerInitializerMock {}
+
+    impl Command<RunModeResult> for ServerInitializerMock {
+        fn go(
+            &mut self,
+            _streams: &mut StdStreams<'_>,
+            args: &[String],
+        ) -> Result<(), ConfiguratorError> {
+            self.go_params.lock().unwrap().push(args.to_vec());
+            self.go_result.borrow_mut().remove(0)
+        }
+    }
+
+    impl Future for ServerInitializerMock {
+        type Item = ();
+        type Error = ();
+
+        fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+            self.poll_result.borrow_mut().remove(0)
         }
     }
 }

@@ -204,7 +204,7 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
+    use crate::test_utils::pure_test_only_utils::make_default_persistent_configuration;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::Addr;

@@ -16,12 +16,11 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
+use masq_lib::as_any_dcl;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
-    fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
-    }
+    as_any_dcl!();
 }
 
 pub struct BroadcastHandleInactive {}

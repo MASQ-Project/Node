@@ -89,7 +89,7 @@ impl<'a> MultiConfig<'a> {
                 if e.kind == clap::ErrorKind::HelpDisplayed
                     || e.kind == clap::ErrorKind::VersionDisplayed =>
             {
-                unreachable!("The program's entry point failed to catch this.")
+                unreachable!("The program's entry check failed to catch this.")
             }
             Err(e) => return Err(Self::make_configurator_error(e)),
         };

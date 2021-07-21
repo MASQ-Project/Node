@@ -488,20 +488,12 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
 }
 
 #[cfg(test)]
-pub mod pure_test_utils {
+pub mod pure_test_only_utils {
     use crate::apps::app_node;
-    use crate::sub_lib::utils::make_new_multi_config;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::ArgsBuilder;
-    use masq_lib::multi_config::{CommandLineVcl, MultiConfig, VirtualCommandLine};
+    use masq_lib::multi_config::{MultiConfig};
     use std::mem::swap;
     use std::ops::DerefMut;
-
-    pub fn make_multi_config_test_only<'a>(args: ArgsBuilder) -> MultiConfig<'a> {
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        make_new_multi_config(&app_node(), vcls).unwrap()
-    }
 
     pub fn make_simplified_multi_config(args: &[String]) -> MultiConfig {
         let mut arg_matches = app_node().get_matches_from_safe(args).unwrap();

@@ -28,7 +28,7 @@ pub struct ServerInitializerReal {
     dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
-    dir_wrapper: Box<dyn DirsWrapper>,
+    dirs_wrapper: Box<dyn DirsWrapper>,
 }
 
 impl Command<RunModeResult> for ServerInitializerReal {
@@ -38,7 +38,7 @@ impl Command<RunModeResult> for ServerInitializerReal {
         args: &[String],
     ) -> Result<(), ConfiguratorError> {
         let (multi_config, data_directory, real_user) =
-            gathered_params_for_service_mode(self.dir_wrapper.as_ref(), args)?;
+            gathered_params_for_service_mode(self.dirs_wrapper.as_ref(), args)?;
 
         let result: RunModeResult = Ok(())
             .combine_results(
@@ -70,10 +70,7 @@ impl Command<RunModeResult> for ServerInitializerReal {
 }
 
 impl ServerInitializer for ServerInitializerReal {
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 impl Future for ServerInitializerReal {
@@ -96,7 +93,7 @@ impl Default for ServerInitializerReal {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
-            dir_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal),
         }
     }
 }
@@ -283,7 +280,6 @@ pub fn real_format_function(
 pub mod test_utils {
     use crate::bootstrapper::RealUser;
     use crate::privilege_drop::PrivilegeDropper;
-    use crate::run_modes_factories::{RunModeResult, ServerInitializer};
     use crate::server_initializer::LoggerInitializerWrapper;
     #[cfg(not(target_os = "windows"))]
     use crate::test_utils::logging::init_test_logging;
@@ -295,55 +291,6 @@ pub mod test_utils {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use tokio::prelude::Future;
-
-    #[derive(Default)]
-    pub struct ServerInitializerMock {
-        go_result: RefCell<Vec<Result<(), ConfiguratorError>>>,
-        go_params: RefCell<Arc<Mutex<Vec<Vec<String>>>>>,
-        poll_result: RefCell<Vec<Result<Async<<Self as Future>::Item>, <Self as Future>::Error>>>,
-    }
-
-    impl ServerInitializerMock {
-        pub fn go_result(self, result: Result<(), ConfiguratorError>) -> Self {
-            self.go_result.borrow_mut().push(result);
-            self
-        }
-
-        pub fn go_params(self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
-            self.go_params.replace(params.clone());
-            self
-        }
-
-        pub fn poll_result(
-            self,
-            result: Result<Async<<Self as Future>::Item>, <Self as Future>::Error>,
-        ) -> Self {
-            self.poll_result.borrow_mut().push(result);
-            self
-        }
-    }
-
-    impl ServerInitializer for ServerInitializerMock {}
-
-    impl Command<RunModeResult> for ServerInitializerMock {
-        fn go(
-            &mut self,
-            _streams: &mut StdStreams<'_>,
-            args: &[String],
-        ) -> Result<(), ConfiguratorError> {
-            self.go_params.borrow().lock().unwrap().push(args.to_vec());
-            self.go_result.borrow_mut().remove(0)
-        }
-    }
-
-    impl Future for ServerInitializerMock {
-        type Item = ();
-        type Error = ();
-
-        fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-            self.poll_result.borrow_mut().remove(0)
-        }
-    }
 
     pub struct PrivilegeDropperMock {
         drop_privileges_params: Arc<Mutex<Vec<RealUser>>>,
@@ -757,7 +704,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            dir_wrapper: Box::new(dirs_wrapper),
+            dirs_wrapper: Box::new(dirs_wrapper),
         };
         let stdin = &mut ByteArrayReader::new(&[0; 0]);
         let stdout = &mut ByteArrayWriter::new();
@@ -794,7 +741,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            dir_wrapper: Box::new(dirs_wrapper),
+            dirs_wrapper: Box::new(dirs_wrapper),
         };
 
         let result = subject.poll();
@@ -815,7 +762,7 @@ pub mod tests {
             )),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            dir_wrapper: Box::new(dirs_wrapper),
+            dirs_wrapper: Box::new(dirs_wrapper),
         };
 
         let _ = subject.poll();
@@ -834,7 +781,7 @@ pub mod tests {
                 BootstrapperConfig::new(),
             )),
             privilege_dropper: Box::new(privilege_dropper),
-            dir_wrapper: Box::new(dirs_wrapper),
+            dirs_wrapper: Box::new(dirs_wrapper),
         };
 
         let _ = subject.poll();
@@ -883,7 +830,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            dir_wrapper: Box::new(dirs_wrapper),
+            dirs_wrapper: Box::new(dirs_wrapper),
         };
 
         let result = subject.go(
@@ -959,7 +906,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            dir_wrapper: Box::new(make_pre_populated_mock_directory_wrapper()),
+            dirs_wrapper: Box::new(make_pre_populated_mock_directory_wrapper()),
         };
         let args = convert_str_vec_slice_into_vec_of_strings(&[
             "MASQNode",

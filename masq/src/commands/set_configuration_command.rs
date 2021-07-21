@@ -7,6 +7,7 @@ use masq_lib::shared_schema::GAS_PRICE_HELP;
 use masq_lib::short_writeln;
 use masq_lib::utils::{ExpectValue, WrapResult};
 use std::any::Any;
+use masq_lib::as_any_impl;
 
 #[derive(Debug, PartialEq)]
 pub struct SetConfigurationCommand {
@@ -54,9 +55,7 @@ impl Command for SetConfigurationCommand {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 pub fn set_configuration_subcommand() -> App<'static, 'static> {

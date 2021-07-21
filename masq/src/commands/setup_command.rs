@@ -16,6 +16,7 @@ use masq_lib::utils::index_of_from;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
+use masq_lib::as_any_impl;
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")
@@ -46,9 +47,7 @@ impl Command for SetupCommand {
             Err(e) => Err(e),
         }
     }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 impl SetupCommand {
