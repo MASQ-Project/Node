@@ -72,7 +72,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 }
 
 fn non_pending_payables(node: &MASQRealNode, chain_id: u8) -> Vec<PayableAccount> {
-    let db_initializer = DbInitializerReal::new();
+    let db_initializer = DbInitializerReal::default();
     let payable_dao = PayableDaoReal::new(
         db_initializer
             .initialize(
@@ -89,7 +89,7 @@ fn non_pending_payables(node: &MASQRealNode, chain_id: u8) -> Vec<PayableAccount
 }
 
 fn receivables(node: &MASQRealNode, chain_id: u8) -> Vec<ReceivableAccount> {
-    let db_initializer = DbInitializerReal::new();
+    let db_initializer = DbInitializerReal::default();
     let receivable_dao = ReceivableDaoReal::new(
         db_initializer
             .initialize(

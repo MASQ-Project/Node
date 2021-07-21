@@ -199,7 +199,7 @@ pub fn initialize_database(
     data_directory: &Path,
     chain_id: u8,
 ) -> Box<dyn PersistentConfiguration> {
-    let conn = DbInitializerReal::new()
+    let conn = DbInitializerReal::default()
         .initialize(data_directory, chain_id, true)
         .unwrap_or_else(|e| {
             panic!(
