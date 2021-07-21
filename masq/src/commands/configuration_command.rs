@@ -6,13 +6,13 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
-use masq_lib::as_any_impl;
 
 #[derive(Debug, PartialEq)]
 pub struct ConfigurationCommand {

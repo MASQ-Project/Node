@@ -6,6 +6,7 @@ use crate::commands::commands_common::{
 };
 use crate::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
@@ -16,7 +17,6 @@ use masq_lib::utils::index_of_from;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
-use masq_lib::as_any_impl;
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")

@@ -15,7 +15,7 @@ use flexi_logger::{
 };
 use futures::try_ready;
 use lazy_static::lazy_static;
-use masq_lib::command::{Command, StdStreams};
+use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
 use std::panic::{Location, PanicInfo};
@@ -31,12 +31,8 @@ pub struct ServerInitializerReal {
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
 
-impl Command<RunModeResult> for ServerInitializerReal {
-    fn go(
-        &mut self,
-        streams: &mut StdStreams<'_>,
-        args: &[String],
-    ) -> Result<(), ConfiguratorError> {
+impl ServerInitializer for ServerInitializerReal {
+    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
         let (multi_config, data_directory, real_user) =
             gathered_params_for_service_mode(self.dirs_wrapper.as_ref(), args)?;
 
@@ -67,9 +63,6 @@ impl Command<RunModeResult> for ServerInitializerReal {
                     .initialize_as_unprivileged(&multi_config, streams),
             )
     }
-}
-
-impl ServerInitializer for ServerInitializerReal {
     as_any_impl!();
 }
 
@@ -283,14 +276,10 @@ pub mod test_utils {
     use crate::server_initializer::LoggerInitializerWrapper;
     #[cfg(not(target_os = "windows"))]
     use crate::test_utils::logging::init_test_logging;
-    use futures::Async;
     use log::LevelFilter;
-    use masq_lib::command::{Command, StdStreams};
-    use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
-    use tokio::prelude::Future;
 
     pub struct PrivilegeDropperMock {
         drop_privileges_params: Arc<Mutex<Vec<RealUser>>>,
@@ -436,7 +425,7 @@ pub mod tests {
 
     #[derive(Default)]
     struct ConfiguredByPrivilegeMock {
-        demanded_values_from_multi_config: RefCell<Vec<String>>,
+        queried_values_from_multi_config: RefCell<Vec<String>>,
         initialize_as_privileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         initialize_as_privileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
         initialize_as_unprivileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
@@ -471,7 +460,7 @@ pub mod tests {
             multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
             extract_values_from_multi_config(
-                &self.demanded_values_from_multi_config,
+                &self.queried_values_from_multi_config,
                 &self.initialize_as_privileged_params,
                 multi_config,
             );
@@ -484,7 +473,7 @@ pub mod tests {
             _streams: &mut StdStreams,
         ) -> Result<(), ConfiguratorError> {
             extract_values_from_multi_config(
-                &self.demanded_values_from_multi_config,
+                &self.queried_values_from_multi_config,
                 &self.initialize_as_unprivileged_params,
                 multi_config,
             );
@@ -496,7 +485,7 @@ pub mod tests {
 
     impl ConfiguredByPrivilegeMock {
         pub fn set_demanded_values_from_multi_config(self, mut values: Vec<String>) -> Self {
-            self.demanded_values_from_multi_config
+            self.queried_values_from_multi_config
                 .borrow_mut()
                 .append(&mut values);
             self
@@ -687,7 +676,7 @@ pub mod tests {
         tlh.exists_log_containing("ERROR: PanicHandler: file.txt:24:42 - I'm just a string slice");
     }
 
-    pub fn make_pre_populated_mock_directory_wrapper() -> DirsWrapperMock {
+    pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {
         DirsWrapperMock::new()
             .home_dir_result(Some(PathBuf::from("/home/alice")))
             .data_dir_result(Some(PathBuf::from("/home/alice/Documents")))
@@ -698,7 +687,7 @@ pub mod tests {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
         let dns_socket_server = CrashTestDummy::new(CrashPoint::Error, ());
         let bootstrapper = CrashTestDummy::new(CrashPoint::Error, BootstrapperConfig::new());
-        let dirs_wrapper = make_pre_populated_mock_directory_wrapper();
+        let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(dns_socket_server),
@@ -812,7 +801,7 @@ pub mod tests {
                 "dns-servers".to_string(),
                 "real-user".to_string(),
             ]);
-        let dirs_wrapper = make_pre_populated_mock_directory_wrapper();
+        let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
         let chown_params_arc = Arc::new(Mutex::new(vec![]));
         let privilege_dropper = PrivilegeDropperMock::new()
@@ -906,7 +895,7 @@ pub mod tests {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
-            dirs_wrapper: Box::new(make_pre_populated_mock_directory_wrapper()),
+            dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
         };
         let args = convert_str_vec_slice_into_vec_of_strings(&[
             "MASQNode",

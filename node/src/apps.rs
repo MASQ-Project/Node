@@ -10,21 +10,6 @@ use masq_lib::shared_schema::{
     DB_PASSWORD_HELP,
 };
 
-pub fn app_config_dumper() -> App<'static, 'static> {
-    app_head()
-        .arg(
-            Arg::with_name("dump-config")
-                .long("dump-config")
-                .required(true)
-                .takes_value(false)
-                .help(DUMP_CONFIG_HELP),
-        )
-        .arg(chain_arg())
-        .arg(data_directory_arg())
-        .arg(real_user_arg())
-        .arg(db_password_arg(DB_PASSWORD_HELP))
-}
-
 pub fn app_daemon() -> App<'static, 'static> {
     app_head()
         .arg(
@@ -39,6 +24,21 @@ pub fn app_daemon() -> App<'static, 'static> {
 
 pub fn app_node() -> App<'static, 'static> {
     shared_app(app_head().after_help(HELP_TEXT)).arg(ui_port_arg(&UI_PORT_HELP))
+}
+
+pub fn app_config_dumper() -> App<'static, 'static> {
+    app_head()
+        .arg(
+            Arg::with_name("dump-config")
+                .long("dump-config")
+                .required(true)
+                .takes_value(false)
+                .help(DUMP_CONFIG_HELP),
+        )
+        .arg(chain_arg())
+        .arg(data_directory_arg())
+        .arg(real_user_arg())
+        .arg(db_password_arg(DB_PASSWORD_HELP))
 }
 
 lazy_static! {

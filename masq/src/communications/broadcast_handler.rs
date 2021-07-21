@@ -6,6 +6,7 @@ use crate::communications::handle_node_not_running_for_fire_and_forget_on_the_wa
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
+use masq_lib::as_any_dcl;
 use masq_lib::intentionally_blank;
 use masq_lib::messages::{
     FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
@@ -16,7 +17,6 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
-use masq_lib::as_any_dcl;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);

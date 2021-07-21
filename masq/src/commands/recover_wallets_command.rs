@@ -5,10 +5,10 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, ArgGroup, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::messages::{UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
 use std::any::Any;
-use masq_lib::as_any_impl;
 
 #[derive(Debug, PartialEq)]
 pub struct RecoverWalletsCommand {

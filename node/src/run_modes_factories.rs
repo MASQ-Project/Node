@@ -12,7 +12,7 @@ use crate::node_configurator::{DirsWrapper, DirsWrapperReal, NodeConfigurator};
 use crate::server_initializer::{
     LoggerInitializerWrapper, LoggerInitializerWrapperReal, ServerInitializerReal,
 };
-use masq_lib::command::{Command, StdStreams};
+use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectValue;
 use std::cell::RefCell;
@@ -77,19 +77,17 @@ pub trait DaemonInitializerFactory {
 }
 
 pub trait DumpConfigRunner {
-    fn dump_config(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams,
-    ) -> Result<(), ConfiguratorError>;
+    fn go(&self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
     as_any_dcl!();
 }
 
-pub trait ServerInitializer: Command<RunModeResult> + futures::Future {
+pub trait ServerInitializer: futures::Future {
+    fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
     as_any_dcl!();
 }
 
-pub trait DaemonInitializer: Command<RunModeResult> {
+pub trait DaemonInitializer {
+    fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
     as_any_dcl!();
 }
 
@@ -152,7 +150,7 @@ mod tests {
     };
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::tests::{
-        convert_str_vec_slice_into_vec_of_strings, make_pre_populated_mock_directory_wrapper,
+        convert_str_vec_slice_into_vec_of_strings, make_pre_populated_mocked_directory_wrapper,
     };
     use crate::server_initializer::ServerInitializerReal;
     use masq_lib::shared_schema::ConfiguratorError;
@@ -162,7 +160,7 @@ mod tests {
 
     fn test_clustered_params() -> ClusteredParams {
         ClusteredParams {
-            dirs_wrapper: Box::new(make_pre_populated_mock_directory_wrapper()),
+            dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
             logger_initializer_wrapper: Box::new(LoggerInitializerWrapperMock::new()),
             channel_factory: Box::new(ChannelFactoryMock::new()),
             recipients_factory: Box::new(RecipientsFactoryReal::new()),
@@ -280,11 +278,11 @@ pub mod mocks {
         DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner, DumpConfigRunnerFactory,
         RunModeResult, ServerInitializer, ServerInitializerFactory,
     };
-    use masq_lib::command::{Command, StdStreams};
+    use futures::{Async, Future};
+    use masq_lib::command::StdStreams;
     use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
-    use futures::{Async, Future};
 
     pub struct DumpConfigRunnerFactoryMock {
         dump_config: RefCell<Box<DumpConfigRunnerMock>>,
@@ -372,18 +370,12 @@ pub mod mocks {
         }
     }
 
-    impl Command<RunModeResult> for DaemonInitializerMock {
-        fn go(
-            &mut self,
-            _streams: &mut StdStreams<'_>,
-            args: &[String],
-        ) -> Result<(), ConfiguratorError> {
+    impl DaemonInitializer for DaemonInitializerMock {
+        fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
             self.go_params.lock().unwrap().push(args.to_vec());
             self.go_results.borrow_mut().remove(0)
         }
     }
-
-    impl DaemonInitializer for DaemonInitializerMock {}
 
     #[derive(Default)]
     pub struct DumpConfigRunnerMock {
@@ -392,11 +384,7 @@ pub mod mocks {
     }
 
     impl DumpConfigRunner for DumpConfigRunnerMock {
-        fn dump_config(
-            &self,
-            args: &[String],
-            _streams: &mut StdStreams,
-        ) -> Result<(), ConfiguratorError> {
+        fn go(&self, _streams: &mut StdStreams, args: &[String]) -> Result<(), ConfiguratorError> {
             self.dump_config_params.lock().unwrap().push(args.to_vec());
             self.dump_config_results.borrow_mut().remove(0)
         }
@@ -441,14 +429,8 @@ pub mod mocks {
         }
     }
 
-    impl ServerInitializer for ServerInitializerMock {}
-
-    impl Command<RunModeResult> for ServerInitializerMock {
-        fn go(
-            &mut self,
-            _streams: &mut StdStreams<'_>,
-            args: &[String],
-        ) -> Result<(), ConfiguratorError> {
+    impl ServerInitializer for ServerInitializerMock {
+        fn go(&mut self, _streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
             self.go_params.lock().unwrap().push(args.to_vec());
             self.go_result.borrow_mut().remove(0)
         }

@@ -1043,7 +1043,7 @@ mod tests {
     use crate::node_configurator::DirsWrapperReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::tests::{
-        convert_str_vec_slice_into_vec_of_strings, make_pre_populated_mock_directory_wrapper,
+        convert_str_vec_slice_into_vec_of_strings, make_pre_populated_mocked_directory_wrapper,
     };
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
@@ -1463,9 +1463,8 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_error_getting_db_password() {
         running_test();
-        let args = &["command".to_string(),"--db-password".to_string()];
-        let simplified_multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let args = &["command".to_string(), "--db-password".to_string()];
+        let simplified_multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
         let mut unprivileged_config = BootstrapperConfig::new();
@@ -1489,9 +1488,8 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_incorrect_password() {
         running_test();
-        let args = &["program".to_string(),"--db-password".to_string()];
-        let simplified_multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let args = &["program".to_string(), "--db-password".to_string()];
+        let simplified_multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::PasswordError));
         let mut unprivileged_config = BootstrapperConfig::new();
@@ -1554,7 +1552,7 @@ mod tests {
                 .write_all(b"dns-servers = \"111.111.111.111,222.222.222.222\"\n")
                 .unwrap();
         }
-        let directory_wrapper = make_pre_populated_mock_directory_wrapper();
+        let directory_wrapper = make_pre_populated_mocked_directory_wrapper();
 
         let (multi_config, _, _) = gathered_params_for_service_mode(
             &directory_wrapper,
@@ -1994,8 +1992,7 @@ mod tests {
     ) {
         running_test();
         let args = &["program".to_string()];
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config(None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
@@ -2014,8 +2011,7 @@ mod tests {
     #[test]
     fn get_wallets_handles_failure_of_mnemonic_seed_exists() {
         let args = &["program".to_string()];
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
@@ -2036,8 +2032,7 @@ mod tests {
     #[test]
     fn get_wallets_handles_failure_of_consuming_wallet_derivation_path() {
         let args = &["program".to_string()];
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Ok(true))
@@ -2060,9 +2055,8 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_get_db_password() {
-        let args = &["program".to_string(),"--db-password".to_string()];
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let args = &["program".to_string(), "--db-password".to_string()];
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Ok(true))
@@ -2085,10 +2079,12 @@ mod tests {
     #[test]
     fn earning_wallet_address_different_from_database() {
         running_test();
-        let args = convert_str_vec_slice_into_vec_of_strings(&["program","--earning-wallet",
-            "0x0123456789012345678901234567890123456789"]);
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(&args);
+        let args = convert_str_vec_slice_into_vec_of_strings(&[
+            "program",
+            "--earning-wallet",
+            "0x0123456789012345678901234567890123456789",
+        ]);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
         let mut persistent_config = make_persistent_config(
             None,
             None,
@@ -2115,10 +2111,12 @@ mod tests {
     #[test]
     fn earning_wallet_address_matches_database() {
         running_test();
-        let args = convert_str_vec_slice_into_vec_of_strings(&["program","--earning-wallet",
-            "0xb00fa567890123456789012345678901234B00FA"]);
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(&args);
+        let args = convert_str_vec_slice_into_vec_of_strings(&[
+            "program",
+            "--earning-wallet",
+            "0xb00fa567890123456789012345678901234B00FA",
+        ]);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
         let mut persistent_config = make_persistent_config(
             None,
             None,
@@ -2148,9 +2146,14 @@ mod tests {
         running_test();
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let args = convert_str_vec_slice_into_vec_of_strings(&["program","--db-password","password","--consuming-private-key", consuming_private_key_hex]);
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(&args);
+        let args = convert_str_vec_slice_into_vec_of_strings(&[
+            "program",
+            "--db-password",
+            "password",
+            "--consuming-private-key",
+            consuming_private_key_hex,
+        ]);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2178,10 +2181,14 @@ mod tests {
     #[test]
     fn earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let args = convert_str_vec_slice_into_vec_of_strings(&["program","--db-password","password","--earning-wallet",
-            "0xcafedeadbeefbabefacecafedeadbeefbabeface"]);
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(&args);
+        let args = convert_str_vec_slice_into_vec_of_strings(&[
+            "program",
+            "--db-password",
+            "password",
+            "--earning-wallet",
+            "0xcafedeadbeefbabefacecafedeadbeefbabeface",
+        ]);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2209,9 +2216,9 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let args = convert_str_vec_slice_into_vec_of_strings(&["program","--db-password","password"]);
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(&args);
+        let args =
+            convert_str_vec_slice_into_vec_of_strings(&["program", "--db-password", "password"]);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2247,8 +2254,7 @@ mod tests {
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_parameter() {
         running_test();
         let args = &["program".to_string()];
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2279,9 +2285,8 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_value() {
         running_test();
-        let args = &["program".to_string(),"--db-password".to_string()];
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let args = &["program".to_string(), "--db-password".to_string()];
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2410,8 +2415,7 @@ mod tests {
     fn get_db_password_shortcuts_if_its_already_gotten() {
         running_test();
         let args = &["program".to_string()];
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mut holder = FakeStreamHolder::new();
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
@@ -2450,9 +2454,8 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_read_error() {
         running_test();
-        let args = &["command".to_string(),"--db-password".to_string()];
-        let multi_config =
-            pure_test_only_utils::make_simplified_multi_config(args);
+        let args = &["command".to_string(), "--db-password".to_string()];
+        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
         let mut streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
             stdout: &mut ByteArrayWriter::new(),
@@ -2479,7 +2482,8 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_write_error() {
         running_test();
-        let args = convert_str_vec_slice_into_vec_of_strings(&["command","--db-password", "password"]);
+        let args =
+            convert_str_vec_slice_into_vec_of_strings(&["command", "--db-password", "password"]);
         let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
         let mut config = BootstrapperConfig::new();
         let mut persistent_config = make_default_persistent_configuration()
@@ -2697,7 +2701,7 @@ mod tests {
         let _clap_guard = ClapGuard::new();
         let args = ArgsBuilder::new().param("--gas-price", "unleaded");
         let args_vec: Vec<String> = args.into();
-        let dir_wrapper = make_pre_populated_mock_directory_wrapper();
+        let dir_wrapper = make_pre_populated_mocked_directory_wrapper();
 
         let result = gathered_params_for_service_mode(&dir_wrapper, &args_vec.as_slice())
             .err()

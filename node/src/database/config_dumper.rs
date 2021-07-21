@@ -32,11 +32,7 @@ use std::any::Any;
 pub struct DumpConfigRunnerReal;
 
 impl DumpConfigRunner for DumpConfigRunnerReal {
-    fn dump_config(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams,
-    ) -> Result<(), ConfiguratorError> {
+    fn go(&self, streams: &mut StdStreams, args: &[String]) -> Result<(), ConfiguratorError> {
         let (real_user, data_directory, chain_id, password_opt) =
             distill_args(&DirsWrapperReal {}, args)?;
         let cryptde = CryptDEReal::new(chain_id);
@@ -189,7 +185,7 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject.dump_config(args_vec.as_slice(), &mut holder.streams());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
         let output = holder.stdout.get_string();
@@ -264,7 +260,7 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject.dump_config(args_vec.as_slice(), &mut holder.streams());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
         let output = holder.stdout.get_string();
@@ -363,7 +359,7 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject.dump_config(args_vec.as_slice(), &mut holder.streams());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
         let output = holder.stdout.get_string();
@@ -464,7 +460,7 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject.dump_config(args_vec.as_slice(), &mut holder.streams());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
         let output = holder.stdout.get_string();

@@ -16,7 +16,7 @@ use actix::{Actor, System, SystemRunner};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use flexi_logger::LevelFilter;
 use itertools::Itertools;
-use masq_lib::command::{Command, StdStreams};
+use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::collections::HashMap;
 
@@ -71,18 +71,7 @@ pub struct DaemonInitializerReal {
 }
 
 impl DaemonInitializer for DaemonInitializerReal {
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl Command<RunModeResult> for DaemonInitializerReal {
-    fn go(
-        &mut self,
-        _streams: &mut StdStreams<'_>,
-        _args: &[String],
-    ) -> Result<(), ConfiguratorError> {
+    fn go(&mut self, _streams: &mut StdStreams<'_>, _args: &[String]) -> RunModeResult {
         if port_is_busy(self.config.ui_port) {
             let message = format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
             return Err(ConfiguratorError::required("ui-port", message.as_str()));
@@ -95,6 +84,7 @@ impl Command<RunModeResult> for DaemonInitializerReal {
         self.split(system, receiver);
         Ok(())
     }
+    as_any_impl!();
 }
 
 pub trait Rerunner {

@@ -5,9 +5,9 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
-use masq_lib::as_any_impl;
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]

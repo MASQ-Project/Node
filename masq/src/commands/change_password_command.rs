@@ -9,7 +9,7 @@ use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };
-use masq_lib::{short_writeln,as_any_impl};
+use masq_lib::{as_any_impl, short_writeln};
 use std::any::Any;
 use std::io::Write;
 

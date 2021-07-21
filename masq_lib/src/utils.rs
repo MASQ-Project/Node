@@ -198,19 +198,21 @@ macro_rules! intentionally_blank {
 #[macro_export]
 macro_rules! as_any_dcl {
     () => {
-       #[cfg(test)]
-       fn as_any(&self) -> &dyn Any {
-           use masq_lib::intentionally_blank;
-           intentionally_blank!()}
+        #[cfg(test)]
+        fn as_any(&self) -> &dyn Any {
+            use masq_lib::intentionally_blank;
+            intentionally_blank!()
+        }
     };
 }
 
 #[macro_export]
 macro_rules! as_any_impl {
     () => {
-       #[cfg(test)]
-       fn as_any(&self) -> &dyn Any
-       {self}
+        #[cfg(test)]
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
     };
 }
 

@@ -491,7 +491,7 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
 pub mod pure_test_only_utils {
     use crate::apps::app_node;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use masq_lib::multi_config::{MultiConfig};
+    use masq_lib::multi_config::MultiConfig;
     use std::mem::swap;
     use std::ops::DerefMut;
 

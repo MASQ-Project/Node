@@ -244,7 +244,7 @@ impl Runner for RunnerReal {
     ) -> Result<(), RunnerError> {
         self.dump_config_runner_factory
             .make()
-            .dump_config(args, streams)
+            .go(streams, args)
             .map_err(RunnerError::Configurator)
     }
 
@@ -274,8 +274,11 @@ impl From<ConfiguratorError> for RunnerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run_modes_factories::mocks::{DaemonInitializerFactoryMock, DaemonInitializerMock, DumpConfigRunnerFactoryMock, DumpConfigRunnerMock, ServerInitializerFactoryMock, ServerInitializerMock};
-    use crate::server_initializer::test_utils::{PrivilegeDropperMock};
+    use crate::run_modes_factories::mocks::{
+        DaemonInitializerFactoryMock, DaemonInitializerMock, DumpConfigRunnerFactoryMock,
+        DumpConfigRunnerMock, ServerInitializerFactoryMock, ServerInitializerMock,
+    };
+    use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::server_initializer::tests::convert_str_vec_slice_into_vec_of_strings;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use regex::Regex;

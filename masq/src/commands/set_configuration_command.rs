@@ -1,13 +1,13 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, ArgGroup, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::common_validators;
 use masq_lib::shared_schema::GAS_PRICE_HELP;
 use masq_lib::short_writeln;
 use masq_lib::utils::{ExpectValue, WrapResult};
 use std::any::Any;
-use masq_lib::as_any_impl;
 
 #[derive(Debug, PartialEq)]
 pub struct SetConfigurationCommand {
