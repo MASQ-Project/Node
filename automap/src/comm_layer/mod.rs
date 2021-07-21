@@ -15,6 +15,8 @@ pub mod pcp;
 mod pcp_pmp_common;
 pub mod pmp;
 
+pub const DEFAULT_MAPPING_LIFETIME_SECONDS: u32 = 600; // ten minutes
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum AutomapErrorCause {
     UserError,

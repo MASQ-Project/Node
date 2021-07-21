@@ -21,6 +21,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use masq_lib::shared_schema::CONFIG_FILE_HELP;
 
 struct Factories {
     socket_factory: Box<dyn UdpSocketFactory>,
@@ -41,7 +42,7 @@ pub struct PmpTransactor {
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
     listen_port: u16,
-    change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
+    change_handler_config_opt: RefCell<Option<ChangeHandlerConfig>>,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     read_timeout_millis: u64,
     logger: Logger,
@@ -92,6 +93,10 @@ impl Transactor for PmpTransactor {
             .expect("Housekeeping thread is dead")
             .add_mapping(&self.factories_arc,
             SocketAddr::new (router_ip, self.router_port), hole_port, lifetime)
+            .map (|remap_interval| {
+                self.change_handler_config_opt.replace (Some (ChangeHandlerConfig{ hole_port, lifetime }));
+                remap_interval
+            })
     }
 
     fn add_permanent_mapping(
@@ -119,7 +124,7 @@ impl Transactor for PmpTransactor {
         if let Some(_housekeeper_commander) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
-        let change_handler_config = match self.change_handler_config.borrow().deref() {
+        let change_handler_config = match self.change_handler_config_opt.borrow().deref() {
             None => return Err(AutomapError::ChangeHandlerUnconfigured),
             Some(chc) => chc.clone(),
         };
@@ -180,7 +185,7 @@ impl Default for PmpTransactor {
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
-            change_handler_config: RefCell::new(None),
+            change_handler_config_opt: RefCell::new(None),
             housekeeper_commander_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
             logger: Logger::new("Automap"),
@@ -317,7 +322,6 @@ impl PmpTransactor {
         }
     }
 
-
     fn remap_port (
         mapping_adder: &dyn MappingAdder,
         factories_arc: &Arc<Mutex<Factories>>,
@@ -331,6 +335,7 @@ impl PmpTransactor {
         if requested_lifetime_secs < 1 {
             requested_lifetime_secs = 1;
         }
+        // TODO: Change the ChangeHandlerConfig's lifetime if this succeeds
         Ok(mapping_adder.add_mapping(factories_arc, router_addr, hole_port, requested_lifetime_secs)?)
     }
 
@@ -774,6 +779,7 @@ mod tests {
         let result = subject.add_mapping(router_ip, 7777, 10000);
 
         assert_eq!(result, Ok(4000));
+        assert_eq!(subject.change_handler_config_opt.borrow().as_ref(), Some (&ChangeHandlerConfig{ hole_port: 7777, lifetime: 10000 }));
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
             *set_read_timeout_params,
@@ -962,7 +968,7 @@ mod tests {
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
-        subject.change_handler_config = RefCell::new(Some(ChangeHandlerConfig {
+        subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
             lifetime: 321,
         }));
@@ -1034,7 +1040,7 @@ mod tests {
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
-        subject.change_handler_config = RefCell::new(Some(ChangeHandlerConfig {
+        subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
             lifetime: 321,
         }));
@@ -1083,7 +1089,7 @@ mod tests {
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
-        subject.change_handler_config = RefCell::new(Some(ChangeHandlerConfig {
+        subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
             lifetime: 321,
         }));

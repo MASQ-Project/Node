@@ -28,7 +28,7 @@ pub const ROUTER_PORT: u16 = 5351;
 pub const CHANGE_HANDLER_PORT: u16 = 5350;
 pub const READ_TIMEOUT_MILLIS: u64 = 1000;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChangeHandlerConfig {
     pub hole_port: u16,
     pub lifetime: u32,

@@ -3,14 +3,12 @@
 use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
-use crate::comm_layer::{AutomapError, Transactor, HousekeepingThreadCommand};
+use crate::comm_layer::{AutomapError, Transactor, HousekeepingThreadCommand, DEFAULT_MAPPING_LIFETIME_SECONDS};
 use masq_lib::utils::{plus, AutomapProtocol};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::IpAddr;
 use crossbeam_channel::Sender;
-
-const MAPPING_LIFETIME_SECONDS: u32 = 600; // ten minutes
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum AutomapChange {
@@ -77,7 +75,7 @@ impl AutomapControl for AutomapControlReal {
 
     fn add_mapping(&mut self, hole_port: u16) -> Result<(), AutomapError> {
         let experiment = Box::new(move |transactor: &dyn Transactor, router_ip: IpAddr| {
-            match transactor.add_mapping(router_ip, hole_port, MAPPING_LIFETIME_SECONDS) {
+            match transactor.add_mapping(router_ip, hole_port, DEFAULT_MAPPING_LIFETIME_SECONDS) {
                 Ok(remap_after_sec) => Ok(remap_after_sec),
                 Err(AutomapError::PermanentLeasesOnly) => {
                     transactor.add_permanent_mapping(router_ip, hole_port)

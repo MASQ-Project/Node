@@ -66,7 +66,7 @@ pub struct PcpTransactor {
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
     listen_port: u16,
-    change_handler_config: RefCell<Option<ChangeHandlerConfig>>,
+    change_handler_config_opt: RefCell<Option<ChangeHandlerConfig>>,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     read_timeout_millis: u64,
     logger: Logger,
@@ -101,7 +101,7 @@ impl Transactor for PcpTransactor {
                 hole_port,
                 lifetime,
             )?.0;
-        self.change_handler_config
+        self.change_handler_config_opt
             .borrow_mut()
             .replace(ChangeHandlerConfig {
                 hole_port,
@@ -143,7 +143,7 @@ impl Transactor for PcpTransactor {
         if let Some(_change_handler_stopper) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
-        let change_handler_config = match self.change_handler_config.borrow().deref() {
+        let change_handler_config = match self.change_handler_config_opt.borrow().deref() {
             None => return Err(AutomapError::ChangeHandlerUnconfigured),
             Some(chc) => chc.clone(),
         };
@@ -203,7 +203,7 @@ impl Default for PcpTransactor {
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
-            change_handler_config: RefCell::new(None),
+            change_handler_config_opt: RefCell::new(None),
             housekeeper_commander_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
             logger: Logger::new("Automap"),
@@ -427,6 +427,7 @@ impl MappingTransactor for MappingTransactorReal {
                 response.opcode
             )));
         }
+        // TODO: Change self.change_handler_config to update lifetime
         Self::compute_mapping_result (response)
     }
 }
@@ -931,7 +932,7 @@ mod tests {
         let result = subject.add_mapping(IpAddr::from_str("1.2.3.4").unwrap(), 6666, 10000);
 
         assert_eq!(result, Ok(4000));
-        if let Some(chc) = subject.change_handler_config.borrow().deref() {
+        if let Some(chc) = subject.change_handler_config_opt.borrow().deref() {
             assert_eq!(chc.hole_port, 6666);
             assert_eq!(chc.lifetime, 8000);
         } else {
@@ -1111,7 +1112,7 @@ mod tests {
         let mut subject = PcpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
-        subject.change_handler_config = RefCell::new(Some(ChangeHandlerConfig {
+        subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
             lifetime: 321,
         }));
@@ -1179,7 +1180,7 @@ mod tests {
         let mut subject = PcpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
-        subject.change_handler_config = RefCell::new(Some(ChangeHandlerConfig {
+        subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
             lifetime: 321,
         }));
@@ -1245,7 +1246,7 @@ mod tests {
     #[test]
     fn start_change_handler_doesnt_work_if_change_handler_is_unconfigured() {
         let mut subject = PcpTransactor::default();
-        subject.change_handler_config = RefCell::new(None);
+        subject.change_handler_config_opt = RefCell::new(None);
         let change_handler = move |_| {};
 
         let result = subject.start_housekeeping_thread(Box::new(change_handler), localhost());
