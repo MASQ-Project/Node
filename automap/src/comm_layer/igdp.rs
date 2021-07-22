@@ -417,9 +417,9 @@ impl IgdpTransactor {
     ) -> Result<u32, AutomapError> {
         info! (logger, "Remapping port {}", hole_port);
         let mut requested_lifetime_secs = requested_lifetime.as_secs() as u32;
-        // if requested_lifetime_secs < 1 {
-        //     requested_lifetime_secs = 1;
-        // }
+        if requested_lifetime_secs < 1 {
+            requested_lifetime_secs = 1;
+        }
         // No update to our ChangeHandlerConfig's lifetime is required here, because IGDP either
         // gives us the lifetime we request, or doesn't do the mapping at all. It never gives us
         // a mapping with a different lifetime from the one we request.
@@ -1195,82 +1195,65 @@ mod tests {
             err_msg
         ));
     }
-    //
-    // #[test]
-    // fn remap_port_correctly_converts_lifetime_greater_than_one_second() {
-    //     let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
-    //     let mapping_adder = MappingAdderMock::new ()
-    //         .add_mapping_params (&add_mapping_params_arc)
-    //         .add_mapping_result (Err (AutomapError::Unknown));
-    //
-    //     let result = PmpTransactor::remap_port(
-    //         &mapping_adder,
-    //         &Arc::new (Mutex::new (Factories::default())),
-    //         SocketAddr::new (localhost(), 0),
-    //         0,
-    //         Duration::from_millis (100900),
-    //         &Logger::new ("test"),
-    //     );
-    //
-    //     assert_eq! (result, Err(AutomapError::Unknown));
-    //     let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-    //     let requested_lifetime: u32 = add_mapping_params.remove(0).3;
-    //     assert_eq! (requested_lifetime, 100);
-    // }
-    //
-    // #[test]
-    // fn remap_port_correctly_converts_lifetime_less_than_one_second() {
-    //     let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
-    //     let mapping_adder = MappingAdderMock::new ()
-    //         .add_mapping_params (&add_mapping_params_arc)
-    //         .add_mapping_result (Err (AutomapError::Unknown));
-    //
-    //     let result = PmpTransactor::remap_port(
-    //         &mapping_adder,
-    //         &Arc::new (Mutex::new (Factories::default())),
-    //         SocketAddr::new (localhost(), 0),
-    //         0,
-    //         Duration::from_millis (80),
-    //         &Logger::new ("test"),
-    //     );
-    //
-    //     assert_eq! (result, Err(AutomapError::Unknown));
-    //     let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-    //     let requested_lifetime: u32 = add_mapping_params.remove(0).3;
-    //     assert_eq! (requested_lifetime, 1);
-    // }
-    //
-    // #[test]
-    // fn remap_port_handles_temporary_mapping_failure() {
-    //     let mapping_adder = MappingAdderMock::new ()
-    //         .add_mapping_result (Err (AutomapError::TemporaryMappingError("NetworkFailure".to_string())));
-    //
-    //     let result = PmpTransactor::remap_port(
-    //         &mapping_adder,
-    //         &Arc::new (Mutex::new (Factories::default())),
-    //         SocketAddr::new (localhost(), 0),
-    //         0,
-    //         Duration::from_millis (1000),
-    //         &Logger::new ("test"),
-    //     );
-    //
-    //     assert_eq! (result, Err(AutomapError::TemporaryMappingError("NetworkFailure".to_string())));
-    // }
-    //
-    // #[test]
-    // fn remap_port_handles_permanent_mapping_failure() {
-    //     let mapping_transactor = MappingAdderMock::new ()
-    //         .add_mapping_result (Err (AutomapError::PermanentMappingError("MalformedRequest".to_string())));
-    //
-    //     let result = PmpTransactor::remap_port(
-    //         &mapping_transactor,
-    //         &Arc::new (Mutex::new (Factories::default())),
-    //         SocketAddr::new (localhost(), 0),
-    //         0,
-    //         Duration::from_millis (1000),
-    //         &Logger::new ("test"),
-    //     );
-    //
-    //     assert_eq! (result, Err(AutomapError::PermanentMappingError("MalformedRequest".to_string())));
-    // }
+
+    #[test]
+    fn remap_port_correctly_converts_lifetime_greater_than_one_second() {
+        let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+        let mapping_adder = MappingAdderMock::new ()
+            .add_mapping_params (&add_mapping_params_arc)
+            .add_mapping_result (Err (AutomapError::Unknown));
+        let gateway = GatewayWrapperMock::new();
+
+        let result = IgdpTransactor::remap_port(
+            &mapping_adder,
+            &gateway,
+            0,
+            Duration::from_millis (100900),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::Unknown));
+        let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        let requested_lifetime: u32 = add_mapping_params.remove(0).1;
+        assert_eq! (requested_lifetime, 100);
+    }
+
+    #[test]
+    fn remap_port_correctly_converts_lifetime_less_than_one_second() {
+        let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+        let mapping_adder = MappingAdderMock::new ()
+            .add_mapping_params (&add_mapping_params_arc)
+            .add_mapping_result (Err (AutomapError::Unknown));
+        let gateway = GatewayWrapperMock::new();
+
+        let result = IgdpTransactor::remap_port(
+            &mapping_adder,
+            &gateway,
+            0,
+            Duration::from_millis (80),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::Unknown));
+        let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        let requested_lifetime: u32 = add_mapping_params.remove(0).1;
+        assert_eq! (requested_lifetime, 1);
+    }
+
+    #[test]
+    fn remap_port_handles_mapping_failure() {
+        let mapping_adder = MappingAdderMock::new ()
+            .add_mapping_result (Err (AutomapError::PermanentMappingError("Booga".to_string())));
+        let gateway = GatewayWrapperMock::new();
+
+        let result = IgdpTransactor::remap_port(
+            &mapping_adder,
+            &gateway,
+            0,
+            Duration::from_millis (80),
+            &Logger::new ("test"),
+        );
+
+        assert_eq! (result, Err(AutomapError::PermanentMappingError("Booga".to_string())));
+    }
 }
