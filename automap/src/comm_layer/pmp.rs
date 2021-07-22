@@ -21,7 +21,6 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use masq_lib::shared_schema::CONFIG_FILE_HELP;
 
 struct Factories {
     socket_factory: Box<dyn UdpSocketFactory>,
@@ -467,6 +466,12 @@ trait MappingAdder: Send {
 #[derive (Clone)]
 struct MappingAdderReal {}
 
+impl Default for MappingAdderReal {
+    fn default() -> Self {
+        Self{}
+    }
+}
+
 impl MappingAdder for MappingAdderReal {
     fn add_mapping(&self, factories_arc: &Arc<Mutex<Factories>>, router_addr: SocketAddr,
                    hole_port: u16, lifetime: u32) -> Result<u32, AutomapError> {
@@ -483,6 +488,9 @@ impl MappingAdder for MappingAdderReal {
         };
         let response = PmpTransactor::transact(factories_arc, router_addr.ip(),
                                                router_addr.port(), &request)?;
+        if response.direction == Direction::Request {
+            return Err (AutomapError::ProtocolError ("Map response labeled as request".to_string()))
+        }
         if response.opcode != Opcode::MapTcp {
             return Err(AutomapError::ProtocolError(format! ("Expected MapTcp response; got {:?} response instead",
                                                             response.opcode)));
@@ -519,7 +527,7 @@ mod tests {
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
-    use crate::protocols::utils::{Direction, Packet, ParseError};
+    use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::{find_free_port, localhost, AutomapProtocol};
     use std::cell::RefCell;
@@ -666,6 +674,189 @@ mod tests {
     }
 
     #[test]
+    fn add_mapping_handles_socket_factory_error() {
+        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        let io_error = io::Error::from(ErrorKind::ConnectionRefused);
+        let io_error_str = format!("{:?}", io_error);
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
+        let free_port_factory = FreePortFactoryMock::new().make_result(5566);
+        let subject = MappingAdderReal::default();
+        let mut factories = Factories::default();
+        factories.socket_factory = Box::new(socket_factory);
+        factories.free_port_factory = Box::new (free_port_factory);
+
+        let result = subject.add_mapping(
+            &Arc::new (Mutex::new (factories)),
+            SocketAddr::new (router_ip, ROUTER_PORT),
+            6666,
+            4321,
+        )
+            .err()
+            .unwrap();
+
+        match result {
+            AutomapError::SocketBindingError(msg, addr) => {
+                assert_eq!(msg, io_error_str);
+                assert_eq!(addr.ip(), IpAddr::from_str("0.0.0.0").unwrap());
+                assert_eq!(addr.port(), 5566);
+            }
+            e => panic!("Expected SocketBindingError, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn add_mapping_handles_send_to_error() {
+        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        let io_error = io::Error::from(ErrorKind::ConnectionRefused);
+        let io_error_str = format!("{:?}", io_error);
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Err(io_error));
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let subject = MappingAdderReal::default();
+        let mut factories = Factories::default();
+        factories.socket_factory = Box::new(socket_factory);
+
+        let result = subject.add_mapping(
+            &Arc::new (Mutex::new (factories)),
+            SocketAddr::new (router_ip, ROUTER_PORT),
+            6666,
+            4321,
+        );
+
+        assert_eq!(
+            result,
+            Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(
+                io_error_str
+            )))
+        );
+    }
+
+    #[test]
+    fn add_mapping_handles_recv_from_error() {
+        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        let io_error = io::Error::from(ErrorKind::ConnectionRefused);
+        let io_error_str = format!("{:?}", io_error);
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(Err(io_error), vec![]);
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let subject = MappingAdderReal::default();
+        let mut factories = Factories::default();
+        factories.socket_factory = Box::new(socket_factory);
+
+        let result = subject.add_mapping(
+            &Arc::new (Mutex::new (factories)),
+            SocketAddr::new (router_ip, ROUTER_PORT),
+            6666,
+            4321,
+        );
+
+        assert_eq!(
+            result,
+            Err(AutomapError::SocketReceiveError(
+                AutomapErrorCause::Unknown(io_error_str)
+            ))
+        );
+    }
+
+    #[test]
+    fn add_mapping_handles_packet_parse_error() {
+        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(Ok((0, SocketAddr::new(router_ip, ROUTER_PORT))), vec![]);
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let subject = MappingAdderReal::default();
+        let mut factories = Factories::default();
+        factories.socket_factory = Box::new(socket_factory);
+
+        let result = subject.add_mapping(
+            &Arc::new (Mutex::new (factories)),
+            SocketAddr::new (router_ip, ROUTER_PORT),
+            6666,
+            4321,
+        );
+
+        assert_eq!(
+            result,
+            Err(AutomapError::PacketParseError(ParseError::ShortBuffer(
+                2, 0
+            )))
+        );
+    }
+
+    #[test]
+    fn add_mapping_handles_wrong_direction() {
+        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        let mut buffer = [0u8; 1100];
+        let packet = make_request(Opcode::Other(127), Box::new(UnrecognizedData::new()));
+        let len = packet.marshal(&mut buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(
+                Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
+                buffer[0..len].to_vec(),
+            );
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let subject = MappingAdderReal::default();
+        let mut factories = Factories::default();
+        factories.socket_factory = Box::new(socket_factory);
+
+        let result = subject.add_mapping(
+            &Arc::new (Mutex::new (factories)),
+            SocketAddr::new (router_ip, ROUTER_PORT),
+            6666,
+            4321,
+        );
+
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError(
+                "Map response labeled as request".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn add_mapping_handles_unexpected_opcode() {
+        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        let mut buffer = [0u8; 1100];
+        let mut packet = make_response(Opcode::Other(127),
+            ResultCode::Success, Box::new(UnrecognizedData::new()));
+        packet.opcode = Opcode::Other(127);
+        let len = packet.marshal(&mut buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(
+                Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
+                buffer[0..len].to_vec(),
+            );
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let subject = MappingAdderReal::default();
+        let mut factories = Factories::default();
+        factories.socket_factory = Box::new(socket_factory);
+
+        let result = subject.add_mapping(
+            &Arc::new (Mutex::new (factories)),
+            SocketAddr::new (router_ip, ROUTER_PORT),
+            6666,
+            4321,
+        );
+
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError(
+                "Expected MapTcp response; got Other(127) response instead".to_string()
+            ))
+        );
+    }
+
+    #[test]
     fn get_public_ip_works() {
         let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let public_ip = Ipv4Addr::from_str("72.73.74.75").unwrap();
@@ -795,35 +986,6 @@ mod tests {
         );
         let recv_from_params = recv_from_params_arc.lock().unwrap();
         assert_eq!(*recv_from_params, vec![()])
-    }
-
-    #[test]
-    fn add_mapping_handles_unexpected_opcode() {
-        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
-        let mut response_buffer = [0u8; 1100];
-        let mut response = make_response(
-            Opcode::MapUdp,
-            ResultCode::Success,
-            make_map_response(4321, 7777, 1234),
-        );
-        response.result_code_opt = Some(ResultCode::Success);
-        let response_len = response.marshal(&mut response_buffer).unwrap();
-        let socket = UdpSocketMock::new()
-            .set_read_timeout_result(Ok(()))
-            .send_to_result(Ok(24))
-            .recv_from_result(
-                Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
-                response_buffer[0..response_len].to_vec(),
-            );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject(socket_factory);
-
-        let result = subject.add_mapping(router_ip, 7777, 1234);
-
-        assert_eq!(
-            result,
-            Err(AutomapError::ProtocolError("Expected MapTcp response; got MapUdp response instead".to_string()))
-        );
     }
 
     #[test]

@@ -20,7 +20,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 use crate::comm_layer::pcp_pmp_common::ChangeHandlerConfig;
 use std::cell::RefCell;
-use std::ops::Deref;
 
 pub const PUBLIC_IP_POLL_DELAY_SECONDS: u32 = 60;
 
@@ -490,6 +489,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use core::ptr::addr_of;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -643,14 +643,17 @@ mod tests {
     }
 
     struct MappingAdderMock {
-        add_mapping_params: Arc<Mutex<Vec<(u16, u32)>>>,
+        add_mapping_params: Arc<Mutex<Vec<(*const (), u16, u32)>>>,
         add_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
     }
 
+    // Needed because the mock contains a raw pointer; but we never follow the pointer, we just
+    // compare its value.
+    unsafe impl Send for MappingAdderMock {}
+
     impl MappingAdder for MappingAdderMock {
-        // TODO: Figure out what to do with gateway once some tests have been modified
         fn add_mapping(&self, gateway: &dyn GatewayWrapper, hole_port: u16, lifetime: u32) -> Result<u32, AutomapError> {
-            self.add_mapping_params.lock().unwrap().push ((hole_port, lifetime));
+            self.add_mapping_params.lock().unwrap().push ((addr_of! (*gateway) as *const (), hole_port, lifetime));
             self.add_mapping_results.borrow_mut().remove (0)
         }
     }
@@ -663,7 +666,7 @@ mod tests {
             }
         }
 
-        fn add_mapping_params (mut self, params: &Arc<Mutex<Vec<(u16, u32)>>>) -> Self {
+        fn add_mapping_params (mut self, params: &Arc<Mutex<Vec<(*const (), u16, u32)>>>) -> Self {
             self.add_mapping_params = params.clone();
             self
         }
@@ -1111,8 +1114,9 @@ mod tests {
         handle.join().unwrap();
         let inner = inner_arc.lock().unwrap();
         assert_eq! (inner.change_handler_config_opt.take(), Some (ChangeHandlerConfig{ hole_port: 6689, lifetime: 10000 }));
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq! (*add_mapping_params, vec![(6689, 10000)]);
+        let (_, hole_port, lifetime) = add_mapping_params_arc.lock().unwrap().remove(0);
+        assert_eq! (hole_port, 6689);
+        assert_eq! (lifetime, 10000);
         TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
     }
 
@@ -1203,18 +1207,21 @@ mod tests {
             .add_mapping_params (&add_mapping_params_arc)
             .add_mapping_result (Err (AutomapError::Unknown));
         let gateway = GatewayWrapperMock::new();
+        let expected_gateway_ptr = addr_of! (gateway) as *const ();
 
         let result = IgdpTransactor::remap_port(
             &mapping_adder,
             &gateway,
-            0,
+            6689,
             Duration::from_millis (100900),
             &Logger::new ("test"),
         );
 
         assert_eq! (result, Err(AutomapError::Unknown));
         let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        let requested_lifetime: u32 = add_mapping_params.remove(0).1;
+        let (actual_gateway_ptr, hole_port, requested_lifetime) = add_mapping_params.remove(0);
+        assert_eq! (actual_gateway_ptr, expected_gateway_ptr);
+        assert_eq! (hole_port, 6689);
         assert_eq! (requested_lifetime, 100);
     }
 
@@ -1225,18 +1232,21 @@ mod tests {
             .add_mapping_params (&add_mapping_params_arc)
             .add_mapping_result (Err (AutomapError::Unknown));
         let gateway = GatewayWrapperMock::new();
+        let expected_gateway_ptr = addr_of! (gateway) as *const ();
 
         let result = IgdpTransactor::remap_port(
             &mapping_adder,
             &gateway,
-            0,
+            6689,
             Duration::from_millis (80),
             &Logger::new ("test"),
         );
 
         assert_eq! (result, Err(AutomapError::Unknown));
         let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        let requested_lifetime: u32 = add_mapping_params.remove(0).1;
+        let (actual_gateway_ptr, hole_port, requested_lifetime) = add_mapping_params.remove(0);
+        assert_eq! (actual_gateway_ptr, expected_gateway_ptr);
+        assert_eq! (hole_port, 6689);
         assert_eq! (requested_lifetime, 1);
     }
 
