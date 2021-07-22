@@ -619,17 +619,6 @@ pub struct UiWalletAddressesResponse {
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-//                            Test only messages
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
-pub struct UiBroadcastTrigger {
-    pub number_of_broadcasts_in_one_batch: Option<usize>,
-    pub position_to_send_the_signal_opt: Option<usize>,
-}
-fire_and_forget_message!(UiBroadcastTrigger, "broadcastTrigger");
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,14 +5,10 @@ use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
-use std::io::{ErrorKind, Write};
+use std::io::Write;
 use std::net::TcpStream;
-use std::thread;
-use std::time::{Duration, Instant};
 use websocket::sync::Client;
-use websocket::{ClientBuilder, OwnedMessage, WebSocketError, WebSocketResult};
-
-const NORMAL_WAITING_PERIOD: u64 = 1000;
+use websocket::{ClientBuilder, OwnedMessage};
 
 pub struct UiConnection {
     context_id: u64,
@@ -30,10 +26,7 @@ impl UiConnection {
             Ok(c) => c,
             Err(e) => return Err(format!("{:?}", e)),
         };
-        match client.set_nonblocking(true) {
-            Ok(_) => (),
-            Err(e) => return Err(format!("{:?}", e)),
-        }
+
         Ok(UiConnection {
             client,
             context_id: 0,
@@ -71,35 +64,16 @@ impl UiConnection {
     fn receive_raw<T: FromMessageBody>(
         &mut self,
         context_id: Option<u64>,
-        waiting_limit: u64,
     ) -> Result<T, (u64, String)> {
-        let mut failure_state_holder: Option<WebSocketResult<OwnedMessage>> = None;
-        let start_instant = Instant::now();
-
-        let incoming_msg_json = loop {
-            if start_instant.elapsed() > Duration::from_millis(waiting_limit) {
-                //a way to inform that the attempt failed, without blocking
-                return
-                    Err((0,
-                format!("Expected a response. Probably none is to come, waiting was too long (with time limit: {} ms){}", waiting_limit,
-                        if let Some(error) = failure_state_holder{format!(" or the cause is the following error: {:?}",error)}else{"".to_string()}
-                ))
-                );
+        let incoming_msg_json = match self.client.recv_message() {
+            Ok(OwnedMessage::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
+                panic!("The queue is empty; all messages are gone.")
             }
-            match self.client.recv_message() {
-                Ok(OwnedMessage::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
-                    return Err((0, "The queue is empty; all messages are gone.".to_string()))
-                }
-                Ok(OwnedMessage::Text(json)) => break json,
-                Err(WebSocketError::IoError(io_e))
-                    if io_e.kind() == ErrorKind::WouldBlock
-                        || io_e.kind() == ErrorKind::TimedOut =>
-                {
-                    failure_state_holder = None
-                }
-                x => failure_state_holder = Some(x),
-            }
-            thread::sleep(Duration::from_millis(20))
+            Ok(OwnedMessage::Text(json)) => json,
+            x => panic!(
+                "We received an unexpected message from the MockWebSocketServer: {:?}",
+                x
+            ),
         };
 
         let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
@@ -127,14 +101,7 @@ impl UiConnection {
     }
 
     pub fn receive<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
-        self.receive_raw::<T>(None, NORMAL_WAITING_PERIOD)
-    }
-
-    pub fn receive_custom<T: FromMessageBody>(
-        &mut self,
-        waiting_period: u64,
-    ) -> Result<T, (u64, String)> {
-        self.receive_raw::<T>(None, waiting_period)
+        self.receive_raw::<T>(None)
     }
 
     pub fn transact<S: ToMessageBody, R: FromMessageBody>(
@@ -142,7 +109,7 @@ impl UiConnection {
         payload: S,
     ) -> Result<R, (u64, String)> {
         self.send(payload);
-        self.receive_raw::<R>(None, NORMAL_WAITING_PERIOD)
+        self.receive_raw::<R>(None)
     }
 
     pub fn transact_with_context_id<S: ToMessageBody, R: FromMessageBody>(
@@ -151,7 +118,7 @@ impl UiConnection {
         context_id: u64,
     ) -> Result<R, (u64, String)> {
         self.send_with_context_id(payload, context_id);
-        self.receive_raw::<R>(Some(context_id), NORMAL_WAITING_PERIOD)
+        self.receive_raw::<R>(Some(context_id))
     }
 
     pub fn shutdown(self) {
