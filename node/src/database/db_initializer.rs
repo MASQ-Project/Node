@@ -368,37 +368,6 @@ impl DbInitializerReal {
         })
     }
 
-    fn double_check_the_result_of_db_migration(
-        &self,
-        db_file_path: &Path,
-        opening_flags: OpenFlags,
-    ) -> Box<dyn ConnectionWrapper> {
-        let conn = Connection::open_with_flags(db_file_path, opening_flags)
-            .unwrap_or_else(|e| panic!("The database undoubtedly exists, but: {}", e));
-        let config_table_content = self.extract_configurations(&conn);
-        let schema_version_entry = config_table_content.get("schema_version");
-        let found_schema = Self::validate_schema_version(
-            &schema_version_entry
-                .expect("Db migration failed; cannot find a row with the schema version")
-                .as_ref()
-                .expect("Db migration failed; the value for the schema version is missing"),
-        );
-        if found_schema.eq(&CURRENT_SCHEMA_VERSION) {
-            Box::new(ConnectionWrapperReal::new(conn))
-        } else {
-            panic!("DB migration failed; the resulting records are still incorrect")
-        }
-    }
-
-    fn validate_schema_version(obtained_s_v: &str) -> usize {
-        obtained_s_v.parse::<usize>().unwrap_or_else(|_| {
-            panic!(
-                "Database version should be purely numeric, but was: {}",
-                obtained_s_v
-            )
-        })
-    }
-
     fn choose_clandestine_port() -> u16 {
         let mut rng = SmallRng::from_entropy();
         loop {
