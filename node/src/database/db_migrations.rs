@@ -544,7 +544,7 @@ mod tests {
         let iterator_shifted = list_of_updates.iter().skip(1);
         iterator.zip(iterator_shifted).for_each(|(first, second)| {
             if two_numbers_are_sequential(first.old_version(), second.old_version()).not() {
-                panic!("The list of the updates for the database is not ordered properly")
+                panic!("The list of updates for the database is not ordered properly")
             }
         });
     }
