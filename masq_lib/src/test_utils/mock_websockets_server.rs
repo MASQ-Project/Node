@@ -505,10 +505,7 @@ mod tests {
         let received_message_number_five: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_three_request.clone(), 3)
             .unwrap();
-        assert_eq!(
-            received_message_number_five.node_descriptor,
-            "ae15fe6"
-        );
+        assert_eq!(received_message_number_five.node_descriptor, "ae15fe6");
 
         let _received_message_number_six: UiNewPasswordBroadcast = connection.receive().unwrap();
 
