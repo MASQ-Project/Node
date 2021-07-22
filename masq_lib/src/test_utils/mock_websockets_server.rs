@@ -125,7 +125,7 @@ impl MockWebSocketsServer {
             log(do_log, index, "Entering background loop");
             loop {
                 log(do_log, index, "Checking for fire-and-forget messages");
-                self.handle_potential_fire_and_forget_messages(
+                self.handle_all_f_f_messages_found_at_the_tip_of_the_queue(
                     &mut client,
                     &inner_responses_arc,
                     index,
@@ -235,7 +235,7 @@ impl MockWebSocketsServer {
         }
     }
 
-    fn handle_potential_fire_and_forget_messages(
+    fn handle_all_f_f_messages_found_at_the_tip_of_the_queue(
         &self,
         client: &mut Client<TcpStream>,
         inner_responses_arc: &Arc<Mutex<Vec<OwnedMessage>>>,
@@ -265,11 +265,11 @@ impl MockWebSocketsServer {
                                 log(do_log, index, "Sending a fire-and-forget message to the UI");
                                 true
                             }
-                            _ => false,
-                        },
-                        _ => false,
+                            _ => false
+                        }
+                        _ => false
                     }
-                _ => false,
+                _ => false
             }.not() {
                 inner_responses_vec.insert(0, temporarily_owned);
                 log(do_log, index, "No fire-and-forget message found; starting to head to conversational messages");
@@ -422,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn conversational_and_broadcast_messages_can_work_together_testing_corner_cases() {
+    fn conversational_and_broadcast_messages_work_together() {
         // Queue:
         // Conversation 1
         // Conversation 2
@@ -441,7 +441,7 @@ mod tests {
 
         //Content of those messages is practically irrelevant because it's not in the scope of this test.
 
-        //you should view some lines in this test as if highlighted with text like "TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED"
+        //You may consider some lines of this test as if they were highlighted with "TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED"
 
         //A) All messages "sent from UI to D/N", an exact order
         ////////////////////////////////////////////////////////////////////////////////////////////
@@ -502,9 +502,13 @@ mod tests {
 
         let _received_message_number_four: UiNodeCrashedBroadcast = connection.receive().unwrap();
 
-        let _received_message_number_five: UiDescriptorResponse = connection
+        let received_message_number_five: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_three_request.clone(), 3)
             .unwrap();
+        assert_eq!(
+            received_message_number_five.node_descriptor,
+            "ae15fe6"
+        );
 
         let _received_message_number_six: UiNewPasswordBroadcast = connection.receive().unwrap();
 
@@ -534,7 +538,7 @@ mod tests {
             new_password: "password".to_string(),
         };
 
-        //catch_unwind so that we have a chance to shut down the server manually and not to let a thread with it leak away
+        //catch_unwind so that we have a chance to shut down the server manually and not to let the thread with it leak away
         let encapsulated_panic: Result<
             Result<UiChangePasswordResponse, (u64, std::string::String)>,
             Box<dyn std::any::Any + Send>,
