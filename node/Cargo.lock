@@ -1527,9 +1527,9 @@ dependencies = [
  "crossbeam-channel 0.5.0",
  "ctrlc",
  "lazy_static",
- "libc",
  "linefeed",
  "masq_lib",
+ "nix 0.20.0",
  "regex",
  "websocket",
 ]

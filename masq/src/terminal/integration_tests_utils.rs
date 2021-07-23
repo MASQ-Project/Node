@@ -31,7 +31,7 @@ impl Default for IntegrationTestTerminal {
         ctrlc::set_handler(move || {
             r.store(false, Ordering::SeqCst);
         })
-        .expect("Error setting Ctrl-C handler");
+        .expect("Error when setting Ctrl-C handler");
 
         IntegrationTestTerminal {
             lock: Arc::new(Mutex::new(())),
@@ -52,7 +52,7 @@ impl IntegrationTestTerminal {
         let mut stdout_handle = self.stdout.lock().unwrap();
         write!(stdout_handle, "{}", MASQ_PROMPT).unwrap();
         stdout_handle.flush().unwrap();
-        //the lock must not be around the read point
+        //the lock must not surround the read point
         drop(_lock);
         drop(stdout_handle);
         let mut buffer = [0; 1024];
@@ -65,10 +65,9 @@ impl IntegrationTestTerminal {
         let finalized_command_line = std::str::from_utf8(&buffer[..number_of_bytes])
             .expect_v("converted str")
             .to_string();
-        //because of specific arrangement based on the combination of linefeed + Clap
-        //TODO what the hell does version have more than just 'version' that I cannot use an equality assertion
         let mut stdout_handle = self.stdout.lock().unwrap();
-        if finalized_command_line.contains("version") || finalized_command_line == "help" {
+        //because of specific arrangement based on the combination of linefeed + Clap
+        if finalized_command_line.trim() == "version" || finalized_command_line.trim() == "help" {
             short_writeln!(stdout_handle, "")
         };
         drop(stdout_handle);

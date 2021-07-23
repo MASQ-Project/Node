@@ -593,14 +593,14 @@ pub struct WriterInactive {}
 
 impl WriterLock for WriterInactive {
     #[cfg(test)]
-    fn struct_id(&self) -> String {
+    fn improvised_struct_id(&self) -> String {
         "WriterInactive".to_string()
     }
 }
 
 #[derive(Default)]
 pub struct InterfaceRawMock {
-    //this mock seems crippled, but the seeming overuse of Arc<Mutex<>> stems from InterfaceRawMock have Send and Sync
+    //this mock seems crippled, but the seeming overuse of Arc<Mutex<>> stems from InterfaceRawMock requires Send and Sync
     read_line_results: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
     add_history_unique_params: Arc<Mutex<Vec<String>>>,
     set_prompt_params: Arc<Mutex<Vec<String>>>,

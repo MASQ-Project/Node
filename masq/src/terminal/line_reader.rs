@@ -8,7 +8,7 @@ use masq_lib::short_writeln;
 use std::fmt::Debug;
 use std::io::Write;
 
-//most of these events depends on the default signal handler which ignores them so that these are never signaled
+//most of the events depends on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
 #[derive(Debug, PartialEq, Clone)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
@@ -20,31 +20,6 @@ pub enum TerminalEvent {
 
 pub struct TerminalReal {
     interface: Box<dyn InterfaceWrapper>,
-}
-
-impl TerminalReal {
-    pub fn new(interface: Box<dyn InterfaceWrapper>) -> Self {
-        Self { interface }
-    }
-
-    //here are rather auxiliary functions
-
-    fn process_captured_command_line(&self, line: String) -> TerminalEvent {
-        self.add_history(line.clone());
-        let args = split_quoted_line(line);
-        TerminalEvent::CommandLine(args)
-    }
-
-    fn make_prompt_vanish(&self) {
-        self.interface
-            .set_prompt("")
-            .expect("unsetting the prompt failed");
-        self.interface.clear_buffer();
-    }
-
-    fn add_history(&self, line: String) {
-        self.interface.add_history(line)
-    }
 }
 
 impl MasqTerminal for TerminalReal {
@@ -64,8 +39,8 @@ impl MasqTerminal for TerminalReal {
         self.interface.lock_writer_append().expect("l_w_a failed")
     }
 
-    //used because we don't want to see the prompt show up after this last-second printing operation;
-    //to assure decent screen appearance while the whole app's going down
+    //used because we don't want to see the prompt show up again after this last-second printing operation;
+    //to assure a decent screen appearance while the whole app's going down
     fn lock_ultimately(&self, streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_> {
         let kept_buffer = self.interface.get_buffer();
         self.make_prompt_vanish();
@@ -83,11 +58,37 @@ impl MasqTerminal for TerminalReal {
     }
 
     #[cfg(test)]
-    fn struct_id(&self) -> String {
+    fn improvised_struct_id(&self) -> String {
         format!(
             "TerminalReal<{}>",
-            self.interface.lock_writer_append().unwrap().struct_id()
+            self.interface
+                .lock_writer_append()
+                .unwrap()
+                .improvised_struct_id()
         )
+    }
+}
+
+impl TerminalReal {
+    pub fn new(interface: Box<dyn InterfaceWrapper>) -> Self {
+        Self { interface }
+    }
+
+    fn process_captured_command_line(&self, line: String) -> TerminalEvent {
+        self.add_history(line.clone());
+        let args = split_quoted_line(line);
+        TerminalEvent::CommandLine(args)
+    }
+
+    fn make_prompt_vanish(&self) {
+        self.interface
+            .set_prompt("")
+            .expect("unsetting the prompt failed");
+        self.interface.clear_buffer();
+    }
+
+    fn add_history(&self, line: String) {
+        self.interface.add_history(line)
     }
 }
 

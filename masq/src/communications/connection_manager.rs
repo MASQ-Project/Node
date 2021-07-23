@@ -108,7 +108,6 @@ impl ConnectionManager {
             conversations_waiting: HashSet::new(),
             next_context_id: 1,
             demand_rx,
-            closing_signal: false,
             conversation_return_tx,
             conversations_to_manager_tx: unbounded().0,
             conversations_to_manager_rx: unbounded().1,
@@ -118,6 +117,7 @@ impl ConnectionManager {
             redirect_order_rx,
             redirect_response_tx,
             active_port_response_tx,
+            closing_stage: false,
         };
         ConnectionManagerThread::start(inner);
         Ok(())
@@ -197,7 +197,6 @@ struct CmsInner {
     conversations_waiting: HashSet<u64>,
     next_context_id: u64,
     demand_rx: Receiver<Demand>,
-    closing_signal: bool,
     conversation_return_tx: Sender<NodeConversation>,
     conversations_to_manager_tx: Sender<OutgoingMessageType>,
     conversations_to_manager_rx: Receiver<OutgoingMessageType>,
@@ -207,6 +206,7 @@ struct CmsInner {
     redirect_order_rx: Receiver<RedirectOrder>,
     redirect_response_tx: Sender<Result<(), ClientListenerError>>,
     active_port_response_tx: Sender<Option<u16>>,
+    closing_stage: bool,
 }
 
 pub struct ConnectionManagerThread {}
@@ -221,16 +221,10 @@ impl ConnectionManagerThread {
 
     fn spawn_thread(mut inner: CmsInner) -> JoinHandle<()> {
         thread::spawn(move || loop {
-            match (inner.closing_signal, inner.active_port) {
+            match (inner.closing_stage, inner.active_port) {
                 (true, _) => break,
                 (false, None) => {
-                    inner.broadcast_handle.send(
-                        UiNodeCrashedBroadcast {
-                            process_id: 0,
-                            crash_reason: CrashReason::DaemonCrashed,
-                        }
-                        .tmb(0),
-                    );
+                    Self::send_daemon_crashed(&inner);
                     break;
                 }
                 _ => inner = Self::thread_loop_guts(inner),
@@ -428,7 +422,7 @@ impl ConnectionManagerThread {
     }
 
     fn handle_close(mut inner: CmsInner) -> CmsInner {
-        inner.closing_signal = true;
+        inner.closing_stage = true;
         let _ = inner
             .talker_half
             .sender
@@ -491,6 +485,14 @@ impl ConnectionManagerThread {
         inner.conversations.clear();
         inner.conversations_waiting.clear();
         inner
+    }
+
+    fn send_daemon_crashed(inner: &CmsInner) {
+        let crash_msg = UiNodeCrashedBroadcast {
+            process_id: 0,
+            crash_reason: CrashReason::DaemonCrashed,
+        };
+        inner.broadcast_handle.send(crash_msg.tmb(0))
     }
 }
 
@@ -1473,7 +1475,7 @@ mod tests {
             conversations_waiting: HashSet::new(),
             next_context_id: 0,
             demand_rx: unbounded().1,
-            closing_signal: false,
+            closing_stage: false,
             conversation_return_tx: unbounded().0,
             conversations_to_manager_tx: unbounded().0,
             conversations_to_manager_rx: unbounded().1,

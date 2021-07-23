@@ -21,9 +21,9 @@ mod test_cfg {
     pub use masq_lib::intentionally_blank;
 }
 
-//Not correspondingly to the normal way of an implementation of linefeed, I keep using the system stdout handles for writing instead of its native writers
-//because the former is more traditional and in our case it serves its purpose as well.
-//So I take benefits of linefeed's synchronization abilities, and a lot of other stuff it offers for interacting with the terminal
+//Unlike linefeed is designed to be used, I stick with using the system stdout handles for writing in instead of the custom handles provided from linefeed.
+//I take benefits from linefeed's synchronization abilities, and other handy stuff it offers, while the implementation stays simpler than if I'd had to
+//distribute the nonstandard, custom handles all over a lot of places.
 
 pub struct TerminalWrapper {
     interface: Arc<Box<dyn MasqTerminal>>,
@@ -104,7 +104,7 @@ impl TerminalWrapper {
 //constructors shall behave and what it shall produce
 
 fn interface_configurator<Term, Itf, TeConstructor, ItfConstructor>(
-    construct_terminal_of_a_type: Box<TeConstructor>,
+    construct_typed_terminal: Box<TeConstructor>,
     construct_interface: Box<ItfConstructor>,
 ) -> Result<TerminalReal, String>
 where
@@ -113,10 +113,9 @@ where
     Term: linefeed::Terminal,
     Itf: InterfaceWrapper + 'static,
 {
-    let terminal_type: Term =
-        construct_terminal_of_a_type().map_err(|e| format!("Local terminal recognition: {}", e))?;
-
-    let mut interface: Box<Itf> = construct_interface("masq", terminal_type)
+    let mut interface: Box<Itf> = construct_typed_terminal()
+        .map_err(|e| format!("Local terminal recognition: {}", e))?
+        .chain_to_int_constructor(construct_interface)
         .map_err(|e| format!("Preparing terminal interface: {}", e))
         .map(Box::new)?;
 
@@ -124,6 +123,22 @@ where
 
     TerminalReal::new(interface).wrap_to_ok()
 }
+
+trait FunctionalInterfaceConstructor {
+    fn chain_to_int_constructor<Closure, Itf>(
+        self,
+        constructor_interface: Box<Closure>,
+    ) -> std::io::Result<Itf>
+    where
+        Closure: FnOnce(&'static str, Self) -> std::io::Result<Itf>,
+        Itf: InterfaceWrapper + 'static,
+        Self: Sized,
+    {
+        constructor_interface("masq", self)
+    }
+}
+
+impl<T: linefeed::Terminal> FunctionalInterfaceConstructor for T {}
 
 fn set_all_settable_parameters<I>(interface: &mut I) -> Result<(), String>
 where

@@ -18,8 +18,10 @@ linefeed = "0.6.0"
 masq_lib = { path = "../masq_lib" }
 regex = "1.0.5"
 websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
-libc = "0.2.97"
 ctrlc = "3.1.9"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+nix = "0.20.0"
 
 [lib]
 name = "masq_cli_lib"

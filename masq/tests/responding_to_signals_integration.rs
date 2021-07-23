@@ -8,6 +8,8 @@
 use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
 use masq_lib::utils::find_free_port;
+use nix::sys::signal::{kill, SIGINT};
+use nix::unistd::Pid;
 use std::thread;
 use std::time::Duration;
 
@@ -22,9 +24,7 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
     thread::sleep(Duration::from_millis(300));
     let masq_process_id = masq_handle.child_id();
 
-    unsafe {
-        libc::kill(masq_process_id as i32, libc::SIGINT);
-    }
+    kill(Pid::from_raw(masq_process_id as i32), SIGINT).expect("sigint failure");
 
     thread::sleep(Duration::from_millis(300));
     let (stdout, stderr, exit_code) = masq_handle.stop();

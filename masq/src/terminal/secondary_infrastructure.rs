@@ -3,11 +3,27 @@
 use crate::terminal::line_reader::TerminalEvent;
 use linefeed::{Interface, ReadResult, Signal, Writer};
 use masq_lib::command::StdStreams;
+use masq_lib::intentionally_blank;
 
 #[cfg(test)]
 mod test_cfg {
     pub use linefeed::memory::MemoryTerminal;
     pub use masq_lib::intentionally_blank;
+}
+
+macro_rules! improvised_struct_id {
+    () => {
+        #[cfg(test)]
+        fn improvised_struct_id(&self) -> String {
+            intentionally_blank!()
+        }
+    };
+    ($struct_name:literal) => {
+        #[cfg(test)]
+        fn improvised_struct_id(&self) -> String {
+            $struct_name.to_string()
+        }
+    };
 }
 
 pub trait MasqTerminal: Send + Sync {
@@ -18,29 +34,19 @@ pub trait MasqTerminal: Send + Sync {
     fn test_interface(&self) -> test_cfg::MemoryTerminal {
         test_cfg::intentionally_blank!()
     }
-    #[cfg(test)]
-    fn struct_id(&self) -> String {
-        test_cfg::intentionally_blank!()
-    }
+    improvised_struct_id!();
 }
-//you may be looking for the declaration of TerminalReal which is in another file
 
 //needed for being able to use both DefaultTerminal and MemoryTerminal (synchronization tests)
 pub trait WriterLock {
-    #[cfg(test)]
-    fn struct_id(&self) -> String {
-        test_cfg::intentionally_blank!()
-    }
+    improvised_struct_id!();
 }
 
 impl<U: linefeed::Terminal> WriterLock for Writer<'_, '_, U> {
-    #[cfg(test)]
-    fn struct_id(&self) -> String {
-        "linefeed::Writer<_>".to_string()
-    }
+    improvised_struct_id!("linefeed::Writer<_>");
 }
 
-//complication caused by the fact that linefeed::Interface cannot be mocked directly so I created a superior
+//complication caused by the fact that linefeed::Interface cannot be mocked directly, so I created a superordinate
 //trait that finally allows me to have a full mock
 
 pub trait InterfaceWrapper: Send + Sync {
