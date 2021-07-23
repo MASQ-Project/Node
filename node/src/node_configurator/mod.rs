@@ -17,7 +17,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
 use bip39::Language;
-use clap::{crate_description, value_t, App, AppSettings, Arg};
+use clap::{value_t, App, Arg};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
@@ -44,87 +44,74 @@ pub trait NodeConfigurator<T> {
     ) -> Result<T, ConfiguratorError>;
 }
 
-// pub const CONSUMING_WALLET_HELP: &str = "The BIP32 derivation path for the wallet from which your Node \
-//      should pay other Nodes for routing and exit services. (If the path includes single quotes, enclose it in \
-//      double quotes.) Defaults to m/44'/60'/0'/0/0.";
-// pub const EARNING_WALLET_HELP: &str =
-//     "Denotes the wallet into which other Nodes will pay yours for its routing and exit services. May either be a \
-//      BIP32 derivation path (defaults to m/44'/60'/0'/0/1) or an Ethereum wallet address. (If the derivation path \
-//      includes single quotes, enclose it in double quotes.) Addresses must begin with 0x followed by 40 hexadecimal \
-//      digits (case-insensitive).";
-// pub const LANGUAGE_HELP: &str = "The language of the mnemonic phrase.";
-// pub const MNEMONIC_PASSPHRASE_HELP: &str =
-//     "A passphrase for the mnemonic phrase. Cannot be changed later and still produce the same addresses. This is a \
-//      secret; providing it on the command line or in a config file is insecure and unwise. If you don't specify it anywhere, \
-//      you'll be prompted for it at the console.";
-// pub const DB_PASSWORD_HELP: &str =
-//     "A password or phrase to encrypt your consuming wallet in the MASQ Node database or decrypt a keystore file. Can be changed \
-//      later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
-//      insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
-
-//TODO we could move these Clap command-definitions including the app_head somewhere else, I don't feel it's right to have them here (one possible place is "apps.rs" or a new file created)
-pub fn app_head() -> App<'static, 'static> {
-    App::new("MASQNode")
-        .global_settings(if cfg!(test) {
-            &[AppSettings::ColorNever]
-        } else {
-            &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
-        })
-        //.version(crate_version!())
-        //.author(crate_authors!("\n")) // TODO: Put this back in when clap is compatible with Rust 1.38.0
-        .version("1.0.0")
-        .author("MASQ")
-        .about(crate_description!())
-}
+//TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
+pub const CONSUMING_WALLET_HELP: &str = "The BIP32 derivation path for the wallet from which your Node \
+     should pay other Nodes for routing and exit services. (If the path includes single quotes, enclose it in \
+     double quotes.) Defaults to m/44'/60'/0'/0/0.";
+pub const EARNING_WALLET_HELP: &str =
+    "Denotes the wallet into which other Nodes will pay yours for its routing and exit services. May either be a \
+     BIP32 derivation path (defaults to m/44'/60'/0'/0/1) or an Ethereum wallet address. (If the derivation path \
+     includes single quotes, enclose it in double quotes.) Addresses must begin with 0x followed by 40 hexadecimal \
+     digits (case-insensitive).";
+pub const LANGUAGE_HELP: &str = "The language of the mnemonic phrase.";
+pub const MNEMONIC_PASSPHRASE_HELP: &str =
+    "A passphrase for the mnemonic phrase. Cannot be changed later and still produce the same addresses. This is a \
+     secret; providing it on the command line or in a config file is insecure and unwise. If you don't specify it anywhere, \
+     you'll be prompted for it at the console.";
+pub const DB_PASSWORD_HELP: &str =
+    "A password or phrase to encrypt your consuming wallet in the MASQ Node database or decrypt a keystore file. Can be changed \
+     later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
+     insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
 
-// pub fn consuming_wallet_arg<'a>() -> Arg<'a, 'a> {
-//     Arg::with_name("consuming-wallet")
-//         .long("consuming-wallet")
-//         .value_name("CONSUMING-WALLET")
-//         .empty_values(false)
-//         .validator(common_validators::validate_derivation_path)
-//         .help(&CONSUMING_WALLET_HELP)
-// }
-//
-// pub fn earning_wallet_arg<F>(help: &str, validator: F) -> Arg
-// where
-//     F: 'static,
-//     F: Fn(String) -> Result<(), String>,
-// {
-//     Arg::with_name("earning-wallet")
-//         .long("earning-wallet")
-//         .value_name("EARNING-WALLET")
-//         .required(false)
-//         .takes_value(true)
-//         .validator(validator)
-//         .help(help)
-// }
-//
-// pub fn language_arg<'a>() -> Arg<'a, 'a> {
-//     Arg::with_name("language")
-//         .alias("language")
-//         .long("language")
-//         .value_name("LANGUAGE")
-//         .required(true)
-//         .case_insensitive(true)
-//         .possible_values(&Bip39::possible_language_values().as_slice())
-//         .default_value(Bip39::name_from_language(Language::default()))
-//         .help(&LANGUAGE_HELP)
-// }
-//
-// pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
-//     Arg::with_name("mnemonic-passphrase")
-//         .long("mnemonic-passphrase")
-//         .value_name("MNEMONIC-PASSPHRASE")
-//         .required(false)
-//         .takes_value(true)
-//         .min_values(0)
-//         .max_values(1)
-//         .help(MNEMONIC_PASSPHRASE_HELP)
-// }
+//TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
+pub fn consuming_wallet_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("consuming-wallet")
+        .long("consuming-wallet")
+        .value_name("CONSUMING-WALLET")
+        .empty_values(false)
+        .validator(common_validators::validate_derivation_path)
+        .help(&CONSUMING_WALLET_HELP)
+}
+
+pub fn earning_wallet_arg<F>(help: &str, validator: F) -> Arg
+where
+    F: 'static,
+    F: Fn(String) -> Result<(), String>,
+{
+    Arg::with_name("earning-wallet")
+        .long("earning-wallet")
+        .value_name("EARNING-WALLET")
+        .required(false)
+        .takes_value(true)
+        .validator(validator)
+        .help(help)
+}
+
+pub fn language_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("language")
+        .alias("language")
+        .long("language")
+        .value_name("LANGUAGE")
+        .required(true)
+        .case_insensitive(true)
+        .possible_values(&Bip39::possible_language_values().as_slice())
+        .default_value(Bip39::name_from_language(Language::default()))
+        .help(&LANGUAGE_HELP)
+}
+
+pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("mnemonic-passphrase")
+        .long("mnemonic-passphrase")
+        .value_name("MNEMONIC-PASSPHRASE")
+        .required(false)
+        .takes_value(true)
+        .min_values(0)
+        .max_values(1)
+        .help(MNEMONIC_PASSPHRASE_HELP)
+}
 
 pub fn determine_config_file_path(
     dirs_wrapper: &dyn DirsWrapper,
@@ -339,6 +326,7 @@ pub fn request_new_db_password(
     }
 }
 
+//TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
 pub fn request_existing_db_password(
     streams: &mut StdStreams,
     possible_preamble: Option<&str>,
@@ -624,14 +612,13 @@ pub struct WalletCreationConfig {
     pub real_user: RealUser,
 }
 
+//TODO this code (and the allied) is very likely to go away when GH-457 is played
 pub trait WalletCreationConfigMaker {
     fn make_wallet_creation_config(
         &self,
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
     ) -> WalletCreationConfig {
-        todo!(I don't think we any longer need this structures;
-        I cannot look places in the production code neither in tests except those tests performing assurances on this structures themselves which are placed in this file.);
         let mnemonic_passphrase = match value_m!(multi_config, "mnemonic-passphrase", String) {
             Some(mp) => mp,
             None => self.make_mnemonic_passphrase(multi_config, streams),
@@ -1436,6 +1423,7 @@ mod tests {
         );
     }
 
+    //TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
     struct TameWalletCreationConfigMaker {
         app: App<'static, 'static>,
     }

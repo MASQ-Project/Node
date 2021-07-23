@@ -10,6 +10,7 @@ use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };
 use masq_lib::{as_any_impl, short_writeln};
+#[cfg(test)]
 use std::any::Any;
 use std::io::Write;
 

@@ -12,7 +12,6 @@ use masq_lib::constants::{
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
@@ -20,6 +19,9 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
+
+#[cfg(test)]
+use std::any::Any;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 1;
@@ -118,9 +120,7 @@ impl DbInitializer for DbInitializerReal {
         }
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 impl DbInitializerReal {

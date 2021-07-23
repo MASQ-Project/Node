@@ -1,7 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::node_configurator::app_head;
-use clap::{App, Arg};
+use clap::{crate_description, App, AppSettings, Arg};
 use indoc::indoc;
 use lazy_static::lazy_static;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
@@ -9,6 +8,19 @@ use masq_lib::shared_schema::{
     chain_arg, data_directory_arg, db_password_arg, real_user_arg, shared_app, ui_port_arg,
     DB_PASSWORD_HELP,
 };
+
+pub fn app_head() -> App<'static, 'static> {
+    App::new("MASQNode")
+        .global_settings(if cfg!(test) {
+            &[AppSettings::ColorNever]
+        } else {
+            &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
+        })
+        //.version(crate_version!())
+        .version("1.0.0")
+        .author("MASQ")
+        .about(crate_description!())
+}
 
 pub fn app_daemon() -> App<'static, 'static> {
     app_head()

@@ -371,7 +371,7 @@ pub mod mocks {
     }
 
     impl DaemonInitializer for DaemonInitializerMock {
-        fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
+        fn go(&mut self, _streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
             self.go_params.lock().unwrap().push(args.to_vec());
             self.go_results.borrow_mut().remove(0)
         }

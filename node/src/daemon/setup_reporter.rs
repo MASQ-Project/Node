@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
+use crate::apps::app_head;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
@@ -13,7 +14,7 @@ use crate::node_configurator::node_configurator_standard::standard::{
     privileged_parse_args, unprivileged_parse_args,
 };
 use crate::node_configurator::{
-    app_head, data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
+    data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NodeDescriptor;
