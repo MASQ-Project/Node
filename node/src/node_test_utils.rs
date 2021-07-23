@@ -104,12 +104,12 @@ impl IdWrapperMock {
     }
 }
 
-pub struct MockDirsWrapper {
+pub struct DirsWrapperMock {
     data_dir_result: Option<PathBuf>,
     home_dir_result: Option<PathBuf>,
 }
 
-impl DirsWrapper for MockDirsWrapper {
+impl DirsWrapper for DirsWrapperMock {
     fn data_dir(&self) -> Option<PathBuf> {
         self.data_dir_result.clone()
     }
@@ -126,9 +126,9 @@ impl DirsWrapper for MockDirsWrapper {
     }
 }
 
-impl MockDirsWrapper {
+impl DirsWrapperMock {
     pub fn new() -> Self {
-        MockDirsWrapper {
+        DirsWrapperMock {
             data_dir_result: None,
             home_dir_result: None,
         }

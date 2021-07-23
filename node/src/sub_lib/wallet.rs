@@ -436,7 +436,8 @@ mod tests {
     use crate::blockchain::blockchain_interface::contract_address;
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
-    use crate::test_utils::{make_paying_wallet, make_wallet};
+    use crate::test_utils::make_paying_wallet;
+    use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, Seed};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::utils::derivation_path;

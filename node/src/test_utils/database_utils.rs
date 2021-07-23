@@ -93,10 +93,6 @@ impl DbMigrator for DbMigratorMock {
             .push((outdated_schema, target_version, conn));
         self.migrate_database_result.borrow_mut().pop().unwrap()
     }
-
-    fn log(&self) -> &Logger {
-        self.logger.as_ref().unwrap()
-    }
 }
 
 pub fn assurance_query_for_config_table(

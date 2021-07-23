@@ -388,9 +388,10 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
+    use crate::test_utils::assert_contains;
     use crate::test_utils::logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::{assert_contains, make_wallet};
+    use crate::test_utils::make_wallet;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use rusqlite::NO_PARAMS;
     use rusqlite::{Connection, Error, OpenFlags};

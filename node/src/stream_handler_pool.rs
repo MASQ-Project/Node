@@ -557,9 +557,11 @@ mod tests {
     use crate::sub_lib::dispatcher::InboundClientData;
     use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::main_cryptde;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -568,7 +570,6 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::{await_messages, main_cryptde};
     use actix::Actor;
     use actix::Addr;
     use actix::System;

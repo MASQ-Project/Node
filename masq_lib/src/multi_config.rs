@@ -1,17 +1,18 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::command::StdStreams;
+
 use crate::shared_schema::{ConfiguratorError, ParamError};
-use crate::short_writeln;
-use crate::utils::exit_process;
+use crate::utils::WrapResult;
 #[allow(unused_imports)]
 use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
 use regex::Regex;
 use serde::export::Formatter;
+use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use toml::value::Table;
 use toml::Value;
@@ -19,7 +20,8 @@ use toml::Value;
 #[macro_export]
 macro_rules! value_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = $m.arg_matches();
+        use std::ops::Deref;
+        let matches = $m.deref();
         match value_t!(matches, $v, $t) {
             Ok(v) => Some(v),
             Err(_) => None,
@@ -30,7 +32,8 @@ macro_rules! value_m {
 #[macro_export]
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = $m.arg_matches();
+        use std::ops::Deref;
+        let matches = $m.deref();
         let user_specified = matches.occurrences_of($v) > 0;
         match value_t!(matches, $v, $t) {
             Ok(v) => (Some(v), user_specified),
@@ -42,7 +45,8 @@ macro_rules! value_user_specified_m {
 #[macro_export]
 macro_rules! values_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = $m.arg_matches();
+        use std::ops::Deref;
+        let matches = $m.deref();
         match values_t!(matches, $v, $t) {
             Ok(vs) => vs,
             Err(_) => vec![],
@@ -52,8 +56,14 @@ macro_rules! values_m {
 
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
-    #[allow(dead_code)]
-    content: Box<dyn VirtualCommandLine>,
+}
+
+impl<'a> Deref for MultiConfig<'a> {
+    type Target = ArgMatches<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.arg_matches
+    }
 }
 
 impl<'a> MultiConfig<'a> {
@@ -64,11 +74,10 @@ impl<'a> MultiConfig<'a> {
     pub fn try_new(
         schema: &App<'a, 'a>,
         vcls: Vec<Box<dyn VirtualCommandLine>>,
-        streams: &mut StdStreams,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
-        let merged = vcls
+        let merged: Box<dyn VirtualCommandLine> = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
         let arg_matches = match schema
@@ -77,25 +86,17 @@ impl<'a> MultiConfig<'a> {
         {
             Ok(matches) => matches,
             Err(e)
-                if (e.kind == clap::ErrorKind::HelpDisplayed)
-                    || (e.kind == clap::ErrorKind::VersionDisplayed) =>
+                if e.kind == clap::ErrorKind::HelpDisplayed
+                    || e.kind == clap::ErrorKind::VersionDisplayed =>
             {
-                short_writeln!(streams.stdout, "{}", e.message);
-                exit_process(0, "")
+                unreachable!("The program's entry check failed to catch this.")
             }
             Err(e) => return Err(Self::make_configurator_error(e)),
         };
-        Ok(MultiConfig {
-            arg_matches,
-            content: merged,
-        })
+        MultiConfig { arg_matches }.wrap_to_ok()
     }
 
-    pub fn arg_matches(&'a self) -> &ArgMatches<'a> {
-        &self.arg_matches
-    }
-
-    fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
+    pub fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
         let invalid_value_regex =
             Regex::new("Invalid value for.*'--(.*?) <.*? (.*)$").expect("Bad regex");
         if let Some(captures) = invalid_value_regex.captures(&e.message) {
@@ -125,6 +126,24 @@ impl<'a> MultiConfig<'a> {
             return ConfiguratorError::new(requireds);
         }
         ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", e.message))
+    }
+}
+
+//this way I can protect the inner field from having to be public (Default + deref_mut())
+
+impl Default for MultiConfig<'_> {
+    /*use of this method in the production code should be consequently considered alarming
+    it's not intuitive to fill this literally empty default with values, therefore it's believed to stop people from doing so*/
+    fn default() -> Self {
+        Self {
+            arg_matches: Default::default(),
+        }
+    }
+}
+
+impl DerefMut for MultiConfig<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.arg_matches.borrow_mut()
     }
 }
 
@@ -475,10 +494,9 @@ fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
-    use crate::test_utils::fake_stream_holder::FakeStreamHolder;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
     use clap::Arg;
     use std::fs::File;
@@ -585,8 +603,7 @@ pub(crate) mod tests {
                 "20".to_string(),
             ])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -609,8 +626,7 @@ pub(crate) mod tests {
             ])),
             Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -633,8 +649,7 @@ pub(crate) mod tests {
                 "20".to_string(),
             ])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -663,8 +678,7 @@ pub(crate) mod tests {
                 "20,21".to_string(),
             ])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let result = values_m!(subject, "numeric-arg", u64);
 
@@ -689,8 +703,7 @@ pub(crate) mod tests {
             ])),
             Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let result = values_m!(subject, "numeric-arg", u64);
 
@@ -715,8 +728,7 @@ pub(crate) mod tests {
                 "20,21".to_string(),
             ])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let result = values_m!(subject, "numeric-arg", u64);
 
@@ -739,8 +751,7 @@ pub(crate) mod tests {
             ])),
             Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -763,8 +774,7 @@ pub(crate) mod tests {
                 "20".to_string(),
             ])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let result = value_m!(subject, "numeric-arg", u64);
 
@@ -788,8 +798,7 @@ pub(crate) mod tests {
             ])),
             Box::new(CommandLineVcl::new(vec![String::new()])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let (result, user_specified) = value_user_specified_m!(subject, "numeric-arg", u64);
 
@@ -814,8 +823,7 @@ pub(crate) mod tests {
                 "20".to_string(),
             ])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let (result, user_specified) = value_user_specified_m!(subject, "numeric-arg", u64);
 
@@ -846,8 +854,7 @@ pub(crate) mod tests {
             "--numeric-arg".to_string(),
             "20".to_string(),
         ]))];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let (numeric_arg_result, user_specified_numeric) =
             value_user_specified_m!(subject, "numeric-arg", u64);
@@ -858,7 +865,7 @@ pub(crate) mod tests {
         assert!(user_specified_numeric);
         assert_eq!(Some(88), missing_arg_result);
         assert!(!user_specified_missing);
-        assert!(subject.arg_matches().is_present("missing-arg"));
+        assert!(subject.arg_matches.is_present("missing-arg"));
     }
 
     #[test]
@@ -875,10 +882,9 @@ pub(crate) mod tests {
                 "--nonvalued".to_string(),
             ])),
         ];
-        let subject =
-            MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams()).unwrap();
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
-        let result = subject.arg_matches();
+        let result = subject.arg_matches;
 
         assert!(result.is_present("nonvalued"));
     }
@@ -901,9 +907,7 @@ pub(crate) mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(vec![String::new()]))];
 
-        let result = MultiConfig::try_new(&schema, vcls, &mut FakeStreamHolder::new().streams())
-            .err()
-            .unwrap();
+        let result = MultiConfig::try_new(&schema, vcls).err().unwrap();
 
         let expected =
             ConfiguratorError::required("another-arg", "ParamError parameter not provided")

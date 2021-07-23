@@ -52,7 +52,7 @@ struct MockNode {
     guts: Option<MockNodeGuts>,
 }
 
-impl Command for MockNode {
+impl Command<u8> for MockNode {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let node_addr = match Self::interpret_args(args, streams.stderr) {
             Ok(p) => p,

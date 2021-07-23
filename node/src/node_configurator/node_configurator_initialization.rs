@@ -1,58 +1,41 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crate::node_configurator::{app_head, NodeConfigurator};
+use crate::apps::app_daemon;
+use crate::node_configurator::NodeConfigurator;
 use crate::sub_lib::utils::make_new_multi_config;
-use clap::{App, Arg};
-use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::multi_config::CommandLineVcl;
-use masq_lib::shared_schema::{ui_port_arg, ConfiguratorError};
-
-lazy_static! {
-    static ref UI_PORT_HELP: String = format!(
-        "The port at which user interfaces will connect to the Daemon. (This is NOT the port at which \
-        interfaces will connect to the Node: no one will know that until after the Node starts. \
-        Best to accept the default unless you know what you're doing. Must be between {} and {}.",
-        LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    );
-}
+use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
+use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::utils::ExpectValue;
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct InitializationConfig {
     pub ui_port: u16,
 }
 
-pub struct NodeConfiguratorInitialization {}
+pub struct NodeConfiguratorInitializationReal;
 
-impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitialization {
-    fn configure(
-        &self,
+impl NodeConfiguratorInitializationReal {
+    pub fn make_multi_config_daemon_specific(
         args: &[String],
-        streams: &mut StdStreams,
-    ) -> Result<InitializationConfig, ConfiguratorError> {
-        let app = app();
-        let multi_config = make_new_multi_config(
-            &app,
+    ) -> Result<MultiConfig, ConfiguratorError> {
+        make_new_multi_config(
+            &app_daemon(),
             vec![Box::new(CommandLineVcl::new(args.to_vec()))],
-            streams,
-        )?;
-        let mut config = InitializationConfig::default();
-        initialization::parse_args(&multi_config, &mut config, streams);
-        Ok(config)
+        )
     }
 }
 
-pub fn app() -> App<'static, 'static> {
-    app_head()
-        .arg(
-            Arg::with_name("initialization")
-                .long("initialization")
-                .required(true)
-                .takes_value(false)
-                .help("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"),
-        )
-        .arg(ui_port_arg(&UI_PORT_HELP))
+impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationReal {
+    fn configure(
+        &self,
+        multi_config: &MultiConfig,
+        streams: Option<&mut StdStreams>,
+    ) -> Result<InitializationConfig, ConfiguratorError> {
+        let mut config = InitializationConfig::default();
+        initialization::parse_args(&multi_config, &mut config, streams.expect_v("StdStreams"));
+        Ok(config)
+    }
 }
 
 mod initialization {
@@ -85,7 +68,7 @@ mod tests {
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+        let multi_config = make_new_test_multi_config(&app_daemon(), vcls).unwrap();
 
         initialization::parse_args(
             &multi_config,
@@ -104,7 +87,7 @@ mod tests {
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
+        let multi_config = make_new_test_multi_config(&app_daemon(), vcls).unwrap();
 
         initialization::parse_args(
             &multi_config,
@@ -113,5 +96,65 @@ mod tests {
         );
 
         assert_eq!(config.ui_port, 4321);
+    }
+}
+
+#[cfg(test)]
+pub mod mocks {
+    use crate::node_configurator::node_configurator_initialization::InitializationConfig;
+    use crate::node_configurator::NodeConfigurator;
+    use crate::server_initializer::tests::{
+        extract_values_from_multi_config, MultiConfigExtractedValues,
+    };
+    use masq_lib::command::StdStreams;
+    use masq_lib::multi_config::MultiConfig;
+    use masq_lib::shared_schema::ConfiguratorError;
+    use std::cell::RefCell;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    pub struct NodeConfiguratorInitializationMock {
+        demanded_values_from_multi_config: RefCell<Vec<String>>,
+        configure_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
+        configure_result: RefCell<Vec<Result<InitializationConfig, ConfiguratorError>>>,
+    }
+
+    impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationMock {
+        fn configure(
+            &self,
+            multi_config: &MultiConfig,
+            _streams: Option<&mut StdStreams>,
+        ) -> Result<InitializationConfig, ConfiguratorError> {
+            extract_values_from_multi_config(
+                &self.demanded_values_from_multi_config,
+                &self.configure_params,
+                multi_config,
+            );
+            self.configure_result.borrow_mut().remove(0)
+        }
+    }
+
+    impl NodeConfiguratorInitializationMock {
+        pub fn demanded_values_from_multi_config(self, demanded_values: Vec<String>) -> Self {
+            self.demanded_values_from_multi_config
+                .replace(demanded_values);
+            self
+        }
+
+        pub fn configure_result(
+            self,
+            result: Result<InitializationConfig, ConfiguratorError>,
+        ) -> Self {
+            self.configure_result.borrow_mut().push(result);
+            self
+        }
+
+        pub fn configure_params(
+            mut self,
+            params: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
+        ) -> Self {
+            self.configure_params = params.clone();
+            self
+        }
     }
 }

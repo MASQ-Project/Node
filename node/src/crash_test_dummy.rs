@@ -49,7 +49,7 @@ where
             CrashPoint::Message => Ok(Async::Ready(())),
             CrashPoint::Panic => {
                 error!(self.logger, "Intercepted instruction to panic.");
-                panic!("{}", self.message.clone());
+                panic!("{}", self.message);
             }
             CrashPoint::Error => {
                 error!(self.logger, "Intercepted instruction to return error.");

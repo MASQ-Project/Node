@@ -2,8 +2,7 @@
 use crate::dns_modifier::DnsModifier;
 use crate::dns_modifier_factory::DnsModifierFactory;
 use crate::dns_modifier_factory::DnsModifierFactoryReal;
-use masq_lib::command::Command;
-use masq_lib::command::StdStreams;
+use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
 use std::io::Write;
 
@@ -26,7 +25,7 @@ impl Default for DnsUtility {
     }
 }
 
-impl Command for DnsUtility {
+impl Command<u8> for DnsUtility {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let action = match args {
             a if a.len() < 2 => return DnsUtility::usage(streams),

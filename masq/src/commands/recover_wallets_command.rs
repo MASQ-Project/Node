@@ -5,8 +5,10 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, ArgGroup, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::messages::{UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
+#[cfg(test)]
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
@@ -82,10 +84,7 @@ impl Command for RecoverWalletsCommand {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        //for testing
-        self
-    }
+    as_any_impl!();
 }
 
 pub fn recover_wallets_subcommand() -> App<'static, 'static> {
