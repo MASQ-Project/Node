@@ -353,23 +353,21 @@ impl IgdpTransactor {
             let change_handler_config = match &(*chc_ref) {
                 Some (chc) => chc,
                 None => {
-                    todo! ()
-                    // error! (logger, "ChangeHandlerConfig is uninitialized", e);
-                    // change_handler (AutomapChange::Error(AutomapError::ChangeHandlerUnconfigured));
-                    // return false
+                    error! (inner.logger, "ChangeHandlerConfig is uninitialized");
+                    change_handler (AutomapChange::Error(AutomapError::ChangeHandlerUnconfigured));
+                    return false
                 }
             };
-            if let Err (_e) = Self::remap_port(
+            if let Err (e) = Self::remap_port(
                 inner.mapping_adder.as_ref(),
                 gateway_wrapper.as_ref(),
                 change_handler_config.hole_port,
                 Duration::from_secs (change_handler_config.lifetime as u64),
                 &inner.logger,
             ) {
-                todo! ();
-                // error! (logger, "Remapping failure: {:?}", e);
-                // change_handler (AutomapChange::Error(e));
-                // return true
+                error! (inner.logger, "Remapping failure: {:?}", e);
+                change_handler (AutomapChange::Error(e));
+                return true
             }
             *last_remapped = Instant::now();
         }
@@ -490,6 +488,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use core::ptr::addr_of;
+    use std::ops::Sub;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -1161,6 +1160,75 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(
             "WARN: test: Change handler was started before retrieving public IP",
+        );
+    }
+
+    #[test]
+    fn thread_guts_iteration_handles_missing_change_handler_config() {
+        init_test_logging();
+        let new_public_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
+        let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(new_public_ip));
+        let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
+            gateway_opt: Some(Box::new(gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: Some (new_public_ip),
+            mapping_adder: Box::new (MappingAdderMock::new()),
+            change_handler_config_opt: RefCell::new (None),
+            logger: Logger::new("test"),
+        }));
+        let change_log_arc = Arc::new(Mutex::new(vec![]));
+        let change_log_inner = change_log_arc.clone();
+        let change_handler: ChangeHandler =
+            Box::new(move |change| change_log_inner.lock().unwrap().push(change));
+
+        let result = IgdpTransactor::thread_guts_iteration(&change_handler, &inner_arc,
+            &mut Instant::now().sub(Duration::from_secs(1)),
+            Duration::from_millis(0));
+
+        assert!(!result);
+        let change_log = change_log_arc.lock().unwrap();
+        assert_eq!(
+            *change_log,
+            vec![AutomapChange::Error(AutomapError::ChangeHandlerUnconfigured)]
+        );
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: test: ChangeHandlerConfig is uninitialized",
+        );
+    }
+
+    #[test]
+    fn thread_guts_iteration_handles_remap_error() {
+        init_test_logging();
+        let new_public_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
+        let gateway = GatewayWrapperMock::new()
+            .get_external_ip_result(Ok(new_public_ip));
+        let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
+            gateway_opt: Some(Box::new(gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: Some (new_public_ip),
+            mapping_adder: Box::new (MappingAdderMock::new()
+                .add_mapping_result(Err(AutomapError::PermanentMappingError("Booga".to_string())))
+            ),
+            change_handler_config_opt: RefCell::new (Some (ChangeHandlerConfig{ hole_port: 6689, lifetime: 600 })),
+            logger: Logger::new("test"),
+        }));
+        let change_log_arc = Arc::new(Mutex::new(vec![]));
+        let change_log_inner = change_log_arc.clone();
+        let change_handler: ChangeHandler =
+            Box::new(move |change| change_log_inner.lock().unwrap().push(change));
+
+        let result = IgdpTransactor::thread_guts_iteration(&change_handler, &inner_arc,
+            &mut Instant::now().sub(Duration::from_secs(1)),
+            Duration::from_millis(0));
+
+        assert!(result);
+        let change_log = change_log_arc.lock().unwrap();
+        assert_eq!(
+            *change_log,
+            vec![AutomapChange::Error(AutomapError::PermanentMappingError("Booga".to_string()))]
+        );
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: test: Remapping failure: PermanentMappingError(\"Booga\")",
         );
     }
 
