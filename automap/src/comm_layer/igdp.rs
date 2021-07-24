@@ -166,7 +166,7 @@ impl Transactor for IgdpTransactor {
             .expect ("Ensuring the gateway didn't work");
         inner.mapping_adder.add_mapping(gateway.as_ref(), hole_port, lifetime)
             .map(|remap_interval| {
-                inner.change_handler_config_opt.replace(Some (ChangeHandlerConfig{ hole_port, lifetime }));
+                inner.change_handler_config_opt.replace(Some (ChangeHandlerConfig{ hole_port, lifetime: Duration::from_secs (lifetime as u64) }));
                 remap_interval
             })
     }
@@ -362,7 +362,7 @@ impl IgdpTransactor {
                 inner.mapping_adder.as_ref(),
                 gateway_wrapper.as_ref(),
                 change_handler_config.hole_port,
-                Duration::from_secs (change_handler_config.lifetime as u64),
+                change_handler_config.lifetime,
                 &inner.logger,
             ) {
                 error! (inner.logger, "Remapping failure: {:?}", e);
@@ -791,7 +791,7 @@ mod tests {
 
         assert_eq!(result, 617);
         let inner = subject.inner_arc.lock().unwrap();
-        assert_eq! (inner.change_handler_config_opt.take(), Some (ChangeHandlerConfig{ hole_port: 7777, lifetime: 1234 }));
+        assert_eq! (inner.change_handler_config_opt.take(), Some (ChangeHandlerConfig{ hole_port: 7777, lifetime: Duration::from_secs (1234) }));
         let add_port_params = add_port_params_arc.lock().unwrap();
         assert_eq!(
             *add_port_params,
@@ -1093,7 +1093,7 @@ mod tests {
             housekeeping_commander_opt: None,
             public_ip_opt: None,
             mapping_adder,
-            change_handler_config_opt: RefCell::new (Some (ChangeHandlerConfig{ hole_port: 6689, lifetime: 10000 })),
+            change_handler_config_opt: RefCell::new (Some (ChangeHandlerConfig{ hole_port: 6689, lifetime: Duration::from_secs (10) })),
             logger: Logger::new ("timed_remap_test"),
         }));
         let inner_arc_inner = inner_arc.clone();
@@ -1112,10 +1112,10 @@ mod tests {
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
         handle.join().unwrap();
         let inner = inner_arc.lock().unwrap();
-        assert_eq! (inner.change_handler_config_opt.take(), Some (ChangeHandlerConfig{ hole_port: 6689, lifetime: 10000 }));
+        assert_eq! (inner.change_handler_config_opt.take(), Some (ChangeHandlerConfig{ hole_port: 6689, lifetime: Duration::from_secs (10) }));
         let (_, hole_port, lifetime) = add_mapping_params_arc.lock().unwrap().remove(0);
         assert_eq! (hole_port, 6689);
-        assert_eq! (lifetime, 10000);
+        assert_eq! (lifetime, 10);
         TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
     }
 
@@ -1209,7 +1209,7 @@ mod tests {
             mapping_adder: Box::new (MappingAdderMock::new()
                 .add_mapping_result(Err(AutomapError::PermanentMappingError("Booga".to_string())))
             ),
-            change_handler_config_opt: RefCell::new (Some (ChangeHandlerConfig{ hole_port: 6689, lifetime: 600 })),
+            change_handler_config_opt: RefCell::new (Some (ChangeHandlerConfig{ hole_port: 6689, lifetime: Duration::from_secs(600) })),
             logger: Logger::new("test"),
         }));
         let change_log_arc = Arc::new(Mutex::new(vec![]));

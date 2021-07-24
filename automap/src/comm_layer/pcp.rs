@@ -107,7 +107,7 @@ impl Transactor for PcpTransactor {
             .borrow_mut()
             .replace(ChangeHandlerConfig {
                 hole_port,
-                lifetime: approved_lifetime,
+                lifetime: Duration::from_secs (approved_lifetime as u64),
             });
         Ok (approved_lifetime / 2)
     }
@@ -224,7 +224,7 @@ impl PcpTransactor {
         logger: Logger,
     ) {
         let mut last_remapped = Instant::now();
-        let mut remap_interval = Duration::from_secs(change_handler_config.lifetime as u64);
+        let mut remap_interval = change_handler_config.lifetime;
         let mut buffer = [0u8; 100];
         announcement_socket
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
@@ -266,7 +266,7 @@ impl PcpTransactor {
                     &inner,
                     router_addr,
                     change_handler_config.hole_port,
-                    Duration::from_secs(change_handler_config.lifetime as u64),
+                    change_handler_config.lifetime,
                     &logger,
                 ) {
                     error! (logger, "Remapping failure: {:?}", e);
@@ -418,7 +418,7 @@ impl MappingTransactor for MappingTransactorReal {
                 response.opcode
             )));
         }
-        // TODO: Change self.change_handler_config to update lifetime
+        // TODO: Change change_handler_config to update lifetime
         Self::compute_mapping_result (response)
     }
 }
@@ -927,7 +927,7 @@ mod tests {
         assert_eq!(result, Ok(4000));
         if let Some(chc) = subject.change_handler_config_opt.borrow().deref() {
             assert_eq!(chc.hole_port, 6666);
-            assert_eq!(chc.lifetime, 8000);
+            assert_eq!(chc.lifetime, Duration::from_secs (8000));
         } else {
             panic!("change_handler_config not set");
         }
@@ -1107,7 +1107,7 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: 321,
+            lifetime: Duration::from_secs(321),
         }));
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1175,7 +1175,7 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: 321,
+            lifetime: Duration::from_millis (321),
         }));
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1276,7 +1276,7 @@ mod tests {
             factories,
         }));
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let change_handler_config = ChangeHandlerConfig{ hole_port: 0, lifetime: 1000 };
+        let change_handler_config = ChangeHandlerConfig{ hole_port: 0, lifetime: Duration::from_secs (1) };
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000)).unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
@@ -1366,7 +1366,7 @@ mod tests {
             factories,
         }));
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let change_handler_config = ChangeHandlerConfig{ hole_port: 6689, lifetime: 1000 };
+        let change_handler_config = ChangeHandlerConfig{ hole_port: 6689, lifetime: Duration::from_secs (1000) };
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80)).unwrap();
 
         let handle = thread::spawn (move || {
@@ -1418,7 +1418,7 @@ mod tests {
             &change_handler,
             ChangeHandlerConfig {
                 hole_port: 0,
-                lifetime: u32::MAX,
+                lifetime: Duration::from_secs (u32::MAX as u64),
             },
             10,
             logger,
@@ -1454,7 +1454,7 @@ mod tests {
             &change_handler,
             ChangeHandlerConfig {
                 hole_port: 0,
-                lifetime: u32::MAX,
+                lifetime: Duration::from_secs (u32::MAX as u64),
             },
             10,
             logger,
@@ -1495,7 +1495,7 @@ mod tests {
                 &change_handler,
                 ChangeHandlerConfig {
                     hole_port: 0,
-                    lifetime: u32::MAX,
+                    lifetime: Duration::from_secs (u32::MAX as u64),
                 },
                 10,
                 logger,

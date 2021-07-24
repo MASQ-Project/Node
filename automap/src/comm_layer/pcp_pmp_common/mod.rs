@@ -31,7 +31,13 @@ pub const READ_TIMEOUT_MILLIS: u64 = 1000;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChangeHandlerConfig {
     pub hole_port: u16,
-    pub lifetime: u32,
+    pub lifetime: Duration,
+}
+
+impl ChangeHandlerConfig {
+    pub fn lifetime_secs (&self) -> u32 {
+        self.lifetime.as_secs() as u32
+    }
 }
 
 pub trait UdpSocketWrapper: Send {
@@ -320,6 +326,30 @@ pub mod mocks {
                 },
             }
         }
+    }
+
+    #[test]
+    fn change_handler_config_lifetime_secs_handles_greater_than_one_second() {
+        let subject = ChangeHandlerConfig {
+            hole_port: 0,
+            lifetime: Duration::from_millis(1001)
+        };
+
+        let result = subject.lifetime_secs ();
+
+        assert_eq! (result, 1);
+    }
+
+    #[test]
+    fn change_handler_config_lifetime_secs_handles_less_than_one_second() {
+        let subject = ChangeHandlerConfig {
+            hole_port: 0,
+            lifetime: Duration::from_millis(999)
+        };
+
+        let result = subject.lifetime_secs ();
+
+        assert_eq! (result, 0);
     }
 
     #[test]

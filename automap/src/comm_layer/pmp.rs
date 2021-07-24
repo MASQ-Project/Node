@@ -93,7 +93,7 @@ impl Transactor for PmpTransactor {
             .add_mapping(&self.factories_arc,
             SocketAddr::new (router_ip, self.router_port), hole_port, lifetime)
             .map (|remap_interval| {
-                self.change_handler_config_opt.replace (Some (ChangeHandlerConfig{ hole_port, lifetime }));
+                self.change_handler_config_opt.replace (Some (ChangeHandlerConfig{ hole_port, lifetime: Duration::from_secs(lifetime as u64) }));
                 remap_interval
             })
     }
@@ -262,7 +262,7 @@ impl PmpTransactor {
         logger: Logger,
     ) {
         let mut last_remapped = Instant::now();
-        let mut remap_interval = Duration::from_secs(change_handler_config.lifetime as u64);
+        let mut remap_interval = change_handler_config.lifetime;
         announcement_socket
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
@@ -303,7 +303,7 @@ impl PmpTransactor {
                     &factories_arc,
                     SocketAddr::new (router_ip, router_port),
                     change_handler_config.hole_port,
-                    Duration::from_secs (change_handler_config.lifetime as u64),
+                    change_handler_config.lifetime,
                     &logger,
                 ) {
                     todo! ();
@@ -404,7 +404,7 @@ impl PmpTransactor {
             epoch_opt: None,
             internal_port: change_handler_config.hole_port,
             external_port: change_handler_config.hole_port,
-            lifetime: change_handler_config.lifetime,
+            lifetime: change_handler_config.lifetime_secs(),
         };
         packet.opcode_data = Box::new(opcode_data);
         debug!(
@@ -942,7 +942,7 @@ mod tests {
     fn add_mapping_works() {
         let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let mut request_buffer = [0u8; 1100];
-        let request = make_request(Opcode::MapTcp, make_map_request(7777, 10000));
+        let request = make_request(Opcode::MapTcp, make_map_request(7777, 10));
         let request_len = request.marshal(&mut request_buffer).unwrap();
         let mut response_buffer = [0u8; 1100];
         let response = make_response(
@@ -967,10 +967,10 @@ mod tests {
         let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
         let subject = make_subject(socket_factory);
 
-        let result = subject.add_mapping(router_ip, 7777, 10000);
+        let result = subject.add_mapping(router_ip, 7777, 10);
 
         assert_eq!(result, Ok(4000));
-        assert_eq!(subject.change_handler_config_opt.borrow().as_ref(), Some (&ChangeHandlerConfig{ hole_port: 7777, lifetime: 10000 }));
+        assert_eq!(subject.change_handler_config_opt.borrow().as_ref(), Some (&ChangeHandlerConfig{ hole_port: 7777, lifetime: Duration::from_secs(10) }));
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
             *set_read_timeout_params,
@@ -1132,7 +1132,7 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: 321,
+            lifetime: Duration::from_millis(321),
         }));
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1204,7 +1204,7 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: 321,
+            lifetime: Duration::from_millis(321),
         }));
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1253,7 +1253,7 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: 321,
+            lifetime: Duration::from_millis (321),
         }));
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1304,7 +1304,7 @@ mod tests {
         let (tx, rx) = unbounded();
         let mapping_adder = Box::new (MappingAdderMock::new ()); // no results specified
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let change_handler_config = ChangeHandlerConfig{ hole_port: 0, lifetime: 1000 };
+        let change_handler_config = ChangeHandlerConfig{ hole_port: 0, lifetime: Duration::from_secs(1) };
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000)).unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
@@ -1342,7 +1342,7 @@ mod tests {
                 .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![])
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let change_handler_config = ChangeHandlerConfig{ hole_port: 6689, lifetime: 1000 };
+        let change_handler_config = ChangeHandlerConfig{ hole_port: 6689, lifetime: Duration::from_secs(1000) };
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80)).unwrap();
 
         let handle = thread::spawn (move || {
@@ -1468,7 +1468,7 @@ mod tests {
             &change_handler,
             &ChangeHandlerConfig {
                 hole_port: 2222,
-                lifetime: 10000,
+                lifetime: Duration::from_secs(10),
             },
             &logger,
         );
@@ -1514,7 +1514,7 @@ mod tests {
             &change_handler,
             &ChangeHandlerConfig {
                 hole_port: 2222,
-                lifetime: 10000,
+                lifetime: Duration::from_secs(10),
             },
             &logger,
         );
@@ -1552,7 +1552,7 @@ mod tests {
             &change_handler,
             &ChangeHandlerConfig {
                 hole_port: 2222,
-                lifetime: 10000,
+                lifetime: Duration::from_secs (10),
             },
             &logger,
         );
@@ -1600,7 +1600,7 @@ mod tests {
             &change_handler,
             &ChangeHandlerConfig {
                 hole_port: 2222,
-                lifetime: 10000,
+                lifetime: Duration::from_secs (10),
             },
             &logger,
         );
