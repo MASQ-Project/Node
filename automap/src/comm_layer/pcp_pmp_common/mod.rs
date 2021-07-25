@@ -31,12 +31,17 @@ pub const READ_TIMEOUT_MILLIS: u64 = 1000;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChangeHandlerConfig {
     pub hole_port: u16,
-    pub lifetime: Duration,
+    pub next_lifetime: Duration,
+    pub remap_interval: Duration,
 }
 
 impl ChangeHandlerConfig {
-    pub fn lifetime_secs (&self) -> u32 {
-        self.lifetime.as_secs() as u32
+    pub fn next_lifetime_secs(&self) -> u32 {
+        self.next_lifetime.as_secs() as u32
+    }
+
+    pub fn remap_interval_secs(&self) -> u32 {
+        self.remap_interval.as_secs() as u32
     }
 }
 
@@ -329,25 +334,53 @@ pub mod mocks {
     }
 
     #[test]
-    fn change_handler_config_lifetime_secs_handles_greater_than_one_second() {
+    fn change_handler_config_next_lifetime_secs_handles_greater_than_one_second() {
         let subject = ChangeHandlerConfig {
             hole_port: 0,
-            lifetime: Duration::from_millis(1001)
+            next_lifetime: Duration::from_millis(1001),
+            remap_interval: Duration::from_millis(0),
         };
 
-        let result = subject.lifetime_secs ();
+        let result = subject.next_lifetime_secs();
 
         assert_eq! (result, 1);
     }
 
     #[test]
-    fn change_handler_config_lifetime_secs_handles_less_than_one_second() {
+    fn change_handler_config_next_lifetime_secs_handles_less_than_one_second() {
         let subject = ChangeHandlerConfig {
             hole_port: 0,
-            lifetime: Duration::from_millis(999)
+            next_lifetime: Duration::from_millis(999),
+            remap_interval: Duration::from_millis(2000),
         };
 
-        let result = subject.lifetime_secs ();
+        let result = subject.next_lifetime_secs();
+
+        assert_eq! (result, 0);
+    }
+
+    #[test]
+    fn change_handler_config_remap_interval_secs_handles_greater_than_one_second() {
+        let subject = ChangeHandlerConfig {
+            hole_port: 0,
+            next_lifetime: Duration::from_millis(0),
+            remap_interval: Duration::from_millis(1001),
+        };
+
+        let result = subject.remap_interval_secs();
+
+        assert_eq! (result, 1);
+    }
+
+    #[test]
+    fn change_handler_config_remap_interval_secs_handles_less_than_one_second() {
+        let subject = ChangeHandlerConfig {
+            hole_port: 0,
+            next_lifetime: Duration::from_millis(2000),
+            remap_interval: Duration::from_millis(999),
+        };
+
+        let result = subject.remap_interval_secs();
 
         assert_eq! (result, 0);
     }

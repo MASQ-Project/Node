@@ -93,7 +93,12 @@ impl Transactor for PmpTransactor {
             .add_mapping(&self.factories_arc,
             SocketAddr::new (router_ip, self.router_port), hole_port, lifetime)
             .map (|remap_interval| {
-                self.change_handler_config_opt.replace (Some (ChangeHandlerConfig{ hole_port, lifetime: Duration::from_secs(lifetime as u64) }));
+                let next_lifetime = remap_interval * 2;
+                self.change_handler_config_opt.replace (Some (ChangeHandlerConfig{
+                    hole_port,
+                    next_lifetime: Duration::from_secs(next_lifetime as u64),
+                    remap_interval: Duration::from_secs(remap_interval as u64),
+                }));
                 remap_interval
             })
     }
@@ -262,7 +267,7 @@ impl PmpTransactor {
         logger: Logger,
     ) {
         let mut last_remapped = Instant::now();
-        let mut remap_interval = change_handler_config.lifetime;
+        let mut remap_interval = change_handler_config.remap_interval;
         announcement_socket
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
@@ -303,7 +308,7 @@ impl PmpTransactor {
                     &factories_arc,
                     SocketAddr::new (router_ip, router_port),
                     change_handler_config.hole_port,
-                    change_handler_config.lifetime,
+                    change_handler_config.remap_interval,
                     &logger,
                 ) {
                     todo! ();
@@ -404,7 +409,7 @@ impl PmpTransactor {
             epoch_opt: None,
             internal_port: change_handler_config.hole_port,
             external_port: change_handler_config.hole_port,
-            lifetime: change_handler_config.lifetime_secs(),
+            lifetime: change_handler_config.next_lifetime_secs(),
         };
         packet.opcode_data = Box::new(opcode_data);
         debug!(
@@ -458,7 +463,7 @@ impl PmpTransactor {
 }
 
 trait MappingAdder: Send {
-    // TODO: Maybe substitute ChangeHandlerConfig for hole_port and lifetime
+    // TODO: Maybe substitute mutable ChangeHandlerConfig for hole_port and lifetime
     fn add_mapping(&self, factories_arc: &Arc<Mutex<Factories>>, router_addr: SocketAddr,
                    hole_port: u16, lifetime: u32) -> Result<u32, AutomapError>;
 }
@@ -948,7 +953,7 @@ mod tests {
         let response = make_response(
             Opcode::MapTcp,
             ResultCode::Success,
-            make_map_response(4321, 7777, 8000),
+            make_map_response(4321, 7777, 8),
         );
         let response_len = response.marshal(&mut response_buffer).unwrap();
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
@@ -969,8 +974,12 @@ mod tests {
 
         let result = subject.add_mapping(router_ip, 7777, 10);
 
-        assert_eq!(result, Ok(4000));
-        assert_eq!(subject.change_handler_config_opt.borrow().as_ref(), Some (&ChangeHandlerConfig{ hole_port: 7777, lifetime: Duration::from_secs(10) }));
+        assert_eq!(result, Ok(4));
+        assert_eq!(subject.change_handler_config_opt.borrow().as_ref(), Some (&ChangeHandlerConfig{
+            hole_port: 7777,
+            next_lifetime: Duration::from_secs(8),
+            remap_interval: Duration::from_secs(4),
+        }));
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
             *set_read_timeout_params,
@@ -1132,7 +1141,8 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: Duration::from_millis(321),
+            next_lifetime: Duration::from_millis(321),
+            remap_interval: Duration::from_millis(0),
         }));
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1204,7 +1214,8 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: Duration::from_millis(321),
+            next_lifetime: Duration::from_millis(321),
+            remap_interval: Duration::from_millis(0),
         }));
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1253,7 +1264,8 @@ mod tests {
         subject.listen_port = change_handler_port;
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
-            lifetime: Duration::from_millis (321),
+            next_lifetime: Duration::from_millis (321),
+            remap_interval: Duration::from_millis (0),
         }));
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1304,7 +1316,11 @@ mod tests {
         let (tx, rx) = unbounded();
         let mapping_adder = Box::new (MappingAdderMock::new ()); // no results specified
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let change_handler_config = ChangeHandlerConfig{ hole_port: 0, lifetime: Duration::from_secs(1) };
+        let change_handler_config = ChangeHandlerConfig{
+            hole_port: 0,
+            next_lifetime: Duration::from_secs(2),
+            remap_interval: Duration::from_secs(1),
+        };
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000)).unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
@@ -1342,7 +1358,11 @@ mod tests {
                 .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![])
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let change_handler_config = ChangeHandlerConfig{ hole_port: 6689, lifetime: Duration::from_secs(1000) };
+        let change_handler_config = ChangeHandlerConfig{
+            hole_port: 6689,
+            next_lifetime: Duration::from_secs(1000),
+            remap_interval: Duration::from_millis(80)
+        };
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80)).unwrap();
 
         let handle = thread::spawn (move || {
@@ -1367,7 +1387,7 @@ mod tests {
         assert_eq! (add_mapping_params.0.lock().unwrap().free_port_factory.make (), 5555);
         assert_eq! (add_mapping_params.1, SocketAddr::from_str ("6.6.6.6:6666").unwrap());
         assert_eq! (add_mapping_params.2, 6689);
-        assert_eq! (add_mapping_params.3, 1000);
+        assert_eq! (add_mapping_params.3, 1);
         TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
     }
 
@@ -1466,9 +1486,10 @@ mod tests {
             SocketAddr::from_str("7.7.7.7:1234").unwrap(),
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &ChangeHandlerConfig {
+            &mut ChangeHandlerConfig {
                 hole_port: 2222,
-                lifetime: Duration::from_secs(10),
+                next_lifetime: Duration::from_secs(10),
+                remap_interval: Duration::from_secs(0),
             },
             &logger,
         );
@@ -1514,7 +1535,8 @@ mod tests {
             &change_handler,
             &ChangeHandlerConfig {
                 hole_port: 2222,
-                lifetime: Duration::from_secs(10),
+                next_lifetime: Duration::from_secs(10),
+                remap_interval: Duration::from_secs(0),
             },
             &logger,
         );
@@ -1550,9 +1572,10 @@ mod tests {
             router_address,
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &ChangeHandlerConfig {
+            &mut ChangeHandlerConfig {
                 hole_port: 2222,
-                lifetime: Duration::from_secs (10),
+                next_lifetime: Duration::from_secs (10),
+                remap_interval: Duration::from_secs (0),
             },
             &logger,
         );
@@ -1598,9 +1621,10 @@ mod tests {
             router_address,
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &ChangeHandlerConfig {
+            &mut ChangeHandlerConfig {
                 hole_port: 2222,
-                lifetime: Duration::from_secs (10),
+                next_lifetime: Duration::from_secs (10),
+                remap_interval: Duration::from_secs (0)
             },
             &logger,
         );
