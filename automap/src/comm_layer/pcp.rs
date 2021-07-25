@@ -250,9 +250,8 @@ impl PcpTransactor {
                                 Self::handle_announcement(
                                     &inner,
                                     router_addr,
-                                    change_handler_config.hole_port,
                                     change_handler,
-                                    change_handler_config.next_lifetime.as_secs() as u32,
+                                    &mut change_handler_config,
                                     &logger,
                                 );
                             }
@@ -312,21 +311,14 @@ impl PcpTransactor {
     fn handle_announcement(
         inner: &PcpTransactorInner,
         router_addr: SocketAddr,
-        hole_port: u16,
         change_handler: &ChangeHandler,
-        change_handler_lifetime: u32,
+        change_handler_config: &mut ChangeHandlerConfig,
         logger: &Logger,
     ) {
-        // TODO: Modify parameter list for this function to accept &mut ChangeHandlerConfig,
-        // then pass it on to mapping_transaction().
         match inner.mapping_transactor.mapping_transaction(
             &inner.factories,
             router_addr,
-            &mut ChangeHandlerConfig {
-                hole_port,
-                next_lifetime: Duration::from_secs (change_handler_lifetime as u64),
-                remap_interval: Duration::from_secs (0),
-            },
+            change_handler_config,
         ) {
             Ok((_, opcode_data)) => {
                 change_handler(AutomapChange::NewIp(opcode_data.external_ip_address))
@@ -1572,6 +1564,11 @@ mod tests {
         let change_log_arc = Arc::new (Mutex::new (vec![]));
         let change_log_inner = change_log_arc.clone();
         let change_handler: ChangeHandler = Box::new(move |change| change_log_inner.lock().unwrap().push (change));
+        let mut change_handler_config = ChangeHandlerConfig {
+            hole_port: 0,
+            next_lifetime: Default::default(),
+            remap_interval: Default::default()
+        };
         let logger = Logger::new("Automap");
         let mapping_transactor = Box::new (MappingTransactorReal::default());
         let inner = PcpTransactorInner {mapping_transactor, factories};
@@ -1579,9 +1576,8 @@ mod tests {
         PcpTransactor::handle_announcement(
             &inner,
             SocketAddr::new (localhost(), 0),
-            0,
             &change_handler,
-            0,
+            &mut change_handler_config,
             &logger,
         );
 

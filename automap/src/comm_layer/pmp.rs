@@ -87,18 +87,18 @@ impl Transactor for PmpTransactor {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
+        let mut change_handler_config = ChangeHandlerConfig {
+            hole_port,
+            next_lifetime: Duration::from_secs (lifetime as u64),
+            remap_interval: Duration::from_secs(0),
+        };
         self.mapping_adder_arc
             .lock()
             .expect("Housekeeping thread is dead")
             .add_mapping(&self.factories_arc,
-            SocketAddr::new (router_ip, self.router_port), hole_port, lifetime)
+            SocketAddr::new (router_ip, self.router_port), &mut change_handler_config)
             .map (|remap_interval| {
-                let next_lifetime = remap_interval * 2;
-                self.change_handler_config_opt.replace (Some (ChangeHandlerConfig{
-                    hole_port,
-                    next_lifetime: Duration::from_secs(next_lifetime as u64),
-                    remap_interval: Duration::from_secs(remap_interval as u64),
-                }));
+                self.change_handler_config_opt.replace (Some (change_handler_config));
                 remap_interval
             })
     }
@@ -160,8 +160,7 @@ impl Transactor for PmpTransactor {
                 &rx,
                 mapping_adder_arc,
                 factories_arc,
-                router_ip,
-                router_port,
+                SocketAddr::new (router_ip, router_port),
                 &change_handler,
                 change_handler_config,
                 read_timeout_millis,
@@ -259,70 +258,105 @@ impl PmpTransactor {
         rx: &Receiver<HousekeepingThreadCommand>,
         mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>>,
         factories_arc: Arc<Mutex<Factories>>,
-        router_ip: IpAddr, // TODO: Make this a single SocketAddr
-        router_port: u16,
+        router_addr: SocketAddr,
         change_handler: &ChangeHandler,
-        change_handler_config: ChangeHandlerConfig,
+        mut change_handler_config: ChangeHandlerConfig,
         read_timeout_millis: u64,
         logger: Logger,
     ) {
         let mut last_remapped = Instant::now();
-        let mut remap_interval = change_handler_config.remap_interval;
         announcement_socket
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
-        loop {
-            let mut buffer = [0u8; 100];
-            match announcement_socket.recv_from(&mut buffer) {
-                Ok((_, announcement_source_address)) => {
-                    if announcement_source_address.ip() != router_ip {
-                        continue;
+        while Self::thread_guts_iteration(announcement_socket, rx, &mapping_adder_arc, &factories_arc,
+            router_addr, change_handler, &mut change_handler_config, &mut last_remapped, &logger) {};
+    }
+
+    fn thread_guts_iteration (
+        announcement_socket: &dyn UdpSocketWrapper,
+        rx: &Receiver<HousekeepingThreadCommand>,
+        mapping_adder_arc: &Arc<Mutex<Box<dyn MappingAdder>>>,
+        factories_arc: &Arc<Mutex<Factories>>,
+        router_addr: SocketAddr,
+        change_handler: &ChangeHandler,
+        change_handler_config: &mut ChangeHandlerConfig,
+        last_remapped: &mut Instant,
+        logger: &Logger,
+    ) -> bool {
+        if Self::check_for_announcement(announcement_socket, &factories_arc,
+            router_addr, change_handler, change_handler_config, logger) {
+            return true
+        }
+        Self::maybe_remap (mapping_adder_arc, factories_arc, router_addr, change_handler,
+            change_handler_config, last_remapped, logger);
+        match rx.try_recv () {
+            Ok(HousekeepingThreadCommand::Stop) => return false,
+            Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) =>
+                change_handler_config.remap_interval = Duration::from_millis(remap_after),
+            Err (_) => (),
+        };
+        return true
+    }
+
+    fn check_for_announcement (
+        announcement_socket: &dyn UdpSocketWrapper,
+        factories_arc: &Arc<Mutex<Factories>>,
+        router_addr: SocketAddr,
+        change_handler: &ChangeHandler,
+        change_handler_config: &mut ChangeHandlerConfig,
+        logger: &Logger,
+    ) -> bool {
+        let mut buffer = [0u8; 100];
+        match announcement_socket.recv_from(&mut buffer) {
+            Ok((_, announcement_source_address)) => {
+                if announcement_source_address.ip() != router_addr.ip() {
+                    return true
+                }
+                match Self::parse_buffer(&buffer, announcement_source_address, &logger) {
+                    Ok(public_ip) => {
+                        Self::handle_announcement(
+                            factories_arc.clone(),
+                            router_addr,
+                            public_ip,
+                            change_handler,
+                            &change_handler_config,
+                            &logger,
+                        );
                     }
-                    match Self::parse_buffer(&buffer, announcement_source_address, &logger) {
-                        Ok(public_ip) => {
-                            let router_address = SocketAddr::new(router_ip, router_port);
-                            Self::handle_announcement(
-                                factories_arc.clone(),
-                                router_address,
-                                public_ip,
-                                change_handler,
-                                &change_handler_config,
-                                &logger,
-                            );
-                        }
-                        Err(_) => continue, // log already generated by parse_buffer()
-                    }
+                    Err(_) => return true, // log already generated by parse_buffer()
                 }
-                Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
-                    ()
-                }
-                Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
-            let since_last_remapped = last_remapped.elapsed();
-            if since_last_remapped.gt (&remap_interval) {
-                let mapping_adder = mapping_adder_arc
-                    .lock()
-                    .expect("PcpTransactor is dead");
-                if let Err (_e) = Self::remap_port(
-                    (*mapping_adder).as_ref(),
-                    &factories_arc,
-                    SocketAddr::new (router_ip, router_port),
-                    change_handler_config.hole_port,
-                    change_handler_config.remap_interval,
-                    &logger,
-                ) {
-                    todo! ();
-                    // error! (logger, "Remapping failure: {:?}", e);
-                    // change_handler (AutomapChange::Error(e));
-                }
-                last_remapped = Instant::now();
+            Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
+            Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
+        };
+        false
+    }
+
+    fn maybe_remap (
+        mapping_adder_arc: &Arc<Mutex<Box<dyn MappingAdder>>>,
+        factories_arc: &Arc<Mutex<Factories>>,
+        router_addr: SocketAddr,
+        change_handler: &ChangeHandler,
+        change_handler_config: &mut ChangeHandlerConfig,
+        last_remapped: &mut Instant,
+        logger: &Logger,
+    ) {
+        let since_last_remapped = last_remapped.elapsed();
+        if since_last_remapped.gt (&change_handler_config.remap_interval) {
+            let mapping_adder = mapping_adder_arc
+                .lock()
+                .expect("PcpTransactor is dead");
+            if let Err (e) = Self::remap_port(
+                (*mapping_adder).as_ref(),
+                &factories_arc,
+                router_addr,
+                change_handler_config,
+                &logger,
+            ) {
+                error! (logger, "Automatic PMP remapping failed for port {}: {:?})", change_handler_config.hole_port, e);
+                change_handler (AutomapChange::Error(e));
             }
-            match rx.try_recv () {
-                Ok(HousekeepingThreadCommand::Stop) => break,
-                Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) =>
-                    remap_interval = Duration::from_millis(remap_after),
-                Err (_) => (),
-            }
+            *last_remapped = Instant::now();
         }
     }
 
@@ -330,17 +364,14 @@ impl PmpTransactor {
         mapping_adder: &dyn MappingAdder,
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
-        hole_port: u16,
-        requested_lifetime: Duration,
+        change_handler_config: &mut ChangeHandlerConfig,
         logger: &Logger,
     ) -> Result<u32, AutomapError> {
-        info! (logger, "Remapping port {}", hole_port);
-        let mut requested_lifetime_secs = requested_lifetime.as_secs() as u32;
-        if requested_lifetime_secs < 1 {
-            requested_lifetime_secs = 1;
+        info! (logger, "Remapping port {}", change_handler_config.hole_port);
+        if change_handler_config.next_lifetime.as_millis() < 1000 {
+            change_handler_config.next_lifetime = Duration::from_millis (1000);
         }
-        // TODO: Change the ChangeHandlerConfig's lifetime if this succeeds
-        Ok(mapping_adder.add_mapping(factories_arc, router_addr, hole_port, requested_lifetime_secs)?)
+        Ok(mapping_adder.add_mapping(factories_arc, router_addr, change_handler_config)?)
     }
 
     fn parse_buffer(
@@ -463,9 +494,8 @@ impl PmpTransactor {
 }
 
 trait MappingAdder: Send {
-    // TODO: Maybe substitute mutable ChangeHandlerConfig for hole_port and lifetime
     fn add_mapping(&self, factories_arc: &Arc<Mutex<Factories>>, router_addr: SocketAddr,
-                   hole_port: u16, lifetime: u32) -> Result<u32, AutomapError>;
+                   change_handler_config: &mut ChangeHandlerConfig) -> Result<u32, AutomapError>;
 }
 
 #[derive (Clone)]
@@ -479,16 +509,16 @@ impl Default for MappingAdderReal {
 
 impl MappingAdder for MappingAdderReal {
     fn add_mapping(&self, factories_arc: &Arc<Mutex<Factories>>, router_addr: SocketAddr,
-                   hole_port: u16, lifetime: u32) -> Result<u32, AutomapError> {
+                   change_handler_config: &mut ChangeHandlerConfig) -> Result<u32, AutomapError> {
         let request = PmpPacket {
             direction: Direction::Request,
             opcode: Opcode::MapTcp,
             result_code_opt: None,
             opcode_data: Box::new(MapOpcodeData {
                 epoch_opt: None,
-                internal_port: hole_port,
-                external_port: hole_port,
-                lifetime,
+                internal_port: change_handler_config.hole_port,
+                external_port: change_handler_config.hole_port,
+                lifetime: change_handler_config.next_lifetime_secs(),
             }),
         };
         let response = PmpTransactor::transact(factories_arc, router_addr.ip(),
@@ -506,7 +536,11 @@ impl MappingAdder for MappingAdderReal {
             .result_code_opt
             .expect("transact allowed absent result code")
         {
-            ResultCode::Success => Ok(opcode_data.lifetime / 2),
+            ResultCode::Success => {
+                change_handler_config.next_lifetime = Duration::from_secs (opcode_data.lifetime as u64);
+                change_handler_config.remap_interval = Duration::from_secs ((opcode_data.lifetime / 2) as u64);
+                Ok(opcode_data.lifetime / 2)
+            },
             rc => {
                 let msg = format!("{:?}", rc);
                 Err (if rc.is_permanent() {
@@ -542,18 +576,23 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+    use std::ops::Sub;
 
     struct MappingAdderMock {
-        add_mapping_params: Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, u16, u32)>>>,
+        add_mapping_params: Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, ChangeHandlerConfig)>>>,
         add_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
     }
 
     impl MappingAdder for MappingAdderMock {
         fn add_mapping(&self, factories_arc: &Arc<Mutex<Factories>>, router_addr: SocketAddr,
-                       hole_port: u16, lifetime: u32) -> Result<u32, AutomapError> {
+                       change_handler_config: &mut ChangeHandlerConfig) -> Result<u32, AutomapError> {
+            let result = self.add_mapping_results.borrow_mut().remove (0);
+            if let Ok(remap_interval) = &result {
+                change_handler_config.remap_interval = Duration::from_secs (*remap_interval as u64);
+            }
             self.add_mapping_params.lock().unwrap().push ((factories_arc.clone(), router_addr,
-                hole_port, lifetime));
-            self.add_mapping_results.borrow_mut().remove (0)
+                change_handler_config.clone()));
+            result
         }
     }
 
@@ -565,7 +604,7 @@ mod tests {
             }
         }
 
-        fn add_mapping_params (mut self, params: &Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, u16, u32)>>>) -> Self {
+        fn add_mapping_params (mut self, params: &Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, ChangeHandlerConfig)>>>) -> Self {
             self.add_mapping_params = params.clone();
             self
         }
@@ -693,8 +732,11 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new (Mutex::new (factories)),
             SocketAddr::new (router_ip, ROUTER_PORT),
-            6666,
-            4321,
+            &mut ChangeHandlerConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs (4321),
+                remap_interval: Default::default()
+            },
         )
             .err()
             .unwrap();
@@ -725,8 +767,11 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new (Mutex::new (factories)),
             SocketAddr::new (router_ip, ROUTER_PORT),
-            6666,
-            4321,
+            &mut ChangeHandlerConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs (4321),
+                remap_interval: Default::default()
+            },
         );
 
         assert_eq!(
@@ -754,8 +799,11 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new (Mutex::new (factories)),
             SocketAddr::new (router_ip, ROUTER_PORT),
-            6666,
-            4321,
+            &mut ChangeHandlerConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs (4321),
+                remap_interval: Default::default()
+            },
         );
 
         assert_eq!(
@@ -781,8 +829,11 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new (Mutex::new (factories)),
             SocketAddr::new (router_ip, ROUTER_PORT),
-            6666,
-            4321,
+            &mut ChangeHandlerConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs (4321),
+                remap_interval: Default::default()
+            },
         );
 
         assert_eq!(
@@ -814,8 +865,11 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new (Mutex::new (factories)),
             SocketAddr::new (router_ip, ROUTER_PORT),
-            6666,
-            4321,
+            &mut ChangeHandlerConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs (4321),
+                remap_interval: Default::default()
+            },
         );
 
         assert_eq!(
@@ -849,8 +903,11 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new (Mutex::new (factories)),
             SocketAddr::new (router_ip, ROUTER_PORT),
-            6666,
-            4321,
+            &mut ChangeHandlerConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs (4321),
+                remap_interval: Default::default()
+            },
         );
 
         assert_eq!(
@@ -1329,8 +1386,7 @@ mod tests {
             &rx,
             Arc::new (Mutex::new (mapping_adder)),
             Arc::new(Mutex::new(Factories::default())),
-            localhost(),
-            0,
+            SocketAddr::new (localhost(), 0),
             &change_handler,
             change_handler_config,
             10,
@@ -1371,8 +1427,7 @@ mod tests {
                 &rx,
                 Arc::new (Mutex::new (mapping_adder)),
                 Arc::new(Mutex::new(factories)),
-                IpAddr::from_str ("6.6.6.6").unwrap(),
-                6666,
+                SocketAddr::new (IpAddr::from_str ("6.6.6.6").unwrap(), 6666),
                 &change_handler,
                 change_handler_config,
                 10,
@@ -1386,9 +1441,51 @@ mod tests {
         let add_mapping_params = add_mapping_params_arc.lock().unwrap().remove(0);
         assert_eq! (add_mapping_params.0.lock().unwrap().free_port_factory.make (), 5555);
         assert_eq! (add_mapping_params.1, SocketAddr::from_str ("6.6.6.6:6666").unwrap());
-        assert_eq! (add_mapping_params.2, 6689);
-        assert_eq! (add_mapping_params.3, 1);
+        assert_eq! (add_mapping_params.2, ChangeHandlerConfig {
+            hole_port: 6689,
+            next_lifetime: Duration::from_secs(1000),
+            remap_interval: Duration::from_secs (300)
+        });
         TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
+    }
+
+    #[test]
+    fn maybe_remap_handles_remapping_error() {
+        init_test_logging();
+        let mapping_adder: Box<dyn MappingAdder> = Box::new (MappingAdderMock::new()
+            .add_mapping_result(Err (AutomapError::ProtocolError ("Booga".to_string()))));
+        let mapping_adder_arc = Arc::new (Mutex::new (mapping_adder));
+        let factories_arc = Arc::new (Mutex::new (Factories::default()));
+        let router_addr = SocketAddr::from_str ("1.2.3.4:5678").unwrap();
+        let change_records = vec![];
+        let change_records_arc = Arc::new (Mutex::new (change_records));
+        let change_records_arc_inner = change_records_arc.clone();
+        let change_handler: ChangeHandler = Box::new (move |change| {
+            change_records_arc_inner.lock().unwrap().push (change);
+        });
+        let mut change_handler_config = ChangeHandlerConfig {
+            hole_port: 6689,
+            next_lifetime: Duration::from_secs (600),
+            remap_interval: Duration::from_secs (0),
+        };
+        let mut last_remapped = Instant::now().sub (Duration::from_secs (3600));
+        let logger = Logger::new ("maybe_remap_handles_remapping_error");
+
+        PmpTransactor::maybe_remap (
+            &mapping_adder_arc,
+            &factories_arc,
+            router_addr,
+            &change_handler,
+            &mut change_handler_config,
+            &mut last_remapped,
+            &logger,
+        );
+
+        let change_records = change_records_arc.lock().unwrap();
+        assert_eq! (*change_records, vec![AutomapChange::Error (AutomapError::ProtocolError("Booga".to_string()))]);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: maybe_remap_handles_remapping_error: Automatic PMP remapping failed for port 6689: ProtocolError(\"Booga\")"
+        );
     }
 
     #[test]
@@ -1651,15 +1748,17 @@ mod tests {
             &mapping_adder,
             &Arc::new (Mutex::new (Factories::default())),
             SocketAddr::new (localhost(), 0),
-            0,
-            Duration::from_millis (100900),
+            &mut ChangeHandlerConfig {
+                hole_port: 0,
+                next_lifetime: Duration::from_millis (100900),
+                remap_interval: Default::default()
+            },
             &Logger::new ("test"),
         );
 
         assert_eq! (result, Err(AutomapError::Unknown));
         let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        let requested_lifetime: u32 = add_mapping_params.remove(0).3;
-        assert_eq! (requested_lifetime, 100);
+        assert_eq! (add_mapping_params.remove(0).2.next_lifetime_secs(), 100);
     }
 
     #[test]
@@ -1673,15 +1772,17 @@ mod tests {
             &mapping_adder,
             &Arc::new (Mutex::new (Factories::default())),
             SocketAddr::new (localhost(), 0),
-            0,
-            Duration::from_millis (80),
+            &mut ChangeHandlerConfig {
+                hole_port: 0,
+                next_lifetime: Duration::from_millis (80),
+                remap_interval: Default::default()
+            },
             &Logger::new ("test"),
         );
 
         assert_eq! (result, Err(AutomapError::Unknown));
         let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        let requested_lifetime: u32 = add_mapping_params.remove(0).3;
-        assert_eq! (requested_lifetime, 1);
+        assert_eq! (add_mapping_params.remove(0).2.next_lifetime_secs(), 1);
     }
 
     #[test]
@@ -1693,8 +1794,11 @@ mod tests {
             &mapping_adder,
             &Arc::new (Mutex::new (Factories::default())),
             SocketAddr::new (localhost(), 0),
-            0,
-            Duration::from_millis (1000),
+            &mut ChangeHandlerConfig {
+                hole_port: 0,
+                next_lifetime: Default::default(),
+                remap_interval: Default::default()
+            },
             &Logger::new ("test"),
         );
 
@@ -1710,8 +1814,11 @@ mod tests {
             &mapping_transactor,
             &Arc::new (Mutex::new (Factories::default())),
             SocketAddr::new (localhost(), 0),
-            0,
-            Duration::from_millis (1000),
+            &mut ChangeHandlerConfig {
+                hole_port: 0,
+                next_lifetime: Default::default(),
+                remap_interval: Default::default()
+            },
             &Logger::new ("test"),
         );
 
