@@ -57,8 +57,8 @@ impl MasqProcess {
         }
     }
 
-    pub fn start_interactive(self, port: u16, mocked_terminal: bool) -> StopHandle {
-        if mocked_terminal {
+    pub fn start_interactive(self, port: u16, fake_terminal: bool) -> StopHandle {
+        if fake_terminal {
             std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)
         };
         let mut command = Command::new(executable_path(executable_name("masq")));
@@ -161,59 +161,3 @@ fn child_from_command(command: &mut Command) -> Child {
         .spawn()
         .unwrap()
 }
-
-#[derive(Default)]
-#[allow(dead_code)]
-pub struct MasqProcessMediated {}
-
-#[allow(dead_code)]
-impl MasqProcessMediated {
-    #[cfg(not(target_os = "windows"))]
-    pub fn start_masq_interactive_in_bash(
-        self,
-        port: u16,
-        mocked_terminal: bool,
-    ) -> (StopHandle, StdinHandle, i32) {
-        if mocked_terminal {
-            std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)
-        };
-        let mut shell_child = Self::prepare_shell();
-        let mut bash_stdin_handle = StdinHandle::new(shell_child.stdin.take().unwrap());
-        let masq_executable = executable_path(executable_name("masq"));
-        // let file_directory = PATH_TO_MASQ_GENERATED_FOR_INT_TESTS.join(test_module);
-        // let _ = create_dir_all(&file_directory);
-        // let masq_output_full_path = file_directory.join("redirected_output.txt");
-        // let cash_file_full_path = file_directory.join("cash_file.txt");
-        // File::create(&masq_output_full_path).unwrap();
-        // File::create(&cash_file_full_path).unwrap();
-        let bash_command = format!(
-            "{} --ui-port {}",
-            masq_executable.as_os_str().to_str().unwrap(),
-            port
-        );
-        eprintln!(
-            "About to start masq in the background using {:?}",
-            bash_command
-        );
-        bash_stdin_handle.type_command(&bash_command);
-
-        (
-            StopHandle {
-                name: "shell".to_string(),
-                child: shell_child,
-            },
-            bash_stdin_handle,
-            0, //TODO make meaningful or remove, should have been the masq process's PID
-        )
-    }
-
-    fn prepare_shell() -> Child {
-        let mut command = Command::new("bash");
-        child_from_command(&mut command)
-    }
-}
-//
-// lazy_static! {
-//     pub static ref PATH_TO_MASQ_GENERATED_FOR_INT_TESTS: PathBuf =
-//         current_dir().unwrap().join(BASE_TEST_DIR);
-// }

@@ -3,7 +3,6 @@
 use crate::terminal::line_reader::TerminalEvent;
 use linefeed::{Interface, ReadResult, Signal, Writer};
 use masq_lib::command::StdStreams;
-use masq_lib::intentionally_blank;
 
 #[cfg(test)]
 mod test_cfg {
@@ -15,7 +14,7 @@ macro_rules! improvised_struct_id {
     () => {
         #[cfg(test)]
         fn improvised_struct_id(&self) -> String {
-            intentionally_blank!()
+            test_cfg::intentionally_blank!()
         }
     };
     ($struct_name:literal) => {

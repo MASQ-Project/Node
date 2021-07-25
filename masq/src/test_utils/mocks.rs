@@ -17,6 +17,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
+use masq_lib::utils::WrapResult;
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::fmt::Arguments;
@@ -608,7 +609,7 @@ pub struct InterfaceRawMock {
     set_report_signal_params: Arc<Mutex<Vec<(Signal, bool)>>>,
     get_buffer_results: Arc<Mutex<Vec<String>>>,
     clear_buffer_params: Arc<Mutex<Vec<()>>>,
-    lock_writer_append_results: Arc<Mutex<Vec<std::io::Result<Box<WriterInactive>>>>>,
+    lock_writer_append_results: Arc<Mutex<Vec<std::io::Result<Box<WriterInactive>>>>>, //for testing the outer result not the structure when ok
 }
 
 impl InterfaceWrapper for InterfaceRawMock {
@@ -619,12 +620,15 @@ impl InterfaceWrapper for InterfaceRawMock {
         self.add_history_unique_params.lock().unwrap().push(line)
     }
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + 'static>> {
-        //this is a case with complicated consequences
+        //I tried to avoid this inconvenient mock but WriterLock cannot implement Send;
+        //even though I discovered a path to throw away my own MutexGuard used in
+        //my IntegrationTestWriter then I was warned that the crucial implementer linefeed::Writer
+        //has one within as well.
         let taken_result = self.lock_writer_append_results.lock().unwrap().remove(0);
         if let Err(err) = taken_result {
             Err(err)
         } else {
-            Ok(taken_result.unwrap() as Box<dyn WriterLock + 'static>)
+            (taken_result.unwrap() as Box<dyn WriterLock + 'static>).wrap_to_ok()
         }
     }
 
