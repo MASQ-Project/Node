@@ -8,6 +8,7 @@ use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
+use masq_lib::logger::Logger;
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
@@ -18,7 +19,6 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
-use masq_lib::logger::Logger;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 1;
@@ -218,7 +218,13 @@ impl DbInitializerReal {
             "gas price",
         );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
-        Self::set_config_value(conn, "mapping_protocol", None, false, "last successful protocol for port mapping on the router");
+        Self::set_config_value(
+            conn,
+            "mapping_protocol",
+            None,
+            false,
+            "last successful protocol for port mapping on the router",
+        );
     }
 
     fn create_payable_table(&self, conn: &Connection) {
@@ -529,6 +535,7 @@ mod tests {
     use crate::test_utils::database_utils::{
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db, DbMigratorMock,
     };
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
@@ -541,7 +548,6 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     fn db_initialize_does_not_create_if_directed_not_to_and_directory_does_not_exist() {

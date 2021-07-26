@@ -2,10 +2,10 @@
 
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
+use masq_lib::logger::Logger;
 use masq_lib::utils::{ExpectValue, WrapResult};
 use rusqlite::{Transaction, NO_PARAMS};
 use std::fmt::Debug;
-use masq_lib::logger::Logger;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -314,6 +314,7 @@ mod tests {
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db,
     };
     use lazy_static::lazy_static;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{BASE_TEST_DIR, DEFAULT_CHAIN_ID};
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
@@ -323,7 +324,6 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use masq_lib::test_utils::logging::{TestLogHandler, init_test_logging};
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -862,11 +862,11 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        let execute_upon_transaction_params = execute_upon_transaction_params_arc.lock().unwrap();
+        let mut execute_upon_transaction_params = execute_upon_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *execute_upon_transaction_params[0],
+            *execute_upon_transaction_params.remove (0),
             vec![
-                "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)"
+                "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)".to_string()
             ]
         );
         let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();

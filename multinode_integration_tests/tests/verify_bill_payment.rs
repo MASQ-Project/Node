@@ -117,7 +117,11 @@ fn verify_bill_payment() {
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = MASQRealNode::node_home_dir(&project_root, &consuming_node_name);
     let consuming_node_connection = DbInitializerReal::default()
-        .initialize(Path::new(&Path::new(&consuming_node_path), cluster.chain_id, true)
+        .initialize(
+            Path::new(&Path::new(&consuming_node_path)),
+            cluster.chain_id,
+            true,
+        )
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
     open_all_file_permissions(consuming_node_path.clone().into());
@@ -152,7 +156,11 @@ fn verify_bill_payment() {
         cluster.prepare_real_node(&serving_node_1_config);
     let serving_node_1_path = MASQRealNode::node_home_dir(&project_root, &serving_node_1_name);
     let serving_node_1_connection = DbInitializerReal::default()
-        .initialize(Path::new(&Path::new(&serving_node_1_path), cluster.chain_id, true)
+        .initialize(
+            Path::new(&Path::new(&serving_node_1_path)),
+            cluster.chain_id,
+            true,
+        )
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao
@@ -164,7 +172,11 @@ fn verify_bill_payment() {
         cluster.prepare_real_node(&serving_node_2_config);
     let serving_node_2_path = MASQRealNode::node_home_dir(&project_root, &serving_node_2_name);
     let serving_node_2_connection = DbInitializerReal::default()
-        .initialize(Path::new(&Path::new(&serving_node_2_path), cluster.chain_id, true)
+        .initialize(
+            Path::new(&Path::new(&serving_node_2_path)),
+            cluster.chain_id,
+            true,
+        )
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao
@@ -176,7 +188,11 @@ fn verify_bill_payment() {
         cluster.prepare_real_node(&serving_node_3_config);
     let serving_node_3_path = MASQRealNode::node_home_dir(&project_root, &serving_node_3_name);
     let serving_node_3_connection = DbInitializerReal::default()
-        .initialize(Path::new(&Path::new(&serving_node_3_path), cluster.chain_id, true)
+        .initialize(
+            Path::new(&Path::new(&serving_node_3_path)),
+            cluster.chain_id,
+            true,
+        )
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao

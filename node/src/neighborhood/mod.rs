@@ -38,7 +38,7 @@ use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::peer_actors::{BindMessage, StartMessage, NewPublicIp};
+use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
@@ -410,9 +410,17 @@ impl Neighborhood {
 
     fn handle_new_public_ip(&mut self, msg: NewPublicIp) {
         let new_public_ip = msg.ip;
-        let old_public_ip = self.neighborhood_database.root().node_addr_opt().expect_v("Root node").ip_addr();
+        let old_public_ip = self
+            .neighborhood_database
+            .root()
+            .node_addr_opt()
+            .expect_v("Root node")
+            .ip_addr();
         self.neighborhood_database.new_public_ip(new_public_ip);
-        info! (self.logger, "Changed public IP from {} to {}", old_public_ip, new_public_ip);
+        info!(
+            self.logger,
+            "Changed public IP from {} to {}", old_public_ip, new_public_ip
+        );
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -3060,14 +3068,22 @@ mod tests {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(1234, true);
         let neighbor = make_node_record(1050, true);
-        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node,
-            Some (&neighbor));
-        let new_public_ip = IpAddr::from_str ("4.3.2.1").unwrap();
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
-        subject.handle_new_public_ip(NewPublicIp {ip: new_public_ip});
+        subject.handle_new_public_ip(NewPublicIp { ip: new_public_ip });
 
-        assert_eq! (subject.neighborhood_database.root().node_addr_opt().unwrap().ip_addr(), new_public_ip);
-        TestLogHandler::new().exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
+        assert_eq!(
+            subject
+                .neighborhood_database
+                .root()
+                .node_addr_opt()
+                .unwrap()
+                .ip_addr(),
+            new_public_ip
+        );
+        TestLogHandler::new()
+            .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
 
     #[test]

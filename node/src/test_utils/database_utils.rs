@@ -2,12 +2,12 @@
 
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::DbMigrator;
+use masq_lib::logger::Logger;
 use rusqlite::{Connection, NO_PARAMS};
 use std::cell::RefCell;
 use std::fs::remove_file;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use masq_lib::logger::Logger;
 
 //the only difference to the original is that we create the db in every call anew
 pub fn revive_tables_of_the_version_0_and_return_the_connection_to_the_db(

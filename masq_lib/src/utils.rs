@@ -2,13 +2,13 @@
 
 use lazy_static::lazy_static;
 use std::fmt;
-use std::fmt::{Display, Formatter};
 use std::fmt::Debug;
+use std::fmt::{Display, Formatter};
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::str::FromStr;
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -46,10 +46,13 @@ impl FromStr for AutomapProtocol {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
-            "PCP" => Ok (AutomapProtocol::Pcp),
-            "PMP" => Ok (AutomapProtocol::Pmp),
-            "IGDP" => Ok (AutomapProtocol::Igdp),
-            _ => Err(format! ("Valid protocol names are PCP, PMP, and IGDP; not '{}'", s))
+            "PCP" => Ok(AutomapProtocol::Pcp),
+            "PMP" => Ok(AutomapProtocol::Pmp),
+            "IGDP" => Ok(AutomapProtocol::Igdp),
+            _ => Err(format!(
+                "Valid protocol names are PCP, PMP, and IGDP; not '{}'",
+                s
+            )),
         }
     }
 }
@@ -280,28 +283,34 @@ mod tests {
 
     #[test]
     fn automap_protocol_from_str_works() {
-        let input = vec![
-            "pcp", "PCP",
-            "pmp", "PMP",
-            "igdp", "IGDP",
-        ];
+        let input = vec!["pcp", "PCP", "pmp", "PMP", "igdp", "IGDP"];
 
-        let result: Vec<AutomapProtocol> = input.into_iter()
-            .map (|s| AutomapProtocol::from_str(s).unwrap())
-            .collect ();
+        let result: Vec<AutomapProtocol> = input
+            .into_iter()
+            .map(|s| AutomapProtocol::from_str(s).unwrap())
+            .collect();
 
-        assert_eq! (result, vec![
-            AutomapProtocol::Pcp, AutomapProtocol::Pcp,
-            AutomapProtocol::Pmp, AutomapProtocol::Pmp,
-            AutomapProtocol::Igdp, AutomapProtocol::Igdp,
-        ]);
+        assert_eq!(
+            result,
+            vec![
+                AutomapProtocol::Pcp,
+                AutomapProtocol::Pcp,
+                AutomapProtocol::Pmp,
+                AutomapProtocol::Pmp,
+                AutomapProtocol::Igdp,
+                AutomapProtocol::Igdp,
+            ]
+        );
     }
 
     #[test]
     fn automap_protocol_from_str_rejects_bad_name() {
         let result = AutomapProtocol::from_str("booga");
 
-        assert_eq! (result, Err("Valid protocol names are PCP, PMP, and IGDP; not 'booga'".to_string()));
+        assert_eq!(
+            result,
+            Err("Valid protocol names are PCP, PMP, and IGDP; not 'booga'".to_string())
+        );
     }
 
     #[test]

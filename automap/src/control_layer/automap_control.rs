@@ -3,12 +3,14 @@
 use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
-use crate::comm_layer::{AutomapError, Transactor, HousekeepingThreadCommand, DEFAULT_MAPPING_LIFETIME_SECONDS};
+use crate::comm_layer::{
+    AutomapError, HousekeepingThreadCommand, Transactor, DEFAULT_MAPPING_LIFETIME_SECONDS,
+};
+use crossbeam_channel::Sender;
 use masq_lib::utils::{plus, AutomapProtocol};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::IpAddr;
-use crossbeam_channel::Sender;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum AutomapChange {
@@ -115,10 +117,12 @@ impl AutomapControl for AutomapControlReal {
         let remap_after_sec: u32 = protocol_info_result?.payload;
         self.housekeeping_thread_commander_opt
             .as_ref()
-            .expect ("housekeeping_thread_commander was unpopulated after maybe_start_housekeeper()")
-            .send (HousekeepingThreadCommand::SetRemapIntervalMs(remap_after_sec as u64 * 1000u64))
-            .expect ("Housekeeping thread is dead");
-        Ok (())
+            .expect("housekeeping_thread_commander was unpopulated after maybe_start_housekeeper()")
+            .send(HousekeepingThreadCommand::SetRemapIntervalMs(
+                remap_after_sec as u64 * 1000u64,
+            ))
+            .expect("Housekeeping thread is dead");
+        Ok(())
     }
 
     fn delete_mappings(&mut self) -> Result<(), AutomapError> {
@@ -183,14 +187,15 @@ impl AutomapControlReal {
                 }
                 (Ok(protocol_info), Some(inner)) => {
                     match self.transactors[inner.transactor_idx]
-                        .start_housekeeping_thread(change_handler, protocol_info.router_ip) {
-                        Err(e) => Err (e),
-                        Ok (commander) => {
+                        .start_housekeeping_thread(change_handler, protocol_info.router_ip)
+                    {
+                        Err(e) => Err(e),
+                        Ok(commander) => {
                             self.housekeeping_thread_commander_opt = Some(commander);
                             Ok(())
                         }
                     }
-                },
+                }
                 (Err(e), _) => {
                     self.change_handler_opt = Some(change_handler);
                     Err(e.clone())
@@ -281,13 +286,13 @@ impl AutomapControlReal {
 mod tests {
     use super::*;
     use crate::comm_layer::{AutomapErrorCause, Transactor};
+    use crossbeam_channel::{unbounded, TryRecvError};
     use lazy_static::lazy_static;
     use std::any::Any;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crossbeam_channel::{unbounded, TryRecvError};
 
     lazy_static! {
         static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -306,7 +311,8 @@ mod tests {
         delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
         delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
         start_change_handler_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
-        start_change_handler_results: RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
+        start_change_handler_results:
+            RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
         stop_change_handler_params: Arc<Mutex<Vec<()>>>,
     }
 
@@ -445,7 +451,10 @@ mod tests {
             self
         }
 
-        pub fn start_change_handler_result(self, result: Result<Sender<HousekeepingThreadCommand>, AutomapError>) -> Self {
+        pub fn start_change_handler_result(
+            self,
+            result: Result<Sender<HousekeepingThreadCommand>, AutomapError>,
+        ) -> Self {
             self.start_change_handler_results.borrow_mut().push(result);
             self
         }
@@ -775,7 +784,10 @@ mod tests {
 
         subject.add_mapping(4567).unwrap();
 
-        assert_eq! (rx.try_recv(), Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000000)));
+        assert_eq!(
+            rx.try_recv(),
+            Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000000))
+        );
         assert_eq!(subject.usual_protocol_opt, Some(AutomapProtocol::Pcp));
         assert_eq!(
             subject.hole_ports.iter().collect::<Vec<&u16>>(),
@@ -827,7 +839,7 @@ mod tests {
             tx.clone(),
         );
         subject.change_handler_opt = None;
-        subject.housekeeping_thread_commander_opt = Some (tx);
+        subject.housekeeping_thread_commander_opt = Some(tx);
         subject.inner_opt = Some(AutomapControlRealInner {
             router_ip: *ROUTER_IP,
             transactor_idx: 0,
@@ -835,7 +847,10 @@ mod tests {
 
         subject.add_mapping(4567).unwrap();
 
-        assert_eq!(rx.try_recv(), Ok (HousekeepingThreadCommand::SetRemapIntervalMs(1000000)));
+        assert_eq!(
+            rx.try_recv(),
+            Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000000))
+        );
         assert!(get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
@@ -849,7 +864,9 @@ mod tests {
             TransactorMock::new(AutomapProtocol::Pcp)
                 .find_routers_result(Ok(vec![*ROUTER_IP]))
                 .get_public_ip_result(Ok(*PUBLIC_IP))
-                .add_mapping_result(Err(AutomapError::PermanentMappingError("Booga!".to_string()))),
+                .add_mapping_result(Err(AutomapError::PermanentMappingError(
+                    "Booga!".to_string(),
+                ))),
         );
 
         subject.change_handler_opt = None;
@@ -918,7 +935,7 @@ mod tests {
                 .start_change_handler_params(&start_change_handler_params_arc),
         );
         subject.change_handler_opt = None;
-        subject.housekeeping_thread_commander_opt = Some (tx);
+        subject.housekeeping_thread_commander_opt = Some(tx);
         subject.inner_opt = Some(AutomapControlRealInner {
             router_ip: *ROUTER_IP,
             transactor_idx: 0,
@@ -926,7 +943,10 @@ mod tests {
 
         subject.add_mapping(4567).unwrap();
 
-        assert_eq!(rx.try_recv(), Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000000)));
+        assert_eq!(
+            rx.try_recv(),
+            Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000000))
+        );
         assert!(get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);

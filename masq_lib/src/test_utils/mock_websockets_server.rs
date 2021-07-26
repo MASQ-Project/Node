@@ -317,18 +317,19 @@ impl MockWebSocketsServer {
     ) {
         log(do_log, index, "Responding to a BroadcastTrigger");
         let queued_messages = &mut *inner_responses_arc.lock().unwrap();
+        let signal_sender = self.signal_sender.clone().replace (None);
         let (signal_params, batch_size_of_broadcasts_to_be_released_at_once) =
-            match (UiBroadcastTrigger::fmb(message_body),self.signal_sender.clone().take()) {
+            match (UiBroadcastTrigger::fmb(message_body), signal_sender) {
             (Ok((trigger_message, _)), Some(sender)) => match (trigger_message.position_to_send_the_signal_opt, trigger_message.number_of_broadcasts_in_one_batch){
-                (Some(position),Some(demanded_batch_size)) => (Some((position, sender)), demanded_batch_size),
-                (Some(position),None) => (Some((position, sender)), queued_messages.len()),
-                (None,_) => panic!("You provided a Sender<()> but forgot to provide the positional number of the broadcast where it should be sent; settable within the trigger message"),
+                (Some(position), Some(demanded_batch_size)) => (Some((position, sender)), demanded_batch_size),
+                (Some(position), None) => (Some((position, sender)), queued_messages.len()),
+                (None, _) => panic!("You provided a Sender<()> but forgot to provide the positional number of the broadcast where it should be sent; settable within the trigger message"),
             }
 
             (Ok((trigger_message, _)), None) => match (trigger_message.position_to_send_the_signal_opt,trigger_message.number_of_broadcasts_in_one_batch){
                 (Some(_),_) => panic!("You require to send a signal but haven't provided Sender<()> by inject_signal_sender()"),
-                (None,Some(demanded_batch_size)) => (None,demanded_batch_size),
-                (None,None) =>  (None, queued_messages.len())
+                (None, Some(demanded_batch_size)) => (None,demanded_batch_size),
+                (None, None) => (None, queued_messages.len())
             },
             (_,_) => panic!("BroadcastTrigger received but somehow malformed")
         };

@@ -7,8 +7,8 @@ use std::str::FromStr;
 
 use crate::control_layer::automap_control::ChangeHandler;
 use crate::protocols::utils::ParseError;
-use masq_lib::utils::AutomapProtocol;
 use crossbeam_channel::Sender;
+use masq_lib::utils::AutomapProtocol;
 
 pub mod igdp;
 pub mod pcp;
@@ -83,8 +83,12 @@ impl AutomapError {
             AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::AllProtocolsFailed => AutomapErrorCause::NetworkConfiguration,
             AutomapError::AllRoutersFailed(_) => AutomapErrorCause::NetworkConfiguration,
-            AutomapError::ChangeHandlerAlreadyRunning => AutomapErrorCause::Unknown("Sequencing error".to_string()),
-            AutomapError::ChangeHandlerUnconfigured => AutomapErrorCause::Unknown("Sequencing error".to_string()),
+            AutomapError::ChangeHandlerAlreadyRunning => {
+                AutomapErrorCause::Unknown("Sequencing error".to_string())
+            }
+            AutomapError::ChangeHandlerUnconfigured => {
+                AutomapErrorCause::Unknown("Sequencing error".to_string())
+            }
         }
     }
 }
@@ -117,7 +121,7 @@ impl Debug for dyn Transactor {
     }
 }
 
-#[derive (Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum HousekeepingThreadCommand {
     Stop,
     SetRemapIntervalMs(u64),
@@ -127,7 +131,7 @@ pub trait LocalIpFinder: Send {
     fn find(&self) -> Result<IpAddr, AutomapError>;
 }
 
-#[derive (Clone)]
+#[derive(Clone)]
 pub struct LocalIpFinderReal {}
 
 impl LocalIpFinder for LocalIpFinderReal {

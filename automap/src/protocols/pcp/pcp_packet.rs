@@ -6,8 +6,8 @@ use crate::protocols::utils::{
     ParseError, UnrecognizedData,
 };
 use std::convert::{From, TryFrom};
+use std::fmt::Debug;
 use std::net::IpAddr;
-use std::fmt::{Debug};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Opcode {
@@ -137,7 +137,7 @@ impl PcpOpcodeData for UnrecognizedData {}
 
 pub trait PcpOption: Debug {}
 
-#[derive (Debug)]
+#[derive(Debug)]
 pub struct PcpPacket {
     pub direction: Direction,
     pub opcode: Opcode,
@@ -629,7 +629,7 @@ mod tests {
         assert_eq!(ResultCode::AddressMismatch.code(), 12);
         assert_eq!(ResultCode::ExcessiveRemotePeers.code(), 13);
         for code in 14..=u8::MAX {
-            assert_eq! (ResultCode::Other(code).code(), code);
+            assert_eq!(ResultCode::Other(code).code(), code);
         }
     }
 
@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(ResultCode::from(12), ResultCode::AddressMismatch);
         assert_eq!(ResultCode::from(13), ResultCode::ExcessiveRemotePeers);
         for code in 14..=u8::MAX {
-            assert_eq! (ResultCode::from(code), ResultCode::Other (code));
+            assert_eq!(ResultCode::from(code), ResultCode::Other(code));
         }
     }
 
@@ -671,7 +671,7 @@ mod tests {
         assert_eq!(ResultCode::AddressMismatch.is_permanent(), true);
         assert_eq!(ResultCode::ExcessiveRemotePeers.is_permanent(), true);
         for code in 14..=u8::MAX {
-            assert_eq! (ResultCode::Other(code).is_permanent(), true);
+            assert_eq!(ResultCode::Other(code).is_permanent(), true);
         }
     }
 }

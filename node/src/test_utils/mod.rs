@@ -2,6 +2,7 @@
 
 #[macro_use]
 pub mod channel_wrapper_mocks;
+pub mod automap_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
 #[cfg(test)]
@@ -14,7 +15,6 @@ pub mod recorder;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
-pub mod automap_mocks;
 
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;

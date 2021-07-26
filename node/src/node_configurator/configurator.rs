@@ -525,7 +525,7 @@ impl Configurator {
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
-                .map (|p| p.to_string());
+                .map(|p| p.to_string());
         let (mnemonic_seed_opt, past_neighbors) = match good_password {
             Some(password) => {
                 let mnemonic_seed_opt = Self::value_not_required(

@@ -4,9 +4,9 @@ use crate::db_config::persistent_configuration::{PersistentConfigError, Persiste
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::utils::AutomapProtocol;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use masq_lib::utils::AutomapProtocol;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -171,12 +171,15 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        self.mapping_protocol_results.borrow_mut().remove (0)
+        self.mapping_protocol_results.borrow_mut().remove(0)
     }
 
-    fn set_mapping_protocol(&mut self, value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError> {
-        self.set_mapping_protocol_params.lock().unwrap().push (value);
-        self.set_mapping_protocol_results.borrow_mut().remove (0)
+    fn set_mapping_protocol(
+        &mut self,
+        value: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_mapping_protocol_params.lock().unwrap().push(value);
+        self.set_mapping_protocol_results.borrow_mut().remove(0)
     }
 }
 
@@ -394,18 +397,24 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn mapping_protocol_result(self, result: Result<Option<AutomapProtocol>, PersistentConfigError>) -> Self {
-        self.mapping_protocol_results.borrow_mut().push (result);
+    pub fn mapping_protocol_result(
+        self,
+        result: Result<Option<AutomapProtocol>, PersistentConfigError>,
+    ) -> Self {
+        self.mapping_protocol_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_mapping_protocol_params(mut self, params: &Arc<Mutex<Vec<Option<AutomapProtocol>>>>) -> Self {
+    pub fn set_mapping_protocol_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Option<AutomapProtocol>>>>,
+    ) -> Self {
         self.set_mapping_protocol_params = params.clone();
         self
     }
 
     pub fn set_mapping_protocol_result(self, result: Result<(), PersistentConfigError>) -> Self {
-        self.set_mapping_protocol_results.borrow_mut().push (result);
+        self.set_mapping_protocol_results.borrow_mut().push(result);
         self
     }
 

@@ -534,42 +534,44 @@ impl Bootstrapper {
     }
 
     fn set_up_clandestine_port(&mut self) -> Option<u16> {
-        let clandestine_port_opt = if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
-            &self.config.neighborhood_config.mode
-        {
-            let conn = DbInitializerReal::default()
-                .initialize(
-                    &self.config.data_directory,
-                    self.config.blockchain_bridge_config.chain_id,
-                    true,
-                )
-                .expect("Cannot initialize database");
-            let config_dao = ConfigDaoReal::new(conn);
-            let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
-            let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
-            let mut listener_handler = self.listener_handler_factory.make();
-            listener_handler
-                .bind_port_and_configuration(
-                    clandestine_port,
-                    PortConfiguration {
-                        discriminator_factories: vec![Box::new(JsonDiscriminatorFactory::new())],
-                        is_clandestine: true,
-                    },
-                )
-                .expect("Failed to bind ListenerHandler to clandestine port");
-            self.listener_handlers.push(listener_handler);
-            self.config.neighborhood_config = NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
-                    neighbor_configs.clone(),
-                    rate_pack.clone(),
-                ),
+        let clandestine_port_opt =
+            if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
+                &self.config.neighborhood_config.mode
+            {
+                let conn = DbInitializerReal::default()
+                    .initialize(
+                        &self.config.data_directory,
+                        self.config.blockchain_bridge_config.chain_id,
+                        true,
+                    )
+                    .expect("Cannot initialize database");
+                let config_dao = ConfigDaoReal::new(conn);
+                let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
+                let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
+                let mut listener_handler = self.listener_handler_factory.make();
+                listener_handler
+                    .bind_port_and_configuration(
+                        clandestine_port,
+                        PortConfiguration {
+                            discriminator_factories: vec![
+                                Box::new(JsonDiscriminatorFactory::new()),
+                            ],
+                            is_clandestine: true,
+                        },
+                    )
+                    .expect("Failed to bind ListenerHandler to clandestine port");
+                self.listener_handlers.push(listener_handler);
+                self.config.neighborhood_config = NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
+                        neighbor_configs.clone(),
+                        rate_pack.clone(),
+                    ),
+                };
+                Some(clandestine_port)
+            } else {
+                None
             };
-            Some (clandestine_port)
-        }
-        else {
-            None
-        };
         self.config
             .clandestine_discriminator_factories
             .push(Box::new(JsonDiscriminatorFactory::new()));
@@ -1615,7 +1617,7 @@ mod tests {
 
         let result = subject.set_up_clandestine_port();
 
-        assert_eq! (result, Some (1234u16));
+        assert_eq!(result, Some(1234u16));
         let conn = DbInitializerReal::default()
             .initialize(&data_dir, chain_id, true)
             .unwrap();
@@ -1691,7 +1693,7 @@ mod tests {
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
         let clandestine_port = persistent_config.clandestine_port().unwrap();
-        assert_eq! (result, Some (clandestine_port));
+        assert_eq!(result, Some(clandestine_port));
         assert_eq!(
             subject
                 .config
@@ -1734,7 +1736,7 @@ mod tests {
 
         let result = subject.set_up_clandestine_port();
 
-        assert_eq! (result, None);
+        assert_eq!(result, None);
         assert!(subject
             .config
             .neighborhood_config
@@ -1770,7 +1772,7 @@ mod tests {
 
         let result = subject.set_up_clandestine_port();
 
-        assert_eq! (result, None);
+        assert_eq!(result, None);
         assert!(subject
             .config
             .neighborhood_config
@@ -1799,7 +1801,7 @@ mod tests {
 
         let result = subject.set_up_clandestine_port();
 
-        assert_eq! (result, None);
+        assert_eq!(result, None);
         assert!(subject
             .config
             .neighborhood_config

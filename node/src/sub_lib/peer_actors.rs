@@ -43,7 +43,7 @@ pub struct StartMessage {}
 
 #[derive(Message, Clone, PartialEq, Debug)]
 pub struct NewPublicIp {
-    pub ip: IpAddr
+    pub ip: IpAddr,
 }
 
 #[cfg(test)]

@@ -300,15 +300,19 @@ pub mod standard {
                 None => 1,
             }
         };
-        let persistent_mapping_protocol_opt = match persistent_config_opt.as_ref().map(|pc| pc.mapping_protocol()) {
-            Some (Ok(mp_opt)) => mp_opt,
-            Some (Err(_)) => todo! (),
-            None => None
+        let persistent_mapping_protocol_opt = match persistent_config_opt
+            .as_ref()
+            .map(|pc| pc.mapping_protocol())
+        {
+            Some(Ok(mp_opt)) => mp_opt,
+            Some(Err(_)) => todo!(),
+            None => None,
         };
         unprivileged_config.mapping_protocol_opt = match (
             value_m!(multi_config, "mapping-protocol", AutomapProtocol),
-            persistent_mapping_protocol_opt) {
-            (None, Some (mp)) => Some (mp),
+            persistent_mapping_protocol_opt,
+        ) {
+            (None, Some(mp)) => Some(mp),
             (ap_opt, _) => ap_opt,
         };
         let mnc_result = if let Some(persistent_config) = persistent_config_opt {
@@ -611,7 +615,10 @@ pub mod standard {
         ))
     }
 
-    pub fn get_public_ip (automap_public_ip_opt: Option<IpAddr>, multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorError> {
+    pub fn get_public_ip(
+        automap_public_ip_opt: Option<IpAddr>,
+        multi_config: &MultiConfig,
+    ) -> Result<IpAddr, ConfiguratorError> {
         match (automap_public_ip_opt, value_m! (multi_config, "ip", String)) {
             (_, Some(ip_str)) => match IpAddr::from_str(&ip_str) {
                 Ok(ip_addr) => Ok(ip_addr),
@@ -1118,7 +1125,9 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
-    use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal};
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfigurationReal,
+    };
     use crate::node_configurator::RealDirsWrapper;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
@@ -1484,23 +1493,24 @@ mod tests {
 
     #[test]
     fn get_public_ip_uses_multi_config_even_if_automap_ip_is_provided() {
-        let args = ArgsBuilder::new()
-            .param("--ip", "4.3.2.1");
+        let args = ArgsBuilder::new().param("--ip", "4.3.2.1");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
 
-        let result = standard::get_public_ip(Some (IpAddr::from_str ("1.2.3.4").unwrap()), &multi_config);
+        let result =
+            standard::get_public_ip(Some(IpAddr::from_str("1.2.3.4").unwrap()), &multi_config);
 
-        assert_eq!(result, Ok(IpAddr::from_str ("4.3.2.1").unwrap()));
+        assert_eq!(result, Ok(IpAddr::from_str("4.3.2.1").unwrap()));
     }
 
     #[test]
     fn get_public_ip_uses_automap_ip_if_multi_config_is_not_provided() {
         let multi_config = make_new_test_multi_config(&app(), vec![]).unwrap();
 
-        let result = standard::get_public_ip(Some (IpAddr::from_str ("1.2.3.4").unwrap()), &multi_config);
+        let result =
+            standard::get_public_ip(Some(IpAddr::from_str("1.2.3.4").unwrap()), &multi_config);
 
-        assert_eq!(result, Ok(IpAddr::from_str ("1.2.3.4").unwrap()));
+        assert_eq!(result, Ok(IpAddr::from_str("1.2.3.4").unwrap()));
     }
 
     #[test]
@@ -1949,7 +1959,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             Some(&mut persistent_config),
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(
             value_m!(multi_config, "config-file", PathBuf),
@@ -1984,7 +1994,7 @@ mod tests {
                 )
             }
         );
-        assert_eq!(config.mapping_protocol_opt, Some (AutomapProtocol::Pcp));
+        assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
     }
 
     #[test]
@@ -2002,7 +2012,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(
             Some(PathBuf::from("config.toml")),
@@ -2029,7 +2039,8 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_with_neighbor_and_mapping_protocol_in_database_but_not_command_line() {
+    fn unprivileged_parse_args_with_neighbor_and_mapping_protocol_in_database_but_not_command_line()
+    {
         running_test();
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
@@ -2049,7 +2060,7 @@ mod tests {
             None,
             Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
         )
-            .past_neighbors_params(&past_neighbors_params_arc);
+        .past_neighbors_params(&past_neighbors_params_arc);
 
         standard::unprivileged_parse_args(
             &multi_config,
@@ -2057,7 +2068,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             Some(&mut persistent_configuration),
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(
             config.neighborhood_config.mode.neighbor_configs(),
@@ -2068,14 +2079,14 @@ mod tests {
         );
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(past_neighbors_params[0], "password".to_string());
-        assert_eq!(config.mapping_protocol_opt, Some (AutomapProtocol::Pcp));
+        assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
     }
 
     #[test]
     fn unprivileged_parse_args_with_mapping_protocol_on_command_line_but_not_in_database() {
         running_test();
         let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4")// TODO: Figure out whether this should be removable
+            .param("--ip", "1.2.3.4") // TODO: Figure out whether this should be removable
             .param("--mapping-protocol", "pcp");
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
@@ -2090,30 +2101,24 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             Some(&mut persistent_configuration),
         )
-            .unwrap();
+        .unwrap();
 
-        assert_eq!(config.mapping_protocol_opt, Some (AutomapProtocol::Pcp));
+        assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
     }
 
     #[test]
     fn unprivileged_parse_args_with_mapping_protocol_both_on_command_line_and_in_database() {
         running_test();
         let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4")// TODO: Figure out whether this should be removable
+            .param("--ip", "1.2.3.4") // TODO: Figure out whether this should be removable
             .param("--mapping-protocol", "pmp");
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app(), vcls).unwrap();
-        let mut persistent_configuration = make_persistent_config(
-            None,
-            Some("password"),
-            None,
-            None,
-            None,
-            None,
-        );
+        let mut persistent_configuration =
+            make_persistent_config(None, Some("password"), None, None, None, None);
 
         standard::unprivileged_parse_args(
             &multi_config,
@@ -2121,9 +2126,9 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             Some(&mut persistent_configuration),
         )
-            .unwrap();
+        .unwrap();
 
-        assert_eq!(config.mapping_protocol_opt, Some (AutomapProtocol::Pmp));
+        assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pmp));
     }
 
     fn make_persistent_config(
@@ -2168,7 +2173,7 @@ mod tests {
             .earning_wallet_from_address_result(Ok(earning_wallet_from_address_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
-            .mapping_protocol_result (Ok(Some (AutomapProtocol::Pcp)))
+            .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
     }
 
     fn make_mnemonic_seed(prefix: &str) -> PlainData {

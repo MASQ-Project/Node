@@ -545,7 +545,7 @@ mod tests {
         assert_eq!(ResultCode::OutOfResources.code(), 4);
         assert_eq!(ResultCode::UnsupportedOpcode.code(), 5);
         for code in 6..=u8::MAX as u16 {
-            assert_eq! (ResultCode::Other(code).code(), code);
+            assert_eq!(ResultCode::Other(code).code(), code);
         }
         assert_eq!(ResultCode::Other(65535).code(), 65535);
     }
@@ -559,7 +559,7 @@ mod tests {
         assert_eq!(ResultCode::from(4), ResultCode::OutOfResources);
         assert_eq!(ResultCode::from(5), ResultCode::UnsupportedOpcode);
         for code in 6..=u8::MAX as u16 {
-            assert_eq! (ResultCode::from (code), ResultCode::Other(code));
+            assert_eq!(ResultCode::from(code), ResultCode::Other(code));
         }
         assert_eq!(ResultCode::from(65535), ResultCode::Other(65535));
     }
@@ -573,7 +573,7 @@ mod tests {
         assert_eq!(ResultCode::OutOfResources.is_permanent(), false);
         assert_eq!(ResultCode::UnsupportedOpcode.is_permanent(), true);
         for code in 6..=u8::MAX as u16 {
-            assert_eq! (ResultCode::Other(code).is_permanent(), true);
+            assert_eq!(ResultCode::Other(code).is_permanent(), true);
         }
         assert_eq!(ResultCode::Other(65535).is_permanent(), true);
     }

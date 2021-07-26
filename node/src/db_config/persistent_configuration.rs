@@ -13,9 +13,9 @@ use crate::sub_lib::wallet::Wallet;
 use bip39::{Language, MnemonicType};
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
+use masq_lib::utils::AutomapProtocol;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-use masq_lib::utils::AutomapProtocol;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum PersistentConfigError {
@@ -112,7 +112,10 @@ pub trait PersistentConfiguration {
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
-    fn set_mapping_protocol(&mut self, value: Option<AutomapProtocol>) -> Result<(), PersistentConfigError>;
+    fn set_mapping_protocol(
+        &mut self,
+        value: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {
@@ -365,11 +368,11 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             .dao
             .get("mapping_protocol")?
             .value_opt
-            .map(|val| AutomapProtocol::from_str (&val));
+            .map(|val| AutomapProtocol::from_str(&val));
         match result {
             None => Ok(None),
-            Some (Ok(protocol)) => Ok(Some (protocol)),
-            Some (Err(msg)) => Err (PersistentConfigError::DatabaseError(msg)),
+            Some(Ok(protocol)) => Ok(Some(protocol)),
+            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
         }
     }
 
@@ -1606,7 +1609,7 @@ mod tests {
             ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
         ));
 
-        let result = subject.set_mapping_protocol(Some (AutomapProtocol::Pmp));
+        let result = subject.set_mapping_protocol(Some(AutomapProtocol::Pmp));
 
         assert!(result.is_ok());
         let set_params = set_params_arc.lock().unwrap();
@@ -1631,9 +1634,6 @@ mod tests {
 
         assert!(result.is_ok());
         let set_params = set_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_params,
-            vec![("mapping_protocol".to_string(), None)]
-        );
+        assert_eq!(*set_params, vec![("mapping_protocol".to_string(), None)]);
     }
 }
