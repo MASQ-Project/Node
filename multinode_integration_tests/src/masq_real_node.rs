@@ -210,19 +210,16 @@ impl NodeStartupConfig {
         args
     }
 
-    fn to_strings(strs: Vec<&str>) -> Vec<String> {
+    fn slices_to_strings(strs: Vec<&str>) -> Vec<String> {
         strs.into_iter().map(|x| x.to_string()).collect()
     }
 
     fn make_establish_wallet_args(&self) -> Option<Vec<String>> {
-        fn to_strings(strs: Vec<&str>) -> Vec<String> {
-            strs.into_iter().map(|x| x.to_string()).collect()
-        }
         let args = match (&self.earning_wallet_info, &self.consuming_wallet_info) {
             (EarningWalletInfo::None, ConsumingWalletInfo::None) => return None,
             (EarningWalletInfo::None, ConsumingWalletInfo::PrivateKey(_)) => return None,
             (EarningWalletInfo::None, ConsumingWalletInfo::DerivationPath(phrase, path)) => {
-                Self::to_strings(vec![
+                Self::slices_to_strings(vec![
                     "--recover-wallet",
                     "--data-directory",
                     DATA_DIRECTORY,
@@ -241,7 +238,7 @@ impl NodeStartupConfig {
             (
                 EarningWalletInfo::Address(address),
                 ConsumingWalletInfo::DerivationPath(phrase, path),
-            ) => Self::to_strings(vec![
+            ) => Self::slices_to_strings(vec![
                 "--recover-wallet",
                 "--data-directory",
                 DATA_DIRECTORY,
@@ -257,7 +254,7 @@ impl NodeStartupConfig {
                 &address,
             ]),
             (EarningWalletInfo::DerivationPath(phrase, path), ConsumingWalletInfo::None) => {
-                Self::to_strings(vec![
+                Self::slices_to_strings(vec![
                     "--recover-wallet",
                     "--data-directory",
                     DATA_DIRECTORY,
@@ -274,7 +271,7 @@ impl NodeStartupConfig {
             (
                 EarningWalletInfo::DerivationPath(phrase, path),
                 ConsumingWalletInfo::PrivateKey(_),
-            ) => Self::to_strings(vec![
+            ) => Self::slices_to_strings(vec![
                 "--recover-wallet",
                 "--data-directory",
                 DATA_DIRECTORY,
@@ -297,7 +294,7 @@ impl NodeStartupConfig {
                         self.earning_wallet_info, self.consuming_wallet_info
                     )
                 }
-                Self::to_strings(vec![
+                Self::slices_to_strings(vec![
                     "--recover-wallet",
                     "--data-directory",
                     DATA_DIRECTORY,
