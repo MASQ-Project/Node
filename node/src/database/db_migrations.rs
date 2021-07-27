@@ -862,12 +862,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        let mut execute_upon_transaction_params = execute_upon_transaction_params_arc.lock().unwrap();
+        let execute_upon_transaction_params = execute_upon_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *execute_upon_transaction_params.remove (0),
-            vec![
-                "INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)".to_string()
-            ]
+            *execute_upon_transaction_params.get(0).unwrap(),
+            vec!["INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)".to_string()],
         );
         let update_schema_version_params = update_schema_version_params_arc.lock().unwrap();
         assert_eq!(update_schema_version_params[0], 1);
