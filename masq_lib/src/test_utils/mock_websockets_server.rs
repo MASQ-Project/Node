@@ -317,7 +317,7 @@ impl MockWebSocketsServer {
     ) {
         log(do_log, index, "Responding to a BroadcastTrigger");
         let queued_messages = &mut *inner_responses_arc.lock().unwrap();
-        let signal_sender = self.signal_sender.clone().replace (None);
+        let signal_sender = self.signal_sender.clone().replace(None);
         let (signal_params, batch_size_of_broadcasts_to_be_released_at_once) =
             match (UiBroadcastTrigger::fmb(message_body), signal_sender) {
             (Ok((trigger_message, _)), Some(sender)) => match (trigger_message.position_to_send_the_signal_opt, trigger_message.number_of_broadcasts_in_one_batch){
