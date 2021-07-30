@@ -52,6 +52,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
+use automap_lib::comm_layer::AutomapError;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -217,6 +218,10 @@ impl ActorSystemFactoryReal {
         });
     }
 
+    fn handle_housekeeping_thread_error(error: AutomapError) {
+        todo! ("{:?}", error)
+    }
+
     fn start_automap(
         &self,
         config: &BootstrapperConfig,
@@ -231,7 +236,7 @@ impl ActorSystemFactoryReal {
                 AutomapChange::NewIp(public_ip) => {
                     Self::notify_of_public_ip_change(&inner_recipients, public_ip)
                 }
-                AutomapChange::Error(e) => todo!("{:?}", e),
+                AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
             };
             let mut automap_control = self
                 .automap_control_factory
