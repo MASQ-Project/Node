@@ -436,51 +436,47 @@ impl ConfigFileVcl {
             }
             Ok(table) => table,
         };
-        let vcl_args_and_errs=
-            table
-            .keys()
-            .map(|key| {
-                let name = format!("--{}", key);
-                let value = match table.get(key).expect("value disappeared") {
-                    Value::Table(_) => Err(ConfigFileVclError::InvalidConfig(
-                        file_path.to_path_buf(),
-                        format!(
-                            "parameter '{}' must have a scalar value, not a table value",
-                            key
-                        ),
-                    )),
-                    Value::Array(_) => Err(ConfigFileVclError::InvalidConfig(
-                        file_path.to_path_buf(),
-                        format!(
-                            "parameter '{}' must have a scalar value, not an array value",
-                            key
-                        ),
-                    )),
-                    Value::Datetime(_) => Err(ConfigFileVclError::InvalidConfig(
-                        file_path.to_path_buf(),
-                        format!(
-                            "parameter '{}' must have a string value, not a date or time value",
-                            key
-                        ),
-                    )),
-                    Value::String(v) => Ok(v.as_str().to_string()),
-                    v => Ok(v.to_string()),
-                };
-                match value {
-                    Err(e) => Err(e),
-                    Ok(s) => {
-                        let v: Box<dyn VclArg> = Box::new(NameValueVclArg::new(&name, &s));
-                        Ok(v)
-                    }
+        let vcl_args_and_errs = table.keys().map(|key| {
+            let name = format!("--{}", key);
+            let value = match table.get(key).expect("value disappeared") {
+                Value::Table(_) => Err(ConfigFileVclError::InvalidConfig(
+                    file_path.to_path_buf(),
+                    format!(
+                        "parameter '{}' must have a scalar value, not a table value",
+                        key
+                    ),
+                )),
+                Value::Array(_) => Err(ConfigFileVclError::InvalidConfig(
+                    file_path.to_path_buf(),
+                    format!(
+                        "parameter '{}' must have a scalar value, not an array value",
+                        key
+                    ),
+                )),
+                Value::Datetime(_) => Err(ConfigFileVclError::InvalidConfig(
+                    file_path.to_path_buf(),
+                    format!(
+                        "parameter '{}' must have a string value, not a date or time value",
+                        key
+                    ),
+                )),
+                Value::String(v) => Ok(v.as_str().to_string()),
+                v => Ok(v.to_string()),
+            };
+            match value {
+                Err(e) => Err(e),
+                Ok(s) => {
+                    let v: Box<dyn VclArg> = Box::new(NameValueVclArg::new(&name, &s));
+                    Ok(v)
                 }
-            });
+            }
+        });
         let init: (Vec<Box<dyn VclArg>>, Vec<ConfigFileVclError>) = (vec![], vec![]);
         let (vcl_args, mut vcl_errs) =
-            vcl_args_and_errs
-                .fold(init, |(args, errs), item| match item {
-                    Ok(arg) => (append(args, arg), errs),
-                    Err(err) => (args, append(errs, err)),
-                });
+            vcl_args_and_errs.fold(init, |(args, errs), item| match item {
+                Ok(arg) => (append(args, arg), errs),
+                Err(err) => (args, append(errs, err)),
+            });
         if vcl_errs.is_empty() {
             Ok(ConfigFileVcl { vcl_args })
         } else {

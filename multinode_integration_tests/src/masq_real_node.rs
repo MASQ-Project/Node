@@ -595,7 +595,7 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn db_password(mut self, value: Option<&str>) -> Self {
-        self.db_password = value.map(|str|str.to_string());
+        self.db_password = value.map(|str| str.to_string());
         self
     }
 

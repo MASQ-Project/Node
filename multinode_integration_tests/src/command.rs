@@ -66,7 +66,6 @@ impl Command {
         } else {
             string.truncate(MAX_PRINTED_STRING_SIZE);
             string.push_str(" [...truncated...]");
-
         }
         string
     }

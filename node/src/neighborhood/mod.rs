@@ -782,7 +782,8 @@ impl Neighborhood {
         &mut self,
         msg: RouteQueryMessage,
     ) -> Result<RouteQueryResponse, String> {
-        let over = self.make_route_segment(self.cryptde.public_key(),
+        let over = self.make_route_segment(
+            self.cryptde.public_key(),
             msg.target_key_opt.as_ref(),
             msg.minimum_hop_count,
             msg.target_component,

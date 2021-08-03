@@ -261,7 +261,8 @@ impl MASQNodeUtils {
                     || file_name == OsStr::new("node")
             })
             .count()
-         == 2 {
+            == 2
+        {
             PathBuf::from(start)
         } else {
             Self::start_from(start.parent().unwrap())

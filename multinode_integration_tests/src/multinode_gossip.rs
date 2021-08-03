@@ -271,7 +271,10 @@ impl MultinodeGossip for Standard {
     }
 
     fn agr(&self, key: &PublicKey) -> Option<AccessibleGossipRecord> {
-        self.nodes.iter().find(|agr| &agr.inner.public_key == key).cloned()
+        self.nodes
+            .iter()
+            .find(|agr| &agr.inner.public_key == key)
+            .cloned()
     }
 
     fn agr_mut(&mut self, key: &PublicKey) -> Option<&mut AccessibleGossipRecord> {

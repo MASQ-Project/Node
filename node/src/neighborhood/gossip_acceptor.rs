@@ -236,7 +236,7 @@ impl DebutHandler {
                 None
             }
             // Neighbor of degree 3 or greater, but not less connected than I am
-            Some( key)
+            Some(key)
                 if database.gossip_target_degree(key)
                     >= database.gossip_target_degree(database.root().public_key()) =>
             {
@@ -904,8 +904,7 @@ impl StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
     ) -> bool {
-        agrs
-            .into_iter()
+        agrs.into_iter()
             .flat_map(|agr| match database.node_by_key(&agr.inner.public_key) {
                 Some(existing_node) if agr.inner.version > existing_node.version() => {
                     Some(self.update_database_record(database, agr))
