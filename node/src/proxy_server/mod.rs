@@ -250,7 +250,7 @@ impl ProxyServer {
                 .find_exit_node_key()
                 .unwrap_or_else(|| {
                     if return_route_info.is_zero_hop() {
-                        &self_public_key
+                        self_public_key
                     } else {
                         panic!(
                             "Internal error: return_route_info for {} has no exit Node",
@@ -376,7 +376,7 @@ impl ProxyServer {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
             Some(ref host) if host.port == Some(443) => {
-                let stream_key = self.make_stream_key(&msg);
+                let stream_key = self.make_stream_key(msg);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
@@ -599,7 +599,7 @@ impl ProxyServer {
             None => {
                 let stream_key = self
                     .stream_key_factory
-                    .make(&self.main_cryptde.public_key(), ibcd.peer_addr);
+                    .make(self.main_cryptde.public_key(), ibcd.peer_addr);
                 self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
                 debug!(
                     self.logger,
@@ -792,7 +792,7 @@ impl ProxyServer {
         };
 
         match destination_key_opt {
-            None => ProxyServer::handle_route_failure(payload, &logger, source_addr, dispatcher),
+            None => ProxyServer::handle_route_failure(payload, logger, source_addr, dispatcher),
             Some(payload_destination_key) => {
                 debug!(
                     logger,
@@ -810,7 +810,7 @@ impl ProxyServer {
                     accountant_routing_sub,
                     expected_services,
                     pkg.payload.len(),
-                    &logger,
+                    logger,
                 );
                 hopper.try_send(pkg).expect("Hopper is dead");
                 if let Some(shutdown_sub) = retire_stream_key_via {

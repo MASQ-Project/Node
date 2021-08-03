@@ -135,7 +135,7 @@ impl BannedDao for BannedDaoReal {
             .expect("Failed to prepare a statement");
         let params: &[&dyn ToSql] = &[&wallet];
         match stmt.execute(params) {
-            Ok(_) => BAN_CACHE.remove(&wallet),
+            Ok(_) => BAN_CACHE.remove(wallet),
             Err(e) => panic!(
                 "Could not terminate delinquency ban for {} because of database corruption: {}",
                 wallet, e

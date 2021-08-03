@@ -159,6 +159,7 @@ impl NodeStartupConfig {
         self.firewall_opt.clone()
     }
 
+    #[allow(clippy::vec_init_then_push)]
     fn make_args(&self) -> Vec<String> {
         let mut args = vec![];
         args.push("--neighborhood-mode".to_string());
@@ -228,7 +229,7 @@ impl NodeStartupConfig {
                     "--mnemonic-passphrase",
                     "passphrase",
                     "--consuming-wallet",
-                    &path,
+                    path,
                     "--db-password",
                     "password",
                 ])
@@ -247,11 +248,11 @@ impl NodeStartupConfig {
                 "--mnemonic-passphrase",
                 "passphrase",
                 "--consuming-wallet",
-                &path,
+                path,
                 "--db-password",
                 "password",
                 "--earning-wallet",
-                &address,
+                address,
             ]),
             (EarningWalletInfo::DerivationPath(phrase, path), ConsumingWalletInfo::None) => {
                 Self::to_strings(vec![
@@ -265,7 +266,7 @@ impl NodeStartupConfig {
                     "--db-password",
                     "password",
                     "--earning-wallet",
-                    &path,
+                    path,
                 ])
             }
             (
@@ -282,7 +283,7 @@ impl NodeStartupConfig {
                 "--db-password",
                 "password",
                 "--earning-wallet",
-                &path,
+                path,
             ]),
             (
                 EarningWalletInfo::DerivationPath(ephrase, epath),
@@ -305,9 +306,9 @@ impl NodeStartupConfig {
                     "--db-password",
                     "password",
                     "--earning-wallet",
-                    &epath,
+                    epath,
                     "--consuming-wallet",
-                    &cpath,
+                    cpath,
                 ])
             }
         };
@@ -594,10 +595,7 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn db_password(mut self, value: Option<&str>) -> Self {
-        self.db_password = match value {
-            Some(s) => Some(s.to_string()),
-            None => None,
-        };
+        self.db_password = value.map(|str|str.to_string());
         self
     }
 

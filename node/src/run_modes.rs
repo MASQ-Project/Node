@@ -142,7 +142,7 @@ impl RunModes {
         short_writeln!(
             streams.stderr,
             "{}",
-            Self::privilege_mismatch_message(&mode, privilege_required)
+            Self::privilege_mismatch_message(mode, privilege_required)
         )
     }
 

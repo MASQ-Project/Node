@@ -89,7 +89,7 @@ fn make_mock_node_map(
     real_node: &MASQRealNode,
     additional_keys_to_mock: Vec<&PublicKey>,
 ) -> (HashMap<PublicKey, MASQMockNode>, Vec<PublicKey>) {
-    let adjacent_mock_nodes = form_mock_node_skeleton(cluster, &model_db, &real_node);
+    let adjacent_mock_nodes = form_mock_node_skeleton(cluster, model_db, real_node);
     let adjacent_mock_node_keys = adjacent_mock_nodes
         .iter()
         .map(|node| node.main_public_key().clone())
@@ -150,7 +150,7 @@ fn make_and_send_final_setup_gossip(
         .iter()
         .find(|node| node.public_key() == &gossip_source_key)
         .unwrap();
-    let mut gossip_db = local_db_from_node(&gossip_source_node);
+    let mut gossip_db = local_db_from_node(gossip_source_node);
     modified_nodes
         .iter()
         .filter(|node| node.public_key() != &gossip_source_key)

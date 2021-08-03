@@ -174,10 +174,7 @@ impl MultinodeGossip for Introduction {
     }
 
     fn gnr(&self, key: &PublicKey) -> Option<GossipNodeRecord> {
-        match self.agr(key) {
-            Some(agr) => Some(GossipNodeRecord::from(agr)),
-            None => None,
-        }
+        self.agr(key).map(GossipNodeRecord::from)
     }
 
     fn agr(&self, key: &PublicKey) -> Option<AccessibleGossipRecord> {
@@ -274,10 +271,7 @@ impl MultinodeGossip for Standard {
     }
 
     fn agr(&self, key: &PublicKey) -> Option<AccessibleGossipRecord> {
-        match self.nodes.iter().find(|agr| &agr.inner.public_key == key) {
-            Some(agr_ref) => Some(agr_ref.clone()),
-            None => None,
-        }
+        self.nodes.iter().find(|agr| &agr.inner.public_key == key).cloned()
     }
 
     fn agr_mut(&mut self, key: &PublicKey) -> Option<&mut AccessibleGossipRecord> {

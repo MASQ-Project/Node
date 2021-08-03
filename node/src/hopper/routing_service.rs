@@ -178,7 +178,7 @@ impl RoutingService {
         };
         let payload = encodex(
             self.main_cryptde,
-            &self.main_cryptde.public_key(),
+            self.main_cryptde.public_key(),
             &next_lcp,
         )
         .expect("Encryption of LiveCoresPackage failed");

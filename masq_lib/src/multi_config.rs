@@ -436,7 +436,8 @@ impl ConfigFileVcl {
             }
             Ok(table) => table,
         };
-        let vcl_args_and_errs: Vec<Result<Box<dyn VclArg>, ConfigFileVclError>> = table
+        let vcl_args_and_errs=
+            table
             .keys()
             .map(|key| {
                 let name = format!("--{}", key);
@@ -472,12 +473,10 @@ impl ConfigFileVcl {
                         Ok(v)
                     }
                 }
-            })
-            .collect();
+            });
         let init: (Vec<Box<dyn VclArg>>, Vec<ConfigFileVclError>) = (vec![], vec![]);
         let (vcl_args, mut vcl_errs) =
             vcl_args_and_errs
-                .into_iter()
                 .fold(init, |(args, errs), item| match item {
                     Ok(arg) => (append(args, arg), errs),
                     Err(err) => (args, append(errs, err)),

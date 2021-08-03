@@ -377,7 +377,7 @@ where
         match self
             .web3
             .eth()
-            .send_raw_transaction(Bytes(tx.sign(&consuming_wallet, self.chain_id)))
+            .send_raw_transaction(Bytes(tx.sign(consuming_wallet, self.chain_id)))
             .wait()
         {
             Ok(result) => Ok(result),

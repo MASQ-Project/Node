@@ -168,7 +168,7 @@ impl WebSocketSupervisorReal {
         {
             Self::accept_upgrade_request(upgrade, socket_addr, inner, logger);
         } else {
-            Self::reject_upgrade_request(upgrade, &logger);
+            Self::reject_upgrade_request(upgrade, logger);
         }
     }
 
@@ -355,7 +355,7 @@ impl WebSocketSupervisorReal {
             client_id,
             locked_inner.port
         );
-        Self::close_connection(&mut locked_inner, client_id, socket_addr, &logger);
+        Self::close_connection(&mut locked_inner, client_id, socket_addr, logger);
 
         err::<(), ()>(()) // end the stream
     }

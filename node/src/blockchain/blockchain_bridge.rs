@@ -167,14 +167,14 @@ impl BlockchainBridge {
             .map(|payable| {
                 match self
                     .blockchain_interface
-                    .get_transaction_count(&consuming_wallet)
+                    .get_transaction_count(consuming_wallet)
                 {
                     Ok(nonce) => {
                         let amount = u64::try_from(payable.balance).unwrap_or_else(|_| {
                             panic!("Lost payable amount precision: {}", payable.balance)
                         });
                         match self.blockchain_interface.send_transaction(
-                            &consuming_wallet,
+                            consuming_wallet,
                             &payable.wallet,
                             amount,
                             nonce,

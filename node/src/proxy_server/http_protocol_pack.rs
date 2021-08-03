@@ -55,7 +55,7 @@ impl HttpProtocolPack {
         let idx = index_of(data, &b"\r\n\r\n"[..])?;
         let headers = &data[0..idx + 2];
         let needle = b"\r\nHost: ";
-        let begin = index_of(&headers, &needle[..])? + needle.len();
+        let begin = index_of(headers, &needle[..])? + needle.len();
         let host_header_value =
             &headers[begin..(index_of(&headers[begin..], &b"\r\n"[..])? + begin)];
         let host_and_port = String::from_utf8(Vec::from(host_header_value)).ok()?;

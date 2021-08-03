@@ -23,7 +23,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardPrivileged
         standard::establish_port_configurations(&mut bootstrapper_config);
         standard::privileged_parse_args(
             self.dirs_wrapper.as_ref(),
-            &multi_config,
+            multi_config,
             &mut bootstrapper_config,
         )?;
         Ok(bootstrapper_config)
@@ -60,7 +60,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         standard::unprivileged_parse_args(
-            &multi_config,
+            multi_config,
             &mut unprivileged_config,
             streams.expect_v("StdStreams"),
             Some(persistent_config.as_mut()),
@@ -178,7 +178,7 @@ pub mod standard {
             .blockchain_service_url = value_m!(multi_config, "blockchain-service-url", String);
 
         let (real_user, data_directory_opt, chain_name) =
-            real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
+            real_user_data_directory_opt_and_chain_name(dirs_wrapper, multi_config);
         let directory =
             data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
         privileged_config.real_user = real_user;

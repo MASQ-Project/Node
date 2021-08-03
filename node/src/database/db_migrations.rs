@@ -97,7 +97,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
             self.db_migrator_configuration
                 .db_configuration_table
                 .as_str(),
-            &self.root_transaction_ref(),
+            self.root_transaction_ref(),
             update_to,
         )
     }

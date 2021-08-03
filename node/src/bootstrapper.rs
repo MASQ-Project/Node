@@ -509,7 +509,7 @@ impl Bootstrapper {
             }
             None => format!(
                 "{}::",
-                cryptde.public_key_to_descriptor_fragment(&cryptde.public_key())
+                cryptde.public_key_to_descriptor_fragment(cryptde.public_key())
             ),
         };
         let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);

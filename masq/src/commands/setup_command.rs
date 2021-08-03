@@ -62,7 +62,7 @@ impl SetupCommand {
             .filter(|piece| (*piece).starts_with("--"))
             .map(|piece| piece[2..].to_string())
             .map(|key| {
-                if Self::has_value(&pieces, &key) {
+                if Self::has_value(pieces, &key) {
                     let value = value_t!(matches, &key, String).expect("Value disappeared!");
                     UiSetupRequestValue::new(&key, &value)
                 } else {

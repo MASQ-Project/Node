@@ -73,7 +73,7 @@ pub fn consuming_wallet_arg<'a>() -> Arg<'a, 'a> {
         .value_name("CONSUMING-WALLET")
         .empty_values(false)
         .validator(common_validators::validate_derivation_path)
-        .help(&CONSUMING_WALLET_HELP)
+        .help(CONSUMING_WALLET_HELP)
 }
 
 pub fn earning_wallet_arg<F>(help: &str, validator: F) -> Arg
@@ -97,9 +97,9 @@ pub fn language_arg<'a>() -> Arg<'a, 'a> {
         .value_name("LANGUAGE")
         .required(true)
         .case_insensitive(true)
-        .possible_values(&Bip39::possible_language_values().as_slice())
+        .possible_values(Bip39::possible_language_values().as_slice())
         .default_value(Bip39::name_from_language(Language::default()))
-        .help(&LANGUAGE_HELP)
+        .help(LANGUAGE_HELP)
 }
 
 pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
@@ -270,10 +270,10 @@ pub fn prepare_initialization_mode<'a>(
     args: &[String],
 ) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
     let multi_config = make_new_multi_config(
-        &app,
+        app,
         vec![
             Box::new(CommandLineVcl::new(args.to_vec())),
-            Box::new(EnvironmentVcl::new(&app)),
+            Box::new(EnvironmentVcl::new(app)),
         ],
     )?;
 

@@ -136,6 +136,7 @@ impl MockNode {
             .expect("Write streams poisoned")
     }
 
+    #[allow(clippy::map_entry)]
     fn initialize(&mut self, stderr: &mut dyn Write) -> u8 {
         let open_err_msgs = self
             .node_addr()

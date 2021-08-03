@@ -33,7 +33,7 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationRe
         streams: Option<&mut StdStreams>,
     ) -> Result<InitializationConfig, ConfiguratorError> {
         let mut config = InitializationConfig::default();
-        initialization::parse_args(&multi_config, &mut config, streams.expect_v("StdStreams"));
+        initialization::parse_args(multi_config, &mut config, streams.expect_v("StdStreams"));
         Ok(config)
     }
 }

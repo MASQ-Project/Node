@@ -97,7 +97,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
                 .expect("Database is corrupt: past_neighbors cannot be decoded")
                 .expect("Value disappeared");
             let node_descriptors =
-                serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(&bytes.as_slice())
+                serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
                     .expect("Database is corrupt: past_neighbors contains bad CBOR");
             node_descriptors
                 .into_iter()
@@ -111,7 +111,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 
 fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
-        .initialize(&data_directory, chain_id, true) // TODO: Probably should be false
+        .initialize(data_directory, chain_id, true) // TODO: Probably should be false
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",

@@ -246,7 +246,7 @@ fn shift_one_hop(mut route: Route, cryptde: &dyn CryptDE) -> Route {
 pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
     let return_route_id_ser = serde_cbor::ser::to_vec(&return_route_id).unwrap();
     cryptde
-        .encode(&cryptde.public_key(), &PlainData::from(return_route_id_ser))
+        .encode(cryptde.public_key(), &PlainData::from(return_route_id_ser))
         .unwrap()
 }
 

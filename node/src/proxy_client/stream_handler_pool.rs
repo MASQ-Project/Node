@@ -342,7 +342,7 @@ impl StreamHandlerPoolReal {
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &ip_addrs
         );
-        establisher.establish_stream(&payload, ip_addrs, target_hostname)
+        establisher.establish_stream(payload, ip_addrs, target_hostname)
     }
 
     fn make_fqdn(target_hostname: &str) -> String {
@@ -354,7 +354,7 @@ impl StreamHandlerPoolReal {
         inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
-        let sender_wrapper_opt = inner.stream_writer_channels.get(&stream_key);
+        let sender_wrapper_opt = inner.stream_writer_channels.get(stream_key);
         sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.as_ref().clone())
     }
 

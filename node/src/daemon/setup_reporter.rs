@@ -274,7 +274,7 @@ impl SetupReporterReal {
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
-        let command_line = Self::make_command_line(&combined_setup);
+        let command_line = Self::make_command_line(combined_setup);
         let multi_config =
             match Self::make_multi_config(dirs_wrapper, Some(command_line), true, true) {
                 Ok(mc) => mc,
@@ -587,7 +587,7 @@ impl ValueRetriever for DataDirectory {
         Some((
             data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
-                &real_user,
+                real_user,
                 &data_directory_opt,
                 chain_name,
             )
@@ -784,7 +784,7 @@ impl ValueRetriever for Neighbors {
         db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match (persistent_config_opt, db_password_opt) {
-            (Some(pc), Some(pw)) => match pc.past_neighbors(&pw) {
+            (Some(pc), Some(pw)) => match pc.past_neighbors(pw) {
                 Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
                 _ => None,
             },

@@ -22,7 +22,7 @@ pub fn wait_for_chunk(stream: &mut TcpStream, timeout: &Duration) -> Result<Vec<
     let mut begin = Instant::now();
     loop {
         let latency_so_far = Instant::now().duration_since(begin);
-        if latency_so_far.ge(&timeout) {
+        if latency_so_far.ge(timeout) {
             if output.is_empty() {
                 return Err(io::Error::from(ErrorKind::TimedOut));
             } else {
