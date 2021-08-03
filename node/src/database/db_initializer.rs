@@ -20,9 +20,6 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
 
-#[cfg(test)]
-use std::any::Any;
-
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 1;
 
@@ -49,11 +46,8 @@ pub trait DbInitializer {
         target_version: usize,
         create_if_necessary: bool,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
-
-    as_any_dcl!();
 }
 
-#[derive(Clone)]
 pub struct DbInitializerReal {
     logger: Logger,
 }
@@ -119,8 +113,6 @@ impl DbInitializer for DbInitializerReal {
             }
         }
     }
-
-    as_any_impl!();
 }
 
 impl DbInitializerReal {

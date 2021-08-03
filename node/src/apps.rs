@@ -31,11 +31,11 @@ pub fn app_daemon() -> App<'static, 'static> {
                 .takes_value(false)
                 .help("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"),
         )
-        .arg(ui_port_arg(&UI_PORT_HELP))
+        .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
 }
 
 pub fn app_node() -> App<'static, 'static> {
-    shared_app(app_head().after_help(HELP_TEXT)).arg(ui_port_arg(&UI_PORT_HELP))
+    shared_app(app_head().after_help(NODE_HELP_TEXT)).arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
 }
 
 pub fn app_config_dumper() -> App<'static, 'static> {
@@ -54,9 +54,9 @@ pub fn app_config_dumper() -> App<'static, 'static> {
 }
 
 lazy_static! {
-    static ref UI_PORT_HELP: String = format!(
+    static ref DAEMON_UI_PORT_HELP: String = format!(
         "The port at which user interfaces will connect to the Daemon. (This is NOT the port at which \
-        interfaces will connect to the Node: no one will know that until after the Node starts. \
+        interfaces will connect to the Node: no one will know that until after the Node starts.) \
         Best to accept the default unless you know what you're doing. Must be between {} and {}.",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
@@ -65,7 +65,7 @@ lazy_static! {
 const DUMP_CONFIG_HELP: &str =
     "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
 
-const HELP_TEXT: &str = indoc!(
+const NODE_HELP_TEXT: &str = indoc!(
     r"ADDITIONAL HELP:
     If you want to start the MASQ Daemon to manage the MASQ Node and the MASQ UIs, try:
 

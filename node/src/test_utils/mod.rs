@@ -488,15 +488,23 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
 }
 
 #[cfg(test)]
-pub mod pure_test_only_utils {
+pub mod pure_test_utils {
     use crate::apps::app_node;
+    use crate::daemon::ChannelFactory;
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crossbeam_channel::{Receiver, Sender};
     use masq_lib::multi_config::MultiConfig;
+    use masq_lib::utils::SliceToVec;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::mem::swap;
     use std::ops::DerefMut;
+    use std::path::PathBuf;
 
-    pub fn make_simplified_multi_config(args: &[String]) -> MultiConfig {
-        let mut arg_matches = app_node().get_matches_from_safe(args).unwrap();
+    pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
+        let owned_args = args.array_of_borrows_to_vec();
+        let mut arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
         let mut multi_config = MultiConfig::default();
         swap(multi_config.deref_mut(), &mut arg_matches);
         multi_config
@@ -510,6 +518,51 @@ pub mod pure_test_only_utils {
             .mnemonic_seed_exists_result(Ok(false))
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
+    }
+
+    pub struct ChannelFactoryMock {
+        make_results: RefCell<
+            Vec<(
+                Sender<HashMap<String, String>>,
+                Receiver<HashMap<String, String>>,
+            )>,
+        >,
+    }
+
+    impl ChannelFactory for ChannelFactoryMock {
+        fn make(
+            &self,
+        ) -> (
+            Sender<HashMap<String, String>>,
+            Receiver<HashMap<String, String>>,
+        ) {
+            self.make_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl ChannelFactoryMock {
+        pub fn new() -> ChannelFactoryMock {
+            ChannelFactoryMock {
+                make_results: RefCell::new(vec![]),
+            }
+        }
+
+        pub fn make_result(
+            self,
+            sender: Sender<HashMap<String, String>>,
+            receiver: Receiver<HashMap<String, String>>,
+        ) -> Self {
+            self.make_results.borrow_mut().push((sender, receiver));
+            self
+        }
+    }
+
+    pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {
+        DirsWrapperMock::new()
+            .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
+            .data_dir_result(Some(PathBuf::from(
+                "/unexisting_home/unexisting_alice/mock_directory",
+            )))
     }
 }
 

@@ -89,15 +89,17 @@ pub mod standard {
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::blockchain::blockchain_interface::chain_id_from_name;
-    use crate::bootstrapper::{PortConfiguration, RealUser};
+    use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
     };
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::node_configurator::{
         data_directory_from_context, determine_config_file_path,
-        real_user_data_directory_opt_and_chain_name, request_existing_db_password, DirsWrapper,
+        real_user_data_directory_opt_and_chain_name, real_user_from_m_c_or_populate,
+        request_existing_db_password, DirsWrapper,
     };
+    use crate::server_initializer::GatheredParams;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -117,15 +119,14 @@ pub mod standard {
     use masq_lib::utils::WrapResult;
     use rustc_hex::FromHex;
     use std::ops::Deref;
-    use std::path::PathBuf;
     use std::str::FromStr;
 
-    pub fn gathered_params_for_service_mode<'a>(
+    pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
         args: &[String],
-    ) -> Result<(MultiConfig<'a>, PathBuf, RealUser), ConfiguratorError> {
+    ) -> Result<GatheredParams<'a>, ConfiguratorError> {
         let app = app_node();
-        let (config_file_path, user_specified, real_user) =
+        let (config_file_path, user_specified) =
             determine_config_file_path(dirs_wrapper, &app, args)?;
         let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
             Ok(cfv) => Box::new(cfv),
@@ -143,7 +144,8 @@ pub mod standard {
             .parent()
             .map(|dir| dir.to_path_buf())
             .expect_v("data_directory");
-        (multi_config, data_directory, real_user).wrap_to_ok()
+        let real_user = real_user_from_m_c_or_populate(&multi_config, dirs_wrapper);
+        GatheredParams::new(multi_config, data_directory, real_user).wrap_to_ok()
     }
 
     pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -681,7 +683,7 @@ pub mod standard {
         use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
         use crate::sub_lib::utils::make_new_test_multi_config;
         use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-        use crate::test_utils::pure_test_only_utils::make_default_persistent_configuration;
+        use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
         use crate::test_utils::ArgsBuilder;
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -1039,12 +1041,9 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use crate::node_configurator::node_configurator_standard::standard::gathered_params_for_service_mode;
+    use crate::node_configurator::node_configurator_standard::standard::server_initializer_collected_params;
     use crate::node_configurator::DirsWrapperReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::server_initializer::tests::{
-        convert_str_vec_slice_into_vec_of_strings, make_pre_populated_mocked_directory_wrapper,
-    };
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1056,9 +1055,10 @@ mod tests {
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_only_utils;
-    use crate::test_utils::pure_test_only_utils::{
-        make_default_persistent_configuration, make_simplified_multi_config,
+    use crate::test_utils::pure_test_utils;
+    use crate::test_utils::pure_test_utils::{
+        make_default_persistent_configuration, make_pre_populated_mocked_directory_wrapper,
+        make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
@@ -1071,7 +1071,7 @@ mod tests {
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
-    use masq_lib::utils::running_test;
+    use masq_lib::utils::{running_test, SliceToVec};
     use rustc_hex::FromHex;
     use std::fs::File;
     use std::io::Cursor;
@@ -1463,8 +1463,8 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_error_getting_db_password() {
         running_test();
-        let args = &["command".to_string(), "--db-password".to_string()];
-        let simplified_multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["command", "--db-password"];
+        let simplified_multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
         let mut unprivileged_config = BootstrapperConfig::new();
@@ -1488,8 +1488,8 @@ mod tests {
     #[test]
     fn get_past_neighbors_handles_incorrect_password() {
         running_test();
-        let args = &["program".to_string(), "--db-password".to_string()];
-        let simplified_multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["program", "--db-password"];
+        let simplified_multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::PasswordError));
         let mut unprivileged_config = BootstrapperConfig::new();
@@ -1539,12 +1539,12 @@ mod tests {
     }
 
     #[test]
-    fn can_read_parameters_from_config_file() {
+    fn server_initializer_collected_params_can_read_parameters_from_config_file() {
         running_test();
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator",
-            "can_read_parameters_from_config_file",
+            "server_initializer_collected_params_can_read_parameters_from_config_file",
         );
         {
             let mut config_file = File::create(home_dir.join("config.toml")).unwrap();
@@ -1554,16 +1554,13 @@ mod tests {
         }
         let directory_wrapper = make_pre_populated_mocked_directory_wrapper();
 
-        let (multi_config, _, _) = gathered_params_for_service_mode(
+        let gathered_params = server_initializer_collected_params(
             &directory_wrapper,
-            &convert_str_vec_slice_into_vec_of_strings(&[
-                "",
-                "--data-directory",
-                home_dir.to_str().unwrap(),
-            ]),
+            &["", "--data-directory", home_dir.to_str().unwrap()].array_of_borrows_to_vec(),
         )
         .unwrap();
 
+        let multi_config = gathered_params.multi_config;
         assert_eq!(
             value_m!(multi_config, "dns-servers", String).unwrap(),
             "111.111.111.111,222.222.222.222".to_string()
@@ -1991,8 +1988,8 @@ mod tests {
     fn get_wallets_with_brand_new_database_establishes_default_earning_wallet_without_requiring_password(
     ) {
         running_test();
-        let args = &["program".to_string()];
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["program"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config(None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
@@ -2010,8 +2007,8 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_mnemonic_seed_exists() {
-        let args = &["program".to_string()];
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["program"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
@@ -2031,8 +2028,8 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_consuming_wallet_derivation_path() {
-        let args = &["program".to_string()];
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["program"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Ok(true))
@@ -2055,8 +2052,8 @@ mod tests {
 
     #[test]
     fn get_wallets_handles_failure_of_get_db_password() {
-        let args = &["program".to_string(), "--db-password".to_string()];
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["program", "--db-password"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_from_address_result(Ok(None))
             .mnemonic_seed_exists_result(Ok(true))
@@ -2079,12 +2076,12 @@ mod tests {
     #[test]
     fn earning_wallet_address_different_from_database() {
         running_test();
-        let args = convert_str_vec_slice_into_vec_of_strings(&[
+        let args = [
             "program",
             "--earning-wallet",
             "0x0123456789012345678901234567890123456789",
-        ]);
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
+        ];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config(
             None,
             None,
@@ -2111,12 +2108,12 @@ mod tests {
     #[test]
     fn earning_wallet_address_matches_database() {
         running_test();
-        let args = convert_str_vec_slice_into_vec_of_strings(&[
+        let args = [
             "program",
             "--earning-wallet",
             "0xb00fa567890123456789012345678901234B00FA",
-        ]);
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
+        ];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut persistent_config = make_persistent_config(
             None,
             None,
@@ -2146,14 +2143,14 @@ mod tests {
         running_test();
         let consuming_private_key_hex =
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
-        let args = convert_str_vec_slice_into_vec_of_strings(&[
+        let args = [
             "program",
             "--db-password",
             "password",
             "--consuming-private-key",
             consuming_private_key_hex,
-        ]);
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
+        ];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2181,14 +2178,14 @@ mod tests {
     #[test]
     fn earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let args = convert_str_vec_slice_into_vec_of_strings(&[
+        let args = [
             "program",
             "--db-password",
             "password",
             "--earning-wallet",
             "0xcafedeadbeefbabefacecafedeadbeefbabeface",
-        ]);
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
+        ];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2216,9 +2213,8 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_earning_wallet_address_plus_mnemonic_seed() {
         running_test();
-        let args =
-            convert_str_vec_slice_into_vec_of_strings(&["program", "--db-password", "password"]);
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
+        let args = ["program", "--db-password", "password"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2253,8 +2249,8 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_parameter() {
         running_test();
-        let args = &["program".to_string()];
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["program"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2285,8 +2281,8 @@ mod tests {
     #[test]
     fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_value() {
         running_test();
-        let args = &["program".to_string(), "--db-password".to_string()];
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["program", "--db-password"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mnemonic_seed_prefix = "mnemonic_seed";
         let mut persistent_config = make_persistent_config(
             Some(mnemonic_seed_prefix),
@@ -2414,8 +2410,8 @@ mod tests {
     #[test]
     fn get_db_password_shortcuts_if_its_already_gotten() {
         running_test();
-        let args = &["program".to_string()];
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["program"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut holder = FakeStreamHolder::new();
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
@@ -2454,8 +2450,8 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_read_error() {
         running_test();
-        let args = &["command".to_string(), "--db-password".to_string()];
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(args);
+        let args = ["command", "--db-password"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut streams = &mut StdStreams {
             stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
             stdout: &mut ByteArrayWriter::new(),
@@ -2482,9 +2478,8 @@ mod tests {
     #[test]
     fn get_db_password_handles_database_write_error() {
         running_test();
-        let args =
-            convert_str_vec_slice_into_vec_of_strings(&["command", "--db-password", "password"]);
-        let multi_config = pure_test_only_utils::make_simplified_multi_config(&args);
+        let args = ["command", "--db-password", "password"];
+        let multi_config = pure_test_utils::make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
         let mut persistent_config = make_default_persistent_configuration()
             .check_password_result(Ok(true))
@@ -2532,19 +2527,19 @@ mod tests {
     }
 
     #[test]
-    fn collected_user_params_for_service_mode_senses_when_user_specifies_config_file() {
+    fn server_initializer_collected_params_senses_when_user_specifies_config_file() {
         running_test();
         let data_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
-            "unprivileged_generate_configuration_senses_when_user_specifies_config_file",
+            "server_initializer_collected_params_senses_when_user_specifies_config_file",
         );
         let args = ArgsBuilder::new().param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(PathBuf::from("/home/alice")))
+            .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
             .data_dir_result(Some(data_dir));
 
-        let result = gathered_params_for_service_mode(&dir_wrapper, args_vec.as_slice()).err();
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).err();
 
         match result {
             None => panic!("Expected a value, got None"),
@@ -2563,14 +2558,11 @@ mod tests {
         running_test();
         let _clap_guard = ClapGuard::new();
         let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4")
-            .param("--chain", "dev");
-        let args_vec: Vec<String> = args.into();
+        let args = ["program", "--ip", "1.2.3.4", "--chain", "dev"];
 
         let config = subject
             .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
+                &make_simplified_multi_config(args),
                 Some(&mut FakeStreamHolder::new().streams()),
             )
             .unwrap();
@@ -2585,14 +2577,17 @@ mod tests {
     fn privileged_configuration_accepts_network_chain_selection_for_ropsten() {
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME);
-        let args_vec: Vec<String> = args.into();
+        let args = [
+            "program",
+            "--ip",
+            "1.2.3.4",
+            "--chain",
+            TEST_DEFAULT_CHAIN_NAME,
+        ];
 
         let config = subject
             .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
+                &make_simplified_multi_config(args),
                 Some(&mut FakeStreamHolder::new().streams()),
             )
             .unwrap();
@@ -2608,12 +2603,11 @@ mod tests {
         running_test();
         let _clap_guard = ClapGuard::new();
         let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
-        let args_vec: Vec<String> = args.into();
+        let args = ["program", "--ip", "1.2.3.4"];
 
         let config = subject
             .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
+                &make_simplified_multi_config(args),
                 Some(&mut FakeStreamHolder::new().streams()),
             )
             .unwrap();
@@ -2628,14 +2622,17 @@ mod tests {
     fn privileged_configuration_accepts_ropsten_network_chain_selection() {
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4")
-            .param("--chain", TEST_DEFAULT_CHAIN_NAME);
-        let args_vec: Vec<String> = args.into();
+        let args = [
+            "program",
+            "--ip",
+            "1.2.3.4",
+            "--chain",
+            TEST_DEFAULT_CHAIN_NAME,
+        ];
 
         let bootstrapper_config = subject
             .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
+                &make_simplified_multi_config(args),
                 Some(&mut FakeStreamHolder::new().streams()),
             )
             .unwrap();
@@ -2656,14 +2653,11 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4")
-            .param("--gas-price", "57");
-        let args_vec: Vec<String> = args.into();
+        let args = ["program", "--ip", "1.2.3.4", "--gas-price", "57"];
 
         let config = subject
             .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
+                &make_simplified_multi_config(args),
                 Some(&mut FakeStreamHolder::new().streams()),
             )
             .unwrap();
@@ -2682,12 +2676,11 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
-        let args_vec: Vec<String> = args.into();
+        let args = ["program", "--ip", "1.2.3.4"];
 
         let config = subject
             .configure(
-                &make_simplified_multi_config(args_vec.as_slice()),
+                &make_simplified_multi_config(args),
                 Some(&mut FakeStreamHolder::new().streams()),
             )
             .unwrap();
@@ -2696,14 +2689,14 @@ mod tests {
     }
 
     #[test]
-    fn collected_user_params_for_service_mode_rejects_invalid_gas_price() {
+    fn server_initializer_collected_params_rejects_invalid_gas_price() {
         running_test();
         let _clap_guard = ClapGuard::new();
         let args = ArgsBuilder::new().param("--gas-price", "unleaded");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = make_pre_populated_mocked_directory_wrapper();
 
-        let result = gathered_params_for_service_mode(&dir_wrapper, &args_vec.as_slice())
+        let result = server_initializer_collected_params(&dir_wrapper, &args_vec.as_slice())
             .err()
             .unwrap();
 

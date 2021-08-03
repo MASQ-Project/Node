@@ -466,7 +466,7 @@ mod tests {
             client_id: 1234,
             body: UiDescriptorRequest {}.tmb(4321),
         };
-        //here dispatcher takes what it needs from the BootstrapperConfig
+        //Here dispatcher takes what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
             ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -477,7 +477,7 @@ mod tests {
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(15)); //TODO why cannot I get along without this delay; let's look at it with Dan
+        thread::sleep(std::time::Duration::from_millis(15)); //TODO can we look at this again, please? 0 results in RC
         System::current().stop_with_code(0);
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();

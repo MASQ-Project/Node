@@ -6,9 +6,8 @@ use crate::daemon::{
     ChannelFactory, ChannelFactoryReal, Daemon, DaemonBindMessage, Launcher, Recipients,
 };
 use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-use crate::node_configurator::{port_is_busy, DirsWrapper};
-use crate::run_modes_factories::{DaemonInitializer, RunModeResult};
-use crate::server_initializer::LoggerInitializerWrapper;
+use crate::node_configurator::port_is_busy;
+use crate::run_modes_factories::{ClusteredParams, DaemonInitializer, RunModeResult};
 use crate::sub_lib::main_tools::main_with_args;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::ui_gateway::UiGateway;
@@ -110,28 +109,22 @@ impl RerunnerReal {
 }
 
 impl DaemonInitializerReal {
-    pub fn new(
-        dirs_wrapper: &dyn DirsWrapper,
-        mut logger_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
-        config: InitializationConfig,
-        channel_factory: Box<dyn ChannelFactory>,
-        recipients_factory: Box<dyn RecipientsFactory>,
-        rerunner: Box<dyn Rerunner>,
-    ) -> DaemonInitializerReal {
-        logger_initializer_wrapper.init(
-            dirs_wrapper
+    pub fn new(config: InitializationConfig, mut params: ClusteredParams) -> DaemonInitializerReal {
+        params.logger_initializer_wrapper.init(
+            params
+                .dirs_wrapper
                 .data_dir()
                 .expect_v("data directory")
                 .join("MASQ"),
-            &RealUser::new(None, None, None).populate(dirs_wrapper),
+            &RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref()),
             LevelFilter::Trace,
             Some("daemon"),
         );
         DaemonInitializerReal {
             config,
-            channel_factory,
-            recipients_factory,
-            rerunner,
+            channel_factory: params.channel_factory,
+            recipients_factory: params.recipients_factory,
+            rerunner: params.rerunner,
         }
     }
 
@@ -162,15 +155,33 @@ impl DaemonInitializerReal {
             .collect_vec();
         self.rerunner.rerun(param_vec);
     }
+
+    #[cfg(test)]
+    pub fn access_to_the_fields_test(
+        &self,
+    ) -> (
+        &InitializationConfig,
+        &Box<dyn ChannelFactory>,
+        &Box<dyn RecipientsFactory>,
+        &Box<dyn Rerunner>,
+    ) {
+        (
+            &self.config,
+            &self.channel_factory,
+            &self.recipients_factory,
+            &self.rerunner,
+        )
+    }
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
-    use crate::daemon::{ChannelFactory, Recipients};
+    use crate::daemon::Recipients;
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
+    use crate::test_utils::pure_test_utils::ChannelFactoryMock;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::System;
     use crossbeam_channel::unbounded;
@@ -204,43 +215,6 @@ pub mod tests {
 
         fn make_result(self, result: Recipients) -> Self {
             self.make_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    pub struct ChannelFactoryMock {
-        make_results: RefCell<
-            Vec<(
-                Sender<HashMap<String, String>>,
-                Receiver<HashMap<String, String>>,
-            )>,
-        >,
-    }
-
-    impl ChannelFactory for ChannelFactoryMock {
-        fn make(
-            &self,
-        ) -> (
-            Sender<HashMap<String, String>>,
-            Receiver<HashMap<String, String>>,
-        ) {
-            self.make_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl ChannelFactoryMock {
-        pub fn new() -> ChannelFactoryMock {
-            ChannelFactoryMock {
-                make_results: RefCell::new(vec![]),
-            }
-        }
-
-        pub fn _make_result(
-            self,
-            sender: Sender<HashMap<String, String>>,
-            receiver: Receiver<HashMap<String, String>>,
-        ) -> Self {
-            self.make_results.borrow_mut().push((sender, receiver));
             self
         }
     }
@@ -287,14 +261,14 @@ pub mod tests {
         let channel_factory = ChannelFactoryMock::new();
         let addr_factory = RecipientsFactoryMock::new().make_result(recipients);
         let rerunner = RerunnerMock::new();
-        let mut subject = DaemonInitializerReal::new(
-            &dirs_wrapper,
-            Box::new(logger_initializer_wrapper),
-            config,
-            Box::new(channel_factory),
-            Box::new(addr_factory),
-            Box::new(rerunner),
-        );
+        let clustered_params = ClusteredParams {
+            dirs_wrapper: Box::new(dirs_wrapper),
+            logger_initializer_wrapper: Box::new(logger_initializer_wrapper),
+            channel_factory: Box::new(channel_factory),
+            recipients_factory: Box::new(addr_factory),
+            rerunner: Box::new(rerunner),
+        };
+        let mut subject = DaemonInitializerReal::new(config, clustered_params);
 
         subject.bind(unbounded().0);
 
@@ -327,14 +301,14 @@ pub mod tests {
         let addr_factory = RecipientsFactoryMock::new();
         let rerun_parameters_arc = Arc::new(Mutex::new(vec![]));
         let rerunner = RerunnerMock::new().rerun_parameters(&rerun_parameters_arc);
-        let mut subject = DaemonInitializerReal::new(
-            &dirs_wrapper,
-            Box::new(logger_initializer_wrapper),
-            config,
-            Box::new(channel_factory),
-            Box::new(addr_factory),
-            Box::new(rerunner),
-        );
+        let clustered_params = ClusteredParams {
+            dirs_wrapper: Box::new(dirs_wrapper),
+            logger_initializer_wrapper: Box::new(logger_initializer_wrapper),
+            channel_factory: Box::new(channel_factory),
+            recipients_factory: Box::new(addr_factory),
+            rerunner: Box::new(rerunner),
+        };
+        let mut subject = DaemonInitializerReal::new(config, clustered_params);
         let msg = HashMap::from_iter(
             vec![("address", "123 Main St."), ("name", "Billy")]
                 .into_iter()
@@ -369,14 +343,15 @@ pub mod tests {
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
         let _listener = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
-        let mut subject = DaemonInitializerReal::new(
-            &dirs_wrapper,
-            Box::new(logger_initializer_wrapper),
-            InitializationConfig { ui_port: port },
-            Box::new(ChannelFactoryMock::new()),
-            Box::new(RecipientsFactoryMock::new()),
-            Box::new(RerunnerMock::new()),
-        );
+        let clustered_params = ClusteredParams {
+            dirs_wrapper: Box::new(dirs_wrapper),
+            logger_initializer_wrapper: Box::new(logger_initializer_wrapper),
+            channel_factory: Box::new(ChannelFactoryMock::new()),
+            recipients_factory: Box::new(RecipientsFactoryMock::new()),
+            rerunner: Box::new(RerunnerMock::new()),
+        };
+        let mut subject =
+            DaemonInitializerReal::new(InitializationConfig { ui_port: port }, clustered_params);
         let mut holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut holder.streams(), &[]);

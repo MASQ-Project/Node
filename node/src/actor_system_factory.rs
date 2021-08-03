@@ -691,20 +691,13 @@ mod tests {
         fn make_and_start_blockchain_bridge(
             &self,
             config: &BootstrapperConfig,
-            db_initializer: &dyn DbInitializer,
+            _db_initializer: &dyn DbInitializer,
         ) -> BlockchainBridgeSubs {
             self.parameters
                 .blockchain_bridge_params
                 .lock()
                 .unwrap()
-                .get_or_insert((
-                    config.clone(),
-                    (*db_initializer
-                        .as_any()
-                        .downcast_ref::<DbInitializerReal>()
-                        .unwrap())
-                    .clone(),
-                ));
+                .get_or_insert(config.clone());
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.blockchain_bridge);
             BlockchainBridgeSubs {
                 bind: recipient!(addr, BindMessage),
@@ -751,7 +744,7 @@ mod tests {
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
-        blockchain_bridge_params: Arc<Mutex<Option<(BootstrapperConfig, DbInitializerReal)>>>,
+        blockchain_bridge_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         configurator_params: Arc<Mutex<Option<BootstrapperConfig>>>,
     }
 
@@ -1000,10 +993,9 @@ mod tests {
             dispatcher_param.node_descriptor_opt,
             Some("NODE-DESCRIPTOR".to_string())
         );
-        let blockchain_bridge_params = Parameters::get(parameters.blockchain_bridge_params);
-        let (bootstrapper_config, _db_initializer) = blockchain_bridge_params;
+        let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
-            bootstrapper_config.blockchain_bridge_config,
+            blockchain_bridge_param.blockchain_bridge_config,
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1011,7 +1003,7 @@ mod tests {
             }
         );
         assert_eq!(
-            bootstrapper_config.consuming_wallet,
+            blockchain_bridge_param.consuming_wallet,
             Some(make_wallet("consuming"))
         );
         let _stream_handler_pool_subs = rx.recv().unwrap();

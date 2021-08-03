@@ -3,7 +3,7 @@ use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
-use crate::node_configurator::node_configurator_standard::standard::gathered_params_for_service_mode;
+use crate::node_configurator::node_configurator_standard::standard::server_initializer_collected_params;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib;
@@ -16,6 +16,7 @@ use flexi_logger::{
 use futures::try_ready;
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
+use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
 use std::panic::{Location, PanicInfo};
@@ -33,34 +34,34 @@ pub struct ServerInitializerReal {
 
 impl ServerInitializer for ServerInitializerReal {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
-        let (multi_config, data_directory, real_user) =
-            gathered_params_for_service_mode(self.dirs_wrapper.as_ref(), args)?;
+        let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
 
         let result: RunModeResult = Ok(())
             .combine_results(
                 self.dns_socket_server
                     .as_mut()
-                    .initialize_as_privileged(&multi_config),
+                    .initialize_as_privileged(&params.multi_config),
             )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_privileged(&multi_config),
+                    .initialize_as_privileged(&params.multi_config),
             );
 
-        self.privilege_dropper.chown(&data_directory, &real_user);
-        self.privilege_dropper.drop_privileges(&real_user);
+        self.privilege_dropper
+            .chown(&params.data_directory, &params.real_user);
+        self.privilege_dropper.drop_privileges(&params.real_user);
 
         result
             .combine_results(
                 self.dns_socket_server
                     .as_mut()
-                    .initialize_as_unprivileged(&multi_config, streams),
+                    .initialize_as_unprivileged(&params.multi_config, streams),
             )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_unprivileged(&multi_config, streams),
+                    .initialize_as_unprivileged(&params.multi_config, streams),
             )
     }
     as_any_impl!();
@@ -91,11 +92,11 @@ impl Default for ServerInitializerReal {
     }
 }
 
-trait CombineResults {
+trait ResultsCombiner {
     fn combine_results(self, additional: Self) -> Self;
 }
 
-impl CombineResults for RunModeResult {
+impl ResultsCombiner for RunModeResult {
     fn combine_results(self, additional: Self) -> Self {
         match (self, additional) {
             (Ok(_), Ok(_)) => Ok(()),
@@ -107,6 +108,26 @@ impl CombineResults for RunModeResult {
                     .chain(e2.param_errors.into_iter())
                     .collect(),
             )),
+        }
+    }
+}
+
+pub struct GatheredParams<'a> {
+    pub multi_config: MultiConfig<'a>,
+    pub data_directory: PathBuf,
+    pub real_user: RealUser,
+}
+
+impl<'a> GatheredParams<'a> {
+    pub fn new(
+        multi_config: MultiConfig<'a>,
+        data_directory: PathBuf,
+        real_user: RealUser,
+    ) -> Self {
+        Self {
+            multi_config,
+            data_directory,
+            real_user,
         }
     }
 }
@@ -395,12 +416,14 @@ pub mod tests {
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::test_utils::pure_test_utils::make_pre_populated_mocked_directory_wrapper;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
+    use masq_lib::utils::SliceToVec;
     use std::cell::RefCell;
     use std::ops::{Deref, Not};
     use std::sync::Arc;
@@ -441,7 +464,7 @@ pub mod tests {
         }
     }
 
-    pub fn extract_values_from_multi_config(
+    pub fn ingest_values_from_multi_config(
         requested_params: &RefCell<Vec<String>>,
         resulting_values: &Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         multi_config: &MultiConfig,
@@ -449,7 +472,7 @@ pub mod tests {
         if requested_params.borrow().is_empty().not() {
             resulting_values.lock().unwrap().push(
                 MultiConfigExtractedValues::default()
-                    .extract_entries_on_demand(&requested_params.borrow(), multi_config),
+                    .ingest_entries_on_demand(&requested_params.borrow(), multi_config),
             )
         };
     }
@@ -459,7 +482,7 @@ pub mod tests {
             &mut self,
             multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
-            extract_values_from_multi_config(
+            ingest_values_from_multi_config(
                 &self.queried_values_from_multi_config,
                 &self.initialize_as_privileged_params,
                 multi_config,
@@ -472,7 +495,7 @@ pub mod tests {
             multi_config: &MultiConfig,
             _streams: &mut StdStreams,
         ) -> Result<(), ConfiguratorError> {
-            extract_values_from_multi_config(
+            ingest_values_from_multi_config(
                 &self.queried_values_from_multi_config,
                 &self.initialize_as_unprivileged_params,
                 multi_config,
@@ -484,7 +507,7 @@ pub mod tests {
     }
 
     impl ConfiguredByPrivilegeMock {
-        pub fn set_demanded_values_from_multi_config(self, mut values: Vec<String>) -> Self {
+        pub fn define_demanded_values_from_multi_config(self, mut values: Vec<String>) -> Self {
             self.queried_values_from_multi_config
                 .borrow_mut()
                 .append(&mut values);
@@ -528,14 +551,13 @@ pub mod tests {
         }
     }
 
-    //TODO consider if this tool is valuable or needless
     #[derive(Default)]
     pub struct MultiConfigExtractedValues {
         pub arg_matches_requested_entries: Vec<String>,
     }
 
     impl MultiConfigExtractedValues {
-        pub fn extract_entries_on_demand(
+        pub fn ingest_entries_on_demand(
             mut self,
             required: &[String],
             multi_config: &MultiConfig,
@@ -676,12 +698,6 @@ pub mod tests {
         tlh.exists_log_containing("ERROR: PanicHandler: file.txt:24:42 - I'm just a string slice");
     }
 
-    pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {
-        DirsWrapperMock::new()
-            .home_dir_result(Some(PathBuf::from("/home/alice")))
-            .data_dir_result(Some(PathBuf::from("/home/alice/Documents")))
-    }
-
     #[test]
     fn exits_after_all_socket_servers_exit() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
@@ -704,16 +720,8 @@ pub mod tests {
             stderr,
         };
         subject
-            .go(
-                streams,
-                &convert_str_vec_slice_into_vec_of_strings(&[
-                    "MASQNode",
-                    "--real-user",
-                    "123:456:/home/alice",
-                ]),
-            )
+            .go(streams, &["MASQNode"].array_of_borrows_to_vec())
             .unwrap();
-
         let res = subject.wait();
 
         assert!(res.is_err());
@@ -788,19 +796,17 @@ pub mod tests {
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
             .initialize_as_unprivileged_params(&bootstrapper_init_unprivileged_params_arc)
-            .set_demanded_values_from_multi_config(vec![
-                "dns-servers".to_string(),
-                "real-user".to_string(),
-            ]);
+            .define_demanded_values_from_multi_config(
+                ["dns-servers", "real-user"].array_of_borrows_to_vec(),
+            );
         let dns_socket_server = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Ok(()))
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
             .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
-            .set_demanded_values_from_multi_config(vec![
-                "dns-servers".to_string(),
-                "real-user".to_string(),
-            ]);
+            .define_demanded_values_from_multi_config(
+                ["dns-servers", "real-user"].array_of_borrows_to_vec(),
+            );
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
         let chown_params_arc = Arc::new(Mutex::new(vec![]));
@@ -824,13 +830,14 @@ pub mod tests {
 
         let result = subject.go(
             streams,
-            &convert_str_vec_slice_into_vec_of_strings(&[
+            &[
                 "MASQNode",
                 "--real-user",
                 "123:456:/home/alice",
                 "--dns-servers",
                 "5.5.6.6",
-            ]),
+            ]
+            .array_of_borrows_to_vec(),
         );
 
         assert!(result.is_ok());
@@ -839,13 +846,13 @@ pub mod tests {
         assert_eq!(
             *chown_params,
             vec![(
-                PathBuf::from("/home/alice/Documents/MASQ/mainnet"),
+                PathBuf::from("/home/alice/mock_directory/MASQ/mainnet"),
                 real_user.clone()
             )]
         );
         let drop_privileges_params = drop_privileges_params_arc.lock().unwrap();
         assert_eq!(*drop_privileges_params, vec![real_user]);
-        let params_for_assertion_on_multi_config = &vec!["5.5.6.6", "123:456:/home/alice"];
+        let params_for_assertion_on_multi_config = vec!["5.5.6.6", "123:456:/home/alice"];
         [
             bootstrapper_init_privileged_params_arc,
             bootstrapper_init_unprivileged_params_arc,
@@ -856,17 +863,10 @@ pub mod tests {
         .for_each(|arc_params| {
             let param_vec = arc_params.lock().unwrap();
             assert_eq!(
-                &param_vec[0].arg_matches_requested_entries,
+                *param_vec[0].arg_matches_requested_entries,
                 params_for_assertion_on_multi_config
             )
         })
-    }
-
-    pub fn convert_str_vec_slice_into_vec_of_strings(slice: &[&str]) -> Vec<String> {
-        slice
-            .iter()
-            .map(|item| item.to_string())
-            .collect::<Vec<String>>()
     }
 
     #[test]
@@ -897,11 +897,7 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
         };
-        let args = convert_str_vec_slice_into_vec_of_strings(&[
-            "MASQNode",
-            "--real-user",
-            "123:123:/home/alice",
-        ]);
+        let args = &["MASQNode", "--real-user", "123:123:/home/alice"].array_of_borrows_to_vec();
         let stderr = ByteArrayWriter::new();
         let mut holder = FakeStreamHolder::new();
         holder.stderr = stderr;

@@ -25,7 +25,7 @@ use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig,
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::utils::{localhost, ExpectValue};
+use masq_lib::utils::{localhost, ExpectValue, WrapResult};
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
 use std::fmt::Debug;
@@ -117,7 +117,7 @@ pub fn determine_config_file_path(
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool, RealUser), ConfiguratorError> {
+) -> Result<(PathBuf, bool), ConfiguratorError> {
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
@@ -145,7 +145,7 @@ pub fn determine_config_file_path(
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
-    Ok((directory.join(config_file_path), user_specified, real_user))
+    (directory.join(config_file_path), user_specified).wrap_to_ok()
 }
 
 pub fn create_wallet(
@@ -209,14 +209,21 @@ pub fn update_db_password(
     Ok(())
 }
 
+pub fn real_user_from_m_c_or_populate(
+    multi_config: &MultiConfig,
+    dirs_wrapper: &dyn DirsWrapper,
+) -> RealUser {
+    match value_m!(multi_config, "real-user", RealUser) {
+        None => RealUser::new(None, None, None).populate(dirs_wrapper),
+        Some(real_user) => real_user.populate(dirs_wrapper),
+    }
+}
+
 pub fn real_user_data_directory_opt_and_chain_name(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, String) {
-    let real_user = match value_m!(multi_config, "real-user", RealUser) {
-        None => RealUser::new(None, None, None).populate(dirs_wrapper),
-        Some(real_user) => real_user.populate(dirs_wrapper),
-    };
+    let real_user = real_user_from_m_c_or_populate(multi_config, dirs_wrapper);
     let chain_name =
         value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
@@ -1012,7 +1019,7 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1035,7 +1042,7 @@ mod tests {
         std::env::set_var("MASQ_DATA_DIRECTORY", "data_dir");
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
-        let (config_file_path, user_specified, _) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1059,7 +1066,7 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),

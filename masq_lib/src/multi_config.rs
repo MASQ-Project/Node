@@ -131,6 +131,9 @@ impl<'a> MultiConfig<'a> {
 
 //this way I can protect the inner field from having to be public (Default + deref_mut())
 
+//TODO I think this apply for the situation where I'm not allowed to make this cfg(test); this default() is used
+// in a different crate and thus it doesn't see anything with cfg(test), period. What we maybe should do is to go by the way of
+// GH-456
 impl Default for MultiConfig<'_> {
     /*use of this method in the production code should be consequently considered alarming
     it's not intuitive to fill this literally empty default with values, therefore it's believed to stop people from doing so*/
@@ -865,7 +868,7 @@ pub mod tests {
         assert!(user_specified_numeric);
         assert_eq!(Some(88), missing_arg_result);
         assert!(!user_specified_missing);
-        assert!(subject.arg_matches.is_present("missing-arg"));
+        assert!(subject.deref().is_present("missing-arg"));
     }
 
     #[test]
@@ -884,7 +887,7 @@ pub mod tests {
         ];
         let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
-        let result = subject.arg_matches;
+        let result = subject.deref();
 
         assert!(result.is_present("nonvalued"));
     }

@@ -124,8 +124,20 @@ pub fn exit_process_with_sigterm(message: &str) {
     } else {
         eprintln!("{}", message);
         not_win_cfg::signal::raise(not_win_cfg::signal::SIGTERM).expect("sigterm failure");
-        //This function must not return; so wait for death.
+        //This function must not return; so may it waits for death.
         std::thread::sleep(not_win_cfg::Duration::from_secs(600))
+    }
+}
+
+pub trait SliceToVec<T: 'static + Clone> {
+    fn array_of_borrows_to_vec(self) -> Vec<T>;
+}
+
+impl<const N: usize> SliceToVec<String> for [&str; N] {
+    fn array_of_borrows_to_vec(self) -> Vec<String> {
+        self.iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<String>>()
     }
 }
 
@@ -135,6 +147,7 @@ pub trait ExpectValue<T> {
 }
 
 impl<T> ExpectValue<T> for Option<T> {
+    #[inline]
     fn expect_v(self, subject: &str) -> T {
         match self {
             Some(v) => v,
@@ -144,11 +157,16 @@ impl<T> ExpectValue<T> for Option<T> {
 }
 
 impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
+    #[inline]
     fn expect_v(self, subject: &str) -> T {
-        self.unwrap_or_else(|e| expect_value_panic(subject, Some(&e)))
+        match self {
+            Ok(v) => v,
+            Err(e) => expect_value_panic(subject, Some(&e)),
+        }
     }
 }
 
+#[track_caller]
 fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
     panic!(
         "value for '{}' badly prepared{}",
@@ -339,7 +357,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "value for 'meaningful code' badly prepared")]
-    fn expect_decent_panics_for_none() {
+    fn expect_v_panics_for_none() {
         let subject: Option<u16> = None;
 
         let _ = subject.expect_v("meaningful code");
@@ -347,14 +365,14 @@ mod tests {
 
     #[test]
     #[should_panic(expected = r#"value for 'safety feature' badly prepared, got: "alarm"#)]
-    fn expect_decent_panics_for_error_variant() {
+    fn expect_v_panics_for_error_variant() {
         let subject: Result<String, String> = Err("alarm".to_string());
 
         let _ = subject.expect_v("safety feature");
     }
 
     #[test]
-    fn expect_decent_unwraps_option() {
+    fn expect_v_unwraps_option() {
         let subject = Some(456);
 
         let result = subject.expect_v("meaningful code");
@@ -363,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn expect_decent_unwraps_result() {
+    fn expect_v_unwraps_result() {
         let subject: Result<String, String> = Ok("all right".to_string());
 
         let result = subject.expect_v("safety feature");

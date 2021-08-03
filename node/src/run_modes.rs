@@ -227,7 +227,6 @@ impl Runner for RunnerReal {
         let system = System::new("main");
         let mut server_initializer = self.server_initializer_factory.make();
         server_initializer.go(streams, args)?;
-
         actix::spawn(server_initializer.map_err(|_| {
             System::current().stop_with_code(1);
         }));
@@ -260,7 +259,7 @@ impl RunnerReal {
         Self {
             dump_config_runner_factory: Box::new(DumpConfigRunnerFactoryReal),
             server_initializer_factory: Box::new(ServerInitializerFactoryReal),
-            daemon_initializer_factory: Box::new(DaemonInitializerFactoryReal::build()),
+            daemon_initializer_factory: Box::new(DaemonInitializerFactoryReal::default()),
         }
     }
 }
@@ -279,11 +278,11 @@ mod tests {
         DumpConfigRunnerMock, ServerInitializerFactoryMock, ServerInitializerMock,
     };
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
-    use crate::server_initializer::tests::convert_str_vec_slice_into_vec_of_strings;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::utils::SliceToVec;
     use regex::Regex;
     use std::cell::RefCell;
-    use std::ops::Deref;
+    use std::ops::{Deref, Not};
     use std::sync::{Arc, Mutex};
 
     pub struct RunnerMock {
@@ -370,27 +369,25 @@ mod tests {
 
     #[test]
     fn dump_config() {
-        [["--dump-config"]]
-            .iter()
-            .for_each(|args| check_mode(args, Mode::DumpConfig, false));
+        let arg = vec!["--dump-config".to_string()];
+        check_mode(arg, Mode::DumpConfig, false);
     }
 
     #[test]
     fn initialization() {
-        [["--initialization"]]
-            .iter()
-            .for_each(|args| check_mode(args, Mode::Initialization, true));
+        let arg = vec!["--initialization".to_string()];
+        check_mode(arg, Mode::Initialization, true);
     }
 
     #[test]
     fn everything_beats_initialization() {
         check_mode(
-            &["--initialization", "--dump-config"],
+            ["--initialization", "--dump-config"].array_of_borrows_to_vec(),
             Mode::DumpConfig,
             false,
         );
         check_mode(
-            &["--dump-config", "--initialization"],
+            ["--dump-config", "--initialization"].array_of_borrows_to_vec(),
             Mode::DumpConfig,
             false,
         );
@@ -398,14 +395,14 @@ mod tests {
 
     #[test]
     fn dump_config_rules_all() {
-        [["--booga", "--goober", "--initialization", "--dump-config"]]
-            .iter()
-            .for_each(|args| check_mode(args, Mode::DumpConfig, false));
+        let args =
+            ["--booga", "--goober", "--initialization", "--dump-config"].array_of_borrows_to_vec();
+        check_mode(args, Mode::DumpConfig, false);
     }
 
     #[test]
     fn run_servers() {
-        check_mode(&[], Mode::Service, true)
+        check_mode(vec![], Mode::Service, true)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -419,7 +416,7 @@ mod tests {
             service_yes,
             "MASQNode in Service mode must run with root privilege; try sudo"
         );
-        assert_eq! (dump_config_no, "MASQNode in DumpConfig mode does not require root privilege; try without sudo next time");
+        assert_eq!(dump_config_no, "MASQNode in DumpConfig mode does not require root privilege; try without sudo next time");
         assert_eq!(
             initialization_yes,
             "MASQNode in Initialization mode must run with root privilege; try sudo"
@@ -475,17 +472,19 @@ parm2 - msg2\n"
         let go_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
-        runner.server_initializer_factory = Box::new(ServerInitializerFactoryMock::new(Box::new(
-            ServerInitializerMock::default()
-                .go_result(Err(ConfiguratorError::required(
-                    "some-parameter",
-                    "too-low-value",
-                )))
-                .go_params(&go_params_arc),
-        )));
+        runner.server_initializer_factory = Box::new(
+            ServerInitializerFactoryMock::default().make_result(Box::new(
+                ServerInitializerMock::default()
+                    .go_result(Err(ConfiguratorError::required(
+                        "some-parameter",
+                        "too-low-value",
+                    )))
+                    .go_params(&go_params_arc),
+            )),
+        );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = convert_str_vec_slice_into_vec_of_strings(&["program", "param", "--arg"]);
+        let args = (&["program", "param", "--arg"]).array_of_borrows_to_vec();
 
         let result = subject.runner.run_node(&args, &mut holder.streams());
 
@@ -505,7 +504,7 @@ parm2 - msg2\n"
         assert_eq!(&holder.stderr.get_string(), "");
         let go_params = go_params_arc.lock().unwrap();
         assert_eq!(go_params.deref().len(), 1);
-        assert_eq!(*go_params[0], args)
+        assert_eq!(go_params[0], args)
     }
 
     #[test]
@@ -513,25 +512,28 @@ parm2 - msg2\n"
         let go_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
-        runner.server_initializer_factory = Box::new(ServerInitializerFactoryMock::new(Box::new(
-            ServerInitializerMock::default()
-                .go_result(Ok(()))
-                .go_params(&go_params_arc)
-                .poll_result(Err(())),
-        )));
+        runner.server_initializer_factory = Box::new(
+            ServerInitializerFactoryMock::default().make_result(Box::new(
+                ServerInitializerMock::default()
+                    .go_result(Ok(()))
+                    .go_params(&go_params_arc)
+                    .poll_result(Err(())),
+            )),
+        );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args =
-            convert_str_vec_slice_into_vec_of_strings(&["program", "param", "param", "--arg"]);
+        let args = ["program", "param", "param", "--arg"].array_of_borrows_to_vec();
 
-        let result = subject.runner.run_node(&args, &mut holder.streams());
+        let result = subject
+            .runner
+            .run_node(args.as_slice(), &mut holder.streams());
 
         assert_eq!(result, Err(RunnerError::Numeric(1)));
         assert_eq!(&holder.stdout.get_string(), "");
         assert_eq!(&holder.stderr.get_string(), "");
         let go_params = go_params_arc.lock().unwrap();
         assert_eq!(go_params.deref().len(), 1);
-        assert_eq!(*go_params[0], args)
+        assert_eq!(go_params[0], args)
     }
 
     #[test]
@@ -549,13 +551,9 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = &convert_str_vec_slice_into_vec_of_strings(&[
-            "program",
-            "--initialization",
-            "--halabala",
-        ]);
+        let args = ["program", "--initialization", "--halabala"].array_of_borrows_to_vec();
 
-        let result = subject.runner.run_daemon(args, &mut holder.streams());
+        let result = subject.runner.run_daemon(&args, &mut holder.streams());
 
         assert_eq!(&holder.stdout.get_string(), "");
         assert_eq!(&holder.stderr.get_string(), "");
@@ -586,14 +584,9 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = &convert_str_vec_slice_into_vec_of_strings(&[
-            "program",
-            "--initialization",
-            "--ui-port",
-            "52452",
-        ]);
+        let args = ["program", "--initialization", "--ui-port", "52452"].array_of_borrows_to_vec();
 
-        let result = subject.runner.run_daemon(args, &mut holder.streams());
+        let result = subject.runner.run_daemon(&args, &mut holder.streams());
 
         assert_eq!(&holder.stdout.get_string(), "");
         assert_eq!(&holder.stderr.get_string(), "");
@@ -615,14 +608,19 @@ parm2 - msg2\n"
         let dump_config_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
-        runner.dump_config_runner_factory = Box::new(DumpConfigRunnerFactoryMock::new(Box::new(
-            DumpConfigRunnerMock::default()
-                .dump_config_result(Err(ConfiguratorError::required("parameter", "deep-reason")))
-                .dump_config_params(&dump_config_params_arc),
-        )));
+        runner.dump_config_runner_factory = Box::new(
+            DumpConfigRunnerFactoryMock::default().make_result(Box::new(
+                DumpConfigRunnerMock::default()
+                    .dump_config_result(Err(ConfiguratorError::required(
+                        "parameter",
+                        "deep-reason",
+                    )))
+                    .dump_config_params(&dump_config_params_arc),
+            )),
+        );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = convert_str_vec_slice_into_vec_of_strings(&["program", "param", "--arg"]);
+        let args = ["program", "param", "--arg"].array_of_borrows_to_vec();
 
         let result = subject.runner.dump_config(&args, &mut holder.streams());
 
@@ -681,13 +679,28 @@ parm2 - msg2\n"
     #[test]
     fn is_help_or_version_works() {
         vec![
-            &convert_str_vec_slice_into_vec_of_strings(&["whatever", "--help", "something"]),
-            &convert_str_vec_slice_into_vec_of_strings(&["whatever", "--version", "something"]),
-            &convert_str_vec_slice_into_vec_of_strings(&["whatever", "-V", "something"]),
-            &convert_str_vec_slice_into_vec_of_strings(&["whatever", "-h", "something"]),
+            ["whatever", "--help", "something"].array_of_borrows_to_vec(),
+            ["whatever", "--version", "something"].array_of_borrows_to_vec(),
+            ["whatever", "-V", "something"].array_of_borrows_to_vec(),
+            ["whatever", "-h", "something"].array_of_borrows_to_vec(),
         ]
         .into_iter()
-        .for_each(|args| assert!(RunModes::is_help_or_version(args)))
+        .for_each(|args| assert!(RunModes::is_help_or_version(&args)))
+    }
+
+    #[test]
+    fn is_help_or_version_lets_you_in_if_no_specific_arguments() {
+        vec![
+            ["whatever", "something"]
+                .array_of_borrows_to_vec()
+                .as_slice(),
+            &["drowned--help".to_string()],
+            &["drowned--version".to_string()],
+            &["drowned-Vin a juice".to_string()],
+            &["drowned-hin a coke".to_string()],
+        ]
+        .into_iter()
+        .for_each(|args| assert!(RunModes::is_help_or_version(args).not()))
     }
 
     #[test]
@@ -697,11 +710,7 @@ parm2 - msg2\n"
         let mut node_h_holder = FakeStreamHolder::new();
 
         let daemon_h_exit_code = subject.go(
-            &[
-                "program".to_string(),
-                "--initialization".to_string(),
-                "--help".to_string(),
-            ],
+            &["program", "--initialization", "--help"].array_of_borrows_to_vec(),
             &mut daemon_h_holder.streams(),
         );
 
@@ -712,7 +721,7 @@ parm2 - msg2\n"
 
         assert_eq!(daemon_h_exit_code, 0);
         let daemon_stdout_message = daemon_h_holder.stdout.get_string();
-        assert!(daemon_stdout_message.contains("MASQ\nMASQ Node is the foundation of  MASQ Network, an open-source network that allows anyone to"));
+        assert!(daemon_stdout_message.contains("MASQ\nMASQ Node is the foundation of MASQ Network, an open-source network that allows anyone to"));
         assert!(daemon_stdout_message.contains("--initialization    Directs"));
         assert_eq!(daemon_h_holder.stderr.get_string(), "");
         assert_eq!(node_h_exit_code, 0);
@@ -723,45 +732,51 @@ parm2 - msg2\n"
         assert_eq!(node_h_holder.stderr.get_string(), "");
     }
 
-    #[ignore] //remove this attribute when Clap is more stable or transform this test into an integration test
+    //TODO fix the functionality by upgrading Clap;
+    // it should be the card GH-460
+    // or eventually transform this into an integration test
     #[test]
     fn daemon_and_node_modes_version_call() {
-        let subject = RunModes::new();
-        let mut daemon_v_holder = FakeStreamHolder::new();
-        let mut node_v_holder = FakeStreamHolder::new();
+        use chrono::offset::Utc;
+        use chrono::NaiveDate;
+        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 8, 30) {
+            let subject = RunModes::new();
+            let mut daemon_v_holder = FakeStreamHolder::new();
+            let mut node_v_holder = FakeStreamHolder::new();
 
-        let daemon_v_exit_code = subject.go(
-            &[
-                "program".to_string(),
-                "--initialization".to_string(),
-                "--version".to_string(),
-            ],
-            &mut daemon_v_holder.streams(),
-        );
+            let daemon_v_exit_code = subject.go(
+                &[
+                    "program".to_string(),
+                    "--initialization".to_string(),
+                    "--version".to_string(),
+                ],
+                &mut daemon_v_holder.streams(),
+            );
 
-        let node_v_exit_code = subject.go(
-            &["program".to_string(), "--version".to_string()],
-            &mut node_v_holder.streams(),
-        );
+            let node_v_exit_code = subject.go(
+                &["program".to_string(), "--version".to_string()],
+                &mut node_v_holder.streams(),
+            );
 
-        assert_eq!(daemon_v_exit_code, 0);
-        let regex = Regex::new(r"MASQ Node \d+\.\d+\.\d+\n").unwrap();
-        let daemon_stdout_message = daemon_v_holder.stdout.get_string();
-        assert!(
-            regex.is_match(&daemon_stdout_message),
-            "Should see the version of the Daemon printed to stdout, but got this: {}",
-            daemon_stdout_message
-        );
-        assert_eq!(daemon_v_holder.stderr.get_string(), "");
+            assert_eq!(daemon_v_exit_code, 0);
+            let regex = Regex::new(r"MASQ Node \d+\.\d+\.\d+\n").unwrap();
+            let daemon_stdout_message = daemon_v_holder.stdout.get_string();
+            assert!(
+                regex.is_match(&daemon_stdout_message),
+                "Should see the version of the Daemon printed to stdout, but got this: {}",
+                daemon_stdout_message
+            );
+            assert_eq!(daemon_v_holder.stderr.get_string(), "");
 
-        assert_eq!(node_v_exit_code, 0);
-        let node_stdout_message = node_v_holder.stdout.get_string();
-        assert!(
-            regex.is_match(&node_stdout_message),
-            "Should see the version of the Node printed to stdout, but got this: {}",
-            node_stdout_message
-        );
-        assert_eq!(node_v_holder.stderr.get_string(), "");
+            assert_eq!(node_v_exit_code, 0);
+            let node_stdout_message = node_v_holder.stdout.get_string();
+            assert!(
+                regex.is_match(&node_stdout_message),
+                "Should see the version of the Node printed to stdout, but got this: {}",
+                node_stdout_message
+            );
+            assert_eq!(node_v_holder.stderr.get_string(), "");
+        }
     }
 
     #[test]
@@ -771,7 +786,7 @@ parm2 - msg2\n"
         let mut stream_holder = FakeStreamHolder::new();
 
         let daemon_exit_code = subject.go(
-            &convert_str_vec_slice_into_vec_of_strings(&["program", "--initiabababa", "--help"]),
+            &["program", "--initiabababa", "--help"].array_of_borrows_to_vec(),
             &mut stream_holder.streams(),
         );
 
@@ -813,24 +828,20 @@ parm2 - msg2\n"
         assert_eq!(*params, vec![vec!["--dump-config"]])
     }
 
-    fn check_mode(args: &[&str], expected_mode: Mode, privilege_required: bool) {
-        let mut augmented_args: Vec<&str> = vec!["--unrelated"];
+    fn check_mode(args: Vec<String>, expected_mode: Mode, privilege_required: bool) {
+        let mut augmented_args = vec!["--unrelated".to_string()];
         augmented_args.extend(args);
-        augmented_args.push("--unrelated");
-        let args = strs_to_strings(augmented_args);
+        augmented_args.push("--unrelated".to_string());
         let subject = RunModes::new();
 
-        let (actual_mode, actual_privilege_required) = subject.determine_mode_and_priv_req(&args);
+        let (actual_mode, actual_privilege_required) =
+            subject.determine_mode_and_priv_req(&augmented_args);
 
-        assert_eq!(actual_mode, expected_mode, "args: {:?}", args);
+        assert_eq!(actual_mode, expected_mode, "args: {:?}", augmented_args);
         assert_eq!(
             actual_privilege_required, privilege_required,
             "args: {:?}",
-            args
+            augmented_args
         );
-    }
-
-    fn strs_to_strings(strs: Vec<&str>) -> Vec<String> {
-        strs.into_iter().map(|str| str.to_string()).collect()
     }
 }
