@@ -46,7 +46,7 @@ use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
 };
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::AutomapProtocol;
+use masq_lib::utils::{AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 use std::sync::mpsc;
@@ -210,10 +210,10 @@ impl ActorSystemFactoryReal {
 
     fn notify_of_public_ip_change(
         new_ip_recipients: &Vec<Recipient<NewPublicIp>>,
-        public_ip: IpAddr,
+        new_public_ip: IpAddr,
     ) {
         new_ip_recipients.iter().for_each(|r| {
-            r.try_send(NewPublicIp { ip: public_ip })
+            r.try_send(NewPublicIp { new_ip: new_public_ip })
                 .expect("NewPublicIp recipient is dead")
         });
     }
@@ -233,8 +233,8 @@ impl ActorSystemFactoryReal {
             }
             let inner_recipients = new_ip_recipients.clone();
             let change_handler = move |change: AutomapChange| match change {
-                AutomapChange::NewIp(public_ip) => {
-                    Self::notify_of_public_ip_change(&inner_recipients, public_ip)
+                AutomapChange::NewIp(new_public_ip) => {
+                    Self::notify_of_public_ip_change(&inner_recipients, new_public_ip)
                 }
                 AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
             };
@@ -1317,13 +1317,13 @@ mod tests {
         assert_eq!(
             recording.get_record::<NewPublicIp>(0),
             &NewPublicIp {
-                ip: IpAddr::from_str("1.2.3.4").unwrap()
+                new_ip: IpAddr::from_str("1.2.3.4").unwrap()
             }
         );
         assert_eq!(
             recording.get_record::<NewPublicIp>(1),
             &NewPublicIp {
-                ip: IpAddr::from_str("4.3.2.1").unwrap()
+                new_ip: IpAddr::from_str("4.3.2.1").unwrap()
             }
         );
     }
@@ -1376,7 +1376,7 @@ mod tests {
 
     fn check_new_ip_message(recording: &Arc<Mutex<Recording>>, new_ip: IpAddr, idx: usize) {
         let new_ip_message = Recording::get::<NewPublicIp>(recording, idx);
-        assert_eq!(new_ip_message.ip, new_ip);
+        assert_eq!(new_ip_message.new_ip, new_ip);
     }
 
     fn check_cryptde(candidate: &dyn CryptDE) {

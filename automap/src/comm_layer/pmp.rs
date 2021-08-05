@@ -13,7 +13,7 @@ use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use masq_lib::logger::Logger;
-use masq_lib::utils::AutomapProtocol;
+use masq_lib::utils::{AutomapProtocol};
 use masq_lib::{debug, error, info, warning};
 use pretty_hex::PrettyHex;
 use std::any::Any;

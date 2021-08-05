@@ -409,7 +409,7 @@ impl Neighborhood {
     }
 
     fn handle_new_public_ip(&mut self, msg: NewPublicIp) {
-        let new_public_ip = msg.ip;
+        let new_public_ip = msg.new_ip;
         let old_public_ip = self
             .neighborhood_database
             .root()
@@ -3071,7 +3071,7 @@ mod tests {
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
-        subject.handle_new_public_ip(NewPublicIp { ip: new_public_ip });
+        subject.handle_new_public_ip(NewPublicIp { new_ip: new_public_ip });
 
         assert_eq!(
             subject
