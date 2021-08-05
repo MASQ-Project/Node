@@ -1089,7 +1089,7 @@ mod tests {
             .param("--config-file", r"\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1112,7 +1112,7 @@ mod tests {
             .param("--config-file", r"c:\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1135,7 +1135,7 @@ mod tests {
             .param("--config-file", r"\\TMP\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -1159,7 +1159,7 @@ mod tests {
             .param("--config-file", r"c:tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_config_file_path(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
