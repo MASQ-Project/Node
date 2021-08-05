@@ -146,25 +146,21 @@ impl DynamicStoreDnsModifier {
         dns_base_path: String,
         dns_info: HashMap<String, Vec<String>>,
     ) -> Result<(), String> {
-        let keys_and_values: Vec<(String, CFPropertyList)> = dns_info
-            .into_iter()
-            .map(|(key, value)| {
-                let cfvalues: Vec<CFString> = value
-                    .into_iter()
-                    .map(|address| CFString::from(&address[..]))
-                    .collect();
-                (
-                    key,
-                    CFArray::from_CFTypes(cfvalues.as_slice())
-                        .to_untyped()
-                        .to_CFPropertyList(),
-                )
-            })
-            .collect();
-
+        let keys_and_values = dns_info.into_iter().map(|(key, value)| {
+            let cfvalues: Vec<CFString> = value
+                .into_iter()
+                .map(|address| CFString::from(&address[..]))
+                .collect();
+            (
+                key,
+                CFArray::from_CFTypes(cfvalues.as_slice())
+                    .to_untyped()
+                    .to_CFPropertyList(),
+            )
+        });
         if self
             .store
-            .set_dictionary_string_cfpl(&dns_base_path[..], keys_and_values.into_iter().collect())
+            .set_dictionary_string_cfpl(&dns_base_path, keys_and_values.collect())
         {
             Ok(())
         } else {
