@@ -18,7 +18,18 @@ mod not_win_cfg {
 
 const FIND_FREE_PORT_LOWEST: u16 = 32768;
 const FIND_FREE_PORT_HIGHEST: u16 = 65535;
-static mut RUNNING_TEST: bool = false;
+
+pub struct RunningTestData {
+    test_is_running: bool,
+    panic_message: Option<String>,
+}
+
+lazy_static! {
+    pub static ref RUNNING_TEST_DATA: Arc<Mutex<RunningTestData>> = Arc::new(Mutex::new(RunningTestData{
+        test_is_running: false,
+        panic_message: None,
+    }));
+}
 
 lazy_static! {
     static ref FIND_FREE_PORT_NEXT: Arc<Mutex<u16>> = Arc::new(Mutex::new(FIND_FREE_PORT_LOWEST));
@@ -155,13 +166,29 @@ pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
 }
 
 pub fn running_test() {
-    unsafe {
-        RUNNING_TEST = true;
-    }
+    let mut running_test_data = RUNNING_TEST_DATA
+        .lock()
+        .unwrap();
+    running_test_data.test_is_running = true;
+}
+
+fn set_test_data_message (message: &str) {
+    let mut running_test_data = RUNNING_TEST_DATA
+        .lock()
+        .expect("Thread died unexpectedly");
+    running_test_data.panic_message = Some(message.to_string());
+}
+
+fn test_is_running() -> bool {
+    RUNNING_TEST_DATA
+        .lock()
+        .expect("Thread died unexpectedly")
+        .test_is_running
 }
 
 pub fn exit_process(code: i32, message: &str) -> ! {
-    if unsafe { RUNNING_TEST } {
+    if test_is_running() {
+        set_test_data_message (message);
         panic!("{}: {}", code, message);
     } else {
         eprintln!("{}", message);
@@ -169,9 +196,14 @@ pub fn exit_process(code: i32, message: &str) -> ! {
     }
 }
 
+pub fn get_test_panic_message() -> Option<String> {
+    RUNNING_TEST_DATA.lock().unwrap().panic_message.clone()
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn exit_process_with_sigterm(message: &str) {
-    if unsafe { RUNNING_TEST } {
+    if test_is_running() {
+        set_test_data_message (message);
         panic!("{}", message);
     } else {
         eprintln!("{}", message);

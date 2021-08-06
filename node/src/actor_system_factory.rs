@@ -46,7 +46,7 @@ use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
 };
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::{AutomapProtocol};
+use masq_lib::utils::{AutomapProtocol, exit_process};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 use std::sync::mpsc;
@@ -219,7 +219,11 @@ impl ActorSystemFactoryReal {
     }
 
     fn handle_housekeeping_thread_error(error: AutomapError) {
-        todo! ("{:?}", error)
+        Self::handle_automap_error("", error);
+    }
+
+    fn handle_automap_error (prefix: &str, error: AutomapError) {
+        exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
     }
 
     fn start_automap(
@@ -243,12 +247,15 @@ impl ActorSystemFactoryReal {
                 .make(config.mapping_protocol_opt, Box::new(change_handler));
             let public_ip = match automap_control.get_public_ip() {
                 Ok(ip) => ip,
-                Err(e) => todo!("{:?}", e),
+                Err(e) => {
+                    Self::handle_automap_error("Can't get public IP - ", e);
+                    return; // never happens; handle_automap_error doesn't return.
+                },
             };
             Self::notify_of_public_ip_change(&new_ip_recipients, public_ip);
             node_addr.ports().iter().for_each(|port| {
                 if let Err(e) = automap_control.add_mapping(*port) {
-                    todo!("{:?}", e)
+                    Self::handle_automap_error(&format! ("Can't map port {} through the router - ", port), e);
                 }
             });
         }
@@ -569,6 +576,7 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
+    use masq_lib::utils::{running_test};
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -1283,7 +1291,7 @@ mod tests {
     }
 
     #[test]
-    fn start_automap_change_handler_operates_properly() {
+    fn start_automap_change_handler_handles_ip_changes_properly() {
         let mut subject = ActorSystemFactoryReal::new();
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let automap_control = AutomapControlMock::new()
@@ -1326,6 +1334,92 @@ mod tests {
                 new_ip: IpAddr::from_str("4.3.2.1").unwrap()
             }
         );
+    }
+
+    #[test]
+    #[should_panic (expected = "1: Automap failure: AllProtocolsFailed")]
+    fn start_automap_change_handler_handles_remapping_errors_properly() {
+        running_test();
+        let mut subject = ActorSystemFactoryReal::new();
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let automap_control = AutomapControlMock::new()
+            .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+            .add_mapping_result(Ok(()));
+        subject.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new()
+                .make_params(&make_params_arc)
+                .make_result(automap_control),
+        );
+        let mut config = BootstrapperConfig::default();
+        config.mapping_protocol_opt = None;
+        config.neighborhood_config.mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("0.0.0.0").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+
+        subject.start_automap(&config, vec![]);
+
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq!(make_params[0].0, None);
+        let system = System::new("test");
+        let change_handler = &make_params[0].1;
+        change_handler(AutomapChange::Error(AutomapError::AllProtocolsFailed));
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    #[should_panic (expected = "1: Automap failure: Can't get public IP - AllProtocolsFailed")]
+    fn start_automap_change_handler_handles_get_public_ip_errors_properly() {
+        running_test();
+        let mut subject = ActorSystemFactoryReal::new();
+        let automap_control = AutomapControlMock::new()
+            .get_public_ip_result(Err(AutomapError::AllProtocolsFailed));
+        subject.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new()
+                .make_result(automap_control),
+        );
+        let mut config = BootstrapperConfig::default();
+        config.mapping_protocol_opt = None;
+        config.neighborhood_config.mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("0.0.0.0").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+
+        subject.start_automap(&config, vec![]);
+
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
+    #[should_panic (expected = "1: Automap failure: Can't map port 1234 through the router - AllProtocolsFailed")]
+    fn start_automap_change_handler_handles_initial_mapping_error_properly() {
+        running_test();
+        let mut subject = ActorSystemFactoryReal::new();
+        let automap_control = AutomapControlMock::new()
+            .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+            .add_mapping_result(Err(AutomapError::AllProtocolsFailed));
+        subject.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new()
+                .make_result(automap_control),
+        );
+        let mut config = BootstrapperConfig::default();
+        config.mapping_protocol_opt = None;
+        config.neighborhood_config.mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("0.0.0.0").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+
+        subject.start_automap(&config, vec![]);
+
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
     }
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
