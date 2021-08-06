@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal::line_reader::{TerminalEvent, TerminalReal};
-use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
+use crate::terminal::secondary_infrastructure::{
+    ChainedConstructors, InterfaceWrapper, MasqTerminal, WriterLock,
+};
 use linefeed::{Interface, Signal};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::MASQ_PROMPT;
@@ -10,13 +12,14 @@ use std::sync::Arc;
 
 #[cfg(not(test))]
 mod prod_cfg {
-    pub use crate::terminal::integration_tests_utils::IntegrationTestTerminal;
+    pub use crate::terminal::integration_tests_utils::{
+        IntegrationTestTerminal, MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
+    };
     pub use linefeed::DefaultTerminal;
 }
 
 #[cfg(test)]
 mod test_cfg {
-    pub use crate::terminal::terminal_interface::tests::result_wrapper_for_in_memory_terminal;
     pub use linefeed::memory::MemoryTerminal;
     pub use masq_lib::intentionally_blank;
 }
@@ -36,10 +39,6 @@ impl Clone for TerminalWrapper {
         }
     }
 }
-
-pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
-pub const MASQ_TEST_INTEGRATION_VALUE: &str =
-    "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb74b2eac7b8a3be8xzt";
 
 impl TerminalWrapper {
     pub fn new(interface: Box<dyn MasqTerminal>) -> Self {
@@ -65,7 +64,8 @@ impl TerminalWrapper {
 
     #[cfg(not(test))]
     pub fn configure_interface() -> Result<Self, String> {
-        if std::env::var(MASQ_TEST_INTEGRATION_KEY).eq(&Ok(MASQ_TEST_INTEGRATION_VALUE.to_string()))
+        if std::env::var(prod_cfg::MASQ_TEST_INTEGRATION_KEY)
+            .eq(&Ok(prod_cfg::MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
             TerminalWrapper::new(Box::new(prod_cfg::IntegrationTestTerminal::default()))
                 .wrap_to_ok()
@@ -82,21 +82,11 @@ impl TerminalWrapper {
         F: FnOnce() -> std::io::Result<TerminalType>,
         TerminalType: linefeed::Terminal + 'static,
     {
-        let interface = interface_configurator(
+        Self::new(Box::new(interface_configurator(
             terminal_creator_of_certain_type,
             Box::new(Interface::with_term),
-        )?;
-        Ok(Self::new(Box::new(interface)))
-    }
-
-    #[cfg(test)]
-    pub fn configure_interface() -> Result<Self, String> {
-        Self::configure_interface_generic(Box::new(test_cfg::result_wrapper_for_in_memory_terminal))
-    }
-
-    #[cfg(test)]
-    pub fn test_interface(&self) -> test_cfg::MemoryTerminal {
-        self.interface.test_interface()
+        )?))
+        .wrap_to_ok()
     }
 }
 
@@ -115,30 +105,14 @@ where
 {
     let mut interface: Box<Itf> = construct_typed_terminal()
         .map_err(|e| format!("Local terminal recognition: {}", e))?
-        .chain_to_int_constructor(construct_interface)
+        .chain_constructors(construct_interface)
         .map_err(|e| format!("Preparing terminal interface: {}", e))
         .map(Box::new)?;
 
-    set_all_settable_parameters(&mut *interface)?;
+    set_all_settable_parameters(interface.as_mut())?;
 
     TerminalReal::new(interface).wrap_to_ok()
 }
-
-trait FunctionalInterfaceConstructor {
-    fn chain_to_int_constructor<Closure, Itf>(
-        self,
-        constructor_interface: Box<Closure>,
-    ) -> std::io::Result<Itf>
-    where
-        Closure: FnOnce(&'static str, Self) -> std::io::Result<Itf>,
-        Itf: InterfaceWrapper + 'static,
-        Self: Sized,
-    {
-        constructor_interface("masq", self)
-    }
-}
-
-impl<T: linefeed::Terminal> FunctionalInterfaceConstructor for T {}
 
 fn set_all_settable_parameters<I>(interface: &mut I) -> Result<(), String>
 where
@@ -158,7 +132,19 @@ where
 }
 
 #[cfg(test)]
-pub mod tests {
+impl TerminalWrapper {
+    pub fn configure_interface() -> Result<Self, String> {
+        Self::configure_interface_generic(Box::new(Self::result_wrapper_for_in_memory_terminal))
+    }
+
+    #[allow(clippy::unnecessary_wraps)]
+    pub fn result_wrapper_for_in_memory_terminal() -> std::io::Result<test_cfg::MemoryTerminal> {
+        Ok(test_cfg::MemoryTerminal::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
     use super::*;
     use crate::test_utils::mocks::{InterfaceRawMock, StdoutBlender, TerminalActiveMock};
     use crossbeam_channel::unbounded;
@@ -167,11 +153,6 @@ pub mod tests {
     use std::sync::{Barrier, Mutex};
     use std::thread;
     use std::time::Duration;
-
-    #[allow(clippy::unnecessary_wraps)]
-    pub fn result_wrapper_for_in_memory_terminal() -> std::io::Result<test_cfg::MemoryTerminal> {
-        Ok(test_cfg::MemoryTerminal::new())
-    }
 
     #[test]
     fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {
@@ -304,7 +285,7 @@ pub mod tests {
     #[test]
     fn configure_interface_catches_an_error_when_creating_an_interface_instance() {
         let result = interface_configurator(
-            Box::new(result_wrapper_for_in_memory_terminal),
+            Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
             Box::new(producer_of_interface_raw_resulting_in_an_early_error),
         );
 
@@ -334,7 +315,7 @@ pub mod tests {
         let set_prompt_params_arc = Arc::new(Mutex::new(vec![]));
 
         let result = interface_configurator(
-            Box::new(result_wrapper_for_in_memory_terminal),
+            Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
             Box::new(|_name, _terminal| {
                 Ok(InterfaceRawMock::new()
                     .set_prompt_result(Err(Error::from_raw_os_error(10)))
@@ -360,7 +341,7 @@ pub mod tests {
         let set_report_signal_arc = Arc::new(Mutex::new(vec![]));
 
         let result = interface_configurator(
-            Box::new(result_wrapper_for_in_memory_terminal),
+            Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
             Box::new(|_name, _terminal| {
                 Ok(InterfaceRawMock::new()
                     .set_prompt_result(Ok(()))

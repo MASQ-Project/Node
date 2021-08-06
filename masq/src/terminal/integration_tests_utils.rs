@@ -15,6 +15,10 @@ use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
+pub const MASQ_TEST_INTEGRATION_KEY: &str = "MASQ_TEST_INTEGRATION";
+pub const MASQ_TEST_INTEGRATION_VALUE: &str =
+    "3aad217a9b9fa6d41487aef22bf678b1aee3282d884eeb74b2eac7b8a3be8xzt";
+
 #[derive(Clone)]
 pub struct IntegrationTestTerminal {
     lock: Arc<Mutex<()>>,

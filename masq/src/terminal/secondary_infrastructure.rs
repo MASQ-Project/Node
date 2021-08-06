@@ -29,10 +29,6 @@ pub trait MasqTerminal: Send + Sync {
     fn read_line(&self) -> TerminalEvent;
     fn lock(&self) -> Box<dyn WriterLock + '_>;
     fn lock_ultimately(&self, streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_>;
-    #[cfg(test)]
-    fn test_interface(&self) -> test_cfg::MemoryTerminal {
-        test_cfg::intentionally_blank!()
-    }
     improvised_struct_id!();
 }
 
@@ -92,3 +88,19 @@ impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
         self.set_report_signal(signal, set)
     }
 }
+
+pub trait ChainedConstructors {
+    fn chain_constructors<Closure, Itf>(
+        self,
+        constructor_interface: Box<Closure>,
+    ) -> std::io::Result<Itf>
+    where
+        Closure: FnOnce(&'static str, Self) -> std::io::Result<Itf>,
+        Itf: InterfaceWrapper + 'static,
+        Self: Sized,
+    {
+        constructor_interface("masq", self)
+    }
+}
+
+impl<T: linefeed::Terminal> ChainedConstructors for T {}
