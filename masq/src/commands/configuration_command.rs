@@ -151,10 +151,10 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
     use std::sync::{Arc, Mutex};
+    use masq_lib::utils::AutomapProtocol;
 
     #[test]
     fn command_factory_works_with_password() {

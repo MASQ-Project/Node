@@ -10,6 +10,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
+use crate::utils::AutomapProtocol;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 

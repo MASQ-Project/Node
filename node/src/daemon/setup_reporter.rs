@@ -727,11 +727,7 @@ impl ValueRetriever for Ip {
     }
 
     fn is_required(&self, params: &SetupCluster) -> bool {
-        match params.get("neighborhood-mode") {
-            Some(nhm) if &nhm.value == "standard" => true,
-            Some(_) => false,
-            None => true,
-        }
+        false
     }
 }
 
@@ -2399,7 +2395,7 @@ mod tests {
             &Ip {},
             "neighborhood-mode",
             vec![
-                ("standard", true),
+                ("standard", false),
                 ("zero-hop", false),
                 ("originate-only", false),
                 ("consume-only", false),
@@ -2455,7 +2451,7 @@ mod tests {
         assert_eq!(DnsServers::new().is_required(&params), true);
         assert_eq!(EarningWallet {}.is_required(&params), false);
         assert_eq!(GasPrice {}.is_required(&params), true);
-        assert_eq!(Ip {}.is_required(&params), true);
+        assert_eq!(Ip {}.is_required(&params), false);
         assert_eq!(LogLevel {}.is_required(&params), true);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
