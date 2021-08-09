@@ -498,12 +498,11 @@ pub mod pure_test_utils {
     use masq_lib::utils::SliceToVec;
     use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::mem::swap;
     use std::path::PathBuf;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
         let owned_args = args.array_of_borrows_to_vec();
-        let mut arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
+        let arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
         MultiConfig::new_test_only(arg_matches)
     }
 
