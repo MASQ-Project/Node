@@ -899,22 +899,19 @@ impl StandardGossipHandler {
         database.keys().len() != all_keys.len()
     }
 
-    #[allow(clippy::needless_collect)]
     fn identify_and_update_obsolete_nodes(
         &self,
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
     ) -> bool {
-        let change_flags: Vec<bool> = agrs
-            .into_iter()
-            .flat_map(|agr| match database.node_by_key(&agr.inner.public_key) {
+        agrs.into_iter().fold(false, |b, agr| {
+            match database.node_by_key(&agr.inner.public_key) {
                 Some(existing_node) if agr.inner.version > existing_node.version() => {
-                    Some(self.update_database_record(database, agr))
+                    self.update_database_record(database, agr) || b
                 }
-                _ => None,
-            })
-            .collect(); //on the contrary, this collect() is a must as it enforces the evaluation of the previous operation
-        change_flags.into_iter().any(|f| f)
+                _ => b,
+            }
+        })
     }
 
     fn handle_root_node(

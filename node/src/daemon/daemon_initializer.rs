@@ -155,8 +155,10 @@ impl DaemonInitializerReal {
             .collect_vec();
         self.rerunner.rerun(param_vec);
     }
+}
 
-    #[cfg(test)]
+#[cfg(test)]
+impl DaemonInitializerReal {
     pub fn access_to_the_fields_test(
         &self,
     ) -> (

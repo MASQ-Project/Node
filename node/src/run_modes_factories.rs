@@ -209,13 +209,13 @@ mod tests {
         ]
         .array_of_borrows_to_vec();
         let mut stream_holder = FakeStreamHolder::default();
+
         let result = subject.make(&args, &mut stream_holder.streams()).unwrap();
 
         let factory_product = result
             .as_any()
             .downcast_ref::<DaemonInitializerReal>()
             .unwrap();
-
         let (config, channel_factory, recipients_factory, rerunner) =
             factory_product.access_to_the_fields_test();
         assert_eq!(config.ui_port, 1234);

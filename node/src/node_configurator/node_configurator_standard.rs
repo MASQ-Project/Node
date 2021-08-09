@@ -96,7 +96,7 @@ pub mod standard {
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::node_configurator::{
         data_directory_from_context, determine_config_file_path,
-        real_user_data_directory_opt_and_chain_name, real_user_from_m_c_or_populate,
+        real_user_data_directory_opt_and_chain_name, real_user_from_multi_config_or_populate,
         request_existing_db_password, DirsWrapper,
     };
     use crate::server_initializer::GatheredParams;
@@ -144,7 +144,7 @@ pub mod standard {
             .parent()
             .map(|dir| dir.to_path_buf())
             .expect_v("data_directory");
-        let real_user = real_user_from_m_c_or_populate(&multi_config, dirs_wrapper);
+        let real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper);
         GatheredParams::new(multi_config, data_directory, real_user).wrap_to_ok()
     }
 

@@ -499,15 +499,12 @@ pub mod pure_test_utils {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::mem::swap;
-    use std::ops::DerefMut;
     use std::path::PathBuf;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
         let owned_args = args.array_of_borrows_to_vec();
         let mut arg_matches = app_node().get_matches_from_safe(owned_args).unwrap();
-        let mut multi_config = MultiConfig::default();
-        swap(multi_config.deref_mut(), &mut arg_matches);
-        multi_config
+        MultiConfig::new_test_only(arg_matches)
     }
 
     pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {

@@ -209,7 +209,7 @@ pub fn update_db_password(
     Ok(())
 }
 
-pub fn real_user_from_m_c_or_populate(
+pub fn real_user_from_multi_config_or_populate(
     multi_config: &MultiConfig,
     dirs_wrapper: &dyn DirsWrapper,
 ) -> RealUser {
@@ -223,7 +223,7 @@ pub fn real_user_data_directory_opt_and_chain_name(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, String) {
-    let real_user = real_user_from_m_c_or_populate(multi_config, dirs_wrapper);
+    let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
     let chain_name =
         value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);

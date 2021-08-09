@@ -7,12 +7,11 @@ use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
 use regex::Regex;
 use serde::export::Formatter;
-use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use toml::value::Table;
 use toml::Value;
@@ -60,7 +59,6 @@ pub struct MultiConfig<'a> {
 
 impl<'a> Deref for MultiConfig<'a> {
     type Target = ArgMatches<'a>;
-
     fn deref(&self) -> &Self::Target {
         &self.arg_matches
     }
@@ -85,13 +83,12 @@ impl<'a> MultiConfig<'a> {
             .get_matches_from_safe(merged.args().into_iter())
         {
             Ok(matches) => matches,
-            Err(e)
-                if e.kind == clap::ErrorKind::HelpDisplayed
-                    || e.kind == clap::ErrorKind::VersionDisplayed =>
-            {
-                unreachable!("The program's entry check failed to catch this.")
-            }
-            Err(e) => return Err(Self::make_configurator_error(e)),
+            Err(e) => match e.kind {
+                clap::ErrorKind::HelpDisplayed | clap::ErrorKind::VersionDisplayed => {
+                    unreachable!("The program's entry check failed to catch this.")
+                }
+                _ => return Err(Self::make_configurator_error(e)),
+            },
         };
         MultiConfig { arg_matches }.wrap_to_ok()
     }
@@ -126,27 +123,6 @@ impl<'a> MultiConfig<'a> {
             return ConfiguratorError::new(requireds);
         }
         ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", e.message))
-    }
-}
-
-//this way I can protect the inner field from having to be public (Default + deref_mut())
-
-//TODO I think this apply for the situation where I'm not allowed to make this cfg(test); this default() is used
-// in a different crate and thus it doesn't see anything with cfg(test), period. What we maybe should do is to go by the way of
-// GH-456
-impl Default for MultiConfig<'_> {
-    /*use of this method in the production code should be consequently considered alarming
-    it's not intuitive to fill this literally empty default with values, therefore it's believed to stop people from doing so*/
-    fn default() -> Self {
-        Self {
-            arg_matches: Default::default(),
-        }
-    }
-}
-
-impl DerefMut for MultiConfig<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.arg_matches.borrow_mut()
     }
 }
 
@@ -489,6 +465,13 @@ fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
     let mut result: Vec<T> = ts.into_iter().collect();
     result.push(t);
     result
+}
+
+#[cfg(not(feature = "no_test_share"))]
+impl<'a> MultiConfig<'a> {
+    pub fn new_test_only(arg_matches: ArgMatches<'a>) -> Self {
+        Self { arg_matches }
+    }
 }
 
 #[cfg(test)]

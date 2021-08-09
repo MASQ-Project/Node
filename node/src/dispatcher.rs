@@ -477,7 +477,7 @@ mod tests {
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(15)); //TODO can we look at this again, please? 0 results in RC
+        thread::sleep(std::time::Duration::from_millis(15)); //Required to break unknown race condition, probably inside actix.
         System::current().stop_with_code(0);
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();

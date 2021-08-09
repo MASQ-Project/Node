@@ -124,7 +124,7 @@ pub fn exit_process_with_sigterm(message: &str) {
     } else {
         eprintln!("{}", message);
         not_win_cfg::signal::raise(not_win_cfg::signal::SIGTERM).expect("sigterm failure");
-        //This function must not return; so may it waits for death.
+        //This function must not return, and the process will be terminated by another thread within micro- or milliseconds, so we wait here for death.
         std::thread::sleep(not_win_cfg::Duration::from_secs(600))
     }
 }
