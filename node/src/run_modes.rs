@@ -139,7 +139,6 @@ impl RunModes {
         privilege_required: bool,
         streams: &mut StdStreams,
     ) {
-        MultiConfig::new_test_only(app_node().get_matches_from(["program"].iter()));
         short_writeln!(
             streams.stderr,
             "{}",
