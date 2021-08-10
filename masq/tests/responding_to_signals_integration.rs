@@ -10,6 +10,10 @@ use crate::utils::MasqProcess;
 use masq_lib::utils::find_free_port;
 use nix::sys::signal::{kill, SIGINT};
 use nix::unistd::Pid;
+use std::env::current_dir;
+use std::fs::File;
+use std::io::Read;
+use std::ops::Not;
 use std::thread;
 use std::time::Duration;
 
@@ -17,6 +21,23 @@ mod utils;
 
 #[test]
 fn masq_terminates_because_of_an_interrupt_signal_integration() {
+    {
+        let file_path = current_dir().unwrap().join("Cargo.toml");
+        let mut cargo_file_handle = File::open(file_path).unwrap();
+        let mut buffer = String::new();
+        cargo_file_handle.read_to_string(&mut buffer).unwrap();
+        let desired_line = buffer
+            .lines()
+            .find(|line| line.contains("linefeed"))
+            .unwrap();
+        let linefeed_version =
+            desired_line.replace(|char: char| char != '.' && char.is_numeric().not(), "");
+        if linefeed_version != "0.6.0" {
+            panic!("This test must be reconsidered when the version becomes different;\
+        the exampled output I test against fully depends on what humans eyes see at the real masq version;\
+        here linefeed is just mimicked by a mock that could diverge from the way linefeed behaved when this was written")
+        }
+    }
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(300));
@@ -32,7 +53,9 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
     assert_eq!(stderr, "".to_string());
     assert_eq!(
         stdout,
-        "masq> \nmasq> /*user's unfinished line to be here*/\n\nTerminated\n\n".to_string()
+        "masq> ***user's command line here***\n\nTerminated\n\n".to_string();
+       //____________________________________
+       //the underlined piece of this string shows what linefeed would print
     );
     daemon_handle.kill()
 }

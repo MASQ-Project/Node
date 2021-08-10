@@ -118,8 +118,7 @@ impl MasqTerminal for IntegrationTestTerminal {
             } else {
                 self.stderr.lock().unwrap()
             },
-            "\n{}/*user's unfinished line to be here*/",
-            MASQ_PROMPT
+            "***user's command line here***"
         );
         lock
     }
