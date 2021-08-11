@@ -62,12 +62,10 @@ impl Command {
     }
 
     fn truncate_long_string(mut string: String) -> String {
-        if string.len() <= MAX_PRINTED_STRING_SIZE {
-            string
-        } else {
+        if string.len() > MAX_PRINTED_STRING_SIZE {
             string.truncate(MAX_PRINTED_STRING_SIZE);
             string.push_str(" [...truncated...]");
-            string
         }
+        string
     }
 }

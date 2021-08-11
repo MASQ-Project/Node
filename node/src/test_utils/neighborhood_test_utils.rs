@@ -170,7 +170,7 @@ impl NodeRecord {
         }
         node_record.signed_gossip =
             PlainData::from(serde_cbor::ser::to_vec(&node_record.inner).unwrap());
-        node_record.regenerate_signed_gossip(&CryptDENull::from(&public_key, DEFAULT_CHAIN_ID));
+        node_record.regenerate_signed_gossip(&CryptDENull::from(public_key, DEFAULT_CHAIN_ID));
         node_record
     }
 

@@ -135,7 +135,7 @@ impl BannedDao for BannedDaoReal {
             .expect("Failed to prepare a statement");
         let params: &[&dyn ToSql] = &[&wallet];
         match stmt.execute(params) {
-            Ok(_) => BAN_CACHE.remove(&wallet),
+            Ok(_) => BAN_CACHE.remove(wallet),
             Err(e) => panic!(
                 "Could not terminate delinquency ban for {} because of database corruption: {}",
                 wallet, e
@@ -148,7 +148,8 @@ impl BannedDao for BannedDaoReal {
 mod tests {
     use super::*;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::test_utils::{make_paying_wallet, make_wallet};
+    use crate::test_utils::make_paying_wallet;
+    use crate::test_utils::make_wallet;
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         DEFAULT_CHAIN_ID,

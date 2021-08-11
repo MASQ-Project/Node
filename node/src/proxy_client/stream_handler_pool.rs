@@ -342,7 +342,7 @@ impl StreamHandlerPoolReal {
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &ip_addrs
         );
-        establisher.establish_stream(&payload, ip_addrs, target_hostname)
+        establisher.establish_stream(payload, ip_addrs, target_hostname)
     }
 
     fn make_fqdn(target_hostname: &str) -> String {
@@ -354,7 +354,7 @@ impl StreamHandlerPoolReal {
         inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
-        let sender_wrapper_opt = inner.stream_writer_channels.get(&stream_key);
+        let sender_wrapper_opt = inner.stream_writer_channels.get(stream_key);
         sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.as_ref().clone())
     }
 
@@ -493,12 +493,12 @@ mod tests {
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_server::ProxyProtocol;
+    use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
@@ -506,7 +506,7 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::{await_messages, make_wallet};
+    use crate::test_utils::{main_cryptde, make_wallet};
     use actix::System;
     use masq_lib::constants::HTTP_PORT;
     use std::cell::RefCell;

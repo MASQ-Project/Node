@@ -13,8 +13,6 @@ use std::env;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
-use std::fs::DirEntry;
-use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -252,7 +250,7 @@ impl MASQNodeUtils {
     }
 
     fn start_from(start: &Path) -> PathBuf {
-        let recognized: Vec<Result<DirEntry, io::Error>> = fs::read_dir(start)
+        if fs::read_dir(start)
             .unwrap()
             .filter(|entry| {
                 let file_name = match entry {
@@ -262,8 +260,9 @@ impl MASQNodeUtils {
                 file_name == OsStr::new("multinode_integration_tests")
                     || file_name == OsStr::new("node")
             })
-            .collect();
-        if recognized.len() == 2 {
+            .count()
+            == 2
+        {
             PathBuf::from(start)
         } else {
             Self::start_from(start.parent().unwrap())

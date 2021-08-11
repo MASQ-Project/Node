@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
+use crate::apps::app_head;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
@@ -13,7 +14,7 @@ use crate::node_configurator::node_configurator_standard::standard::{
     privileged_parse_args, unprivileged_parse_args,
 };
 use crate::node_configurator::{
-    app_head, data_directory_from_context, determine_config_file_path, DirsWrapper, RealDirsWrapper,
+    data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -183,7 +184,7 @@ fn eprintln_setup(label: &str, cluster: &SetupCluster) {
 impl SetupReporterReal {
     pub fn new() -> Self {
         Self {
-            dirs_wrapper: Box::new(RealDirsWrapper {}),
+            dirs_wrapper: Box::new(DirsWrapperReal {}),
         }
     }
 
@@ -273,7 +274,7 @@ impl SetupReporterReal {
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
-        let command_line = Self::make_command_line(&combined_setup);
+        let command_line = Self::make_command_line(combined_setup);
         let multi_config =
             match Self::make_multi_config(dirs_wrapper, Some(command_line), true, true) {
                 Ok(mc) => mc,
@@ -382,15 +383,7 @@ impl SetupReporterReal {
             };
             vcls.push(Box::new(config_file_vcl));
         }
-        let mut null_stdin = ByteArrayReader::new(&[]);
-        let mut null_stdout = ByteArrayWriter::new();
-        let mut null_stderr = ByteArrayWriter::new();
-        let mut streams = StdStreams {
-            stdin: &mut null_stdin,
-            stdout: &mut null_stdout,
-            stderr: &mut null_stderr,
-        };
-        make_new_multi_config(&app, vcls, &mut streams)
+        make_new_multi_config(&app, vcls)
     }
 
     #[allow(clippy::type_complexity)]
@@ -411,12 +404,7 @@ impl SetupReporterReal {
         };
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.data_directory = data_directory.to_path_buf();
-        match privileged_parse_args(
-            dirs_wrapper,
-            multi_config,
-            &mut bootstrapper_config,
-            &mut streams,
-        ) {
+        match privileged_parse_args(dirs_wrapper, multi_config, &mut bootstrapper_config) {
             Ok(_) => (),
             Err(ce) => {
                 error_so_far.extend(ce);
@@ -599,7 +587,7 @@ impl ValueRetriever for DataDirectory {
         Some((
             data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
-                &real_user,
+                real_user,
                 &data_directory_opt,
                 chain_name,
             )
@@ -615,7 +603,7 @@ impl ValueRetriever for DataDirectory {
 }
 impl std::default::Default for DataDirectory {
     fn default() -> Self {
-        Self::new(&RealDirsWrapper {})
+        Self::new(&DirsWrapperReal)
     }
 }
 impl DataDirectory {
@@ -796,7 +784,7 @@ impl ValueRetriever for Neighbors {
         db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match (persistent_config_opt, db_password_opt) {
-            (Some(pc), Some(pw)) => match pc.past_neighbors(&pw) {
+            (Some(pc), Some(pw)) => match pc.past_neighbors(pw) {
                 Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
                 _ => None,
             },
@@ -845,7 +833,7 @@ impl ValueRetriever for RealUser {
 }
 impl std::default::Default for RealUser {
     fn default() -> Self {
-        Self::new(&RealDirsWrapper {})
+        Self::new(&DirsWrapperReal {})
     }
 }
 impl RealUser {
@@ -889,8 +877,8 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
-    use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
-    use crate::node_test_utils::MockDirsWrapper;
+    use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -1068,7 +1056,7 @@ mod tests {
             (
                 "real-user",
                 &RealUser::new(None, None, None)
-                    .populate(&RealDirsWrapper {})
+                    .populate(&DirsWrapperReal {})
                     .to_string(),
                 Default,
             ),
@@ -1330,7 +1318,7 @@ mod tests {
         }
         let mut subject = SetupReporterReal::new();
         subject.dirs_wrapper = Box::new(
-            MockDirsWrapper::new()
+            DirsWrapperMock::new()
                 .home_dir_result(Some(home_dir.clone()))
                 .data_dir_result(Some(data_root.clone())),
         );
@@ -1515,7 +1503,7 @@ mod tests {
     #[test]
     fn get_modified_setup_data_directory_depends_on_new_chain_on_success() {
         let _guard = EnvironmentGuard::new();
-        let wrapper = RealDirsWrapper {};
+        let wrapper = DirsWrapperReal {};
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -1532,7 +1520,7 @@ mod tests {
             (
                 "real-user",
                 &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&RealDirsWrapper {})
+                    .populate(&DirsWrapperReal {})
                     .to_string(),
                 Default,
             ),
@@ -1559,7 +1547,7 @@ mod tests {
     #[test]
     fn get_modified_setup_data_directory_depends_on_new_chain_on_error() {
         let _guard = EnvironmentGuard::new();
-        let wrapper = RealDirsWrapper {};
+        let wrapper = DirsWrapperReal {};
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -1591,7 +1579,7 @@ mod tests {
             (
                 "real-user",
                 &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&RealDirsWrapper {})
+                    .populate(&DirsWrapperReal {})
                     .to_string(),
                 Default,
             ),
@@ -1651,7 +1639,7 @@ mod tests {
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -1682,7 +1670,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -1713,7 +1701,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -1740,7 +1728,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -1763,12 +1751,12 @@ mod tests {
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
             Some(
-                crate::bootstrapper::RealUser::new(None, None, None).populate(&RealDirsWrapper {})
+                crate::bootstrapper::RealUser::new(None, None, None).populate(&DirsWrapperReal {})
             )
         );
         assert_eq!(data_directory_opt, None);
@@ -1855,7 +1843,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -1900,7 +1888,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -1938,7 +1926,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -1969,7 +1957,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper,
+            &DirsWrapperReal,
             &setup,
             &data_directory,
             "irrelevant",
@@ -1994,7 +1982,7 @@ mod tests {
             let mut config_file = File::create(config_file_path.clone()).unwrap();
             config_file.write_all(b"gas-price = \"10\"\n").unwrap();
         }
-        let wrapper = RealDirsWrapper {};
+        let wrapper = DirsWrapperReal {};
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -2014,7 +2002,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -2032,7 +2020,7 @@ mod tests {
         );
         let config_file_dir = config_file_dir.canonicalize().unwrap();
         let config_file_path = config_file_dir.join("nonexistent.toml");
-        let wrapper = RealDirsWrapper {};
+        let wrapper = DirsWrapperReal {};
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -2052,7 +2040,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -2114,8 +2102,8 @@ mod tests {
 
     #[test]
     fn data_directory_computed_default() {
-        let real_user = RealUser::new(None, None, None).populate(&RealDirsWrapper {});
-        let expected = data_directory_from_context(&RealDirsWrapper {}, &real_user, &None, "dev")
+        let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal {});
+        let expected = data_directory_from_context(&DirsWrapperReal {}, &real_user, &None, "dev")
             .to_string_lossy()
             .to_string();
         let mut config = BootstrapperConfig::new();
@@ -2342,7 +2330,7 @@ mod tests {
             result,
             Some((
                 RealUser::new(None, None, None)
-                    .populate(&RealDirsWrapper {})
+                    .populate(&DirsWrapperReal {})
                     .to_string(),
                 Default
             ))

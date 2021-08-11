@@ -52,7 +52,7 @@ struct MockNode {
     guts: Option<MockNodeGuts>,
 }
 
-impl Command for MockNode {
+impl Command<u8> for MockNode {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let node_addr = match Self::interpret_args(args, streams.stderr) {
             Ok(p) => p,
@@ -136,6 +136,7 @@ impl MockNode {
             .expect("Write streams poisoned")
     }
 
+    #[allow(clippy::map_entry)]
     fn initialize(&mut self, stderr: &mut dyn Write) -> u8 {
         let open_err_msgs = self
             .node_addr()
