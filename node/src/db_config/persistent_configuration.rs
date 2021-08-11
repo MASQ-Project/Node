@@ -320,7 +320,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         )?)?;
         match bytes_opt {
             None => Ok (None),
-            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(&bytes.as_slice())
+            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
                 .expect ("Can't continue; past neighbors configuration is corrupt and cannot be deserialized."))),
         }
     }

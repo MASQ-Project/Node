@@ -12,8 +12,7 @@ use crate::communications::broadcast_handler::{
 use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{NIClapFactory, NIClapFactoryReal};
 use crate::terminal::terminal_interface::TerminalWrapper;
-use masq_lib::command;
-use masq_lib::command::StdStreams;
+use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
 use std::io::Write;
 use std::ops::Not;
@@ -80,7 +79,7 @@ impl Main {
     }
 }
 
-impl command::Command for Main {
+impl Command<u8> for Main {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
         let ui_port = self
             .non_interactive_clap_factory
@@ -174,14 +173,17 @@ mod tests {
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
         MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory,
     };
-    use masq_lib::command::Command;
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::any::Any;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
+
+    #[cfg(target_os = "windows")]
+    mod win_test_import {
+        pub use std::thread;
+        pub use std::time::Duration;
+    }
 
     #[test]
     fn noninteractive_mode_works_when_everything_is_copacetic() {
@@ -397,8 +399,9 @@ mod tests {
 
             assert_eq!(output, "")
         }
-        //because of Win from Actions (theoretically some other platform too)
-        thread::sleep(Duration::from_millis(200));
+        //because of Win from Actions
+        #[cfg(target_os = "windows")]
+        win_test_import::thread::sleep(win_test_import::Duration::from_millis(200));
 
         let output_when_unlocked = test_stream_handle.stdout_so_far();
 

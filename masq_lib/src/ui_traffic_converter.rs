@@ -140,11 +140,11 @@ impl UiTrafficConverter {
                     )),
                     None => match map.get("error") {
                         Some(Value::Object(error_map)) => {
-                            let code = match Self::get_u64(&error_map, "code") {
+                            let code = match Self::get_u64(error_map, "code") {
                                 Ok(code) => code,
                                 Err(e) => return Err(NonCritical(opcode, context_id_opt, e)),
                             };
-                            let message = match Self::get_string(&error_map, "message") {
+                            let message = match Self::get_string(error_map, "message") {
                                 Ok(message) => message,
                                 Err(e) => return Err(NonCritical(opcode, context_id_opt, e)),
                             };

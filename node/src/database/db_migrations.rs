@@ -14,7 +14,6 @@ pub trait DbMigrator {
         target_version: usize,
         conn: Box<dyn ConnectionWrapper>,
     ) -> Result<(), String>;
-    fn log(&self) -> &Logger;
 }
 
 pub struct DbMigratorReal {
@@ -37,11 +36,8 @@ impl DbMigrator for DbMigratorReal {
             mismatched_schema,
             target_version,
             Box::new(migration_utils),
-            Self::list_of_approved_updates(),
+            Self::list_of_updates(),
         )
-    }
-    fn log(&self) -> &Logger {
-        &self.logger
     }
 }
 
@@ -70,7 +66,7 @@ trait DBMigrationUtilities {
 
     fn make_mig_declaration_utils<'a>(&'a self) -> Box<dyn MigDeclarationUtilities + 'a>;
 
-    fn too_high_found_schema_will_panic(&self, mismatched_schema: usize);
+    fn too_high_schema_panics(&self, mismatched_schema: usize);
 }
 
 struct DBMigrationUtilitiesReal<'a> {
@@ -101,7 +97,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
             self.db_migrator_configuration
                 .db_configuration_table
                 .as_str(),
-            &self.root_transaction_ref(),
+            self.root_transaction_ref(),
             update_to,
         )
     }
@@ -120,7 +116,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
         ))
     }
 
-    fn too_high_found_schema_will_panic(&self, mismatched_schema: usize) {
+    fn too_high_schema_panics(&self, mismatched_schema: usize) {
         if mismatched_schema > self.db_migrator_configuration.current_schema_version {
             panic!(
                 "Database claims to be more advanced ({}) than the version {} which is the latest \
@@ -170,7 +166,7 @@ impl DBMigratorConfiguration {
     }
 }
 
-//define a new update here and add it to this list: 'list_of_approved_updates()'
+//define a new update here and add it to this list: 'list_of_updates()'
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
@@ -202,7 +198,7 @@ impl DbMigratorReal {
         }
     }
 
-    fn list_of_approved_updates<'a>() -> &'a [&'a dyn DatabaseMigration] {
+    fn list_of_updates<'a>() -> &'a [&'a dyn DatabaseMigration] {
         &[&Migrate_0_to_1]
     }
 
@@ -259,7 +255,7 @@ impl DbMigratorReal {
         target_version: usize,
         mig_utils: &dyn DBMigrationUtilities,
     ) -> Vec<&'a (dyn DatabaseMigration + 'a)> {
-        mig_utils.too_high_found_schema_will_panic(mismatched_schema);
+        mig_utils.too_high_schema_panics(mismatched_schema);
         list_of_updates
             .iter()
             .skip_while(|entry| entry.old_version() != mismatched_schema)
@@ -380,7 +376,7 @@ mod tests {
                 .remove(0)
         }
 
-        fn too_high_found_schema_will_panic(&self, mismatched_schema: usize) {
+        fn too_high_schema_panics(&self, mismatched_schema: usize) {
             self.too_high_found_schema_will_panic_params
                 .lock()
                 .unwrap()
@@ -464,7 +460,7 @@ mod tests {
                 too_advanced,
                 CURRENT_SCHEMA_VERSION,
                 Box::new(migration_utilities),
-                DbMigratorReal::list_of_approved_updates(),
+                DbMigratorReal::list_of_updates(),
             )
         }))
         .unwrap_err();
@@ -555,15 +551,13 @@ mod tests {
 
     #[test]
     fn list_of_approved_updates_is_correctly_ordered() {
-        let _ = list_validation_check(DbMigratorReal::list_of_approved_updates());
+        let _ = list_validation_check(DbMigratorReal::list_of_updates());
         //success if no panicking
     }
 
     #[test]
     fn list_of_approved_updates_ends_on_the_current_version() {
-        let last_entry = DbMigratorReal::list_of_approved_updates()
-            .into_iter()
-            .last();
+        let last_entry = DbMigratorReal::list_of_updates().into_iter().last();
 
         let result = last_entry.unwrap().old_version();
 

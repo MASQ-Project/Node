@@ -65,8 +65,7 @@ impl CommandProcessor for CommandProcessorReal {
     }
 
     fn terminal_wrapper_ref(&self) -> &TerminalWrapper {
-        &self
-            .context
+        self.context
             .terminal_interface
             .as_ref()
             .expect_v("TerminalWrapper")

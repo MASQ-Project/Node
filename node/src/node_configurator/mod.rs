@@ -17,7 +17,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::sub_lib::wallet::Wallet;
 use bip39::Language;
-use clap::{crate_description, value_t, App, AppSettings, Arg};
+use clap::{value_t, App, Arg};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
@@ -25,8 +25,7 @@ use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig,
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-use masq_lib::utils::{localhost, ExpectValue};
+use masq_lib::utils::{localhost, ExpectValue, WrapResult};
 use rpassword::read_password_with_reader;
 use rustc_hex::FromHex;
 use std::fmt::Debug;
@@ -40,11 +39,12 @@ use tiny_hderive::bip44::DerivationPath;
 pub trait NodeConfigurator<T> {
     fn configure(
         &self,
-        args: &[String],
-        streams: &mut StdStreams<'_>,
+        multi_config: &MultiConfig,
+        streams: Option<&mut StdStreams<'_>>,
     ) -> Result<T, ConfiguratorError>;
 }
 
+//TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
 pub const CONSUMING_WALLET_HELP: &str = "The BIP32 derivation path for the wallet from which your Node \
      should pay other Nodes for routing and exit services. (If the path includes single quotes, enclose it in \
      double quotes.) Defaults to m/44'/60'/0'/0/0.";
@@ -63,30 +63,17 @@ pub const DB_PASSWORD_HELP: &str =
      later and still produce the same addresses. This is a secret; providing it on the command line or in a config file is \
      insecure and unwise. If you don't specify it anywhere, you'll be prompted for it at the console.";
 
-pub fn app_head() -> App<'static, 'static> {
-    App::new("MASQNode")
-        .global_settings(if cfg!(test) {
-            &[AppSettings::ColorNever]
-        } else {
-            &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
-        })
-        //.version(crate_version!())
-        //.author(crate_authors!("\n")) // TODO: Put this back in when clap is compatible with Rust 1.38.0
-        .version("1.0.0")
-        .author("Substratum, MASQ")
-        .about(crate_description!())
-}
-
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
 
+//TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
 pub fn consuming_wallet_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("consuming-wallet")
         .long("consuming-wallet")
         .value_name("CONSUMING-WALLET")
         .empty_values(false)
         .validator(common_validators::validate_derivation_path)
-        .help(&CONSUMING_WALLET_HELP)
+        .help(CONSUMING_WALLET_HELP)
 }
 
 pub fn earning_wallet_arg<F>(help: &str, validator: F) -> Arg
@@ -110,9 +97,9 @@ pub fn language_arg<'a>() -> Arg<'a, 'a> {
         .value_name("LANGUAGE")
         .required(true)
         .case_insensitive(true)
-        .possible_values(&Bip39::possible_language_values().as_slice())
+        .possible_values(Bip39::possible_language_values().as_slice())
         .default_value(Bip39::name_from_language(Language::default()))
-        .help(&LANGUAGE_HELP)
+        .help(LANGUAGE_HELP)
 }
 
 pub fn mnemonic_passphrase_arg<'a>() -> Arg<'a, 'a> {
@@ -151,18 +138,14 @@ pub fn determine_config_file_path(
     .map(|vcl_arg| vcl_arg.dup())
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
-    let multi_config = make_new_multi_config(
-        &orientation_schema,
-        vec![Box::new(orientation_vcl)],
-        &mut FakeStreamHolder::new().streams(),
-    )?;
+    let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
     let config_file_path = value_m!(multi_config, "config-file", PathBuf).expect_v("config-file");
-    let user_specified = multi_config.arg_matches().occurrences_of("config-file") > 0;
+    let user_specified = multi_config.occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, &chain_name);
-    Ok((directory.join(config_file_path), user_specified))
+    (directory.join(config_file_path), user_specified).wrap_to_ok()
 }
 
 pub fn create_wallet(
@@ -226,14 +209,21 @@ pub fn update_db_password(
     Ok(())
 }
 
+pub fn real_user_from_multi_config_or_populate(
+    multi_config: &MultiConfig,
+    dirs_wrapper: &dyn DirsWrapper,
+) -> RealUser {
+    match value_m!(multi_config, "real-user", RealUser) {
+        None => RealUser::new(None, None, None).populate(dirs_wrapper),
+        Some(real_user) => real_user.populate(dirs_wrapper),
+    }
+}
+
 pub fn real_user_data_directory_opt_and_chain_name(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, String) {
-    let real_user = match value_m!(multi_config, "real-user", RealUser) {
-        None => RealUser::new(None, None, None).populate(dirs_wrapper),
-        Some(real_user) => real_user.populate(dirs_wrapper),
-    };
+    let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
     let chain_name =
         value_m!(multi_config, "chain", String).unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
     let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
@@ -278,21 +268,19 @@ pub fn prepare_initialization_mode<'a>(
     dirs_wrapper: &dyn DirsWrapper,
     app: &'a App,
     args: &[String],
-    streams: &mut StdStreams,
 ) -> Result<(MultiConfig<'a>, Box<dyn PersistentConfiguration>), ConfiguratorError> {
     let multi_config = make_new_multi_config(
-        &app,
+        app,
         vec![
             Box::new(CommandLineVcl::new(args.to_vec())),
-            Box::new(EnvironmentVcl::new(&app)),
+            Box::new(EnvironmentVcl::new(app)),
         ],
-        streams,
     )?;
 
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory = data_directory_from_context(
-        &RealDirsWrapper {},
+        &DirsWrapperReal {},
         &real_user,
         &data_directory_opt,
         &chain_name,
@@ -345,6 +333,7 @@ pub fn request_new_db_password(
     }
 }
 
+//TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
 pub fn request_existing_db_password(
     streams: &mut StdStreams,
     possible_preamble: Option<&str>,
@@ -596,9 +585,9 @@ pub trait DirsWrapper: Send {
     fn dup(&self) -> Box<dyn DirsWrapper>; // because implementing Clone for traits is problematic.
 }
 
-pub struct RealDirsWrapper;
+pub struct DirsWrapperReal;
 
-impl DirsWrapper for RealDirsWrapper {
+impl DirsWrapper for DirsWrapperReal {
     fn data_dir(&self) -> Option<PathBuf> {
         data_local_dir()
     }
@@ -606,7 +595,7 @@ impl DirsWrapper for RealDirsWrapper {
         home_dir()
     }
     fn dup(&self) -> Box<dyn DirsWrapper> {
-        Box::new(RealDirsWrapper {})
+        Box::new(DirsWrapperReal)
     }
 }
 
@@ -630,6 +619,7 @@ pub struct WalletCreationConfig {
     pub real_user: RealUser,
 }
 
+//TODO this code (and the allied) is very likely to go away when GH-457 is played
 pub trait WalletCreationConfigMaker {
     fn make_wallet_creation_config(
         &self,
@@ -730,13 +720,13 @@ pub trait WalletCreationConfigMaker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::masq_lib::utils::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
-    use crate::node_configurator::node_configurator_standard::app;
-    use crate::node_test_utils::MockDirsWrapper;
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::ArgsBuilder;
@@ -936,7 +926,7 @@ mod tests {
         assert_eq!(
             String::from(""),
             data_directory_default(
-                &MockDirsWrapper::new().data_dir_result(None),
+                &DirsWrapperMock::new().data_dir_result(None),
                 TEST_DEFAULT_CHAIN_NAME
             )
         );
@@ -944,7 +934,7 @@ mod tests {
 
     #[test]
     fn data_directory_default_works() {
-        let mock_dirs_wrapper = MockDirsWrapper::new().data_dir_result(Some("mocked/path".into()));
+        let mock_dirs_wrapper = DirsWrapperMock::new().data_dir_result(Some("mocked/path".into()));
 
         let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
 
@@ -1003,18 +993,18 @@ mod tests {
     fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
         let args = ArgsBuilder::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app(), vec![vcl]).unwrap();
+        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
 
         let (real_user, data_directory_opt, chain_name) =
-            real_user_data_directory_opt_and_chain_name(&RealDirsWrapper {}, &multi_config);
+            real_user_data_directory_opt_and_chain_name(&DirsWrapperReal {}, &multi_config);
         let directory = data_directory_from_context(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &real_user,
             &data_directory_opt,
             &chain_name,
         );
 
-        let expected_root = RealDirsWrapper {}.data_dir().unwrap();
+        let expected_root = DirsWrapperReal {}.data_dir().unwrap();
         let expected_directory = expected_root.join("MASQ").join(DEFAULT_CHAIN_NAME);
         assert_eq!(directory, expected_directory);
         assert_eq!(&chain_name, DEFAULT_CHAIN_NAME);
@@ -1030,7 +1020,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1053,7 +1043,7 @@ mod tests {
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1077,7 +1067,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1100,7 +1090,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1123,7 +1113,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1146,7 +1136,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1170,7 +1160,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let (config_file_path, user_specified) = determine_config_file_path(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -1440,6 +1430,7 @@ mod tests {
         );
     }
 
+    //TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
     struct TameWalletCreationConfigMaker {
         app: App<'static, 'static>,
     }

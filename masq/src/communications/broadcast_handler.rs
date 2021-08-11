@@ -8,23 +8,23 @@ use crate::communications::{
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
-use masq_lib::intentionally_blank;
 use masq_lib::messages::{
     FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
     UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use std::any::Any;
+use masq_lib::{as_any_dcl, as_any_impl};
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
 
+#[cfg(test)]
+use std::any::Any;
+
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
-    fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
-    }
+    as_any_dcl!();
 }
 
 pub struct BroadcastHandleInactive;
@@ -32,9 +32,7 @@ pub struct BroadcastHandleInactive;
 impl BroadcastHandle for BroadcastHandleInactive {
     //simply dropped (unless we find a better use for such a message)
     fn send(&self, _message_body: MessageBody) {}
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 pub struct BroadcastHandleGeneric {

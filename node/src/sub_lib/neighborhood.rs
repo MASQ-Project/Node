@@ -200,7 +200,7 @@ impl NodeDescriptor {
             if pieces[1] == ":" {
                 None
             } else {
-                match NodeAddr::from_str(&pieces[1]) {
+                match NodeAddr::from_str(pieces[1]) {
                     Err(e) => return Err(e),
                     Ok(node_addr) => Some(node_addr),
                 }

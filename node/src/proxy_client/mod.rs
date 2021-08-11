@@ -157,10 +157,10 @@ impl Handler<InboundServerData> for ProxyClient {
                 return;
             }
         };
-        if self.send_response_to_hopper(msg, &stream_context).is_err() {
+        if self.send_response_to_hopper(msg, stream_context).is_err() {
             return;
         };
-        self.report_response_exit_to_accountant(&stream_context, msg_data_len);
+        self.report_response_exit_to_accountant(stream_context, msg_data_len);
         if msg_last_data {
             debug!(
                 self.logger,
@@ -341,6 +341,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
