@@ -53,9 +53,9 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
     assert_eq!(stderr, "".to_string());
     assert_eq!(
         stdout,
-        "masq> ***user's command line here***\n\nTerminated\n\n".to_string();
-       //____________________________________
-       //the underlined piece of this string shows what linefeed would print
+        "masq> ***user's command line here***\n\nTerminated\n\n".to_string(),
+        //____________________________________
+        //the underlined piece of this string shows what linefeed would print
     );
     daemon_handle.kill()
 }
