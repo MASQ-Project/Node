@@ -5,10 +5,12 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::messages::{UiGenerateWalletsRequest, UiGenerateWalletsResponse};
 use masq_lib::short_writeln;
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
+#[cfg(test)]
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
@@ -86,10 +88,7 @@ impl Command for GenerateWalletsCommand {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        //for testing
-        self
-    }
+    as_any_impl!();
 }
 
 pub fn generate_wallets_subcommand() -> App<'static, 'static> {

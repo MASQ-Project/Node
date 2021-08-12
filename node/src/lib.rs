@@ -15,6 +15,7 @@ mod node_test_utils;
 
 pub mod accountant;
 mod actor_system_factory;
+pub mod apps;
 mod banned_dao;
 pub mod blockchain;
 mod bootstrapper;
@@ -39,12 +40,13 @@ pub mod privilege_drop;
 pub mod proxy_client;
 pub mod proxy_server;
 pub mod run_modes;
+pub mod run_modes_factories;
 pub mod server_initializer;
 pub mod stream_handler_pool;
 mod stream_messages;
 mod stream_reader;
 mod stream_writer_sorted;
 mod stream_writer_unsorted;
-pub mod test_utils;
+pub mod test_utils; //TODO we should take collections of testing utils and make them test contingent.
 pub mod tls_discriminator_factory;
 pub mod ui_gateway;

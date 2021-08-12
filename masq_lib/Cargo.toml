@@ -10,7 +10,7 @@ workspace = "../node"
 
 [dependencies]
 actix = "0.7.9"
-clap = "2.33.1"
+clap = "2.33.3"
 crossbeam-channel = "0.5.0"
 itertools = "0.8.0"
 lazy_static = "1.4.0"
@@ -21,6 +21,9 @@ serde_json = "1.0.40"
 tiny-hderive = "0.2.1"
 toml = "0.5.3"
 websocket = {version = "0.26.0", default-features = false, features = ["sync"]}
+
+[features]
+no_test_share = []
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 nix = "0.20.0"

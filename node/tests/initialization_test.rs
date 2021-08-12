@@ -84,7 +84,7 @@ fn initialization_sequence_integration() {
     let context_id = 1234;
 
     //<UiFinancialsRequest, UiFinancialsResponse>
-    //this is because newly a conversational message which can't reach the Node is returned in the way how it looked when it came
+    //newly a conversational message that can't reach the Node returns transformed into a response of the corresponding kind
     let not_running_financials_response = initialization_client
         .transact_with_context_id::<UiFinancialsRequest, UiFinancialsResponse>(
             financials_request.clone(),

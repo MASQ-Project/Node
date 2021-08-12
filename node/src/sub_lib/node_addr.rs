@@ -94,7 +94,7 @@ impl FromStr for NodeAddr {
                 input
             ));
         }
-        let ip_addr = match IpAddr::from_str(&pieces[0]) {
+        let ip_addr = match IpAddr::from_str(pieces[0]) {
             Err(_) => {
                 return Err(format!(
                     "NodeAddr must have a valid IP address, not '{}'",
