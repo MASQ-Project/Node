@@ -237,7 +237,7 @@ impl ResolvConfDnsModifier {
     fn replace_contents_system(&self, mut file: File, contents: String) -> io::Result<()> {
         let _ = file.seek(SeekFrom::Start(0))?;
         file.set_len(0)?;
-        let _ = file.write(&contents[..].as_bytes())?;
+        let _ = file.write(contents.as_bytes())?;
         Ok(())
     }
 

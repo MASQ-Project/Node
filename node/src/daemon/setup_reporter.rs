@@ -1,11 +1,13 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
+use crate::apps::app_head;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
 };
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+use crate::database::db_initializer::{DbInitializer, DbInitializerReal, InitializationError};
+use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -13,7 +15,7 @@ use crate::node_configurator::node_configurator_standard::standard::{
     privileged_parse_args, unprivileged_parse_args,
 };
 use crate::node_configurator::{
-    app_head, data_directory_from_context, determine_config_file_path, DirsWrapper, RealDirsWrapper,
+    data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
@@ -183,7 +185,7 @@ fn eprintln_setup(label: &str, cluster: &SetupCluster) {
 impl SetupReporterReal {
     pub fn new() -> Self {
         Self {
-            dirs_wrapper: Box::new(RealDirsWrapper {}),
+            dirs_wrapper: Box::new(DirsWrapperReal {}),
         }
     }
 
@@ -273,7 +275,7 @@ impl SetupReporterReal {
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
-        let command_line = Self::make_command_line(&combined_setup);
+        let command_line = Self::make_command_line(combined_setup);
         let multi_config =
             match Self::make_multi_config(dirs_wrapper, Some(command_line), true, true) {
                 Ok(mc) => mc,
@@ -382,15 +384,7 @@ impl SetupReporterReal {
             };
             vcls.push(Box::new(config_file_vcl));
         }
-        let mut null_stdin = ByteArrayReader::new(&[]);
-        let mut null_stdout = ByteArrayWriter::new();
-        let mut null_stderr = ByteArrayWriter::new();
-        let mut streams = StdStreams {
-            stdin: &mut null_stdin,
-            stdout: &mut null_stdout,
-            stderr: &mut null_stderr,
-        };
-        make_new_multi_config(&app, vcls, &mut streams)
+        make_new_multi_config(&app, vcls)
     }
 
     #[allow(clippy::type_complexity)]
@@ -411,12 +405,7 @@ impl SetupReporterReal {
         };
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.data_directory = data_directory.to_path_buf();
-        match privileged_parse_args(
-            dirs_wrapper,
-            multi_config,
-            &mut bootstrapper_config,
-            &mut streams,
-        ) {
+        match privileged_parse_args(dirs_wrapper, multi_config, &mut bootstrapper_config) {
             Ok(_) => (),
             Err(ce) => {
                 error_so_far.extend(ce);
@@ -430,7 +419,7 @@ impl SetupReporterReal {
                     multi_config,
                     &mut bootstrapper_config,
                     &mut streams,
-                    Some(&mut persistent_config),
+                    &mut persistent_config,
                 ) {
                     Ok(_) => (
                         (bootstrapper_config, Some(Box::new(persistent_config))),
@@ -445,12 +434,16 @@ impl SetupReporterReal {
                     }
                 }
             }
-            Err(_) => {
+            Err(InitializationError::Nonexistent) => {
+                // When the Daemon runs for the first time, the database will not yet have been
+                // created.
+                let mut persistent_config =
+                    PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
                 match unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut streams,
-                    None,
+                    &mut persistent_config,
                 ) {
                     Ok(_) => ((bootstrapper_config, None), None),
                     Err(ce) => {
@@ -459,6 +452,7 @@ impl SetupReporterReal {
                     }
                 }
             }
+            Err(e) => todo!("Couldn't initialize database: {:?}", e),
         }
     }
 }
@@ -599,7 +593,7 @@ impl ValueRetriever for DataDirectory {
         Some((
             data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
-                &real_user,
+                real_user,
                 &data_directory_opt,
                 chain_name,
             )
@@ -615,7 +609,7 @@ impl ValueRetriever for DataDirectory {
 }
 impl std::default::Default for DataDirectory {
     fn default() -> Self {
-        Self::new(&RealDirsWrapper {})
+        Self::new(&DirsWrapperReal)
     }
 }
 impl DataDirectory {
@@ -726,7 +720,7 @@ impl ValueRetriever for Ip {
         "ip"
     }
 
-    fn is_required(&self, params: &SetupCluster) -> bool {
+    fn is_required(&self, _params: &SetupCluster) -> bool {
         false
     }
 }
@@ -748,6 +742,13 @@ impl ValueRetriever for LogLevel {
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
         true
+    }
+}
+
+struct MappingProtocol {}
+impl ValueRetriever for MappingProtocol {
+    fn value_name(&self) -> &'static str {
+        "mapping-protocol"
     }
 }
 
@@ -792,7 +793,7 @@ impl ValueRetriever for Neighbors {
         db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match (persistent_config_opt, db_password_opt) {
-            (Some(pc), Some(pw)) => match pc.past_neighbors(&pw) {
+            (Some(pc), Some(pw)) => match pc.past_neighbors(pw) {
                 Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
                 _ => None,
             },
@@ -841,7 +842,7 @@ impl ValueRetriever for RealUser {
 }
 impl std::default::Default for RealUser {
     fn default() -> Self {
-        Self::new(&RealDirsWrapper {})
+        Self::new(&DirsWrapperReal {})
     }
 }
 impl RealUser {
@@ -867,6 +868,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(GasPrice {}),
         Box::new(Ip {}),
         Box::new(LogLevel {}),
+        Box::new(MappingProtocol {}),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
         #[cfg(not(target_os = "windows"))]
@@ -885,8 +887,8 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
-    use crate::node_configurator::{DirsWrapper, RealDirsWrapper};
-    use crate::node_test_utils::MockDirsWrapper;
+    use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -1054,6 +1056,7 @@ mod tests {
             ("gas-price", "1234567890", Default),
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", Default),
+            ("mapping-protocol", "", Blank),
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
@@ -1064,7 +1067,7 @@ mod tests {
             (
                 "real-user",
                 &RealUser::new(None, None, None)
-                    .populate(&RealDirsWrapper {})
+                    .populate(&DirsWrapperReal {})
                     .to_string(),
                 Default,
             ),
@@ -1104,6 +1107,7 @@ mod tests {
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
+            ("mapping-protocol", "pmp", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
@@ -1127,6 +1131,7 @@ mod tests {
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
+            ("mapping-protocol", "pmp", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
@@ -1161,6 +1166,7 @@ mod tests {
             ("gas-price", "50"),
             ("ip", "4.3.2.1"),
             ("log-level", "error"),
+            ("mapping-protocol", "igdp"),
             ("neighborhood-mode", "originate-only"),
             ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
@@ -1188,6 +1194,7 @@ mod tests {
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
+            ("mapping-protocol", "igdp", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
@@ -1223,6 +1230,7 @@ mod tests {
             ("MASQ_GAS_PRICE", "50"),
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
+            ("MASQ_MAPPING_PROTOCOL", "pmp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
@@ -1248,6 +1256,7 @@ mod tests {
             ("gas-price", "50", Configured),
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
+            ("mapping-protocol", "pmp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Configured),
             #[cfg(not(target_os = "windows"))]
@@ -1283,9 +1292,6 @@ mod tests {
             config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
             config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
-                .write_all(b"db-password = \"mainnet\"\n")
-                .unwrap();
-            config_file
                 .write_all(b"dns-servers = \"5.6.7.8\"\n")
                 .unwrap();
             config_file
@@ -1293,6 +1299,9 @@ mod tests {
                 .unwrap();
             config_file.write_all(b"gas-price = \"77\"\n").unwrap();
             config_file.write_all(b"log-level = \"trace\"\n").unwrap();
+            config_file
+                .write_all(b"mapping-protocol = \"pcp\"\n")
+                .unwrap();
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
@@ -1310,9 +1319,6 @@ mod tests {
             config_file.write_all(b"consuming-private-key = \"FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100\"\n").unwrap();
             config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
-                .write_all(b"db-password = \"ropsten\"\n")
-                .unwrap();
-            config_file
                 .write_all(b"dns-servers = \"8.7.6.5\"\n")
                 .unwrap();
             config_file
@@ -1321,12 +1327,15 @@ mod tests {
             config_file.write_all(b"gas-price = \"88\"\n").unwrap();
             config_file.write_all(b"log-level = \"debug\"\n").unwrap();
             config_file
+                .write_all(b"mapping-protocol = \"pmp\"\n")
+                .unwrap();
+            config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
         }
         let mut subject = SetupReporterReal::new();
         subject.dirs_wrapper = Box::new(
-            MockDirsWrapper::new()
+            DirsWrapperMock::new()
                 .home_dir_result(Some(home_dir.clone()))
                 .data_dir_result(Some(data_root.clone())),
         );
@@ -1356,7 +1365,7 @@ mod tests {
                 &ropsten_dir.to_string_lossy().to_string(),
                 Default,
             ),
-            ("db-password", TEST_DEFAULT_CHAIN_NAME, Configured),
+            ("db-password", "", Blank),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -1366,6 +1375,7 @@ mod tests {
             ("gas-price", "88", Configured),
             ("ip", "", Blank),
             ("log-level", "debug", Configured),
+            ("mapping-protocol", "pmp", Configured),
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
             #[cfg(not(target_os = "windows"))]
@@ -1412,6 +1422,7 @@ mod tests {
             ("MASQ_GAS_PRICE", "50"),
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
+            ("MASQ_MAPPING_PROTOCOL", "pcp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
@@ -1430,6 +1441,8 @@ mod tests {
             "earning-wallet",
             "gas-price",
             "ip",
+            "log-level",
+            "mapping-protocol",
             "neighborhood-mode",
             "neighbors",
             #[cfg(not(target_os = "windows"))]
@@ -1457,6 +1470,8 @@ mod tests {
             ),
             ("gas-price", "5", Set),
             ("ip", "1.2.3.4", Set),
+            ("log-level", "error", Set),
+            ("mapping-protocol", "pcp", Set),
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
@@ -1488,6 +1503,7 @@ mod tests {
             ("gas-price", "50", Configured),
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
+            ("mapping-protocol", "pcp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Configured),
             #[cfg(not(target_os = "windows"))]
@@ -1511,7 +1527,7 @@ mod tests {
     #[test]
     fn get_modified_setup_data_directory_depends_on_new_chain_on_success() {
         let _guard = EnvironmentGuard::new();
-        let wrapper = RealDirsWrapper {};
+        let wrapper = DirsWrapperReal {};
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -1528,7 +1544,7 @@ mod tests {
             (
                 "real-user",
                 &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&RealDirsWrapper {})
+                    .populate(&DirsWrapperReal {})
                     .to_string(),
                 Default,
             ),
@@ -1555,7 +1571,7 @@ mod tests {
     #[test]
     fn get_modified_setup_data_directory_depends_on_new_chain_on_error() {
         let _guard = EnvironmentGuard::new();
-        let wrapper = RealDirsWrapper {};
+        let wrapper = DirsWrapperReal {};
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -1587,7 +1603,7 @@ mod tests {
             (
                 "real-user",
                 &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&RealDirsWrapper {})
+                    .populate(&DirsWrapperReal {})
                     .to_string(),
                 Default,
             ),
@@ -1647,7 +1663,7 @@ mod tests {
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -1678,7 +1694,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -1709,7 +1725,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -1736,7 +1752,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -1759,12 +1775,12 @@ mod tests {
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain_name) =
-            SetupReporterReal::calculate_fundamentals(&RealDirsWrapper {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
             Some(
-                crate::bootstrapper::RealUser::new(None, None, None).populate(&RealDirsWrapper {})
+                crate::bootstrapper::RealUser::new(None, None, None).populate(&DirsWrapperReal {})
             )
         );
         assert_eq!(data_directory_opt, None);
@@ -1851,7 +1867,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -1896,7 +1912,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -1934,7 +1950,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -1965,7 +1981,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper,
+            &DirsWrapperReal,
             &setup,
             &data_directory,
             "irrelevant",
@@ -1990,7 +2006,7 @@ mod tests {
             let mut config_file = File::create(config_file_path.clone()).unwrap();
             config_file.write_all(b"gas-price = \"10\"\n").unwrap();
         }
-        let wrapper = RealDirsWrapper {};
+        let wrapper = DirsWrapperReal {};
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -2010,7 +2026,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -2028,7 +2044,7 @@ mod tests {
         );
         let config_file_dir = config_file_dir.canonicalize().unwrap();
         let config_file_path = config_file_dir.join("nonexistent.toml");
-        let wrapper = RealDirsWrapper {};
+        let wrapper = DirsWrapperReal {};
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -2048,7 +2064,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::calculate_configured_setup(
-            &RealDirsWrapper {},
+            &DirsWrapperReal {},
             &setup,
             &data_directory,
             "irrelevant",
@@ -2110,8 +2126,8 @@ mod tests {
 
     #[test]
     fn data_directory_computed_default() {
-        let real_user = RealUser::new(None, None, None).populate(&RealDirsWrapper {});
-        let expected = data_directory_from_context(&RealDirsWrapper {}, &real_user, &None, "dev")
+        let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal {});
+        let expected = data_directory_from_context(&DirsWrapperReal {}, &real_user, &None, "dev")
             .to_string_lossy()
             .to_string();
         let mut config = BootstrapperConfig::new();
@@ -2338,7 +2354,7 @@ mod tests {
             result,
             Some((
                 RealUser::new(None, None, None)
-                    .populate(&RealDirsWrapper {})
+                    .populate(&DirsWrapperReal {})
                     .to_string(),
                 Default
             ))
@@ -2453,11 +2469,38 @@ mod tests {
         assert_eq!(GasPrice {}.is_required(&params), true);
         assert_eq!(Ip {}.is_required(&params), false);
         assert_eq!(LogLevel {}.is_required(&params), true);
+        assert_eq!(MappingProtocol {}.is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
         assert_eq!(
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),
             false
+        );
+    }
+
+    #[test]
+    fn value_retrievers_know_their_names() {
+        assert_eq!(
+            BlockchainServiceUrl {}.value_name(),
+            "blockchain-service-url"
+        );
+        assert_eq!(Chain {}.value_name(), "chain");
+        assert_eq!(ClandestinePort {}.value_name(), "clandestine-port");
+        assert_eq!(ConfigFile {}.value_name(), "config-file");
+        assert_eq!(ConsumingPrivateKey {}.value_name(), "consuming-private-key");
+        assert_eq!(DataDirectory::default().value_name(), "data-directory");
+        assert_eq!(DbPassword {}.value_name(), "db-password");
+        assert_eq!(DnsServers::new().value_name(), "dns-servers");
+        assert_eq!(EarningWallet {}.value_name(), "earning-wallet");
+        assert_eq!(GasPrice {}.value_name(), "gas-price");
+        assert_eq!(Ip {}.value_name(), "ip");
+        assert_eq!(LogLevel {}.value_name(), "log-level");
+        assert_eq!(MappingProtocol {}.value_name(), "mapping-protocol");
+        assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
+        assert_eq!(Neighbors {}.value_name(), "neighbors");
+        assert_eq!(
+            crate::daemon::setup_reporter::RealUser::default().value_name(),
+            "real-user"
         );
     }
 }

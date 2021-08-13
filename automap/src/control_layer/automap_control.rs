@@ -223,18 +223,15 @@ impl AutomapControlReal {
                 .iter()
                 .find(|t| t.protocol() == usual_protocol)
                 .expect("Missing Transactor");
-            match Self::try_protocol(transactor, &experiment) {
-                Ok((router_ip, t)) => {
-                    self.inner_opt = Some(AutomapControlRealInner {
-                        router_ip,
-                        transactor_idx: self.find_transactor_index(usual_protocol),
-                    });
-                    return Ok(ProtocolInfo {
-                        payload: t,
-                        router_ip,
-                    });
-                }
-                Err(_) => (),
+            if let Ok((router_ip, t)) = Self::try_protocol(transactor.as_ref(), &experiment) {
+                self.inner_opt = Some(AutomapControlRealInner {
+                    router_ip,
+                    transactor_idx: self.find_transactor_index(usual_protocol),
+                });
+                return Ok(ProtocolInfo {
+                    payload: t,
+                    router_ip,
+                });
             }
         }
         let init: Result<(AutomapProtocol, IpAddr, T), AutomapError> = Err(AutomapError::Unknown);
@@ -245,7 +242,7 @@ impl AutomapControlReal {
                     (Err(e), Some(usual_protocol)) if usual_protocol == transactor.protocol() => {
                         Err(e)
                     }
-                    (Err(_), _) => Self::try_protocol(transactor, &experiment)
+                    (Err(_), _) => Self::try_protocol(transactor.as_ref(), &experiment)
                         .map(|(router_ip, t)| (transactor.protocol(), router_ip, t)),
                 }
             });
@@ -265,7 +262,7 @@ impl AutomapControlReal {
     }
 
     fn try_protocol<T>(
-        transactor: &Box<dyn Transactor>,
+        transactor: &dyn Transactor,
         experiment: &TransactorExperiment<T>,
     ) -> Result<(IpAddr, T), AutomapError> {
         let router_ips = match transactor.find_routers() {
@@ -277,7 +274,7 @@ impl AutomapControlReal {
             .into_iter()
             .fold(init, |so_far, router_ip| match so_far {
                 Ok(tuple) => Ok(tuple),
-                Err(_) => experiment(transactor.as_ref(), router_ip).map(|t| (router_ip, t)),
+                Err(_) => experiment(transactor, router_ip).map(|t| (router_ip, t)),
             })
     }
 }

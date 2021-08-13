@@ -22,6 +22,7 @@ use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 1;
+pub const ENCRYPTED_ROWS: &[&str] = &[EXAMPLE_ENCRYPTED, "seed", "past_neighbors"];
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -347,7 +348,7 @@ impl DbInitializerReal {
         let config_table_content = self.extract_configurations(&conn);
         let schema_version_entry = config_table_content.get("schema_version");
         let found_schema = Self::validate_schema_version(
-            &schema_version_entry
+            schema_version_entry
                 .expect("Db migration failed; cannot find a row with the schema version")
                 .as_ref()
                 .expect("Db migration failed; the value for the schema version is missing"),
@@ -368,7 +369,7 @@ impl DbInitializerReal {
         })
     }
 
-    fn choose_clandestine_port() -> u16 {
+    pub fn choose_clandestine_port() -> u16 {
         let mut rng = SmallRng::from_entropy();
         loop {
             let candidate_port: u16 =

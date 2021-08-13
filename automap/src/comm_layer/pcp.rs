@@ -249,6 +249,7 @@ impl Default for PcpTransactor {
 }
 
 impl PcpTransactor {
+    #[allow(clippy::too_many_arguments)]
     fn thread_guts(
         announcement_socket: &dyn UdpSocketWrapper,
         rx: &Receiver<HousekeepingThreadCommand>,
@@ -292,10 +293,7 @@ impl PcpTransactor {
                     }
                 }
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
-                {
-                    ()
-                }
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {},
                 Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
             let since_last_remapped = last_remapped.elapsed();
@@ -472,6 +470,7 @@ impl Default for MappingTransactorReal {
 }
 
 impl MappingTransactorReal {
+    #[allow(clippy::type_complexity)]
     fn employ_factories(
         factories: &Factories,
         router_ip: IpAddr,

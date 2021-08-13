@@ -81,7 +81,7 @@ impl CryptDE for CryptDEReal {
             None => return Err(CryptdecError::EmptyData),
             Some(nonce) => nonce,
         };
-        let plain_data = match secretbox::open(&crypt_data, &nonce, &secret_key) {
+        let plain_data = match secretbox::open(crypt_data, &nonce, &secret_key) {
             Err(_) => return Err(CryptdecError::OpeningFailed),
             Ok(data) => data,
         };

@@ -85,7 +85,7 @@ impl StreamKey {
             (peer_addr.port() >> 8) as u8,
             (peer_addr.port() & 0xFF) as u8,
         ]);
-        hash.update(&public_key.as_slice());
+        hash.update(public_key.as_slice());
         StreamKey {
             hash: hash.digest().bytes(),
         }

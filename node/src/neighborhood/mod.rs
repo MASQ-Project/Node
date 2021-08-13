@@ -338,7 +338,7 @@ impl Neighborhood {
         let gossip_acceptor: Box<dyn GossipAcceptor> = Box::new(GossipAcceptorReal::new(cryptde));
         let gossip_producer = Box::new(GossipProducerReal::new());
         let neighborhood_database = NeighborhoodDatabase::new(
-            &cryptde.public_key(),
+            cryptde.public_key(),
             neighborhood_config.mode.clone(),
             config.earning_wallet.clone(),
             cryptde,
@@ -475,7 +475,7 @@ impl Neighborhood {
                         NoLookupIncipientCoresPackage::new(
                             self.cryptde,
                             &node_descriptor.encryption_public_key,
-                            &node_addr,
+                            node_addr,
                             MessageType::Gossip(gossip.clone().into()),
                         )
                         .expect("Key magically disappeared"),
@@ -756,7 +756,7 @@ impl Neighborhood {
             gossip.to_dot_graph(
                 self.neighborhood_database.root(),
                 self.neighborhood_database
-                    .node_by_key(&neighbor)
+                    .node_by_key(neighbor)
                     .expect("Node magically disappeared"),
             )
         );
@@ -765,7 +765,7 @@ impl Neighborhood {
     fn create_single_hop_route(&self, destination: &PublicKey) -> Route {
         Route::one_way(
             RouteSegment::new(
-                vec![&self.cryptde.public_key(), destination],
+                vec![self.cryptde.public_key(), destination],
                 Component::Neighborhood,
             ),
             self.cryptde,
@@ -779,11 +779,11 @@ impl Neighborhood {
         let return_route_id = self.advance_return_route_id();
         let route = Route::round_trip(
             RouteSegment::new(
-                vec![&self.cryptde.public_key(), &self.cryptde.public_key()],
+                vec![self.cryptde.public_key(), self.cryptde.public_key()],
                 Component::ProxyClient,
             ),
             RouteSegment::new(
-                vec![&self.cryptde.public_key(), &self.cryptde.public_key()],
+                vec![self.cryptde.public_key(), self.cryptde.public_key()],
                 Component::ProxyServer,
             ),
             self.cryptde,
@@ -807,7 +807,7 @@ impl Neighborhood {
         msg: RouteQueryMessage,
     ) -> Result<RouteQueryResponse, String> {
         let over = self.make_route_segment(
-            &self.cryptde.public_key(),
+            self.cryptde.public_key(),
             msg.target_key_opt.as_ref(),
             msg.minimum_hop_count,
             msg.target_component,
@@ -816,7 +816,7 @@ impl Neighborhood {
         debug!(self.logger, "Route over: {:?}", over);
         let back = self.make_route_segment(
             over.keys.last().expect("Empty segment"),
-            Some(&self.cryptde.public_key()),
+            Some(self.cryptde.public_key()),
             msg.minimum_hop_count,
             msg.return_component_opt.expect("No return component"),
             RouteDirection::Back,
@@ -934,7 +934,7 @@ impl Neighborhood {
         segment
             .keys
             .iter()
-            .map(|ref key| {
+            .map(|key| {
                 self.calculate_expected_service(key, segment.keys.first(), segment.keys.last())
             })
             .collect()
@@ -1258,7 +1258,9 @@ mod tests {
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::versioned_data::VersionedData;
+    use crate::test_utils::assert_contains;
     use crate::test_utils::make_meaningless_route;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, make_global_cryptde_node_record, make_node_record, make_node_record_f,
         neighborhood_from_nodes,
@@ -1270,7 +1272,6 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::vec_to_set;
-    use crate::test_utils::{assert_contains, make_wallet};
     use crate::test_utils::{main_cryptde, make_paying_wallet};
     use actix::dev::{MessageResponse, ResponseChannel};
     use actix::Message;
@@ -3071,7 +3072,9 @@ mod tests {
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
-        subject.handle_new_public_ip(NewPublicIp { new_ip: new_public_ip });
+        subject.handle_new_public_ip(NewPublicIp {
+            new_ip: new_public_ip,
+        });
 
         assert_eq!(
             subject

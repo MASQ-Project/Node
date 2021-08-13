@@ -63,14 +63,14 @@ fn make_response(mut facade: &mut PacketFacade) -> usize {
         let resource_type = query.get_query_type();
         match RecordType::from(resource_type) {
             RecordType::A => facade.add_answer(
-                &query.get_query_name(),
+                query.get_query_name(),
                 resource_type,
                 DNSClass::IN.into(),
                 3600,
                 &Ipv4Addr::LOCALHOST.octets(),
             ),
             RecordType::AAAA => facade.add_answer(
-                &query.get_query_name(),
+                query.get_query_name(),
                 resource_type,
                 DNSClass::IN.into(),
                 3600,

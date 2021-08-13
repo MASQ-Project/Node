@@ -6,9 +6,11 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
+#[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
@@ -55,9 +57,7 @@ impl Command for ConfigurationCommand {
         }
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 impl ConfigurationCommand {
@@ -111,7 +111,6 @@ impl ConfigurationCommand {
             "Port mapping protocol:",
             &configuration
                 .port_mapping_protocol_opt
-                .map(|protocol| protocol.to_string())
                 .unwrap_or_else(|| "[?]".to_string()),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
@@ -153,8 +152,8 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{ToMessageBody, UiConfigurationResponse};
-    use std::sync::{Arc, Mutex};
     use masq_lib::utils::AutomapProtocol;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn command_factory_works_with_password() {
@@ -228,7 +227,7 @@ mod tests {
             mnemonic_seed_opt: Some("mnemonic seed".to_string()),
             consuming_wallet_derivation_path_opt: Some("consuming path".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
-            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp),
+            port_mapping_protocol_opt: Some(AutomapProtocol::Pcp.to_string()),
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
             start_block: 3456,
         };

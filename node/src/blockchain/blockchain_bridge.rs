@@ -167,14 +167,14 @@ impl BlockchainBridge {
             .map(|payable| {
                 match self
                     .blockchain_interface
-                    .get_transaction_count(&consuming_wallet)
+                    .get_transaction_count(consuming_wallet)
                 {
                     Ok(nonce) => {
                         let amount = u64::try_from(payable.balance).unwrap_or_else(|_| {
                             panic!("Lost payable amount precision: {}", payable.balance)
                         });
                         match self.blockchain_interface.send_transaction(
-                            &consuming_wallet,
+                            consuming_wallet,
                             &payable.wallet,
                             amount,
                             nonce,
@@ -202,10 +202,9 @@ mod tests {
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::{
-        make_default_persistent_configuration, make_paying_wallet, make_wallet,
-    };
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::Addr;
     use actix::System;
     use ethsign::SecretKey;

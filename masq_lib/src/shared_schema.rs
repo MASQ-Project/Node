@@ -33,7 +33,8 @@ pub const DATA_DIRECTORY_HELP: &str =
 pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to decrypt the encrypted material in the database, to include your \
      mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
-     password, none of the encrypted data in your database will be used.";
+     password, none of the encrypted data in your database will be used. This is a secret;\
+     providing it on the command line or in a config file may be insecure";
 pub const DNS_SERVERS_HELP: &str =
     "IP addresses of DNS Servers for host name look-up while providing exit \
      services for other MASQ Nodes (e.g. 1.0.0.1,1.1.1.1,8.8.8.8,9.9.9.9, etc.)";
@@ -219,6 +220,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .max_values(1)
             .help(BLOCKCHAIN_SERVICE_HELP),
     )
+    .arg(chain_arg())
     .arg(
         Arg::with_name("clandestine-port")
             .long("clandestine-port")
@@ -263,7 +265,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         EARNING_WALLET_HELP,
         common_validators::validate_ethereum_address,
     ))
-    .arg(chain_arg())
     .arg(
         Arg::with_name("fake-public-key")
             .long("fake-public-key")

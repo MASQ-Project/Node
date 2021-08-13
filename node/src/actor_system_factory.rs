@@ -42,17 +42,18 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
+use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
 };
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::{AutomapProtocol, exit_process};
+use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use web3::transports::Http;
-use automap_lib::comm_layer::AutomapError;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -209,12 +210,14 @@ impl ActorSystemFactoryReal {
     }
 
     fn notify_of_public_ip_change(
-        new_ip_recipients: &Vec<Recipient<NewPublicIp>>,
+        new_ip_recipients: &[Recipient<NewPublicIp>],
         new_public_ip: IpAddr,
     ) {
         new_ip_recipients.iter().for_each(|r| {
-            r.try_send(NewPublicIp { new_ip: new_public_ip })
-                .expect("NewPublicIp recipient is dead")
+            r.try_send(NewPublicIp {
+                new_ip: new_public_ip,
+            })
+            .expect("NewPublicIp recipient is dead")
         });
     }
 
@@ -222,7 +225,7 @@ impl ActorSystemFactoryReal {
         Self::handle_automap_error("", error);
     }
 
-    fn handle_automap_error (prefix: &str, error: AutomapError) {
+    fn handle_automap_error(prefix: &str, error: AutomapError) {
         exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
     }
 
@@ -238,7 +241,7 @@ impl ActorSystemFactoryReal {
             let inner_recipients = new_ip_recipients.clone();
             let change_handler = move |change: AutomapChange| match change {
                 AutomapChange::NewIp(new_public_ip) => {
-                    Self::notify_of_public_ip_change(&inner_recipients, new_public_ip)
+                    Self::notify_of_public_ip_change(inner_recipients.as_slice(), new_public_ip)
                 }
                 AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
             };
@@ -250,12 +253,15 @@ impl ActorSystemFactoryReal {
                 Err(e) => {
                     Self::handle_automap_error("Can't get public IP - ", e);
                     return; // never happens; handle_automap_error doesn't return.
-                },
+                }
             };
-            Self::notify_of_public_ip_change(&new_ip_recipients, public_ip);
+            Self::notify_of_public_ip_change(new_ip_recipients.as_slice(), public_ip);
             node_addr.ports().iter().for_each(|port| {
                 if let Err(e) = automap_control.add_mapping(*port) {
-                    Self::handle_automap_error(&format! ("Can't map port {} through the router - ", port), e);
+                    Self::handle_automap_error(
+                        &format!("Can't map port {} through the router - ", port),
+                        e,
+                    );
                 }
             });
         }
@@ -309,9 +315,10 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let crash_point = config.crash_point;
-        let descriptor = config.ui_gateway_config.node_descriptor.clone();
-        let addr: Addr<Dispatcher> =
-            Arbiter::start(move |_| Dispatcher::new(crash_point, descriptor));
+        let descriptor = config.node_descriptor_opt.clone();
+        let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
+            Dispatcher::new(crash_point, descriptor.expect_v("node descriptor"))
+        });
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -555,10 +562,11 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
+    use crate::test_utils::main_cryptde;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{main_cryptde, make_wallet};
     use actix::System;
     use automap_lib::control_layer::automap_control::AutomapChange;
     use log::LevelFilter;
@@ -566,6 +574,7 @@ mod tests {
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
+    use masq_lib::utils::running_test;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::net::IpAddr;
@@ -576,7 +585,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
-    use masq_lib::utils::{running_test};
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -607,8 +615,13 @@ mod tests {
     impl<'a> ActorFactory for ActorFactoryMock<'a> {
         fn make_and_start_dispatcher(
             &self,
-            _config: &BootstrapperConfig,
+            config: &BootstrapperConfig,
         ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
+            self.parameters
+                .dispatcher_params
+                .lock()
+                .unwrap()
+                .get_or_insert(config.clone());
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.dispatcher);
             let dispatcher_subs = DispatcherSubs {
                 ibcd_sub: recipient!(addr, InboundClientData),
@@ -829,6 +842,7 @@ mod tests {
 
     #[derive(Clone)]
     struct Parameters<'a> {
+        dispatcher_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         proxy_client_params: Arc<Mutex<Option<ProxyClientConfig>>>,
         proxy_server_params:
             Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
@@ -843,6 +857,7 @@ mod tests {
     impl<'a> Parameters<'a> {
         pub fn new() -> Parameters<'a> {
             Parameters {
+                dispatcher_params: Arc::new(Mutex::new(None)),
                 proxy_client_params: Arc::new(Mutex::new(None)),
                 proxy_server_params: Arc::new(Mutex::new(None)),
                 hopper_params: Arc::new(Mutex::new(None)),
@@ -940,10 +955,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("uninitialized"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -955,6 +967,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("uninitialized".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1014,10 +1027,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1029,6 +1039,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1114,10 +1125,14 @@ mod tests {
         );
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
-        assert_eq!(ui_gateway_config.node_descriptor, "NODE-DESCRIPTOR");
-        let bootstrapper_config = Parameters::get(parameters.blockchain_bridge_params);
+        let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
-            bootstrapper_config.blockchain_bridge_config,
+            dispatcher_param.node_descriptor_opt,
+            Some("NODE-DESCRIPTOR".to_string())
+        );
+        let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
+        assert_eq!(
+            blockchain_bridge_param.blockchain_bridge_config,
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1125,7 +1140,7 @@ mod tests {
             }
         );
         assert_eq!(
-            bootstrapper_config.consuming_wallet_opt,
+            blockchain_bridge_param.consuming_wallet_opt,
             Some(make_wallet("consuming"))
         );
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
@@ -1147,10 +1162,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1162,6 +1174,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1211,10 +1224,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1226,6 +1236,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: None,
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(AutomapProtocol::Pmp),
@@ -1337,7 +1348,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "1: Automap failure: AllProtocolsFailed")]
+    #[should_panic(expected = "1: Automap failure: AllProtocolsFailed")]
     fn start_automap_change_handler_handles_remapping_errors_properly() {
         running_test();
         let mut subject = ActorSystemFactoryReal::new();
@@ -1370,16 +1381,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "1: Automap failure: Can't get public IP - AllProtocolsFailed")]
+    #[should_panic(expected = "1: Automap failure: Can't get public IP - AllProtocolsFailed")]
     fn start_automap_change_handler_handles_get_public_ip_errors_properly() {
         running_test();
         let mut subject = ActorSystemFactoryReal::new();
-        let automap_control = AutomapControlMock::new()
-            .get_public_ip_result(Err(AutomapError::AllProtocolsFailed));
-        subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new()
-                .make_result(automap_control),
-        );
+        let automap_control =
+            AutomapControlMock::new().get_public_ip_result(Err(AutomapError::AllProtocolsFailed));
+        subject.automap_control_factory =
+            Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
         let mut config = BootstrapperConfig::default();
         config.mapping_protocol_opt = None;
         config.neighborhood_config.mode = NeighborhoodMode::Standard(
@@ -1396,17 +1405,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "1: Automap failure: Can't map port 1234 through the router - AllProtocolsFailed")]
+    #[should_panic(
+        expected = "1: Automap failure: Can't map port 1234 through the router - AllProtocolsFailed"
+    )]
     fn start_automap_change_handler_handles_initial_mapping_error_properly() {
         running_test();
         let mut subject = ActorSystemFactoryReal::new();
         let automap_control = AutomapControlMock::new()
             .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
             .add_mapping_result(Err(AutomapError::AllProtocolsFailed));
-        subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new()
-                .make_result(automap_control),
-        );
+        subject.automap_control_factory =
+            Box::new(AutomapControlFactoryMock::new().make_result(automap_control));
         let mut config = BootstrapperConfig::default();
         config.mapping_protocol_opt = None;
         config.neighborhood_config.mode = NeighborhoodMode::Standard(

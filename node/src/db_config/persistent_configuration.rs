@@ -157,7 +157,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
         let unchecked_port = match decode_u64(self.dao.get("clandestine_port")?.value_opt)? {
-            None => panic!("ever-supplied value missing; database is corrupt!"),
+            None => panic!("ever-supplied clandestine_port value missing; database is corrupt!"),
             Some(port) => port,
         };
         if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
@@ -193,7 +193,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("gas_price")?.value_opt) {
-            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Ok(val) => {
+                Ok(val.expect("ever-supplied gas_price value missing; database is corrupt!"))
+            }
             Err(e) => Err(PersistentConfigError::from(e)),
         }
     }
@@ -322,7 +324,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         )?)?;
         match bytes_opt {
             None => Ok (None),
-            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(&bytes.as_slice())
+            Some (bytes) => Ok(Some(serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
                 .expect ("Can't continue; past neighbors configuration is corrupt and cannot be deserialized."))),
         }
     }
@@ -352,7 +354,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
         match decode_u64(self.dao.get("start_block")?.value_opt) {
-            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Ok(val) => {
+                Ok(val.expect("ever-supplied start_block value missing; database is corrupt!"))
+            }
             Err(e) => Err(PersistentConfigError::from(e)),
         }
     }
@@ -570,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied clandestine_port value missing; database is corrupt!")]
     fn clandestine_port_panics_if_none_got_from_database() {
         let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "clandestine_port",
@@ -1404,7 +1408,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied start_block value missing; database is corrupt!")]
     fn start_block_does_not_tolerate_optional_output() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "start_block",
@@ -1454,7 +1458,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied gas_price value missing; database is corrupt!")]
     fn gas_price_does_not_tolerate_optional_output() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "gas_price",

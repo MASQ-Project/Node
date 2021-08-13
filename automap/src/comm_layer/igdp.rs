@@ -435,7 +435,7 @@ impl IgdpTransactor {
         // No update to our ChangeHandlerConfig's lifetime is required here, because IGDP either
         // gives us the lifetime we request, or doesn't do the mapping at all. It never gives us
         // a mapping with a different lifetime from the one we request.
-        Ok(mapping_adder.add_mapping(gateway, hole_port, requested_lifetime_secs)?)
+        mapping_adder.add_mapping(gateway, hole_port, requested_lifetime_secs)
     }
 }
 

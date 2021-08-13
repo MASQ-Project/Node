@@ -23,7 +23,7 @@ impl ClientRequestPayloadFactory {
         cryptde: &dyn CryptDE,
         logger: &Logger,
     ) -> Option<ClientRequestPayload_0v1> {
-        let protocol_pack = from_ibcd(&ibcd, logger)?;
+        let protocol_pack = from_ibcd(ibcd, logger)?;
         let sequence_number = match ibcd.sequence_number {
             Some(sequence_number) => sequence_number,
             None => {

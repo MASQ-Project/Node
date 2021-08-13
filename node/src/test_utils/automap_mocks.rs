@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
+#[allow(clippy::type_complexity)]
 pub struct AutomapControlFactoryMock {
     make_params: Arc<Mutex<Vec<(Option<AutomapProtocol>, ChangeHandler)>>>,
     make_results: RefCell<Vec<AutomapControlMock>>,
@@ -27,6 +28,12 @@ impl AutomapControlFactory for AutomapControlFactoryMock {
     }
 }
 
+impl Default for AutomapControlFactoryMock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AutomapControlFactoryMock {
     pub fn new() -> Self {
         Self {
@@ -35,6 +42,7 @@ impl AutomapControlFactoryMock {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn make_params(
         mut self,
         params: &Arc<Mutex<Vec<(Option<AutomapProtocol>, ChangeHandler)>>>,
@@ -68,6 +76,12 @@ impl AutomapControl for AutomapControlMock {
 
     fn delete_mappings(&mut self) -> Result<(), AutomapError> {
         self.delete_mappings_results.borrow_mut().remove(0)
+    }
+}
+
+impl Default for AutomapControlMock {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
