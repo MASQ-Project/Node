@@ -53,10 +53,13 @@ pub struct PmpTransactor {
 
 impl Transactor for PmpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
+        debug! (self.logger, "Seeking routers on LAN");
         find_routers()
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
+        debug! (self.logger, "Seeking public IP from router at {}",
+            router_ip);
         let request = PmpPacket {
             direction: Direction::Request,
             opcode: Opcode::Get,
@@ -66,7 +69,12 @@ impl Transactor for PmpTransactor {
                 external_ip_address_opt: None,
             }),
         };
-        let response = Self::transact(&self.factories_arc, router_ip, self.router_port, &request)?;
+        let response = Self::transact(
+            &self.factories_arc,
+            SocketAddr::new (router_ip, self.router_port),
+            &request,
+            &self.logger
+        )?;
         match response
             .result_code_opt
             .expect("transact allowed absent result code")
@@ -91,6 +99,7 @@ impl Transactor for PmpTransactor {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
+        debug! (self.logger, "Adding mapping for port {} through router at {} for {} seconds", hole_port, router_ip, lifetime);
         let mut change_handler_config = ChangeHandlerConfig {
             hole_port,
             next_lifetime: Duration::from_secs(lifetime as u64),
@@ -120,6 +129,7 @@ impl Transactor for PmpTransactor {
     }
 
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
+        debug!(self.logger, "Deleting mapping of port {} through router at {}", hole_port, router_ip);
         self.add_mapping(router_ip, hole_port, 0)?;
         Ok(())
     }
@@ -133,6 +143,7 @@ impl Transactor for PmpTransactor {
         change_handler: ChangeHandler,
         router_ip: IpAddr,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
+        debug! (self.logger, "Starting housekeeping thread for router at {}", router_ip);
         if let Some(_housekeeper_commander) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
@@ -180,6 +191,7 @@ impl Transactor for PmpTransactor {
 
     fn stop_housekeeping_thread(&mut self) {
         if let Some(commander) = self.housekeeper_commander_opt.take() {
+            debug! (self.logger, "Stopping housekeeping thread");
             let _ = commander.send(HousekeepingThreadCommand::Stop);
         }
     }
@@ -192,14 +204,14 @@ impl Transactor for PmpTransactor {
 impl Default for PmpTransactor {
     fn default() -> Self {
         Self {
-            mapping_adder_arc: Arc::new(Mutex::new(Box::new(MappingAdderReal {}))),
+            mapping_adder_arc: Arc::new(Mutex::new(Box::new(MappingAdderReal::default()))),
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
             change_handler_config_opt: RefCell::new(None),
             housekeeper_commander_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
-            logger: Logger::new("Automap"),
+            logger: Logger::new("PmpTransactor"),
         }
     }
 }
@@ -211,9 +223,9 @@ impl PmpTransactor {
 
     fn transact(
         factories_arc: &Arc<Mutex<Factories>>,
-        router_ip: IpAddr,
-        router_port: u16,
+        router_addr: SocketAddr,
         request: &PmpPacket,
+        logger: &Logger,
     ) -> Result<PmpPacket, AutomapError> {
         let mut buffer = [0u8; 1100];
         let len = request
@@ -222,10 +234,11 @@ impl PmpTransactor {
         let socket = {
             let factories = factories_arc.lock().expect("Factories are dead");
             let local_address =
-                make_local_socket_address(router_ip, factories.free_port_factory.make());
+                make_local_socket_address(router_addr.ip().is_ipv4(), factories.free_port_factory.make());
             match factories.socket_factory.make(local_address) {
                 Ok(s) => s,
                 Err(e) => {
+                    warning! (logger, "Error creating UDP socket at {}: \"{:?}\"", local_address, e);
                     return Err(AutomapError::SocketBindingError(
                         format!("{:?}", e),
                         local_address,
@@ -236,7 +249,8 @@ impl PmpTransactor {
         socket
             .set_read_timeout(Some(Duration::from_secs(3)))
             .expect("set_read_timeout failed");
-        if let Err(e) = socket.send_to(&buffer[0..len], SocketAddr::new(router_ip, router_port)) {
+        if let Err(e) = socket.send_to(&buffer[0..len], router_addr) {
+            warning! (logger, "Error transmitting to router at {}: \"{:?}\"", router_addr, e);
             return Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(
                 format!("{:?}", e),
             )));
@@ -249,6 +263,7 @@ impl PmpTransactor {
                 ))
             }
             Err(e) => {
+                warning!(logger, "Error receiving from router at {}: \"{:?}\"", router_addr, e);
                 return Err(AutomapError::SocketReceiveError(
                     AutomapErrorCause::Unknown(format!("{:?}", e)),
                 ))
@@ -256,7 +271,10 @@ impl PmpTransactor {
         };
         let response = match PmpPacket::try_from(&buffer[0..len]) {
             Ok(pkt) => pkt,
-            Err(e) => return Err(AutomapError::PacketParseError(e)),
+            Err(e) => {
+                warning!(logger, "Error parsing packet from router at {}: \"{:?}\"", router_addr, e);
+                return Err(AutomapError::PacketParseError(e))
+            },
         };
         Ok(response)
     }
@@ -341,6 +359,7 @@ impl PmpTransactor {
     ) -> bool {
         let mut buffer = [0u8; 100];
         // This will block for awhile, conserving CPU cycles
+        debug! (logger, "Waiting for an IP-change announcement");
         match announcement_socket.recv_from(&mut buffer) {
             Ok((_, announcement_source_address)) => {
                 if announcement_source_address.ip() != router_addr.ip() {
@@ -489,9 +508,9 @@ impl PmpTransactor {
         );
         match Self::transact(
             &factories_arc,
-            router_address.ip(),
-            router_address.port(),
+            router_address,
             &packet,
+            logger,
         ) {
             Ok(response) => match response.result_code_opt {
                 Some(ResultCode::Success) => {
@@ -540,11 +559,15 @@ trait MappingAdder: Send {
 }
 
 #[derive(Clone)]
-struct MappingAdderReal {}
+struct MappingAdderReal {
+    logger: Logger,
+}
 
 impl Default for MappingAdderReal {
     fn default() -> Self {
-        Self {}
+        Self {
+            logger: Logger::new ("PmpTransactor")
+        }
     }
 }
 
@@ -555,6 +578,13 @@ impl MappingAdder for MappingAdderReal {
         router_addr: SocketAddr,
         change_handler_config: &mut ChangeHandlerConfig,
     ) -> Result<u32, AutomapError> {
+        debug! (
+            self.logger,
+            "Adding mapping for port {} through router at {} for {}ms",
+            change_handler_config.hole_port,
+            router_addr,
+            change_handler_config.next_lifetime.as_millis(),
+        );
         let request = PmpPacket {
             direction: Direction::Request,
             opcode: Opcode::MapTcp,
@@ -568,20 +598,24 @@ impl MappingAdder for MappingAdderReal {
         };
         let response = PmpTransactor::transact(
             factories_arc,
-            router_addr.ip(),
-            router_addr.port(),
+            router_addr,
             &request,
+            &self.logger,
         )?;
         if response.direction == Direction::Request {
-            return Err(AutomapError::ProtocolError(
+            let e = AutomapError::ProtocolError(
                 "Map response labeled as request".to_string(),
-            ));
+            );
+            warning! (self.logger, "Router at {} is misbehaving: \"{:?}\"", router_addr, e);
+            return Err(e);
         }
         if response.opcode != Opcode::MapTcp {
-            return Err(AutomapError::ProtocolError(format!(
-                "Expected MapTcp response; got {:?} response instead",
+            let e = AutomapError::ProtocolError(format!(
+                "Expected MapTcp response; got {:?} response instead of MapTcp",
                 response.opcode
-            )));
+            ));
+            warning! (self.logger, "Router at {} is misbehaving: \"{:?}\"", router_addr, e);
+            return Err(e);
         }
         let opcode_data: &MapOpcodeData = response
             .opcode_data
@@ -694,7 +728,8 @@ mod tests {
 
     #[test]
     fn transact_handles_socket_binding_error() {
-        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.255").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionReset);
         let io_error_str = format!("{:?}", io_error);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
@@ -705,16 +740,20 @@ mod tests {
         match result {
             AutomapError::SocketBindingError(msg, addr) => {
                 assert_eq!(msg, io_error_str);
-                assert_eq!(addr.ip(), IpAddr::from_str("0.0.0.0").unwrap());
-                assert_eq!(addr.port(), 5566);
+                assert_eq!(addr, SocketAddr::from_str ("0.0.0.0:5566").unwrap());
             }
             e => panic!("Expected SocketBindingError, got {:?}", e),
         }
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Error creating UDP socket at 0.0.0.0:5566: {:?}",
+            io_error_str
+        ));
     }
 
     #[test]
     fn transact_handles_socket_send_error() {
-        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.254").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionReset);
         let io_error_str = format!("{:?}", io_error);
         let socket = UdpSocketMock::new()
@@ -728,14 +767,19 @@ mod tests {
         assert_eq!(
             result,
             Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(
-                io_error_str
+                io_error_str.clone()
             )))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Error transmitting to router at {}:5351: {:?}",
+            router_ip, io_error_str
+        ));
     }
 
     #[test]
     fn transact_handles_socket_receive_error() {
-        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.253").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionReset);
         let io_error_str = format!("{:?}", io_error);
         let socket = UdpSocketMock::new()
@@ -750,14 +794,19 @@ mod tests {
         assert_eq!(
             result,
             Err(AutomapError::SocketReceiveError(
-                AutomapErrorCause::Unknown(io_error_str)
+                AutomapErrorCause::Unknown(io_error_str.clone())
             ))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Error receiving from router at {}:5351: {:?}",
+            router_ip, io_error_str
+        ));
     }
 
     #[test]
     fn transact_handles_packet_parse_error() {
-        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.252").unwrap();
         let socket = UdpSocketMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(24))
@@ -774,6 +823,10 @@ mod tests {
                 2, 0
             )))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Error parsing packet from router at {}:5351: \"ShortBuffer(2, 0)\"",
+            router_ip
+        ));
     }
 
     #[test]
@@ -787,7 +840,8 @@ mod tests {
 
     #[test]
     fn add_mapping_handles_socket_factory_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.249").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
@@ -818,11 +872,16 @@ mod tests {
             }
             e => panic!("Expected SocketBindingError, got {:?}", e),
         }
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Error creating UDP socket at 0.0.0.0:5566: {:?}",
+            io_error_str
+        ));
     }
 
     #[test]
     fn add_mapping_handles_send_to_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.248").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
         let socket = UdpSocketMock::new()
@@ -846,14 +905,19 @@ mod tests {
         assert_eq!(
             result,
             Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(
-                io_error_str
+                io_error_str.clone()
             )))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Error transmitting to router at {}:5351: {:?}",
+            router_ip, io_error_str
+        ));
     }
 
     #[test]
     fn add_mapping_handles_recv_from_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.247").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
         let socket = UdpSocketMock::new()
@@ -878,14 +942,19 @@ mod tests {
         assert_eq!(
             result,
             Err(AutomapError::SocketReceiveError(
-                AutomapErrorCause::Unknown(io_error_str)
+                AutomapErrorCause::Unknown(io_error_str.clone())
             ))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Error receiving from router at {}:5351: {:?}",
+            router_ip, io_error_str
+        ));
     }
 
     #[test]
     fn add_mapping_handles_packet_parse_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.246").unwrap();
         let socket = UdpSocketMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
@@ -911,11 +980,16 @@ mod tests {
                 2, 0
             )))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Error parsing packet from router at {}:5351: \"ShortBuffer(2, 0)\"",
+            router_ip
+        ));
     }
 
     #[test]
     fn add_mapping_handles_wrong_direction() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.251").unwrap();
         let mut buffer = [0u8; 1100];
         let packet = make_request(Opcode::Other(127), Box::new(UnrecognizedData::new()));
         let len = packet.marshal(&mut buffer).unwrap();
@@ -947,11 +1021,16 @@ mod tests {
                 "Map response labeled as request".to_string()
             ))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Router at {}:5351 is misbehaving: \"ProtocolError(\"Map response labeled as request\")\"",
+            router_ip
+        ));
     }
 
     #[test]
     fn add_mapping_handles_unexpected_opcode() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.250").unwrap();
         let mut buffer = [0u8; 1100];
         let mut packet = make_response(
             Opcode::Other(127),
@@ -985,9 +1064,13 @@ mod tests {
         assert_eq!(
             result,
             Err(AutomapError::ProtocolError(
-                "Expected MapTcp response; got Other(127) response instead".to_string()
+                "Expected MapTcp response; got Other(127) response instead of MapTcp".to_string()
             ))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PmpTransactor: Router at {}:5351 is misbehaving: \"ProtocolError(\"Expected MapTcp response; got Other(127) response instead of MapTcp\")\"",
+            router_ip
+        ));
     }
 
     #[test]
@@ -1434,7 +1517,7 @@ mod tests {
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
         let err_msg = "Unexpected PMP Get request (request!) from router at ";
-        TestLogHandler::new().exists_log_containing(&format!("WARN: Automap: {}", err_msg));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: PmpTransactor: {}", err_msg));
     }
 
     #[test]

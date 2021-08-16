@@ -127,6 +127,7 @@ impl Transactor for IgdpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
         self.ensure_gateway()?;
         let inner = self.inner();
+        debug! (inner.logger, "Seeking routers on LAN");
         Ok(vec![IpAddr::V4(
             *inner
                 .gateway_opt
@@ -137,9 +138,11 @@ impl Transactor for IgdpTransactor {
         )])
     }
 
-    fn get_public_ip(&self, _router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
+    fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         self.ensure_gateway()?;
         let mut inner = self.inner_arc.lock().expect("Change handler died");
+        debug! (inner.logger, "Seeking public IP from router at {}",
+            router_ip);
         match inner
             .gateway_opt
             .as_ref()
@@ -151,18 +154,22 @@ impl Transactor for IgdpTransactor {
                 inner.public_ip_opt.replace(ip);
                 Ok(IpAddr::V4(ip))
             }
-            Err(e) => Err(AutomapError::GetPublicIpError(format!("{:?}", e))),
+            Err(e) => {
+                todo! ("Log here");
+                Err(AutomapError::GetPublicIpError(format!("{:?}", e)))
+            },
         }
     }
 
     fn add_mapping(
         &self,
-        _router_ip: IpAddr,
+        router_ip: IpAddr,
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
         self.ensure_gateway()?;
         let inner = self.inner_arc.lock().expect("Housekeeping thread is dead");
+        debug! (inner.logger, "Adding mapping for port {} through router at {} for {} seconds", hole_port, router_ip, lifetime);
         let gateway = inner
             .gateway_opt
             .as_ref()
@@ -190,9 +197,10 @@ impl Transactor for IgdpTransactor {
         self.add_mapping(router_ip, hole_port, 0).map(|_| u32::MAX)
     }
 
-    fn delete_mapping(&self, _router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
+    fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
         self.ensure_gateway()?;
         let inner = self.inner_arc.lock().expect("Change handler is dead");
+        debug!(inner.logger, "Deleting mapping of port {} through router at {}", hole_port, router_ip);
         match inner
             .gateway_opt
             .as_ref()
@@ -201,7 +209,10 @@ impl Transactor for IgdpTransactor {
             .remove_port(PortMappingProtocol::TCP, hole_port)
         {
             Ok(_) => Ok(()),
-            Err(e) => Err(AutomapError::DeleteMappingError(format!("{:?}", e))),
+            Err(e) => {
+                todo! ("log error");
+                Err(AutomapError::DeleteMappingError(format!("{:?}", e)))
+            },
         }
     }
 
@@ -212,15 +223,17 @@ impl Transactor for IgdpTransactor {
     fn start_housekeeping_thread(
         &mut self,
         change_handler: ChangeHandler,
-        _router_ip: IpAddr,
+        router_ip: IpAddr,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         let (tx, rx) = unbounded();
         let public_ip_poll_delay_ms = {
             let mut inner = self.inner_arc.lock().expect("Change handler is dead");
             if inner.housekeeping_commander_opt.is_some() {
+                info!(inner.logger, "Change handler for router at {} is already running", router_ip);
                 return Err(AutomapError::ChangeHandlerAlreadyRunning);
             }
             inner.housekeeping_commander_opt = Some(tx.clone());
+            debug! (inner.logger, "Starting housekeeping thread for router at {}", router_ip);
             self.public_ip_poll_delay_ms
         };
         let inner_inner = self.inner_arc.clone();
@@ -231,13 +244,11 @@ impl Transactor for IgdpTransactor {
     }
 
     fn stop_housekeeping_thread(&mut self) {
-        match &self
-            .inner_arc
-            .lock()
-            .expect("Change handler is dead")
-            .housekeeping_commander_opt
+        let inner = self.inner_arc.lock().expect ("Change handler is dead");
+        match &inner.housekeeping_commander_opt
         {
             Some(stopper) => {
+                debug! (inner.logger, "Stopping housekeeping thread");
                 let _ = stopper.try_send(HousekeepingThreadCommand::Stop);
             }
             None => (),
@@ -287,7 +298,10 @@ impl IgdpTransactor {
         }
         let gateway = match gateway_factory.make(SearchOptions::default()) {
             Ok(g) => g,
-            Err(_) => return Err(AutomapError::CantFindDefaultGateway),
+            Err(_) => {
+                todo! ("log error");
+                return Err(AutomapError::CantFindDefaultGateway)
+            },
         };
         inner.gateway_opt.replace(gateway);
         Ok(())
@@ -340,6 +354,7 @@ impl IgdpTransactor {
             Some(gw) => gw,
             None => {
                 let _ = inner.housekeeping_commander_opt.take();
+                error! (inner.logger, "Can't find router");
                 change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
                 return false;
             }
@@ -349,15 +364,21 @@ impl IgdpTransactor {
             &inner,
             change_handler,
         ) {
-            Some(pair) => pair,
+            Some(pair) => {
+                pair
+            },
             None => {
                 inner.gateway_opt.replace(gateway_wrapper);
                 return true;
             }
         };
         if current_public_ip != old_public_ip {
+            info! (inner.logger, "Public IP changed from {} to {}", current_public_ip, old_public_ip);
             inner.public_ip_opt.replace(current_public_ip);
             change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
+        }
+        else {
+            debug! (inner.logger, "No public IP change detected; still {}", old_public_ip);
         };
 
         let since_last_remapped = last_remapped.elapsed();
@@ -459,9 +480,18 @@ impl MappingAdder for MappingAdderReal {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
-        let local_ip = match self.local_ip_finder.find()? {
-            IpAddr::V4(ip) => ip,
-            IpAddr::V6(ip) => return Err(AutomapError::IPv6Unsupported(ip)),
+        let local_ip = match self.local_ip_finder.find() {
+            Err (e) =>  {
+                todo! ("log error");
+                return Err (e)
+            },
+            Ok (ip) => match (ip) {
+                IpAddr::V4(ip) => ip,
+                IpAddr::V6(ip) => {
+                    todo! ("log error");
+                    return Err(AutomapError::IPv6Unsupported(ip))
+                },
+            }
         };
         match gateway.add_port(
             PortMappingProtocol::TCP,
@@ -476,9 +506,13 @@ impl MappingAdder for MappingAdderReal {
                     || (&format!("{:?}", e)
                         == "RequestError(ErrorCode(402, \"Invalid Args\"))") =>
             {
+                todo! ("log error");
                 Err(AutomapError::PermanentLeasesOnly)
             }
-            Err(e) => Err(AutomapError::PermanentMappingError(format!("{:?}", e))),
+            Err(e) => {
+                todo! ("log error");
+                Err(AutomapError::PermanentMappingError(format!("{:?}", e)))
+            },
         }
     }
 }
@@ -1000,15 +1034,20 @@ mod tests {
 
     #[test]
     fn start_change_handler_complains_if_change_handler_is_already_running() {
+        init_test_logging();
         let mut subject = IgdpTransactor::new();
         subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some(unbounded().0);
 
-        let result = subject.start_housekeeping_thread(Box::new(|_| ()), localhost());
+        let result = subject.start_housekeeping_thread(
+            Box::new(|_| ()),
+            IpAddr::from_str ("192.168.0.254").unwrap(),
+        );
 
         assert_eq!(
             result.err().unwrap(),
             AutomapError::ChangeHandlerAlreadyRunning
-        )
+        );
+        TestLogHandler::new().exists_log_containing("INFO: IgdpTransactor: Change handler for router at 192.168.0.254 is already running");
     }
 
     #[test]
@@ -1058,8 +1097,9 @@ mod tests {
 
     #[test]
     fn start_change_handler_handles_absence_of_gateway() {
+        init_test_logging();
         let public_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
-        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
+        let router_ip = IpAddr::from_str("192.168.0.255").unwrap();
         let mut subject = IgdpTransactor::new();
         subject.public_ip_poll_delay_ms = 10;
         {
@@ -1085,6 +1125,7 @@ mod tests {
         let inner = subject.inner_arc.lock().unwrap();
         assert_eq!(inner.public_ip_opt, Some(public_ip));
         assert!(inner.housekeeping_commander_opt.is_none());
+        TestLogHandler::new ().exists_log_containing("ERROR: IgdpTransactor: Can't find router");
     }
 
     #[test]
@@ -1092,8 +1133,10 @@ mod tests {
         init_test_logging();
         let (tx, rx) = unbounded();
         let change_handler: ChangeHandler = Box::new(move |_| {});
+        let gateway = GatewayWrapperMock::new()
+            .get_external_ip_result(Ok(Ipv4Addr::from_str ("1.2.3.4").unwrap()));
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
-            gateway_opt: None,
+            gateway_opt: Some(Box::new (gateway)),
             housekeeping_commander_opt: None,
             public_ip_opt: None,
             mapping_adder: Box::new(MappingAdderMock::new()),

@@ -9,6 +9,7 @@ use crate::control_layer::automap_control::ChangeHandler;
 use crate::protocols::utils::ParseError;
 use crossbeam_channel::Sender;
 use masq_lib::utils::AutomapProtocol;
+use masq_lib::logger::Logger;
 
 pub mod igdp;
 pub mod pcp;
@@ -109,7 +110,7 @@ pub trait Transactor {
     fn start_housekeeping_thread(
         &mut self,
         change_handler: ChangeHandler,
-        router_ip: IpAddr,
+        router_ip: IpAddr
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError>;
     fn stop_housekeeping_thread(&mut self);
     fn as_any(&self) -> &dyn Any;

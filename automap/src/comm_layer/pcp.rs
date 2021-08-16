@@ -29,6 +29,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{io, thread};
+use masq_lib::{warning, debug};
 
 trait MappingNonceFactory: Send {
     fn make(&self) -> [u8; 12];
@@ -85,10 +86,13 @@ pub struct PcpTransactor {
 
 impl Transactor for PcpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
+        debug! (self.logger, "Seeking routers on LAN");
         find_routers()
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
+        debug! (self.logger, "Seeking public IP from router at {}",
+            router_ip);
         let inner = self
             .inner_arc
             .lock()
@@ -114,6 +118,7 @@ impl Transactor for PcpTransactor {
         hole_port: u16,
         lifetime: u32,
     ) -> Result<u32, AutomapError> {
+        debug! (self.logger, "Adding mapping for port {} through router at {} for {} seconds", hole_port, router_ip, lifetime);
         let inner = self
             .inner_arc
             .lock()
@@ -146,6 +151,7 @@ impl Transactor for PcpTransactor {
     }
 
     fn delete_mapping(&self, router_ip: IpAddr, hole_port: u16) -> Result<(), AutomapError> {
+        debug!(self.logger, "Deleting mapping of port {} through router at {}", hole_port, router_ip);
         let inner = self
             .inner_arc
             .lock()
@@ -173,6 +179,7 @@ impl Transactor for PcpTransactor {
         change_handler: ChangeHandler,
         router_ip: IpAddr,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
+        debug! (self.logger, "Starting housekeeping thread for router at {}", router_ip);
         if let Some(_change_handler_stopper) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
@@ -222,6 +229,7 @@ impl Transactor for PcpTransactor {
 
     fn stop_housekeeping_thread(&mut self) {
         if let Some(stopper) = self.housekeeper_commander_opt.take() {
+            debug! (self.logger, "Stopping housekeeping thread");
             let _ = stopper.send(HousekeepingThreadCommand::Stop);
         }
     }
@@ -243,7 +251,7 @@ impl Default for PcpTransactor {
             change_handler_config_opt: RefCell::new(None),
             housekeeper_commander_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
-            logger: Logger::new("Automap"),
+            logger: Logger::new("PcpTransactor"),
         }
     }
 }
@@ -267,6 +275,7 @@ impl PcpTransactor {
             .expect("Can't set read timeout");
         loop {
             // This will block for read_timeout_millis, conserving CPU cycles
+            debug! (logger, "Waiting for an IP-change announcement");
             match announcement_socket.recv_from(&mut buffer) {
                 Ok((len, sender_address)) => {
                     if sender_address.ip() != router_addr.ip() {
@@ -315,6 +324,7 @@ impl PcpTransactor {
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::Stop) => break,
                 Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
+                    debug! (logger, "Changing remap interval from {}ms to {}ms", change_handler_config.remap_interval.as_millis(), remap_after);
                     change_handler_config.remap_interval = Duration::from_millis(remap_after)
                 }
                 Err(_) => (),
@@ -354,6 +364,7 @@ impl PcpTransactor {
             change_handler_config,
         ) {
             Ok((_, opcode_data)) => {
+                debug! (logger, "Received announcement that public IP address changed to {}", opcode_data.external_ip_address);
                 change_handler(AutomapChange::NewIp(opcode_data.external_ip_address))
             }
             Err(e) => {
@@ -376,7 +387,9 @@ trait MappingTransactor: Send {
     ) -> Result<(u32, MapOpcodeData), AutomapError>;
 }
 
-struct MappingTransactorReal {}
+struct MappingTransactorReal {
+    logger: Logger,
+}
 
 impl MappingTransactor for MappingTransactorReal {
     fn mapping_transaction(
@@ -385,6 +398,8 @@ impl MappingTransactor for MappingTransactorReal {
         router_addr: SocketAddr,
         change_handler_config: &mut ChangeHandlerConfig,
     ) -> Result<(u32, MapOpcodeData), AutomapError> {
+        debug! (self.logger, "Mapping transaction: port {} through router at {} for {} seconds",
+            change_handler_config.hole_port, router_addr, change_handler_config.next_lifetime_secs());
         let (socket_addr, socket_result, local_ip_result, mapping_nonce) =
             Self::employ_factories(factories, router_addr.ip());
         let packet = PcpPacket {
@@ -410,6 +425,7 @@ impl MappingTransactor for MappingTransactorReal {
         let socket = match socket_result {
             Ok(s) => s,
             Err(e) => {
+                warning! (self.logger, "Error connecting to router at {}: \"{:?}\"", socket_addr, e);
                 return Err(AutomapError::SocketBindingError(
                     format!("{:?}", e),
                     socket_addr,
@@ -422,6 +438,7 @@ impl MappingTransactor for MappingTransactorReal {
         match socket.send_to(&buffer[0..request_len], router_addr) {
             Ok(_) => (),
             Err(e) => {
+                warning! (self.logger, "Error transmitting to router at {}: \"{:?}\"", router_addr, e);
                 return Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(
                     format!("{:?}", e),
                 )))
@@ -430,7 +447,10 @@ impl MappingTransactor for MappingTransactorReal {
         let response = match socket.recv_from(&mut buffer) {
             Ok((len, _peer_addr)) => match PcpPacket::try_from(&buffer[0..len]) {
                 Ok(pkt) => pkt,
-                Err(e) => return Err(AutomapError::PacketParseError(e)),
+                Err(e) => {
+                    warning! (self.logger, "Error parsing packet from router at {}: \"{:?}\"", router_addr, e);
+                    return Err(AutomapError::PacketParseError(e))
+                },
             },
             Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
                 return Err(AutomapError::ProtocolError(
@@ -438,23 +458,28 @@ impl MappingTransactor for MappingTransactorReal {
                 ))
             }
             Err(e) => {
+                warning! (self.logger, "Error receiving from router at {}: \"{:?}\"", router_addr, e);
                 return Err(AutomapError::SocketReceiveError(
                     AutomapErrorCause::Unknown(format!("{:?}", e)),
                 ))
             }
         };
         if response.direction != Direction::Response {
-            return Err(AutomapError::ProtocolError(
+            let e = AutomapError::ProtocolError(
                 "Map response labeled as request".to_string(),
-            ));
+            );
+            warning! (self.logger, "Router at {} is misbehaving: \"{:?}\"", router_addr, e);
+            return Err(e);
         }
         if response.opcode != Opcode::Map {
-            return Err(AutomapError::ProtocolError(format!(
+            let e = AutomapError::ProtocolError(format!(
                 "Map response has opcode {:?} instead of Map",
                 response.opcode
-            )));
+            ));
+            warning! (self.logger, "Router at {} is misbehaving: \"{:?}\"", router_addr, e);
+            return Err(e);
         }
-        Self::compute_mapping_result(response).map(|(approved_lifetime, opcode_data)| {
+        Self::compute_mapping_result(response, router_addr, &self.logger).map(|(approved_lifetime, opcode_data)| {
             change_handler_config.next_lifetime = Duration::from_secs(approved_lifetime as u64);
             change_handler_config.remap_interval =
                 Duration::from_secs((approved_lifetime / 2) as u64);
@@ -465,7 +490,9 @@ impl MappingTransactor for MappingTransactorReal {
 
 impl Default for MappingTransactorReal {
     fn default() -> Self {
-        MappingTransactorReal {}
+        MappingTransactorReal {
+            logger: Logger::new ("PcpTransactor"),
+        }
     }
 }
 
@@ -481,7 +508,7 @@ impl MappingTransactorReal {
         [u8; 12],
     ) {
         let free_port = factories.free_port_factory.make();
-        let socket_addr = make_local_socket_address(router_ip, free_port);
+        let socket_addr = make_local_socket_address(router_ip.is_ipv4(), free_port);
         (
             socket_addr,
             factories.socket_factory.make(socket_addr),
@@ -490,16 +517,20 @@ impl MappingTransactorReal {
         )
     }
 
-    fn compute_mapping_result(response: PcpPacket) -> Result<(u32, MapOpcodeData), AutomapError> {
+    fn compute_mapping_result(response: PcpPacket, router_addr: SocketAddr, logger: &Logger) -> Result<(u32, MapOpcodeData), AutomapError> {
         let result_code = response
             .result_code_opt
             .expect("Response parsing inoperative - result code");
         if result_code != ResultCode::Success {
             let msg = format!("{:?}", result_code);
             return if result_code.is_permanent() {
-                Err(AutomapError::PermanentMappingError(msg))
+                let e = AutomapError::PermanentMappingError(msg);
+                warning!(logger, "Router at {} complained: \"{:?}\"", router_addr, e);
+                Err(e)
             } else {
-                Err(AutomapError::TemporaryMappingError(msg))
+                let e = AutomapError::TemporaryMappingError(msg);
+                warning!(logger, "Router at {} complained: \"{:?}\"", router_addr, e);
+                Err(e)
             };
         }
         let approved_lifetime = response.lifetime;
@@ -643,7 +674,8 @@ mod tests {
 
     #[test]
     fn mapping_transaction_handles_socket_factory_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.255").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
         let socket_factory = UdpSocketFactoryMock::new().make_result(Err(io_error));
@@ -674,11 +706,16 @@ mod tests {
             }
             e => panic!("Expected SocketBindingError, got {:?}", e),
         }
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PcpTransactor: Error connecting to router at 0.0.0.0:5566: {:?}",
+            io_error_str
+        ));
     }
 
     #[test]
     fn mapping_transaction_handles_send_to_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.254").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
         let socket = UdpSocketMock::new()
@@ -702,14 +739,19 @@ mod tests {
         assert_eq!(
             result,
             Err(AutomapError::SocketSendError(AutomapErrorCause::Unknown(
-                io_error_str
+                io_error_str.clone()
             )))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PcpTransactor: Error transmitting to router at {}:5351: {:?}",
+            router_ip, io_error_str
+        ));
     }
 
     #[test]
     fn mapping_transaction_handles_recv_from_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.253").unwrap();
         let io_error = io::Error::from(ErrorKind::ConnectionRefused);
         let io_error_str = format!("{:?}", io_error);
         let socket = UdpSocketMock::new()
@@ -734,14 +776,19 @@ mod tests {
         assert_eq!(
             result,
             Err(AutomapError::SocketReceiveError(
-                AutomapErrorCause::Unknown(io_error_str)
+                AutomapErrorCause::Unknown(io_error_str.clone())
             ))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PcpTransactor: Error receiving from router at {}:5351: {:?}",
+            router_ip, io_error_str
+        ));
     }
 
     #[test]
     fn mapping_transaction_handles_packet_parse_error() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.252").unwrap();
         let socket = UdpSocketMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(1000))
@@ -767,11 +814,16 @@ mod tests {
                 24, 0
             )))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PcpTransactor: Error parsing packet from router at {}:5351: \"ShortBuffer(24, 0)\"",
+            router_ip
+        ));
     }
 
     #[test]
     fn mapping_transaction_handles_wrong_direction() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.251").unwrap();
         let mut buffer = [0u8; 1100];
         let packet = vanilla_request();
         let len = packet.marshal(&mut buffer).unwrap();
@@ -803,11 +855,16 @@ mod tests {
                 "Map response labeled as request".to_string()
             ))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PcpTransactor: Router at {}:5351 is misbehaving: \"ProtocolError(\"Map response labeled as request\")\"",
+            router_ip
+        ));
     }
 
     #[test]
     fn mapping_transaction_handles_unexpected_opcode() {
-        let router_ip = IpAddr::from_str("192.168.0.1").unwrap();
+        init_test_logging();
+        let router_ip = IpAddr::from_str("192.168.0.250").unwrap();
         let mut buffer = [0u8; 1100];
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Other(127);
@@ -840,6 +897,10 @@ mod tests {
                 "Map response has opcode Other(127) instead of Map".to_string()
             ))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PcpTransactor: Router at {}:5351 is misbehaving: \"ProtocolError(\"Map response has opcode Other(127) instead of Map\")\"",
+            router_ip
+        ));
     }
 
     #[test]
@@ -914,6 +975,7 @@ mod tests {
 
     #[test]
     fn get_public_ip_handles_failure() {
+        init_test_logging();
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
         packet.result_code_opt = Some(ResultCode::AddressMismatch);
@@ -927,7 +989,7 @@ mod tests {
             .recv_from_result(
                 Ok((
                     1000,
-                    SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), ROUTER_PORT),
+                    SocketAddr::new(IpAddr::from_str("192.168.0.249").unwrap(), ROUTER_PORT),
                 )),
                 response[0..response_len].to_vec(),
             );
@@ -941,7 +1003,7 @@ mod tests {
             factories.mapping_nonce_factory = Box::new(nonce_factory);
         }
 
-        let result = subject.get_public_ip(IpAddr::from_str("1.2.3.4").unwrap());
+        let result = subject.get_public_ip(IpAddr::from_str("192.168.0.249").unwrap());
 
         assert_eq!(
             result,
@@ -949,6 +1011,28 @@ mod tests {
                 "AddressMismatch".to_string()
             ))
         );
+        TestLogHandler::new ().exists_log_containing(&format! (
+            "WARN: PcpTransactor: Router at 192.168.0.249:5351 complained: \"PermanentMappingError(\"AddressMismatch\")\"",
+        ));
+    }
+
+    #[test]
+    fn temporary_mapping_errors_are_handled() {
+        init_test_logging();
+        let mut response = vanilla_response();
+        response.opcode = Opcode::Map;
+        response.result_code_opt = Some(ResultCode::NoResources);
+        response.lifetime = 0;
+        response.opcode_data = vanilla_map_response();
+        let router_addr = SocketAddr::from_str ("192.168.0.248:5351").unwrap();
+        let logger = Logger::new ("PcpTransactor");
+
+        let result = MappingTransactorReal::compute_mapping_result (response, router_addr, &logger);
+
+        assert_eq! (result, Err(AutomapError::TemporaryMappingError("NoResources".to_string())));
+        TestLogHandler::new ().exists_log_containing (&format! (
+            "WARN: PcpTransactor: Router at 192.168.0.248:5351 complained: \"TemporaryMappingError(\"NoResources\")\"",
+        ));
     }
 
     #[test]
@@ -1508,7 +1592,7 @@ mod tests {
                 .recv_from_result(Err(io::Error::from(ErrorKind::BrokenPipe)), vec![]),
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let logger = Logger::new("Automap");
+        let logger = Logger::new("thread_guts_logs_if_error_receiving_pcp_packet");
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
         PcpTransactor::thread_guts(
@@ -1530,7 +1614,7 @@ mod tests {
         );
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: Automap: Error receiving PCP packet from router: Kind(BrokenPipe)",
+            "ERROR: thread_guts_logs_if_error_receiving_pcp_packet: Error receiving PCP packet from router: Kind(BrokenPipe)",
         );
     }
 
@@ -1545,7 +1629,7 @@ mod tests {
                 .recv_from_result(Ok((5, socket_addr)), b"booga".to_vec()),
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let logger = Logger::new("Automap");
+        let logger = Logger::new("thread_guts_logs_if_unparseable_pcp_packet_arrives");
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
         PcpTransactor::thread_guts(
@@ -1566,7 +1650,7 @@ mod tests {
             logger,
         );
 
-        TestLogHandler::new().exists_log_containing("ERROR: Automap: Unparseable PCP packet:");
+        TestLogHandler::new().exists_log_containing("ERROR: thread_guts_logs_if_unparseable_pcp_packet_arrives: Unparseable PCP packet:");
     }
 
     #[test]
@@ -1588,7 +1672,7 @@ mod tests {
         let change_handler: ChangeHandler = Box::new(move |change| {
             change_opt_arc_inner.lock().unwrap().replace(change);
         });
-        let logger = Logger::new("Automap");
+        let logger = Logger::new("thread_guts_complains_if_remapping_fails");
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
             .unwrap();
 
@@ -1623,7 +1707,7 @@ mod tests {
             )))
         );
         TestLogHandler::new().exists_log_containing(
-            "ERROR: Automap: Remapping failure: TemporaryMappingError(\"NoResources\")",
+            "ERROR: thread_guts_complains_if_remapping_fails: Remapping failure: TemporaryMappingError(\"NoResources\")",
         );
     }
 
@@ -1644,7 +1728,7 @@ mod tests {
             next_lifetime: Default::default(),
             remap_interval: Default::default(),
         };
-        let logger = Logger::new("Automap");
+        let logger = Logger::new("handle_announcement_logs_if_remapping_fails");
         let mapping_transactor = Box::new(MappingTransactorReal::default());
         let inner = PcpTransactorInner {
             mapping_transactor,
@@ -1667,7 +1751,7 @@ mod tests {
                 SocketAddr::from_str("0.0.0.0:2345").unwrap()
             ))]
         );
-        TestLogHandler::new().exists_log_containing ("ERROR: Automap: Remapping after IP change failed, Node is useless: SocketBindingError(\"Kind(AlreadyExists)\", 0.0.0.0:2345");
+        TestLogHandler::new().exists_log_containing ("ERROR: handle_announcement_logs_if_remapping_fails: Remapping after IP change failed, Node is useless: SocketBindingError(\"Kind(AlreadyExists)\", 0.0.0.0:2345");
     }
 
     #[test]

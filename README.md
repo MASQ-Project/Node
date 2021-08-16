@@ -248,6 +248,16 @@ MASQ Node to reach its full potential, and should probably only be used when you
 for a few seconds to try one thing that's been giving you problems, and then shut it off to look at the logs. `error` 
 logs only the most serious of errors, and the other values are in-between compromise points. Default is `warn`.
 
+* `--mapping-protocol <pcp | pmp | igdp>`
+MASQ Node, running in standard mode, needs to allow other Nodes to connect to it from the Internet. However, you're
+probably running it behind a router, which has a firewall designed to prevent just that: letting just anybody connect
+to machines on your LAN through your router is wildly insecure. Therefore, the Node has to specifically request that
+your router make a special provision so that incoming traffic aimed specifically at your Node's clandestine port will
+be let through. This request must be made in a language that your router understands; but different routers understand
+different languages. Therefore, when it comes time to make this request, the Node will make it in each of three
+languages it knows, until an attempt succeeds. These attempts take a few seconds apiece; so to save time, if you know
+which language your router uses, specify it here, and the Node will try that one first.
+
 * `--ui-port <PORT>`
 This is how you tell MASQ Node which port it should listen on for local WebSocket connections to the UI gateway. 
 This allows MASQ Node to be controlled and inspected by other programs, such as the MASQ Node UI. The default 
