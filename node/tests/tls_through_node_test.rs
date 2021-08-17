@@ -14,10 +14,8 @@ use std::thread;
 use std::time::Duration;
 
 #[test]
-#[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the
-                           // MASQNode will be immediately reclaimed.
 fn tls_through_node_integration() {
-    let node = utils::MASQNode::start_standard("tls_through_node_integration", None, true);
+    let mut node = utils::MASQNode::start_standard("tls_through_node_integration", None, true);
 
     let mut tls_stream = {
         let mut tls_stream: Option<TlsStream<TcpStream>> = None;
@@ -67,4 +65,5 @@ fn tls_through_node_integration() {
         "{}",
         response
     );
+    node.kill().unwrap();
 }

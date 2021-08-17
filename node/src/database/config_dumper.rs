@@ -195,6 +195,7 @@ mod tests {
             other => panic!("Was expecting Value::Object, got {:?} instead", other),
         };
         let expected_value = json!({
+           "chainName": "ropsten".to_string(),
            "clandestinePort": actual_map.get ("clandestinePort"),
            "consumingWalletDerivationPath": null,
            "consumingWalletPublicKey": null,
