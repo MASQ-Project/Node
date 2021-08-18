@@ -155,7 +155,12 @@ impl Transactor for IgdpTransactor {
                 Ok(IpAddr::V4(ip))
             }
             Err(e) => {
-                todo! ("Log here");
+                warning!(
+                    inner.logger,
+                    "WARN: IgdpTransactor: Error getting public IP from router at {}: \"{:?}\"",
+                    router_ip,
+                    e
+                );
                 Err(AutomapError::GetPublicIpError(format!("{:?}", e)))
             },
         }
@@ -210,7 +215,13 @@ impl Transactor for IgdpTransactor {
         {
             Ok(_) => Ok(()),
             Err(e) => {
-                todo! ("log error");
+                warning!(
+                    inner.logger,
+                    "Can't delete mapping of port {} through router at {}: \"{:?}\"",
+                    hole_port,
+                    router_ip,
+                    e
+                );
                 Err(AutomapError::DeleteMappingError(format!("{:?}", e)))
             },
         }
@@ -298,8 +309,8 @@ impl IgdpTransactor {
         }
         let gateway = match gateway_factory.make(SearchOptions::default()) {
             Ok(g) => g,
-            Err(_) => {
-                todo! ("log error");
+            Err(e) => {
+                warning!(inner.logger, "Error locating routers on the LAN: \"{:?}\"", e);
                 return Err(AutomapError::CantFindDefaultGateway)
             },
         };
@@ -471,6 +482,7 @@ trait MappingAdder: Send {
 
 struct MappingAdderReal {
     local_ip_finder: Box<dyn LocalIpFinder>,
+    logger: Logger,
 }
 
 impl MappingAdder for MappingAdderReal {
@@ -482,13 +494,13 @@ impl MappingAdder for MappingAdderReal {
     ) -> Result<u32, AutomapError> {
         let local_ip = match self.local_ip_finder.find() {
             Err (e) =>  {
-                todo! ("log error");
+                warning!(self.logger, "Cannot determine local IP address: \"{:?}\"", e);
                 return Err (e)
             },
-            Ok (ip) => match (ip) {
+            Ok (ip) => match ip {
                 IpAddr::V4(ip) => ip,
                 IpAddr::V6(ip) => {
-                    todo! ("log error");
+                    warning!(self.logger, "IGDP is incompatible with an IPv6 local IP address");
                     return Err(AutomapError::IPv6Unsupported(ip))
                 },
             }
@@ -506,11 +518,16 @@ impl MappingAdder for MappingAdderReal {
                     || (&format!("{:?}", e)
                         == "RequestError(ErrorCode(402, \"Invalid Args\"))") =>
             {
-                todo! ("log error");
+                info!(self.logger, "Router accepts only permanent mappings");
                 Err(AutomapError::PermanentLeasesOnly)
             }
             Err(e) => {
-                todo! ("log error");
+                warning!(self.logger,
+                    "Failed to add {}sec mapping for port {}: \"{:?}\"",
+                    lifetime,
+                    hole_port,
+                    e
+                );
                 Err(AutomapError::PermanentMappingError(format!("{:?}", e)))
             },
         }
@@ -521,6 +538,7 @@ impl MappingAdderReal {
     fn new() -> Self {
         Self {
             local_ip_finder: Box::new(LocalIpFinderReal::new()),
+            logger: Logger::new ("IgdpTransactor"),
         }
     }
 }
@@ -534,7 +552,7 @@ mod tests {
     use crossbeam_channel::unbounded;
     use igd::RequestError;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::{localhost, AutomapProtocol};
+    use masq_lib::utils::{AutomapProtocol};
     use std::cell::RefCell;
     use std::net::Ipv6Addr;
     use std::ops::Sub;
@@ -780,14 +798,19 @@ mod tests {
 
     #[test]
     fn find_routers_handles_error() {
+        init_test_logging();
         let gateway_factory =
             GatewayFactoryMock::new().make_result(Err(SearchError::InvalidResponse));
         let mut subject = IgdpTransactor::new();
+        {
+            subject.inner_arc.lock().unwrap().logger = Logger::new("find_routers_handles_error");
+        }
         subject.gateway_factory = Box::new(gateway_factory);
 
         let result = subject.find_routers();
 
         assert_eq!(result, Err(AutomapError::CantFindDefaultGateway));
+        TestLogHandler::new ().exists_log_containing("WARN: find_routers_handles_error: Error locating routers on the LAN: \"InvalidResponse\"");
     }
 
     #[test]
@@ -812,13 +835,14 @@ mod tests {
 
     #[test]
     fn get_public_ip_handles_error() {
+        init_test_logging();
         let gateway = GatewayWrapperMock::new()
             .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
         let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
 
-        let result = subject.get_public_ip(IpAddr::from_str("192.168.0.1").unwrap());
+        let result = subject.get_public_ip(IpAddr::from_str("192.168.0.255").unwrap());
 
         assert_eq!(
             result,
@@ -827,6 +851,8 @@ mod tests {
             ))
         );
         assert_eq!(subject.inner_arc.lock().unwrap().public_ip_opt, None);
+        TestLogHandler::new()
+            .exists_log_containing("WARN: IgdpTransactor: Error getting public IP from router at 192.168.0.255: \"ActionNotAuthorized\"");
     }
 
     #[test]
@@ -939,7 +965,23 @@ mod tests {
     }
 
     #[test]
+    fn add_mapping_complains_about_not_being_able_to_find_local_ip() {
+        init_test_logging();
+        let gateway = GatewayWrapperMock::new();
+        let local_ip_finder = LocalIpFinderMock::new()
+            .find_result (Err (AutomapError::GetPublicIpError("Booga".to_string())));
+        let mut subject = MappingAdderReal::new();
+        subject.local_ip_finder = Box::new (local_ip_finder);
+
+        let result = subject.add_mapping(&gateway, 777, 1234);
+
+        assert_eq! (result, Err(AutomapError::GetPublicIpError("Booga".to_string())));
+        TestLogHandler::new().exists_log_containing("WARN: IgdpTransactor: Cannot determine local IP address: \"GetPublicIpError(\"Booga\")\"");
+    }
+
+    #[test]
     fn add_mapping_complains_about_ipv6_local_address() {
+        init_test_logging();
         let local_ipv6 = Ipv6Addr::from_str("0000:1111:2222:3333:4444:5555:6666:7777").unwrap();
         let gateway = GatewayWrapperMock::new().add_port_result(Ok(()));
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(IpAddr::V6(local_ipv6)));
@@ -949,10 +991,12 @@ mod tests {
         let result = subject.add_mapping(&gateway, 7777, 1234);
 
         assert_eq!(result, Err(AutomapError::IPv6Unsupported(local_ipv6)));
+        TestLogHandler::new ().exists_log_containing("WARN: IgdpTransactor: IGDP is incompatible with an IPv6 local IP address");
     }
 
     #[test]
     fn add_mapping_handles_only_permanent_lease_error() {
+        init_test_logging();
         let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
         let gateway = GatewayWrapperMock::new()
             .add_port_result(Err(AddPortError::OnlyPermanentLeasesSupported));
@@ -963,6 +1007,7 @@ mod tests {
         let result = subject.add_mapping(&gateway, 7777, 1234);
 
         assert_eq!(result, Err(AutomapError::PermanentLeasesOnly));
+        TestLogHandler::new().exists_log_containing("INFO: IgdpTransactor: Router accepts only permanent mappings");
     }
 
     #[test]
@@ -982,7 +1027,8 @@ mod tests {
 
     #[test]
     fn add_mapping_handles_other_error() {
-        let local_ip = IpAddr::from_str("192.168.0.101").unwrap();
+        init_test_logging();
+        let local_ip = IpAddr::from_str("192.168.0.253").unwrap();
         let gateway = GatewayWrapperMock::new().add_port_result(Err(AddPortError::PortInUse));
         let local_ip_finder = LocalIpFinderMock::new().find_result(Ok(local_ip));
         let mut subject = MappingAdderReal::new();
@@ -994,6 +1040,7 @@ mod tests {
             result,
             Err(AutomapError::PermanentMappingError("PortInUse".to_string()))
         );
+        TestLogHandler::new().exists_log_containing("WARN: IgdpTransactor: Failed to add 1234sec mapping for port 7777: \"PortInUse\"");
     }
 
     #[test]
@@ -1016,13 +1063,14 @@ mod tests {
 
     #[test]
     fn delete_mapping_handles_error() {
+        init_test_logging();
         let gateway =
             GatewayWrapperMock::new().remove_port_result(Err(RemovePortError::NoSuchPortMapping));
         let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
 
-        let result = subject.delete_mapping(IpAddr::from_str("192.168.0.1").unwrap(), 7777);
+        let result = subject.delete_mapping(IpAddr::from_str("192.168.0.254").unwrap(), 7777);
 
         assert_eq!(
             result,
@@ -1030,6 +1078,8 @@ mod tests {
                 "NoSuchPortMapping".to_string()
             ))
         );
+        TestLogHandler::new ()
+            .exists_log_containing("WARN: IgdpTransactor: Can't delete mapping of port 7777 through router at 192.168.0.254: \"NoSuchPortMapping\"");
     }
 
     #[test]

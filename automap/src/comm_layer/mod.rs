@@ -9,8 +9,6 @@ use crate::control_layer::automap_control::ChangeHandler;
 use crate::protocols::utils::ParseError;
 use crossbeam_channel::Sender;
 use masq_lib::utils::AutomapProtocol;
-use masq_lib::logger::Logger;
-
 pub mod igdp;
 pub mod pcp;
 mod pcp_pmp_common;
