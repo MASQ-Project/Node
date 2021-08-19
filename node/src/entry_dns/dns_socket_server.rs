@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::socket_server::SocketServer;
+use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use masq_lib::command::StdStreams;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
@@ -11,6 +11,7 @@ const DNS_PORT: u16 = 53;
 use crate::entry_dns::processing;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
+use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::localhost;
 
@@ -50,15 +51,10 @@ impl Future for DnsSocketServer {
     }
 }
 
-impl SocketServer<()> for DnsSocketServer {
-    fn get_configuration(&self) -> &() {
-        &()
-    }
-
+impl ConfiguredByPrivilege for DnsSocketServer {
     fn initialize_as_privileged(
         &mut self,
-        _args: &[String],
-        _streams: &mut StdStreams<'_>,
+        _multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
         let socket_addr = SocketAddr::new(localhost(), DNS_PORT);
         self.socket_wrapper
@@ -69,7 +65,7 @@ impl SocketServer<()> for DnsSocketServer {
 
     fn initialize_as_unprivileged(
         &mut self,
-        _args: &[String],
+        _multi_config: &MultiConfig,
         _streams: &mut StdStreams<'_>,
     ) -> Result<(), ConfiguratorError> {
         self.buf = [0; 65536];
@@ -99,6 +95,7 @@ mod tests {
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crate::test_utils::pure_test_utils::make_simplified_multi_config;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
@@ -201,7 +198,7 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
         subject
-            .initialize_as_privileged(&[], &mut FakeStreamHolder::new().streams())
+            .initialize_as_privileged(&make_simplified_multi_config([]))
             .unwrap();
 
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
@@ -265,7 +262,10 @@ mod tests {
             let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
             subject
-                .initialize_as_unprivileged(&[], &mut holder.streams())
+                .initialize_as_unprivileged(
+                    &make_simplified_multi_config([]),
+                    &mut holder.streams(),
+                )
                 .unwrap();
             tokio::run(subject);
 
@@ -313,7 +313,7 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
         subject
-            .initialize_as_unprivileged(&[], &mut holder.streams())
+            .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
             .unwrap();
 
         let result = subject.poll();
@@ -347,7 +347,7 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
         subject
-            .initialize_as_unprivileged(&[], &mut holder.streams())
+            .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
             .unwrap();
 
         let result = subject.poll();

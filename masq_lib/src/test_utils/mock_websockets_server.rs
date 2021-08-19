@@ -101,12 +101,7 @@ impl MockWebSocketsServer {
             ready_tx.send(()).unwrap();
             log(do_log, index, "Waiting for upgrade");
             let upgrade = server.accept().unwrap();
-            if upgrade
-                .protocols()
-                .iter()
-                .find(|p| *p == &self.protocol)
-                .is_none()
-            {
+            if upgrade.protocols().iter().all(|p| *p != self.protocol) {
                 panic!("Unrecognized protocol(s): {:?}", upgrade.protocols())
             }
             log(do_log, index, "Waiting for handshake");
@@ -358,7 +353,7 @@ impl MockWebSocketsServer {
             //first line: consider the minus after 'i' as a factor of positional reduction inside the queue
             //caused by how I remove each message after I send it
             if let OwnedMessage::Text(json) = &queued_messages[i - already_sent] {
-                if let Ok(msg) = UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
+                if let Ok(msg) = UiTrafficConverter::new_unmarshal_from_ui(json, 0) {
                     if msg.body.path == MessagePath::FireAndForget {
                         //////////////////////////////////////////////////////////////////////
                         client.send_message(&queued_messages.remove(0)).unwrap();

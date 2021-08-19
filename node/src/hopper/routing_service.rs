@@ -176,12 +176,8 @@ impl RoutingService {
                 return;
             }
         };
-        let payload = encodex(
-            self.main_cryptde,
-            &self.main_cryptde.public_key(),
-            &next_lcp,
-        )
-        .expect("Encryption of LiveCoresPackage failed");
+        let payload = encodex(self.main_cryptde, self.main_cryptde.public_key(), &next_lcp)
+            .expect("Encryption of LiveCoresPackage failed");
         let inbound_client_data = InboundClientData {
             peer_addr: ibcd_but_data.peer_addr,
             reception_port: ibcd_but_data.reception_port,

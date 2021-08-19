@@ -1,53 +1,54 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::apps::app_config_dumper;
 use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
-use crate::node_configurator::RealDirsWrapper;
+use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
-    app_head, data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
+    data_directory_from_context, real_user_data_directory_opt_and_chain_name, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
+use crate::run_modes_factories::DumpConfigRunner;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use clap::value_t;
-use clap::Arg;
 use heck::MixedCase;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
-use masq_lib::shared_schema::{
-    chain_arg, data_directory_arg, db_password_arg, real_user_arg, ConfiguratorError,
-    DB_PASSWORD_HELP,
-};
+use masq_lib::shared_schema::ConfiguratorError;
 use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-const DUMP_CONFIG_HELP: &str =
-    "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs.";
+#[cfg(test)]
+use std::any::Any;
 
-pub fn dump_config(args: &[String], streams: &mut StdStreams) -> Result<i32, ConfiguratorError> {
-    let (real_user, data_directory, chain_id, password_opt) =
-        distill_args(&RealDirsWrapper {}, args, streams)?;
-    let cryptde = CryptDEReal::new(chain_id);
-    PrivilegeDropperReal::new().drop_privileges(&real_user);
-    let config_dao = make_config_dao(&data_directory, chain_id);
-    let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
-    let json = configuration_to_json(configuration, password_opt, &cryptde);
-    write_string(streams, json);
-    Ok(0)
+pub struct DumpConfigRunnerReal;
+
+impl DumpConfigRunner for DumpConfigRunnerReal {
+    fn go(&self, streams: &mut StdStreams, args: &[String]) -> Result<(), ConfiguratorError> {
+        let (real_user, data_directory, chain_id, password_opt) =
+            distill_args(&DirsWrapperReal {}, args)?;
+        let cryptde = CryptDEReal::new(chain_id);
+        PrivilegeDropperReal::new().drop_privileges(&real_user);
+        let config_dao = make_config_dao(&data_directory, chain_id);
+        let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
+        let json = configuration_to_json(configuration, password_opt, &cryptde);
+        write_string(streams, json);
+        Ok(())
+    }
+
+    as_any_impl!();
 }
 
 fn write_string(streams: &mut StdStreams, json: String) {
-    streams
-        .stdout
-        .write_all(json.as_bytes())
-        .expect("Couldn't write JSON to stdout");
+    short_writeln!(streams.stdout, "{}", json);
     streams
         .stdout
         .flush()
@@ -96,7 +97,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
                 .expect("Database is corrupt: past_neighbors cannot be decoded")
                 .expect("Value disappeared");
             let node_descriptors =
-                serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(&bytes.as_slice())
+                serde_cbor::de::from_slice::<Vec<NodeDescriptor>>(bytes.as_slice())
                     .expect("Database is corrupt: past_neighbors contains bad CBOR");
             node_descriptors
                 .into_iter()
@@ -109,8 +110,8 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 }
 
 fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
-    let conn = DbInitializerReal::new()
-        .initialize(&data_directory, chain_id, true) // TODO: Probably should be false
+    let conn = DbInitializerReal::default()
+        .initialize(data_directory, chain_id, true) // TODO: Probably should be false
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -124,25 +125,13 @@ fn make_config_dao(data_directory: &Path, chain_id: u8) -> ConfigDaoReal {
 fn distill_args(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-    streams: &mut StdStreams,
 ) -> Result<(RealUser, PathBuf, u8, Option<String>), ConfiguratorError> {
-    let app = app_head()
-        .arg(
-            Arg::with_name("dump-config")
-                .long("dump-config")
-                .required(true)
-                .takes_value(false)
-                .help(DUMP_CONFIG_HELP),
-        )
-        .arg(chain_arg())
-        .arg(data_directory_arg())
-        .arg(real_user_arg())
-        .arg(db_password_arg(DB_PASSWORD_HELP));
+    let app = app_config_dumper();
     let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(CommandLineVcl::new(args.to_vec())),
         Box::new(EnvironmentVcl::new(&app)),
     ];
-    let multi_config = make_new_multi_config(&app, vcls, streams)?;
+    let multi_config = make_new_multi_config(&app, vcls)?;
     let (real_user, data_directory_opt, chain_name) =
         real_user_data_directory_opt_and_chain_name(dirs_wrapper, &multi_config);
     let directory =
@@ -194,10 +183,11 @@ mod tests {
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .opt("--dump-config")
             .into();
+        let subject = DumpConfigRunnerReal;
 
-        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
-        assert_eq!(result, 0);
+        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let actual_value: Value = serde_json::from_str(&output).unwrap();
         let actual_map = match &actual_value {
@@ -211,12 +201,14 @@ mod tests {
            "earningWalletAddress": null,
            "exampleEncrypted": null,
            "gasPrice": "1",
+           "mappingProtocol": null,
            "pastNeighbors": null,
-           "schemaVersion": CURRENT_SCHEMA_VERSION,
+           "schemaVersion": CURRENT_SCHEMA_VERSION.to_string(),
            "seed": null,
            "startBlock": &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME)).to_string(),
         });
         assert_eq!(actual_value, expected_value);
+        assert!(output.ends_with("\n}\n"))
     }
 
     #[test]
@@ -234,7 +226,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -266,16 +258,17 @@ mod tests {
             .param("--chain", TEST_DEFAULT_CHAIN_NAME)
             .opt("--dump-config")
             .into();
+        let subject = DumpConfigRunnerReal;
 
-        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
-        assert_eq!(result, 0);
+        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
@@ -297,7 +290,7 @@ mod tests {
             "pastNeighbors",
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
         );
-        check("schemaVersion", CURRENT_SCHEMA_VERSION);
+        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
@@ -325,7 +318,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -364,16 +357,17 @@ mod tests {
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
+        let subject = DumpConfigRunnerReal;
 
-        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
-        assert_eq!(result, 0);
+        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
@@ -392,7 +386,7 @@ mod tests {
         );
         check("gasPrice", "1");
         check("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345");
-        check("schemaVersion", CURRENT_SCHEMA_VERSION);
+        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))
@@ -425,7 +419,7 @@ mod tests {
         );
         let mut holder = FakeStreamHolder::new();
         {
-            let conn = DbInitializerReal::new()
+            let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
@@ -464,16 +458,17 @@ mod tests {
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
+        let subject = DumpConfigRunnerReal;
 
-        let result = dump_config(args_vec.as_slice(), &mut holder.streams()).unwrap();
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
-        assert_eq!(result, 0);
+        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
             x => panic!("Expected JSON object; found {:?}", x),
         };
-        let conn = DbInitializerReal::new()
+        let conn = DbInitializerReal::default()
             .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
@@ -495,7 +490,7 @@ mod tests {
             "pastNeighbors",
             &dao.get("past_neighbors").unwrap().value_opt.unwrap(),
         );
-        check("schemaVersion", CURRENT_SCHEMA_VERSION);
+        check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
             &contract_creation_block_from_chain_id(chain_id_from_name(TEST_DEFAULT_CHAIN_NAME))

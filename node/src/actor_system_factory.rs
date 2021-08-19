@@ -43,6 +43,7 @@ use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::ExpectValue;
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -88,7 +89,7 @@ impl ActorSystemFactoryReal {
         actor_factory: Box<dyn ActorFactory>,
         tx: Sender<StreamHandlerPoolSubs>,
     ) {
-        let db_initializer = DbInitializerReal::new();
+        let db_initializer = DbInitializerReal::default();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(
@@ -247,9 +248,10 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let crash_point = config.crash_point;
-        let descriptor = config.ui_gateway_config.node_descriptor.clone();
-        let addr: Addr<Dispatcher> =
-            Arbiter::start(move |_| Dispatcher::new(crash_point, descriptor));
+        let descriptor = config.node_descriptor_opt.clone();
+        let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
+            Dispatcher::new(crash_point, descriptor.expect_v("node descriptor"))
+        });
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -458,10 +460,11 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
+    use crate::test_utils::main_cryptde;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{main_cryptde, make_wallet};
     use actix::System;
     use log::LevelFilter;
     use masq_lib::crash_point::CrashPoint;
@@ -507,8 +510,13 @@ mod tests {
     impl<'a> ActorFactory for ActorFactoryMock<'a> {
         fn make_and_start_dispatcher(
             &self,
-            _config: &BootstrapperConfig,
+            config: &BootstrapperConfig,
         ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
+            self.parameters
+                .dispatcher_params
+                .lock()
+                .unwrap()
+                .get_or_insert(config.clone());
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.dispatcher);
             let dispatcher_subs = DispatcherSubs {
                 ibcd_sub: recipient!(addr, InboundClientData),
@@ -728,6 +736,7 @@ mod tests {
 
     #[derive(Clone)]
     struct Parameters<'a> {
+        dispatcher_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         proxy_client_params: Arc<Mutex<Option<ProxyClientConfig>>>,
         proxy_server_params:
             Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
@@ -742,6 +751,7 @@ mod tests {
     impl<'a> Parameters<'a> {
         pub fn new() -> Parameters<'a> {
             Parameters {
+                dispatcher_params: Arc::new(Mutex::new(None)),
                 proxy_client_params: Arc::new(Mutex::new(None)),
                 proxy_server_params: Arc::new(Mutex::new(None)),
                 hopper_params: Arc::new(Mutex::new(None)),
@@ -839,10 +849,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("uninitialized"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -854,6 +861,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("uninitialized".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -904,10 +912,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -919,6 +924,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -982,10 +988,14 @@ mod tests {
         );
         let ui_gateway_config = Parameters::get(parameters.ui_gateway_params);
         assert_eq!(ui_gateway_config.ui_port, 5335);
-        assert_eq!(ui_gateway_config.node_descriptor, "NODE-DESCRIPTOR");
-        let bootstrapper_config = Parameters::get(parameters.blockchain_bridge_params);
+        let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
-            bootstrapper_config.blockchain_bridge_config,
+            dispatcher_param.node_descriptor_opt,
+            Some("NODE-DESCRIPTOR".to_string())
+        );
+        let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
+        assert_eq!(
+            blockchain_bridge_param.blockchain_bridge_config,
             BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -993,7 +1003,7 @@ mod tests {
             }
         );
         assert_eq!(
-            bootstrapper_config.consuming_wallet,
+            blockchain_bridge_param.consuming_wallet,
             Some(make_wallet("consuming"))
         );
         let _stream_handler_pool_subs = rx.recv().unwrap();
@@ -1013,10 +1023,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1028,6 +1035,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),
@@ -1073,10 +1081,7 @@ mod tests {
                 payment_received_scan_interval: Duration::from_secs(100),
             },
             clandestine_discriminator_factories: Vec::new(),
-            ui_gateway_config: UiGatewayConfig {
-                ui_port: 5335,
-                node_descriptor: String::from("NODE-DESCRIPTOR"),
-            },
+            ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url: None,
                 chain_id: DEFAULT_CHAIN_ID,
@@ -1088,6 +1093,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet: None,
             data_directory: PathBuf::new(),
+            node_descriptor_opt: Some("NODE-DESCRIPTOR".to_string()),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             real_user: RealUser::null(),

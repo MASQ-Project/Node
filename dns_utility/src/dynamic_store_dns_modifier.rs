@@ -100,7 +100,7 @@ impl DynamicStoreDnsModifier {
             }
         };
         let primary_service =
-            match self.store.cfpl_to_string(&primary_service_cfpl) {
+            match self.store.cfpl_to_string(primary_service_cfpl) {
                 Ok(s) => s,
                 Err(_) => return Err(DynamicStoreDnsModifier::process_msg(
                     "Dynamic-Store path State:/Network/Global/IPv4/PrimaryService is not a string",
@@ -118,7 +118,7 @@ impl DynamicStoreDnsModifier {
             }
         };
         let mut result: HashMap<String, Vec<String>> = HashMap::new();
-        match self.get_server_addresses(&dns_map, &dns_base_path, &SERVER_ADDRESSES, for_write) {
+        match self.get_server_addresses(&dns_map, &dns_base_path, SERVER_ADDRESSES, for_write) {
             Err(e) => return Err(e),
             Ok(None) => (),
             Ok(Some(sa)) => {
@@ -146,25 +146,21 @@ impl DynamicStoreDnsModifier {
         dns_base_path: String,
         dns_info: HashMap<String, Vec<String>>,
     ) -> Result<(), String> {
-        let keys_and_values: Vec<(String, CFPropertyList)> = dns_info
-            .into_iter()
-            .map(|(key, value)| {
-                let cfvalues: Vec<CFString> = value
-                    .into_iter()
-                    .map(|address| CFString::from(&address[..]))
-                    .collect();
-                (
-                    key,
-                    CFArray::from_CFTypes(cfvalues.as_slice())
-                        .to_untyped()
-                        .to_CFPropertyList(),
-                )
-            })
-            .collect();
-
+        let keys_and_values = dns_info.into_iter().map(|(key, value)| {
+            let cfvalues: Vec<CFString> = value
+                .into_iter()
+                .map(|address| CFString::from(&address[..]))
+                .collect();
+            (
+                key,
+                CFArray::from_CFTypes(cfvalues.as_slice())
+                    .to_untyped()
+                    .to_CFPropertyList(),
+            )
+        });
         if self
             .store
-            .set_dictionary_string_cfpl(&dns_base_path[..], keys_and_values.into_iter().collect())
+            .set_dictionary_string_cfpl(&dns_base_path, keys_and_values.collect())
         {
             Ok(())
         } else {
@@ -255,7 +251,7 @@ impl DynamicStoreDnsModifier {
             Some(sa) => sa,
             None => return Ok(None),
         };
-        let server_address_cfpls = match self.store.cfpl_to_vec(&server_addresses_cfpl) {
+        let server_address_cfpls = match self.store.cfpl_to_vec(server_addresses_cfpl) {
             Ok(sa) => sa,
             Err(_) => {
                 return Err(DynamicStoreDnsModifier::process_msg(
@@ -324,11 +320,9 @@ impl StoreWrapper for StoreWrapperReal {
         if let Some(cfd) = cf_dictionary_opt {
             let cf_dictionary: CFDictionary = cfd;
             let (keys, values) = cf_dictionary.get_keys_and_values();
-            let keys_and_values: Vec<(*const libc::c_void, *const libc::c_void)> =
-                keys.into_iter().zip(values).collect();
             Some(
-                keys_and_values
-                    .into_iter()
+                keys.into_iter()
+                    .zip(values)
                     .map(|key_and_value| {
                         let (cf_key, cf_value) = key_and_value;
                         let key = unsafe { CFString::from_void(cf_key).to_string() };

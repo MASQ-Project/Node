@@ -1,4 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::commands::change_password_command::{
     change_password_subcommand, set_password_subcommand,
 };

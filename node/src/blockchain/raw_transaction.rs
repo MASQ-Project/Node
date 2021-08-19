@@ -30,7 +30,7 @@ impl RawTransaction {
     /// Signs and returns the RLP-encoded transaction
     pub fn sign(&self, wallet: &Wallet, chain_id: u8) -> Vec<u8> {
         let hash = self.tx_hash(chain_id);
-        let sig = ecdsa_sign(&hash, &wallet, chain_id);
+        let sig = ecdsa_sign(&hash, wallet, chain_id);
         let mut tx = RlpStream::new();
         tx.begin_unbounded_list();
         self.encode(&mut tx);

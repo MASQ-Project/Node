@@ -25,7 +25,7 @@ impl Route {
     ) -> Result<Route, CodexError> {
         Self::construct(
             RouteSegment::new(
-                vec![&cryptde.public_key(), destination],
+                vec![cryptde.public_key(), destination],
                 Component::Neighborhood,
             ),
             None,
@@ -192,7 +192,7 @@ impl Route {
             .map(|(current_key, next_key)| {
                 last_key = Some(next_key.clone());
                 LiveHop::new(
-                    &next_key,
+                    next_key,
                     consuming_wallet.clone().map(|w| {
                         w.as_payer(
                             &current_key,
@@ -313,7 +313,7 @@ impl Route {
     }
 
     fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
-        encodex(cryptde, &cryptde.public_key(), &return_route_id)
+        encodex(cryptde, cryptde.public_key(), &return_route_id)
             .expect("Internal error encrypting u32 return_route_id")
     }
 }
@@ -346,7 +346,8 @@ mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::{main_cryptde, make_paying_wallet, make_wallet};
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::{main_cryptde, make_paying_wallet};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use serde_cbor;
 

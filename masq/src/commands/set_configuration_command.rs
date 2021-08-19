@@ -1,10 +1,13 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, ArgGroup, SubCommand};
+use masq_lib::as_any_impl;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::common_validators;
 use masq_lib::shared_schema::GAS_PRICE_HELP;
 use masq_lib::short_writeln;
+use masq_lib::utils::{ExpectValue, WrapResult};
+#[cfg(test)]
 use std::any::Any;
 
 #[derive(Debug, PartialEq)]
@@ -15,19 +18,20 @@ pub struct SetConfigurationCommand {
 
 impl SetConfigurationCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        // if anything wrong, Clap will handle it at get_matches_from_safe
-        let mut preserved_name: String = String::new();
-        if pieces.len() != 1 {
-            preserved_name.push_str(&pieces[1].clone().replace("--", ""))
-        };
+        let parameter_opt = pieces.get(1).map(|s| s.replace("--", ""));
         match set_configuration_subcommand().get_matches_from_safe(pieces) {
-            Ok(matches) => Ok(SetConfigurationCommand {
-                name: preserved_name.clone(),
-                value: matches
-                    .value_of(preserved_name)
-                    .expect("should not reach this state")
-                    .to_string(),
-            }),
+            Ok(matches) => {
+                let parameter = parameter_opt.expect_v("required param");
+                SetConfigurationCommand {
+                    name: parameter.clone(),
+                    value: matches
+                        .value_of(parameter)
+                        .expect_v("required param")
+                        .to_string(),
+                }
+                .wrap_to_ok()
+            }
+
             Err(e) => Err(format!("{}", e)),
         }
     }
@@ -52,9 +56,7 @@ impl Command for SetConfigurationCommand {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    as_any_impl!();
 }
 
 pub fn set_configuration_subcommand() -> App<'static, 'static> {
