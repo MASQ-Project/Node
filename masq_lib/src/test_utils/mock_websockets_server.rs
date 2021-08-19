@@ -253,7 +253,7 @@ impl MockWebSocketsServer {
             let temporarily_owned = inner_responses_vec.remove(0);
             if match &temporarily_owned {
                 OwnedMessage::Text(text) =>
-                    match UiTrafficConverter::new_unmarshal_to_ui(&text, MessageTarget::AllClients)
+                    match UiTrafficConverter::new_unmarshal_to_ui(text, MessageTarget::AllClients)
                     {
                         Ok(msg) => match msg.body.path {
                             MessagePath::FireAndForget => {
