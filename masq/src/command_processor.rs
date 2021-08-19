@@ -5,6 +5,7 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::BroadcastHandle;
 use crate::terminal_interface::TerminalWrapper;
+use masq_lib::utils::ExpectValue;
 
 pub trait CommandProcessorFactory {
     fn make(
@@ -67,7 +68,7 @@ impl CommandProcessor for CommandProcessorReal {
         self.context
             .terminal_interface
             .as_ref()
-            .expect("Some(TerminalWrapper) expected")
+            .expect_v("Some(TerminalWrapper)")
     }
 }
 
@@ -75,14 +76,14 @@ impl CommandProcessor for CommandProcessorReal {
 mod tests {
     use super::*;
     use crate::command_context::CommandContext;
-    use crate::commands::change_password_command::ChangePasswordCommand;
+    use crate::commands::check_password_command::CheckPasswordCommand;
     use crate::communications::broadcast_handler::{
         BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
     };
     use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::{bounded, Sender};
-    use masq_lib::messages::{ToMessageBody, UiUndeliveredFireAndForget};
-    use masq_lib::messages::{UiChangePasswordResponse, UiShutdownRequest};
+    use masq_lib::messages::UiShutdownRequest;
+    use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
@@ -122,83 +123,101 @@ mod tests {
         sender: Sender<String>,
     }
 
-    impl TameCommand {
+    impl<'a> TameCommand {
+        const MESSAGE_IN_PIECES: &'a [&'a str] = &[
+            "This is a message ",
+            "which must be delivered as one piece ",
+            "; we'll do all possible for that. ",
+            "If only we have enough strength and spirit ",
+            "and determination and support and... snacks. ",
+            "Roger.",
+        ];
+
         fn send_piece_of_whole_message(&self, piece: &str) {
             self.sender.send(piece.to_string()).unwrap();
             thread::sleep(Duration::from_millis(1));
+        }
+
+        fn whole_message() -> String {
+            TameCommand::MESSAGE_IN_PIECES
+                .iter()
+                .map(|str| str.to_string())
+                .collect()
         }
     }
 
     impl Command for TameCommand {
         fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            self.send_piece_of_whole_message("This is a message");
-            self.send_piece_of_whole_message(" which must be delivered as one piece");
-            self.send_piece_of_whole_message("; we'll do all possible for that.");
-            self.send_piece_of_whole_message(" If only we have enough strength and spirit");
-            self.send_piece_of_whole_message(" and determination and support and... snacks.");
-            self.sender.send(" Roger.".to_string()).unwrap();
+            Self::MESSAGE_IN_PIECES
+                .iter()
+                .for_each(|piece| self.send_piece_of_whole_message(piece));
             Ok(())
         }
     }
 
     #[test]
-    fn process_locks_writing_and_prevents_interferences_from_broadcast_messages() {
-        running_test();
+    fn process_locks_writing_and_prevents_interferences_from_unexpected_broadcast_messages() {
+        running_test(); //don't remove
         let ui_port = find_free_port();
         let broadcast = UiUndeliveredFireAndForget {
-            opcode: "whateverTheOpcodeHereIs".to_string(),
+            opcode: "whateverTheOpcodeIs".to_string(),
         }
         .tmb(0);
         let (tx, rx) = bounded(1);
         let server = MockWebSocketsServer::new(ui_port)
-            .queue_response(UiChangePasswordResponse {}.tmb(1)) //this message serves to loose the broadcasts so that they can start coming
+            //This message serves to loose the broadcasts so that they can start coming.
+            .queue_response(UiCheckPasswordResponse { matches: false }.tmb(1))
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
             .queue_response(broadcast)
             .inject_signal_sender(tx);
-        let (broadcast_stream_factory, broadcast_stream_factory_handle) = TestStreamFactory::new();
-        let (cloned_stdout_sender, _) = broadcast_stream_factory.clone_senders();
+        let (stream_factory_handler, stream_factory_handle) = TestStreamFactory::new();
+        //The following two senders stands for stdout stream handles here - we want to get all written to them by receiving it from a single receiver
+        //so that some input sent from two different threads will mix in one piece of literal data;
+        //that's how the real program's stdout output presents itself to one's eyes.
+        //At the line below, we get a sender for the TameCommand; will serve to the 'main thread'.
+        let (cloned_sender, _) = stream_factory_handler.clone_senders();
         let terminal_interface = TerminalWrapper::configure_interface().unwrap();
         let background_terminal_interface = terminal_interface.clone();
         let generic_broadcast_handler =
             BroadcastHandlerReal::new(Some(background_terminal_interface));
+        //Another instance of the same sender will be taken here inside; will serve to the "broadcast handler thread".
         let generic_broadcast_handle =
-            generic_broadcast_handler.start(Box::new(broadcast_stream_factory));
-        let processor_factory = CommandProcessorFactoryReal::new();
+            generic_broadcast_handler.start(Box::new(stream_factory_handler));
+        let p_f = CommandProcessorFactoryReal::new();
         let stop_handle = server.start();
-        let mut processor = processor_factory
+        let mut processor = p_f
             .make(Some(terminal_interface), generic_broadcast_handle, ui_port)
             .unwrap();
         processor
-            .process(Box::new(ChangePasswordCommand {
-                old_password: Some("irrelevant".to_string()),
-                new_password: "double-irrelevant".to_string(),
+            .process(Box::new(CheckPasswordCommand {
+                db_password_opt: None,
             }))
             .unwrap();
-
+        //Waiting for a signal from the MockWebSocket server meaning that the queued broadcasts started coming out.
         rx.recv_timeout(Duration::from_millis(200)).unwrap();
+
         processor
             .process(Box::new(TameCommand {
-                sender: cloned_stdout_sender,
+                sender: cloned_sender,
             }))
             .unwrap();
 
-        let tamed_message_as_a_whole = "This is a message which must be delivered as one piece; we'll do all \
-             possible for that. If only we have enough strength and spirit and determination and support and... snacks. Roger.";
-        let received_output = broadcast_stream_factory_handle.stdout_so_far();
+        let whole_tame_message = TameCommand::whole_message();
+        let received_output = stream_factory_handle.stdout_so_far();
         assert!(
-            received_output.contains(tamed_message_as_a_whole),
+            received_output.contains(&whole_tame_message),
             "Message wasn't printed uninterrupted: {}",
             received_output
         );
-        let output_with_broadcasts_only = received_output.replace(tamed_message_as_a_whole, "");
+        let output_with_broadcasts_only = received_output.replace(&whole_tame_message, "");
         let number_of_broadcast_received = output_with_broadcasts_only
             .clone()
             .lines()
             .filter(|line| {
-                line.contains("Cannot handle whateverTheOpcodeHereIs request: Node is not running")
+                line.contains("Cannot handle whateverTheOpcodeIs request: Node is not running")
             })
             .count();
         assert_eq!(number_of_broadcast_received, 5);

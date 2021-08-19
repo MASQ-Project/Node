@@ -125,7 +125,7 @@ impl MockWebSocketsServer {
             log(do_log, index, "Entering background loop");
             loop {
                 log(do_log, index, "Checking for fire-and-forget messages");
-                self.handle_all_f_f_messages_found_at_the_tip_of_the_queue(
+                self.handle_all_f_f_messages_introducing_the_queue(
                     &mut client,
                     &inner_responses_arc,
                     index,
@@ -235,7 +235,7 @@ impl MockWebSocketsServer {
         }
     }
 
-    fn handle_all_f_f_messages_found_at_the_tip_of_the_queue(
+    fn handle_all_f_f_messages_introducing_the_queue(
         &self,
         client: &mut Client<TcpStream>,
         inner_responses_arc: &Arc<Mutex<Vec<OwnedMessage>>>,
@@ -252,13 +252,13 @@ impl MockWebSocketsServer {
             }
             let temporarily_owned = inner_responses_vec.remove(0);
             if match &temporarily_owned {
-                OwnedMessage::Text(json) =>
-                    match UiTrafficConverter::new_unmarshal_to_ui(&json, MessageTarget::AllClients)
+                OwnedMessage::Text(text) =>
+                    match UiTrafficConverter::new_unmarshal_to_ui(&text, MessageTarget::AllClients)
                     {
                         Ok(msg) => match msg.body.path {
                             MessagePath::FireAndForget => {
                                 if signalization_required {
-                                    log(do_log,index,"Sending a signal between first two fire-and-forget messages");
+                                    log(do_log,index,"Sending a signal between the first two fire-and-forget messages");
                                     sender_opt.as_ref().unwrap().send(()).unwrap()
                                 }
                                 client.send_message(&temporarily_owned).unwrap();
@@ -272,7 +272,7 @@ impl MockWebSocketsServer {
                 _ => false
             }.not() {
                 inner_responses_vec.insert(0, temporarily_owned);
-                log(do_log, index, "No fire-and-forget message found; starting to head to conversational messages");
+                log(do_log, index, "No fire-and-forget message found; heading over to conversational messages");
                 break
             }
             thread::sleep(Duration::from_millis(1));
@@ -429,7 +429,7 @@ mod tests {
         // Broadcast 1
         // Broadcast 2
         // Conversation 3
-        // Broadcast 5
+        // Broadcast 3
 
         // Code:
         // connection.transact(stimulus) -> Conversation 1
@@ -535,7 +535,7 @@ mod tests {
             new_password: "password".to_string(),
         };
 
-        //catch_unwind so that we have a chance to shut down the server manually and not to let the thread with it leak away
+        //catch_unwind so that we have a chance to shut down the server manually, not letting its thread leak away
         let encapsulated_panic: Result<
             Result<UiChangePasswordResponse, (u64, std::string::String)>,
             Box<dyn std::any::Any + Send>,

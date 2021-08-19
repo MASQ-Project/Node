@@ -316,7 +316,6 @@ mod tests {
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::fs::create_dir_all;
-    use std::ops::Not;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -539,9 +538,10 @@ mod tests {
         let iterator = list_of_updates.iter();
         let iterator_shifted = list_of_updates.iter().skip(1);
         iterator.zip(iterator_shifted).for_each(|(first, second)| {
-            if two_numbers_are_sequential(first.old_version(), second.old_version()).not() {
-                panic!("The list of updates for the database is not ordered properly")
-            }
+            assert!(
+                two_numbers_are_sequential(first.old_version(), second.old_version()),
+                "The list of updates for the database is not ordered properly"
+            )
         });
     }
 
