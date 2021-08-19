@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::actor_system_factory::AutomapControlFactory;
 use crate::apps::{app_config_dumper, app_daemon, app_node};
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::{
@@ -40,7 +41,12 @@ impl RunModes {
         }
     }
 
-    pub fn go(&self, args: &[String], streams: &mut StdStreams<'_>) -> i32 {
+    pub fn go(
+        &self,
+        args: &[String],
+        streams: &mut StdStreams<'_>,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
+    ) -> i32 {
         let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
         match Self::ensure_help_or_version(args, &mode, streams) {
             Enter => (),
@@ -54,7 +60,10 @@ impl RunModes {
 
         match match mode {
             Mode::DumpConfig => self.runner.dump_config(args, streams),
-            Mode::Initialization => self.runner.run_daemon(args, streams),
+            Mode::Initialization => {
+                self.runner
+                    .run_daemon(args, streams, temporary_automap_control_factory)
+            }
             Mode::Service => self.runner.run_node(args, streams),
         } {
             Ok(_) => 0,
@@ -213,7 +222,12 @@ trait Runner {
     fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError>;
     fn dump_config(&self, args: &[String], streams: &mut StdStreams<'_>)
         -> Result<(), RunnerError>;
-    fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError>;
+    fn run_daemon(
+        &self,
+        args: &[String],
+        streams: &mut StdStreams<'_>,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
+    ) -> Result<(), RunnerError>;
 }
 
 struct RunnerReal {
@@ -247,8 +261,17 @@ impl Runner for RunnerReal {
             .map_err(RunnerError::Configurator)
     }
 
-    fn run_daemon(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
-        let mut initializer = self.daemon_initializer_factory.make(args, streams)?;
+    fn run_daemon(
+        &self,
+        args: &[String],
+        streams: &mut StdStreams<'_>,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
+    ) -> Result<(), RunnerError> {
+        let mut initializer = self.daemon_initializer_factory.make(
+            args,
+            streams,
+            temporary_automap_control_factory,
+        )?;
         initializer.go(streams, args)?;
         Ok(()) //there might presently be no way to make this fn terminate politely
     }
@@ -278,6 +301,7 @@ mod tests {
         DumpConfigRunnerMock, ServerInitializerFactoryMock, ServerInitializerMock,
     };
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
+    use crate::test_utils::automap_mocks::make_temporary_automap_control_factory;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::utils::array_of_borrows_to_vec;
     use regex::Regex;
@@ -317,6 +341,7 @@ mod tests {
             &self,
             args: &[String],
             _streams: &mut StdStreams<'_>,
+            _temporary_automap_control_factory: &dyn AutomapControlFactory,
         ) -> Result<(), RunnerError> {
             self.run_daemon_params.lock().unwrap().push(args.to_vec());
             self.run_daemon_results.borrow_mut().remove(0)
@@ -456,7 +481,11 @@ mod tests {
             Box::new(PrivilegeDropperMock::new().expect_privilege_result(true));
         let mut holder = FakeStreamHolder::new();
 
-        let result = subject.go(&["--dump-config".to_string()], &mut holder.streams());
+        let result = subject.go(
+            &["--dump-config".to_string()],
+            &mut holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
+        );
 
         assert_eq!(result, 1);
         assert_eq!(
@@ -553,7 +582,11 @@ parm2 - msg2\n"
         let mut holder = FakeStreamHolder::new();
         let args = array_of_borrows_to_vec(&["program", "--initialization", "--halabala"]);
 
-        let result = subject.runner.run_daemon(&args, &mut holder.streams());
+        let result = subject.runner.run_daemon(
+            &args,
+            &mut holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
+        );
 
         assert_eq!(&holder.stdout.get_string(), "");
         assert_eq!(&holder.stderr.get_string(), "");
@@ -586,7 +619,11 @@ parm2 - msg2\n"
         let mut holder = FakeStreamHolder::new();
         let args = array_of_borrows_to_vec(&["program", "--initialization", "--ui-port", "52452"]);
 
-        let result = subject.runner.run_daemon(&args, &mut holder.streams());
+        let result = subject.runner.run_daemon(
+            &args,
+            &mut holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
+        );
 
         assert_eq!(&holder.stdout.get_string(), "");
         assert_eq!(&holder.stderr.get_string(), "");
@@ -659,8 +696,13 @@ parm2 - msg2\n"
         let initialization_exit_code = subject.go(
             &["--initialization".to_string()],
             &mut daemon_stream_holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
         );
-        let service_mode_exit_code = subject.go(&[], &mut node_stream_holder.streams());
+        let service_mode_exit_code = subject.go(
+            &[],
+            &mut node_stream_holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
+        );
 
         assert_eq!(initialization_exit_code, 1);
         assert_eq!(daemon_stream_holder.stdout.get_string(), "");
@@ -710,11 +752,13 @@ parm2 - msg2\n"
         let daemon_h_exit_code = subject.go(
             &array_of_borrows_to_vec(&["program", "--initialization", "--help"]),
             &mut daemon_h_holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
         );
 
         let node_h_exit_code = subject.go(
             &["program".to_string(), "--help".to_string()],
             &mut node_h_holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
         );
 
         assert_eq!(daemon_h_exit_code, 0);
@@ -749,11 +793,13 @@ parm2 - msg2\n"
                     "--version".to_string(),
                 ],
                 &mut daemon_v_holder.streams(),
+                &make_temporary_automap_control_factory(None, None),
             );
 
             let node_v_exit_code = subject.go(
                 &["program".to_string(), "--version".to_string()],
                 &mut node_v_holder.streams(),
+                &make_temporary_automap_control_factory(None, None),
             );
 
             assert_eq!(daemon_v_exit_code, 0);
@@ -786,6 +832,7 @@ parm2 - msg2\n"
         let daemon_exit_code = subject.go(
             &array_of_borrows_to_vec(&["program", "--initiabababa", "--help"]),
             &mut stream_holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
         );
 
         assert_eq!(daemon_exit_code, 1);
@@ -813,6 +860,7 @@ parm2 - msg2\n"
         let dump_config_exit_code = subject.go(
             &["--dump-config".to_string()],
             &mut dump_config_holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
         );
 
         assert_eq!(dump_config_exit_code, 0);

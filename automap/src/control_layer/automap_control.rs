@@ -26,6 +26,7 @@ pub trait AutomapControl {
     fn get_public_ip(&mut self) -> Result<IpAddr, AutomapError>;
     fn add_mapping(&mut self, hole_port: u16) -> Result<(), AutomapError>;
     fn delete_mappings(&mut self) -> Result<(), AutomapError>;
+    fn get_mapping_protocol(&self) -> Option<AutomapProtocol>;
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -148,6 +149,10 @@ impl AutomapControl for AutomapControlReal {
                 }
             }
         }
+    }
+
+    fn get_mapping_protocol(&self) -> Option<AutomapProtocol> {
+        self.usual_protocol_opt
     }
 }
 
@@ -1017,6 +1022,16 @@ mod tests {
             });
         let stop_change_handler_params = stop_change_handler_params_arc.lock().unwrap();
         assert_eq!(*stop_change_handler_params, vec![()]);
+    }
+
+    #[test]
+    fn get_mapping_protocol_returns_usual_mapping_protocol_opt() {
+        let mut subject = make_null_subject();
+        subject.usual_protocol_opt = Some (AutomapProtocol::Pmp);
+
+        let result = subject.get_mapping_protocol();
+
+        assert_eq! (result, Some (AutomapProtocol::Pmp));
     }
 
     #[test]

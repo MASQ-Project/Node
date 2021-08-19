@@ -17,6 +17,7 @@ use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectValue;
 use std::cell::RefCell;
 
+use crate::actor_system_factory::AutomapControlFactory;
 #[cfg(test)]
 use std::any::Any;
 
@@ -65,6 +66,7 @@ pub trait DaemonInitializerFactory {
         &self,
         args: &[String],
         streams: &mut StdStreams,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError>;
 }
 
@@ -100,11 +102,16 @@ impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
         &self,
         args: &[String],
         streams: &mut StdStreams,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError> {
         let configurator = Self::expect(self.configurator.take());
         let multi_config =
             NodeConfiguratorInitializationReal::make_multi_config_daemon_specific(args)?;
-        let initialization_config = configurator.configure(&multi_config, Some(streams))?;
+        let initialization_config = configurator.configure(
+            &multi_config,
+            Some(streams),
+            temporary_automap_control_factory,
+        )?;
         let initializer_clustered_params = Self::expect(self.inner.take());
         let daemon_initializer = Box::new(DaemonInitializerReal::new(
             initialization_config,
@@ -149,6 +156,7 @@ mod tests {
     };
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::ServerInitializerReal;
+    use crate::test_utils::automap_mocks::make_temporary_automap_control_factory;
     use crate::test_utils::pure_test_utils::{
         make_pre_populated_mocked_directory_wrapper, ChannelFactoryMock,
     };
@@ -209,7 +217,13 @@ mod tests {
         ]);
         let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject.make(&args, &mut stream_holder.streams()).unwrap();
+        let result = subject
+            .make(
+                &args,
+                &mut stream_holder.streams(),
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .unwrap();
 
         let factory_product = result
             .as_any()
@@ -251,7 +265,11 @@ mod tests {
         let args = &array_of_borrows_to_vec(&["program", "--wooooooo", "--fooooooo"]);
         let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject.make(&args, &mut stream_holder.streams());
+        let result = subject.make(
+            &args,
+            &mut stream_holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
+        );
 
         let mut config_error = result.err().unwrap();
         let actual_error = config_error.param_errors.remove(0);
@@ -282,7 +300,11 @@ mod tests {
         let args = &array_of_borrows_to_vec(&["program", "--initialization"]);
         let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject.make(&args, &mut stream_holder.streams());
+        let result = subject.make(
+            &args,
+            &mut stream_holder.streams(),
+            &make_temporary_automap_control_factory(None, None),
+        );
 
         let mut config_error = result.err().unwrap();
         let actual_error = config_error.param_errors.remove(0);
@@ -299,6 +321,7 @@ mod tests {
 
 #[cfg(test)]
 pub mod mocks {
+    use crate::actor_system_factory::AutomapControlFactory;
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
     use crate::node_configurator::NodeConfigurator;
     use crate::run_modes_factories::{
@@ -377,6 +400,7 @@ pub mod mocks {
             &self,
             args: &[String],
             _streams: &mut StdStreams,
+            _temporary_automap_control_factory: &dyn AutomapControlFactory,
         ) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError> {
             self.make_params.lock().unwrap().push(args.to_vec());
             self.make_result.borrow_mut().remove(0)
@@ -488,6 +512,7 @@ pub mod mocks {
             &self,
             multi_config: &MultiConfig,
             _streams: Option<&mut StdStreams>,
+            _temporary_automap_control_factory: &dyn AutomapControlFactory,
         ) -> Result<InitializationConfig, ConfiguratorError> {
             ingest_values_from_multi_config(
                 &self.demanded_values_from_multi_config,

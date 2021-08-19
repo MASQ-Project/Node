@@ -10,6 +10,7 @@ mod setup_reporter;
 #[cfg(test)]
 mod mocks;
 
+use crate::actor_system_factory::{AutomapControlFactory, AutomapControlFactoryReal};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use crate::daemon::setup_reporter::{SetupCluster, SetupReporter, SetupReporterReal};
@@ -104,6 +105,7 @@ pub struct Daemon {
     node_ui_port: Option<u16>,
     verifier_tools: Box<dyn VerifierTools>,
     setup_reporter: Box<dyn SetupReporter>,
+    temporary_automap_control_factory: Box<dyn AutomapControlFactory>,
     logger: Logger,
 }
 
@@ -164,6 +166,7 @@ impl Daemon {
             node_ui_port: None,
             verifier_tools: Box::new(VerifierToolsReal::new()),
             setup_reporter: Box::new(SetupReporterReal::new()),
+            temporary_automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
             logger: Logger::new("Daemon"),
         }
     }
@@ -178,10 +181,11 @@ impl Daemon {
         } else {
             let incoming_setup = payload.values;
             let existing_setup = self.params.clone();
-            match self
-                .setup_reporter
-                .get_modified_setup(existing_setup, incoming_setup)
-            {
+            match self.setup_reporter.get_modified_setup(
+                existing_setup,
+                incoming_setup,
+                self.temporary_automap_control_factory.as_ref(),
+            ) {
                 Ok(setup) => self.change_setup_and_notify(
                     setup,
                     ConfiguratorError::new(vec![]),
@@ -508,6 +512,7 @@ mod tests {
             &self,
             existing_setup: SetupCluster,
             incoming_setup: Vec<UiSetupRequestValue>,
+            _temporary_automap_control_factory: &dyn AutomapControlFactory,
         ) -> Result<SetupCluster, (SetupCluster, ConfiguratorError)> {
             self.get_modified_setup_params
                 .lock()
@@ -749,6 +754,7 @@ mod tests {
                 client_id: 1234,
                 body: UiSetupRequest {
                     values: vec![
+                        UiSetupRequestValue::new("ip", "1.2.3.4"),
                         UiSetupRequestValue::new(
                             "data-directory",
                             format!("{:?}", home_dir).as_str(),
@@ -1159,6 +1165,10 @@ mod tests {
             .process_is_running_result(false);
         let system = System::new("test");
         let mut subject = Daemon::new(Box::new(launcher));
+        subject.params.insert(
+            "ip".to_string(),
+            UiSetupResponseValue::new("ip", "1.2.3.4", Set),
+        );
         subject.params.insert(
             "db-password".to_string(),
             UiSetupResponseValue::new("db-password", "goober", Set),

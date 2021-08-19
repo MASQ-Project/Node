@@ -520,6 +520,24 @@ impl AutomapControlFactoryReal {
     }
 }
 
+pub struct AutomapControlFactoryNull {}
+
+impl AutomapControlFactory for AutomapControlFactoryNull {
+    fn make(
+        &self,
+        _usual_protocol_opt: Option<AutomapProtocol>,
+        _change_handler: ChangeHandler,
+    ) -> Box<dyn AutomapControl> {
+        panic!("Should never calll make() on an AutomapControlFactoryNull.");
+    }
+}
+
+impl AutomapControlFactoryNull {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

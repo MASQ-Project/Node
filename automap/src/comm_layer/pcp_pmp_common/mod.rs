@@ -154,11 +154,10 @@ pub fn find_routers() -> Result<Vec<IpAddr>, AutomapError> {
 pub fn make_local_socket_address(is_ipv4: bool, free_port: u16) -> SocketAddr {
     let ip_addr = if is_ipv4 {
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))
-    }
-    else {
+    } else {
         IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0))
     };
-    SocketAddr::new (ip_addr, free_port)
+    SocketAddr::new(ip_addr, free_port)
 }
 
 #[cfg(test)]

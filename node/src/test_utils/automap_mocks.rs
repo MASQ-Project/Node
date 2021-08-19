@@ -62,6 +62,7 @@ pub struct AutomapControlMock {
     add_mapping_params: Arc<Mutex<Vec<u16>>>,
     add_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
     delete_mappings_results: RefCell<Vec<Result<(), AutomapError>>>,
+    get_mapping_protocol_results: RefCell<Vec<Option<AutomapProtocol>>>,
 }
 
 impl AutomapControl for AutomapControlMock {
@@ -76,6 +77,10 @@ impl AutomapControl for AutomapControlMock {
 
     fn delete_mappings(&mut self) -> Result<(), AutomapError> {
         self.delete_mappings_results.borrow_mut().remove(0)
+    }
+
+    fn get_mapping_protocol(&self) -> Option<AutomapProtocol> {
+        self.get_mapping_protocol_results.borrow_mut().remove(0)
     }
 }
 
@@ -92,6 +97,7 @@ impl AutomapControlMock {
             add_mapping_params: Arc::new(Mutex::new(vec![])),
             add_mapping_results: RefCell::new(vec![]),
             delete_mappings_results: RefCell::new(vec![]),
+            get_mapping_protocol_results: RefCell::new(vec![]),
         }
     }
 
@@ -114,4 +120,23 @@ impl AutomapControlMock {
         self.delete_mappings_results.borrow_mut().push(result);
         self
     }
+
+    pub fn get_mapping_protocol_result(self, result: Option<AutomapProtocol>) -> Self {
+        self.get_mapping_protocol_results.borrow_mut().push(result);
+        self
+    }
+}
+
+pub fn make_temporary_automap_control_factory(
+    protocol_opt: Option<AutomapProtocol>,
+    public_ip_opt: Option<IpAddr>,
+) -> AutomapControlFactoryMock {
+    let public_ip_result = match public_ip_opt {
+        Some(ip) => Ok(ip),
+        None => Err(AutomapError::AllProtocolsFailed),
+    };
+    let automap_control = AutomapControlMock::new()
+        .get_public_ip_result(public_ip_result)
+        .get_mapping_protocol_result(protocol_opt);
+    AutomapControlFactoryMock::new().make_result(automap_control)
 }

@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::actor_system_factory::AutomapControlFactory;
 use crate::apps::app_daemon;
 use crate::node_configurator::NodeConfigurator;
 use crate::sub_lib::utils::make_new_multi_config;
@@ -31,6 +32,7 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationRe
         &self,
         multi_config: &MultiConfig,
         streams: Option<&mut StdStreams>,
+        _temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> Result<InitializationConfig, ConfiguratorError> {
         let mut config = InitializationConfig::default();
         initialization::parse_args(multi_config, &mut config, streams.expect_v("StdStreams"));

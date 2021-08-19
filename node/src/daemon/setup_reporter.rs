@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
+use crate::actor_system_factory::AutomapControlFactory;
 use crate::apps::app_head;
 use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
@@ -53,6 +54,7 @@ pub trait SetupReporter {
         &self,
         existing_setup: SetupCluster,
         incoming_setup: Vec<UiSetupRequestValue>,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> Result<SetupCluster, (SetupCluster, ConfiguratorError)>;
 }
 
@@ -65,6 +67,7 @@ impl SetupReporter for SetupReporterReal {
         &self,
         mut existing_setup: SetupCluster,
         incoming_setup: Vec<UiSetupRequestValue>,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> Result<SetupCluster, (SetupCluster, ConfiguratorError)> {
         let default_setup = Self::get_default_params();
         let mut blanked_out_former_values = HashMap::new();
@@ -123,6 +126,7 @@ impl SetupReporter for SetupReporterReal {
             &all_but_configured,
             &data_directory,
             &chain_name,
+            temporary_automap_control_factory,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -272,6 +276,7 @@ impl SetupReporterReal {
         combined_setup: &SetupCluster,
         data_directory: &Path,
         chain_name: &str,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
@@ -286,6 +291,7 @@ impl SetupReporterReal {
             &multi_config,
             data_directory,
             chain_id_from_name(chain_name),
+            temporary_automap_control_factory,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -393,6 +399,7 @@ impl SetupReporterReal {
         multi_config: &MultiConfig,
         data_directory: &Path,
         chain_id: u8,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> (
         (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
         Option<ConfiguratorError>,
@@ -420,6 +427,7 @@ impl SetupReporterReal {
                     &mut bootstrapper_config,
                     &mut streams,
                     &mut persistent_config,
+                    temporary_automap_control_factory,
                 ) {
                     Ok(_) => (
                         (bootstrapper_config, Some(Box::new(persistent_config))),
@@ -444,6 +452,7 @@ impl SetupReporterReal {
                     &mut bootstrapper_config,
                     &mut streams,
                     &mut persistent_config,
+                    temporary_automap_control_factory,
                 ) {
                     Ok(_) => ((bootstrapper_config, None), None),
                     Err(ce) => {
@@ -893,6 +902,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
+    use crate::test_utils::automap_mocks::make_temporary_automap_control_factory;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -1034,7 +1044,11 @@ mod tests {
         let subject = SetupReporterReal::new();
 
         let result = subject
-            .get_modified_setup(HashMap::new(), incoming_setup)
+            .get_modified_setup(
+                HashMap::new(),
+                incoming_setup,
+                &make_temporary_automap_control_factory(None, None),
+            )
             .unwrap();
 
         let (dns_servers_str, dns_servers_status) =
@@ -1115,7 +1129,13 @@ mod tests {
         ]);
         let subject = SetupReporterReal::new();
 
-        let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
+        let result = subject
+            .get_modified_setup(
+                existing_setup,
+                vec![],
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .unwrap();
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Set),
@@ -1177,7 +1197,11 @@ mod tests {
         let subject = SetupReporterReal::new();
 
         let result = subject
-            .get_modified_setup(HashMap::new(), incoming_setup)
+            .get_modified_setup(
+                HashMap::new(),
+                incoming_setup,
+                &make_temporary_automap_control_factory(None, None),
+            )
             .unwrap();
 
         let expected_result = vec![
@@ -1240,7 +1264,13 @@ mod tests {
         let params = vec![];
         let subject = SetupReporterReal::new();
 
-        let result = subject.get_modified_setup(HashMap::new(), params).unwrap();
+        let result = subject
+            .get_modified_setup(
+                HashMap::new(),
+                params,
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .unwrap();
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Configured),
@@ -1340,10 +1370,22 @@ mod tests {
                 .data_dir_result(Some(data_root.clone())),
         );
         let params = vec![UiSetupRequestValue::new("chain", DEFAULT_CHAIN_NAME)];
-        let existing_setup = subject.get_modified_setup(HashMap::new(), params).unwrap();
+        let existing_setup = subject
+            .get_modified_setup(
+                HashMap::new(),
+                params,
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .unwrap();
         let params = vec![UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME)];
 
-        let result = subject.get_modified_setup(existing_setup, params).unwrap();
+        let result = subject
+            .get_modified_setup(
+                existing_setup,
+                params,
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .unwrap();
 
         let expected_result = vec![
             (
@@ -1483,7 +1525,13 @@ mod tests {
         ]);
         let subject = SetupReporterReal::new();
 
-        let result = subject.get_modified_setup(existing_setup, params).unwrap();
+        let result = subject
+            .get_modified_setup(
+                existing_setup,
+                params,
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .unwrap();
 
         let expected_result = vec![
             ("blockchain-service-url", "https://example.com", Configured),
@@ -1561,7 +1609,11 @@ mod tests {
         let subject = SetupReporterReal::new();
 
         let result = subject
-            .get_modified_setup(existing_setup, incoming_setup)
+            .get_modified_setup(
+                existing_setup,
+                incoming_setup,
+                &make_temporary_automap_control_factory(None, None),
+            )
             .unwrap();
 
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
@@ -1620,7 +1672,11 @@ mod tests {
         let subject = SetupReporterReal::new();
 
         let result = subject
-            .get_modified_setup(existing_setup, incoming_setup)
+            .get_modified_setup(
+                existing_setup,
+                incoming_setup,
+                &make_temporary_automap_control_factory(None, None),
+            )
             .err()
             .unwrap()
             .0;
@@ -1640,7 +1696,11 @@ mod tests {
         let subject = SetupReporterReal::new();
 
         let result = subject
-            .get_modified_setup(existing_setup, incoming_setup)
+            .get_modified_setup(
+                existing_setup,
+                incoming_setup,
+                &make_temporary_automap_control_factory(None, None),
+            )
             .err()
             .unwrap();
 
@@ -1807,6 +1867,7 @@ mod tests {
                     UiSetupRequestValue::new("ip", "1.2.3.4"),
                     UiSetupRequestValue::clear("chain"),
                 ],
+                &make_temporary_automap_control_factory(None, None),
             )
             .unwrap();
 
@@ -1871,6 +1932,7 @@ mod tests {
             &setup,
             &data_directory,
             "irrelevant",
+            &make_temporary_automap_control_factory(None, None),
         )
         .0;
 
@@ -1916,6 +1978,7 @@ mod tests {
             &setup,
             &data_directory,
             "irrelevant",
+            &make_temporary_automap_control_factory(None, None),
         )
         .0;
 
@@ -1954,6 +2017,7 @@ mod tests {
             &setup,
             &data_directory,
             "irrelevant",
+            &make_temporary_automap_control_factory(None, None),
         )
         .0;
 
@@ -1985,6 +2049,7 @@ mod tests {
             &setup,
             &data_directory,
             "irrelevant",
+            &make_temporary_automap_control_factory(None, None),
         )
         .1
         .unwrap();
@@ -2030,6 +2095,7 @@ mod tests {
             &setup,
             &data_directory,
             "irrelevant",
+            &make_temporary_automap_control_factory(None, None),
         )
         .0;
 
@@ -2068,6 +2134,7 @@ mod tests {
             &setup,
             &data_directory,
             "irrelevant",
+            &make_temporary_automap_control_factory(None, None),
         )
         .1
         .unwrap();

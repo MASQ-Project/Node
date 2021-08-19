@@ -1,8 +1,10 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
-use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
+use crate::actor_system_factory::{
+    ActorFactoryReal, AutomapControlFactory, AutomapControlFactoryNull, AutomapControlFactoryReal,
+};
 use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -376,6 +378,7 @@ pub struct Bootstrapper {
     actor_system_factory: Box<dyn ActorSystemFactory>,
     logger_initializer: Box<dyn LoggerInitializerWrapper>,
     config: BootstrapperConfig,
+    temporary_automap_control_factory: Box<dyn AutomapControlFactory>,
 }
 
 impl Future for Bootstrapper {
@@ -395,7 +398,11 @@ impl ConfiguredByPrivilege for Bootstrapper {
         &mut self,
         multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
-        self.config = NodeConfiguratorStandardPrivileged::new().configure(multi_config, None)?;
+        self.config = NodeConfiguratorStandardPrivileged::new().configure(
+            multi_config,
+            None,
+            &AutomapControlFactoryNull::new(),
+        )?;
         self.logger_initializer.init(
             self.config.data_directory.clone(),
             &self.config.real_user,
@@ -427,7 +434,11 @@ impl ConfiguredByPrivilege for Bootstrapper {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         let unprivileged_config = NodeConfiguratorStandardUnprivileged::new(&self.config)
-            .configure(multi_config, Some(streams))?;
+            .configure(
+                multi_config,
+                Some(streams),
+                self.temporary_automap_control_factory.as_ref(),
+            )?;
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
         let (cryptde_ref, _) = Bootstrapper::initialize_cryptdes(
@@ -461,6 +472,7 @@ impl Bootstrapper {
             actor_system_factory: Box::new(ActorSystemFactoryReal::new()),
             logger_initializer,
             config: BootstrapperConfig::new(),
+            temporary_automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
         }
     }
 
@@ -614,6 +626,9 @@ mod tests {
     use crate::sub_lib::neighborhood::{NeighborhoodMode, NodeDescriptor};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::automap_mocks::{
+        make_temporary_automap_control_factory, AutomapControlFactoryMock,
+    };
     use crate::test_utils::main_cryptde;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils::make_simplified_multi_config;
@@ -1917,6 +1932,7 @@ mod tests {
         log_initializer_wrapper: Box<dyn LoggerInitializerWrapper>,
         listener_handler_factory: ListenerHandlerFactoryMock,
         config: BootstrapperConfig,
+        temporary_automap_control_factory: AutomapControlFactoryMock,
     }
 
     impl BootstrapperBuilder {
@@ -1927,6 +1943,9 @@ mod tests {
                 // Don't modify this line unless you've already looked at DispatcherBuilder::add_listener_handler().
                 listener_handler_factory: ListenerHandlerFactoryMock::new(),
                 config: BootstrapperConfig::new(),
+                temporary_automap_control_factory: make_temporary_automap_control_factory(
+                    None, None,
+                ),
             }
         }
 
@@ -1951,6 +1970,15 @@ mod tests {
             self
         }
 
+        #[allow (dead_code)]
+        fn temporary_automap_control_factory(
+            mut self,
+            temporary_automap_control_factory: AutomapControlFactoryMock,
+        ) -> Self {
+            self.temporary_automap_control_factory = temporary_automap_control_factory;
+            self
+        }
+
         fn build(self) -> Bootstrapper {
             Bootstrapper {
                 actor_system_factory: self.actor_system_factory,
@@ -1960,6 +1988,7 @@ mod tests {
                 >::new(),
                 logger_initializer: self.log_initializer_wrapper,
                 config: self.config,
+                temporary_automap_control_factory: Box::new(self.temporary_automap_control_factory),
             }
         }
     }

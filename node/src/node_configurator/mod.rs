@@ -4,6 +4,7 @@ pub mod configurator;
 pub mod node_configurator_initialization;
 pub mod node_configurator_standard;
 
+use crate::actor_system_factory::AutomapControlFactory;
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
 use crate::blockchain::blockchain_interface::chain_id_from_name;
@@ -41,10 +42,11 @@ pub trait NodeConfigurator<T> {
         &self,
         multi_config: &MultiConfig,
         streams: Option<&mut StdStreams<'_>>,
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> Result<T, ConfiguratorError>;
 }
 
-//TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
+//TODO this code (and the allied -- see through this file) is very likely to go away when GH-457 is played
 pub const CONSUMING_WALLET_HELP: &str = "The BIP32 derivation path for the wallet from which your Node \
      should pay other Nodes for routing and exit services. (If the path includes single quotes, enclose it in \
      double quotes.) Defaults to m/44'/60'/0'/0/0.";
