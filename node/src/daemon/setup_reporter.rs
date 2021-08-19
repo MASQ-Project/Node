@@ -1987,7 +1987,7 @@ mod tests {
         )
         .canonicalize()
         .unwrap();
-        let config_file_dir = data_dir.join("data_dir/my_config_file");
+        let config_file_dir = data_dir.join("data_dir").join("my_config_file");
         std::fs::create_dir_all(&config_file_dir).unwrap();
         let config_file_path = config_file_dir.join("special.toml");
         {
