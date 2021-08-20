@@ -10,7 +10,6 @@ use std::net::SocketAddr;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::process::Stdio;
 use std::process::{Command, Output};
 use std::thread;
 use std::time::Duration;
@@ -199,7 +198,7 @@ impl MASQNode {
         let _ = command.output().expect("Couldn't kill MASQNode.exe");
         self.child.take();
         // Be nice if we could figure out how to populate self.output here
-        Ok(()) //Could it be left like that?
+        Ok(())
     }
 
     pub fn remove_logfile(data_dir: &PathBuf) -> Box<Path> {
@@ -243,11 +242,7 @@ impl MASQNode {
     }
 
     fn construct_masqnode(mut cmd: Command, data_dir: PathBuf) -> MASQNode {
-        let child = cmd
-            .stderr(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let child = cmd.spawn().unwrap();
         MASQNode {
             logfile_contents: String::new(),
             data_dir,

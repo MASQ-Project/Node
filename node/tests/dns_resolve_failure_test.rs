@@ -10,10 +10,10 @@ use std::time::Duration;
 
 #[test]
 fn dns_resolve_failure_http_response_integration() {
-    let mut node_to_test_against = utils::MASQNode::start_standard(
+    let _node_to_test_against = utils::MASQNode::start_standard(
         "dns_resolve_failure_http_response_integration",
         None,
-        true,
+        false,
     );
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
@@ -26,13 +26,15 @@ fn dns_resolve_failure_http_response_integration() {
     let buf_str = String::from_utf8(buf).unwrap();
     assert_string_contains(&buf_str, "DNS Resolution Problem");
     assert_string_contains(&buf_str, "example.invalid");
-    node_to_test_against.kill().unwrap();
 }
 
 #[test]
 fn dns_resolve_failure_tls_response_integration() {
-    let mut node_to_test_against =
-        utils::MASQNode::start_standard("dns_resolve_failure_tls_response_integration", None, true);
+    let _node_to_test_against = utils::MASQNode::start_standard(
+        "dns_resolve_failure_tls_response_integration",
+        None,
+        false,
+    );
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap()).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_millis(100)))
@@ -72,5 +74,4 @@ fn dns_resolve_failure_tls_response_integration() {
         ],
         buf
     );
-    node_to_test_against.kill().unwrap();
 }

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 #[test]
 fn http_through_node_integration() {
-    let mut node = utils::MASQNode::start_standard("http_through_node_integration", None, true);
+    let _node = utils::MASQNode::start_standard("http_through_node_integration", None, true);
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_millis(100)))
@@ -30,5 +30,4 @@ fn http_through_node_integration() {
         "{}",
         response
     );
-    node.kill().unwrap();
 }

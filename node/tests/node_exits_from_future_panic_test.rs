@@ -32,7 +32,6 @@ fn node_logs_panic_integration() {
         utils::MASQNode::start_standard("node_logs_panic_integration", Some(panic_config), false);
 
     node.wait_for_log("std::panicking::", Some(5000));
-    node.kill().unwrap();
 }
 
 #[cfg(target_os = "linux")]
