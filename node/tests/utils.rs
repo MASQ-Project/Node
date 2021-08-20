@@ -10,8 +10,8 @@ use std::net::SocketAddr;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::process::Output;
 use std::process::Stdio;
+use std::process::{Command, Output};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -101,21 +101,6 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    pub fn start_standard_without_preparation(data_dir: &PathBuf) -> MASQNode {
-        let args_extension =
-            CommandConfig::new().pair("--data-directory", data_dir.to_str().unwrap());
-        let mut command = Self::make_node_command(data_dir, Some(args_extension), false);
-        eprintln!("{:?}", command);
-        let child = command.spawn().unwrap();
-        MASQNode {
-            logfile_contents: String::new(),
-            data_dir: data_dir.into(),
-            child: Some(child),
-            output: None,
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn run_dump_config(test_name: &str) -> String {
         let data_dir = ensure_node_home_directory_exists("integration", test_name);
         let mut command = MASQNode::make_dump_config_command(&data_dir);
@@ -123,6 +108,15 @@ impl MASQNode {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
+    }
+
+    #[allow(dead_code)]
+    pub fn start_standard_without_preparation(data_dir: &PathBuf) -> MASQNode {
+        let args_extension =
+            CommandConfig::new().pair("--data-directory", data_dir.to_str().unwrap());
+        let command = Self::make_node_command(data_dir, Some(args_extension), false);
+        eprintln!("{:?}", command);
+        Self::construct_masqnode(command, data_dir.into())
     }
 
     #[allow(dead_code)]
@@ -239,23 +233,27 @@ impl MASQNode {
         let data_dir = ensure_node_home_directory_exists("integration", test_name);
         Self::remove_logfile(&data_dir);
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
-        let mut command = command_getter(&data_dir, config_opt, true);
+        let command = command_getter(&data_dir, config_opt, true);
         eprintln!("{:?}", command);
-        let child = command
-            .stderr(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut result = MASQNode {
-            logfile_contents: String::new(),
-            data_dir,
-            child: Some(child),
-            output: None,
-        };
+        let mut result = Self::construct_masqnode(command, data_dir);
         if ensure_start {
             result.wait_for_node(ui_port).unwrap();
         }
         result
+    }
+
+    fn construct_masqnode(mut cmd: Command, data_dir: PathBuf) -> MASQNode {
+        let child = cmd
+            .stderr(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        MASQNode {
+            logfile_contents: String::new(),
+            data_dir,
+            child: Some(child),
+            output: None,
+        }
     }
 
     fn millis_since(started_at: Instant) -> u64 {
