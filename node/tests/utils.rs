@@ -300,7 +300,7 @@ impl MASQNode {
     fn make_dump_config_command(data_dir: &PathBuf) -> process::Command {
         Self::remove_database(&data_dir);
         let mut command = command_to_start();
-        let args = Self::dump_config_args();
+        let args = Self::dump_config_args(data_dir.as_path());
         command.args(&args);
         command
     }
@@ -324,9 +324,10 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    fn dump_config_args() -> Vec<String> {
+    fn dump_config_args(data_dir: &Path) -> Vec<String> {
         apply_prefix_parameters(CommandConfig::new())
             .opt("--dump-config")
+            .pair("--data-directory", data_dir.to_str().unwrap())
             .args
     }
 

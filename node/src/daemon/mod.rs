@@ -13,6 +13,7 @@ mod mocks;
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use crate::daemon::setup_reporter::{SetupCluster, SetupReporter, SetupReporterReal};
+use crate::node_configurator::DirsWrapperReal;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use actix::Recipient;
@@ -163,7 +164,7 @@ impl Daemon {
             node_process_id: None,
             node_ui_port: None,
             verifier_tools: Box::new(VerifierToolsReal::new()),
-            setup_reporter: Box::new(SetupReporterReal::new()),
+            setup_reporter: Box::new(SetupReporterReal::new(Box::new(DirsWrapperReal))),
             logger: Logger::new("Daemon"),
         }
     }
