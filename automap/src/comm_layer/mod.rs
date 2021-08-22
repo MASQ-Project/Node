@@ -110,7 +110,7 @@ pub trait Transactor {
         change_handler: ChangeHandler,
         router_ip: IpAddr,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError>;
-    fn stop_housekeeping_thread(&mut self);
+    fn stop_housekeeping_thread(&mut self) -> ChangeHandler;
     fn as_any(&self) -> &dyn Any;
 }
 

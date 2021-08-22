@@ -25,6 +25,9 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use std::thread::JoinHandle;
+
+const PMP_READ_TIMEOUT_MS: u64 = 3000;
 
 struct Factories {
     socket_factory: Box<dyn UdpSocketFactory>,
@@ -47,6 +50,7 @@ pub struct PmpTransactor {
     listen_port: u16,
     change_handler_config_opt: RefCell<Option<ChangeHandlerConfig>>,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
+    join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
     logger: Logger,
 }
@@ -75,6 +79,7 @@ impl Transactor for PmpTransactor {
             &self.factories_arc,
             SocketAddr::new(router_ip, self.router_port),
             &request,
+            PMP_READ_TIMEOUT_MS,
             &self.logger,
         )?;
         match response
@@ -187,26 +192,42 @@ impl Transactor for PmpTransactor {
         let router_port = self.router_port;
         let read_timeout_millis = self.read_timeout_millis;
         let logger = self.logger.clone();
-        thread::spawn(move || {
+        self.join_handle_opt = Some (thread::spawn(move || {
             Self::thread_guts(
                 socket.as_ref(),
                 &rx,
                 mapping_adder_arc,
                 factories_arc,
                 SocketAddr::new(router_ip, router_port),
-                &change_handler,
+                change_handler,
                 change_handler_config,
                 read_timeout_millis,
                 logger,
             )
-        });
+        }));
         Ok(tx)
     }
 
-    fn stop_housekeeping_thread(&mut self) {
-        if let Some(commander) = self.housekeeper_commander_opt.take() {
-            debug!(self.logger, "Stopping housekeeping thread");
-            let _ = commander.send(HousekeepingThreadCommand::Stop);
+    fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
+        debug!(self.logger, "Stopping housekeeping thread");
+        let commander = self.housekeeper_commander_opt.take()
+            .expect("No HousekeepingCommander: can't stop housekeeping thread");
+        match commander.send(HousekeepingThreadCommand::Stop) {
+            Ok (_) => {
+                let join_handle = self.join_handle_opt.take()
+                    .expect ("No JoinHandle: can't stop housekeeping thread");
+                match join_handle.join() {
+                    Ok(change_handler) => change_handler,
+                    Err (_) => {
+                        warning!(self.logger, "Tried to stop housekeeping thread that had panicked");
+                        Box::new (Self::null_change_handler)
+                    },
+                }
+            },
+            Err (_) => {
+                warning!(self.logger, "Tried to stop housekeeping thread that had already disconnected from the commander");
+                Box::new (Self::null_change_handler)
+            }
         }
     }
 
@@ -225,6 +246,7 @@ impl Default for PmpTransactor {
             change_handler_config_opt: RefCell::new(None),
             housekeeper_commander_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
+            join_handle_opt: None,
             logger: Logger::new("PmpTransactor"),
         }
     }
@@ -239,6 +261,7 @@ impl PmpTransactor {
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
         request: &PmpPacket,
+        read_timeout_ms: u64,
         logger: &Logger,
     ) -> Result<PmpPacket, AutomapError> {
         let mut buffer = [0u8; 1100];
@@ -268,7 +291,7 @@ impl PmpTransactor {
             }
         };
         socket
-            .set_read_timeout(Some(Duration::from_secs(3)))
+            .set_read_timeout(Some(Duration::from_millis(read_timeout_ms)))
             .expect("set_read_timeout failed");
         if let Err(e) = socket.send_to(&buffer[0..len], router_addr) {
             warning!(
@@ -285,7 +308,7 @@ impl PmpTransactor {
             Ok(len) => len,
             Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
                 return Err(AutomapError::ProtocolError(
-                    "Timed out after 3 seconds".to_string(),
+                    format!("Timed out after {}ms", read_timeout_ms),
                 ))
             }
             Err(e) => {
@@ -322,11 +345,11 @@ impl PmpTransactor {
         mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>>,
         factories_arc: Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
-        change_handler: &ChangeHandler,
+        change_handler: ChangeHandler,
         mut change_handler_config: ChangeHandlerConfig,
         read_timeout_millis: u64,
         logger: Logger,
-    ) {
+    ) -> ChangeHandler {
         let mut last_remapped = Instant::now();
         announcement_socket
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
@@ -337,11 +360,12 @@ impl PmpTransactor {
             &mapping_adder_arc,
             &factories_arc,
             router_addr,
-            change_handler,
+            &change_handler,
             &mut change_handler_config,
             &mut last_remapped,
             &logger,
         ) {}
+        change_handler
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -544,7 +568,8 @@ impl PmpTransactor {
             logger,
             "Sending mapping request to {} and waiting for response", router_address
         );
-        match Self::transact(&factories_arc, router_address, &packet, logger) {
+        match Self::transact(&factories_arc, router_address, &packet,
+                             PMP_READ_TIMEOUT_MS, logger) {
             Ok(response) => match response.result_code_opt {
                 Some(ResultCode::Success) => {
                     debug!(logger, "Prod: Received response; triggering change handler");
@@ -579,6 +604,11 @@ impl PmpTransactor {
                 )));
             }
         }
+    }
+
+    fn null_change_handler(change: AutomapChange) {
+        let logger = Logger::new ("PmpTransactor");
+        error!(logger, "Change handler recovery failed: discarded {:?}", change);
     }
 }
 
@@ -629,7 +659,8 @@ impl MappingAdder for MappingAdderReal {
                 lifetime: change_handler_config.next_lifetime_secs(),
             }),
         };
-        let response = PmpTransactor::transact(factories_arc, router_addr, &request, &self.logger)?;
+        let response = PmpTransactor::transact(factories_arc, router_addr, &request,
+                                               PMP_READ_TIMEOUT_MS, &self.logger)?;
         if response.direction == Direction::Request {
             let e = AutomapError::ProtocolError("Map response labeled as request".to_string());
             warning!(
@@ -1384,12 +1415,15 @@ mod tests {
     }
 
     #[test]
-    fn change_handler_works() {
+    fn housekeeping_thread_works() {
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
+        let mapping_adder = MappingAdderMock::new()
+            .add_mapping_result (Ok (1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
+        subject.mapping_adder_arc = Arc::new (Mutex::new (Box::new (mapping_adder)));
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
@@ -1446,7 +1480,7 @@ mod tests {
             .unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
-        subject.stop_housekeeping_thread();
+        let _ = subject.stop_housekeeping_thread();
         assert!(subject.housekeeper_commander_opt.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(
@@ -1460,9 +1494,12 @@ mod tests {
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
         let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
+        let mapping_adder = MappingAdderMock::new()
+            .add_mapping_result (Ok (1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
+        subject.mapping_adder_arc = Arc::new (Mutex::new (Box::new (mapping_adder)));
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
@@ -1498,7 +1535,7 @@ mod tests {
         let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
-        subject.stop_housekeeping_thread();
+        let _ = subject.stop_housekeeping_thread();
         assert!(subject.housekeeper_commander_opt.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
@@ -1510,9 +1547,12 @@ mod tests {
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
         let router_ip = localhost();
+        let mapping_adder = MappingAdderMock::new()
+            .add_mapping_result (Ok (1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
+        subject.mapping_adder_arc = Arc::new (Mutex::new (Box::new (mapping_adder)));
         subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
@@ -1548,12 +1588,91 @@ mod tests {
         let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
-        subject.stop_housekeeping_thread();
+        let _ = subject.stop_housekeeping_thread();
         assert!(subject.housekeeper_commander_opt.is_none());
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
         let err_msg = "Unexpected PMP Get request (request!) from router at ";
         TestLogHandler::new().exists_log_containing(&format!("WARN: PmpTransactor: {}", err_msg));
+    }
+
+    #[test]
+    fn stop_housekeeping_thread_returns_same_change_handler_sent_into_start_housekeeping_thread() {
+        let change_log_arc = Arc::new (Mutex::new (vec![]));
+        let inner_cla = change_log_arc.clone();
+        let change_handler = Box::new (move |change| {
+            let mut change_log = inner_cla.lock().unwrap();
+            change_log.push (change)
+        });
+        let mapping_adder = MappingAdderMock::new()
+            .add_mapping_result (Ok (1000));
+        let mut subject = PmpTransactor::default();
+        subject.mapping_adder_arc = Arc::new (Mutex::new (Box::new (mapping_adder)));
+        subject.change_handler_config_opt = RefCell::new (Some (ChangeHandlerConfig{
+            hole_port: 0,
+            next_lifetime: Duration::from_secs(0),
+            remap_interval: Duration::from_secs(0),
+        }));
+        let _ = subject.start_housekeeping_thread(change_handler, IpAddr::from_str ("1.2.3.4").unwrap());
+
+        let change_handler = subject.stop_housekeeping_thread();
+
+        let change = AutomapChange::NewIp(IpAddr::from_str ("4.3.2.1").unwrap());
+        change_handler(change.clone());
+        let change_log = change_log_arc.lock().unwrap();
+        assert_eq! (change_log.last().unwrap(), &change)
+    }
+
+    #[test]
+    #[should_panic (expected = "No HousekeepingCommander: can't stop housekeeping thread")]
+    fn stop_housekeeping_thread_handles_missing_housekeeper_commander() {
+        let mut subject = PmpTransactor::default();
+        subject.housekeeper_commander_opt = None;
+
+        let _ = subject.stop_housekeeping_thread();
+    }
+
+    #[test]
+    fn stop_housekeeping_thread_handles_broken_commander_connection() {
+        init_test_logging();
+        let mut subject = PmpTransactor::default();
+        let (tx, rx) = unbounded();
+        subject.housekeeper_commander_opt = Some (tx);
+        std::mem::drop (rx);
+
+        let change_handler = subject.stop_housekeeping_thread();
+
+        change_handler (AutomapChange::Error(AutomapError::ChangeHandlerUnconfigured));
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("WARN: PmpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
+        tlh.exists_log_containing("ERROR: PmpTransactor: Change handler recovery failed: discarded Error(ChangeHandlerUnconfigured)");
+    }
+
+    #[test]
+    #[should_panic (expected = "No JoinHandle: can't stop housekeeping thread")]
+    fn stop_housekeeping_thread_handles_missing_join_handle() {
+        let mut subject = PmpTransactor::default();
+        let (tx, _rx) = unbounded();
+        subject.housekeeper_commander_opt = Some (tx);
+        subject.join_handle_opt = None;
+
+        let _ = subject.stop_housekeeping_thread();
+    }
+
+    #[test]
+    fn stop_housekeeping_thread_handles_panicked_housekeeping_thread() {
+        init_test_logging();
+        let mut subject = PmpTransactor::default();
+        let (tx, _rx) = unbounded();
+        subject.housekeeper_commander_opt = Some (tx);
+        subject.join_handle_opt = Some (thread::spawn (|| panic! ("Booga!")));
+
+        let change_handler = subject.stop_housekeeping_thread();
+
+        change_handler (AutomapChange::Error(AutomapError::CantFindDefaultGateway));
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("WARN: PmpTransactor: Tried to stop housekeeping thread that had panicked");
+        tlh.exists_log_containing("ERROR: PmpTransactor: Change handler recovery failed: discarded Error(CantFindDefaultGateway)");
     }
 
     #[test]
@@ -1576,13 +1695,13 @@ mod tests {
             .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
-        PmpTransactor::thread_guts(
+        let _ = PmpTransactor::thread_guts(
             announcement_socket.as_ref(),
             &rx,
             Arc::new(Mutex::new(mapping_adder)),
             Arc::new(Mutex::new(Factories::default())),
             SocketAddr::new(localhost(), 0),
-            &change_handler,
+            change_handler,
             change_handler_config,
             10,
             Logger::new("no_remap_test"),
@@ -1619,13 +1738,13 @@ mod tests {
             .unwrap();
 
         let handle = thread::spawn(move || {
-            PmpTransactor::thread_guts(
+            let _ = PmpTransactor::thread_guts(
                 announcement_socket.as_ref(),
                 &rx,
                 Arc::new(Mutex::new(mapping_adder)),
                 Arc::new(Mutex::new(factories)),
                 SocketAddr::new(IpAddr::from_str("6.6.6.6").unwrap(), 6666),
-                &change_handler,
+                change_handler,
                 change_handler_config,
                 10,
                 Logger::new("timed_remap_test"),

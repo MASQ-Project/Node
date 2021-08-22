@@ -23,6 +23,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use std::thread::JoinHandle;
 
 pub const PUBLIC_IP_POLL_DELAY_SECONDS: u32 = 60;
 
@@ -121,6 +122,7 @@ pub struct IgdpTransactor {
     gateway_factory: Box<dyn GatewayFactory>,
     public_ip_poll_delay_ms: u32,
     inner_arc: Arc<Mutex<IgdpTransactorInner>>,
+    join_handle_opt: Option<JoinHandle<ChangeHandler>>,
 }
 
 impl Transactor for IgdpTransactor {
@@ -265,20 +267,35 @@ impl Transactor for IgdpTransactor {
             self.public_ip_poll_delay_ms
         };
         let inner_inner = self.inner_arc.clone();
-        thread::spawn(move || {
+        self.join_handle_opt = Some (thread::spawn(move || {
             Self::thread_guts(public_ip_poll_delay_ms, change_handler, inner_inner, rx)
-        });
+        }));
         Ok(tx)
     }
 
-    fn stop_housekeeping_thread(&mut self) {
-        let inner = self.inner_arc.lock().expect("Change handler is dead");
-        match &inner.housekeeping_commander_opt {
-            Some(stopper) => {
-                debug!(inner.logger, "Stopping housekeeping thread");
-                let _ = stopper.try_send(HousekeepingThreadCommand::Stop);
-            }
-            None => (),
+    fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
+        let stopper = {
+            let inner = self.inner_arc.lock().expect("Change handler is dead");
+            debug!(inner.logger, "Stopping housekeeping thread");
+            inner.housekeeping_commander_opt.clone()
+        }.expect ("No HousekeepingCommander: can't stop housekeeping thread");
+        match stopper.try_send(HousekeepingThreadCommand::Stop) {
+            Ok(_) => {
+                let join_handle = self.join_handle_opt.take().expect ("No JoinHandle: can't stop housekeeping thread");
+                match join_handle.join() {
+                    Ok(change_handler) => change_handler,
+                    Err(_) => {
+                        let inner = self.inner_arc.lock().expect ("Change handler is dead");
+                        warning! (inner.logger, "Tried to stop housekeeping thread that had panicked");
+                        Box::new (Self::null_change_handler)
+                    },
+                }
+            },
+            Err(_) => {
+                let inner = self.inner_arc.lock().expect ("Change handler is dead");
+                warning!(inner.logger, "Tried to stop housekeeping thread that had already disconnected from the commander");
+                Box::new (Self::null_change_handler)
+            },
         }
     }
 
@@ -308,6 +325,7 @@ impl IgdpTransactor {
             gateway_factory,
             public_ip_poll_delay_ms: PUBLIC_IP_POLL_DELAY_SECONDS * 1000,
             inner_arc,
+            join_handle_opt: None
         }
     }
 
@@ -347,7 +365,7 @@ impl IgdpTransactor {
         change_handler: ChangeHandler,
         inner_arc: Arc<Mutex<IgdpTransactorInner>>,
         rx: Receiver<HousekeepingThreadCommand>,
-    ) {
+    ) -> ChangeHandler {
         let mut last_remapped = Instant::now();
         let mut remap_interval = Duration::from_secs(DEFAULT_MAPPING_LIFETIME_SECONDS as u64);
         loop {
@@ -368,6 +386,7 @@ impl IgdpTransactor {
                 Err(_) => continue,
             }
         }
+        return change_handler;
     }
 
     fn thread_guts_iteration(
@@ -421,11 +440,7 @@ impl IgdpTransactor {
             let change_handler_config = match &(*chc_ref) {
                 Some(chc) => chc,
                 None => {
-                    error!(inner.logger, "ChangeHandlerConfig is uninitialized");
-                    change_handler(AutomapChange::Error(
-                        AutomapError::ChangeHandlerUnconfigured,
-                    ));
-                    return false;
+                    return true;
                 }
             };
             if let Err(e) = Self::remap_port(
@@ -443,6 +458,11 @@ impl IgdpTransactor {
         }
         inner.gateway_opt.replace(gateway_wrapper);
         true
+    }
+
+    fn null_change_handler(change: AutomapChange) {
+        let logger = Logger::new ("IgdpTransactor");
+        error!(logger, "Change handler recovery failed: discarded {:?}", change);
     }
 
     fn retrieve_old_and_new_public_ips(
@@ -1172,7 +1192,7 @@ mod tests {
             .unwrap();
 
         thread::sleep(Duration::from_millis(100));
-        subject.stop_housekeeping_thread();
+        let _ = subject.stop_housekeeping_thread();
         let change_log = change_log_arc.lock().unwrap();
         assert_eq!(
             *change_log,
@@ -1220,6 +1240,78 @@ mod tests {
     }
 
     #[test]
+    fn stop_housekeeping_thread_returns_same_change_handler_sent_into_start_housekeeping_thread() {
+        let change_log_arc = Arc::new (Mutex::new (vec![]));
+        let inner_cla = change_log_arc.clone();
+        let change_handler = Box::new (move |change| {
+            let mut change_log = inner_cla.lock().unwrap();
+            change_log.push (change)
+        });
+        let mut subject = IgdpTransactor::new();
+        subject.public_ip_poll_delay_ms = 10;
+        let _ = subject.start_housekeeping_thread(change_handler, IpAddr::from_str ("1.2.3.4").unwrap());
+
+        let change_handler = subject.stop_housekeeping_thread();
+
+        let change = AutomapChange::NewIp(IpAddr::from_str ("4.3.2.1").unwrap());
+        change_handler(change.clone());
+        let change_log = change_log_arc.lock().unwrap();
+        assert_eq! (change_log.last().unwrap(), &change)
+    }
+
+    #[test]
+    #[should_panic (expected = "No HousekeepingCommander: can't stop housekeeping thread")]
+    fn stop_housekeeping_thread_handles_missing_housekeeper_commander() {
+        let mut subject = IgdpTransactor::new();
+        subject.inner_arc.lock().unwrap().housekeeping_commander_opt = None;
+
+        let _ = subject.stop_housekeeping_thread();
+    }
+
+    #[test]
+    fn stop_housekeeping_thread_handles_broken_commander_connection() {
+        init_test_logging();
+        let mut subject = IgdpTransactor::new();
+        let (tx, rx) = unbounded();
+        subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some (tx);
+        std::mem::drop (rx);
+
+        let change_handler = subject.stop_housekeeping_thread();
+
+        change_handler (AutomapChange::Error(AutomapError::ChangeHandlerUnconfigured));
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
+        tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(ChangeHandlerUnconfigured)");
+    }
+
+    #[test]
+    #[should_panic (expected = "No JoinHandle: can't stop housekeeping thread")]
+    fn stop_housekeeping_thread_handles_missing_join_handle() {
+        let mut subject = IgdpTransactor::new();
+        let (tx, _rx) = unbounded();
+        subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some (tx);
+        subject.join_handle_opt = None;
+
+        let _ = subject.stop_housekeeping_thread();
+    }
+
+    #[test]
+    fn stop_housekeeping_thread_handles_panicked_housekeeping_thread() {
+        init_test_logging();
+        let mut subject = IgdpTransactor::new();
+        let (tx, _rx) = unbounded();
+        subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some (tx);
+        subject.join_handle_opt = Some (thread::spawn (|| panic! ("Booga!")));
+
+        let change_handler = subject.stop_housekeeping_thread();
+
+        change_handler (AutomapChange::Error(AutomapError::CantFindDefaultGateway));
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had panicked");
+        tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(CantFindDefaultGateway)");
+    }
+
+    #[test]
     fn thread_guts_does_not_remap_if_interval_does_not_run_out() {
         init_test_logging();
         let (tx, rx) = unbounded();
@@ -1238,7 +1330,7 @@ mod tests {
             .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
-        IgdpTransactor::thread_guts(10, change_handler, inner_arc, rx);
+        let _ = IgdpTransactor::thread_guts(10, change_handler, inner_arc, rx);
 
         TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port 1234");
     }
@@ -1273,12 +1365,12 @@ mod tests {
             .unwrap();
 
         let handle = thread::spawn(move || {
-            IgdpTransactor::thread_guts(10, change_handler, inner_arc_inner, rx);
+            IgdpTransactor::thread_guts(10, change_handler, inner_arc_inner, rx)
         });
 
         thread::sleep(Duration::from_millis(100));
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
-        handle.join().unwrap();
+        let _ = handle.join().unwrap();
         let inner = inner_arc.lock().unwrap();
         assert_eq!(
             inner.change_handler_config_opt.take(),
@@ -1344,7 +1436,6 @@ mod tests {
 
     #[test]
     fn thread_guts_iteration_handles_missing_change_handler_config() {
-        init_test_logging();
         let new_public_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
         let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(new_public_ip));
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
@@ -1353,12 +1444,10 @@ mod tests {
             public_ip_opt: Some(new_public_ip),
             mapping_adder: Box::new(MappingAdderMock::new()),
             change_handler_config_opt: RefCell::new(None),
-            logger: Logger::new("test"),
+            logger: Logger::new("thread_guts_iteration_handles_missing_change_handler_config"),
         }));
-        let change_log_arc = Arc::new(Mutex::new(vec![]));
-        let change_log_inner = change_log_arc.clone();
         let change_handler: ChangeHandler =
-            Box::new(move |change| change_log_inner.lock().unwrap().push(change));
+            Box::new(move |_| panic! ("Shouldn't be called"));
 
         let result = IgdpTransactor::thread_guts_iteration(
             &change_handler,
@@ -1367,16 +1456,7 @@ mod tests {
             Duration::from_millis(0),
         );
 
-        assert!(!result);
-        let change_log = change_log_arc.lock().unwrap();
-        assert_eq!(
-            *change_log,
-            vec![AutomapChange::Error(
-                AutomapError::ChangeHandlerUnconfigured
-            )]
-        );
-        TestLogHandler::new()
-            .exists_log_containing("ERROR: test: ChangeHandlerConfig is uninitialized");
+        assert!(result);
     }
 
     #[test]

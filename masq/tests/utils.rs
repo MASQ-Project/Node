@@ -78,13 +78,20 @@ pub struct StdinHandle {
 #[allow(dead_code)]
 impl StdinHandle {
     pub fn type_command(&mut self, command: &str) {
-        short_writeln!(&self.stdin, "{}", command);
+        match self.stdin.write_fmt(format_args! ("{}\n", command)) {
+            Ok (_) => (),
+            Err (e) => {
+                eprintln! ("{}", e);
+                panic! ("type_command failed: {}", e)
+            }
+        }
+        // short_writeln!(&self.stdin, "{}", command);
     }
 }
 
 pub struct StopHandle {
     name: String,
-    child: Child,
+    pub child: Child,
 }
 
 #[allow(dead_code)]

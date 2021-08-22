@@ -83,15 +83,21 @@ pub trait PersistentConfiguration {
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
     fn gas_price(&self) -> Result<u64, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
+    fn set_mapping_protocol(
+        &mut self,
+        value: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError>;
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
     fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError>;
     // WARNING: Actors should get consuming-wallet information from their startup config, not from here
     fn consuming_wallet_derivation_path(&self) -> Result<Option<String>, PersistentConfigError>;
+
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_from_address(&self) -> Result<Option<Wallet>, PersistentConfigError>;
+
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-
     fn set_wallet_info(
         &mut self,
         mnemonic_seed: &dyn AsRef<[u8]>,
@@ -99,7 +105,6 @@ pub trait PersistentConfiguration {
         earning_wallet_address: &str,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
-
     fn past_neighbors(
         &self,
         db_password: &str,
@@ -111,11 +116,6 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
-    fn set_mapping_protocol(
-        &mut self,
-        value: Option<AutomapProtocol>,
-    ) -> Result<(), PersistentConfigError>;
 }
 
 pub struct PersistentConfigurationReal {

@@ -141,7 +141,7 @@ impl AutomapControl for AutomapControlReal {
                             Err(e) => plus(so_far, e),
                         }
                     });
-                transactor.stop_housekeeping_thread();
+                let _ = transactor.stop_housekeeping_thread();
                 if errors.is_empty() {
                     Ok(())
                 } else {
@@ -194,6 +194,11 @@ impl AutomapControlReal {
                     match self.transactors[inner.transactor_idx]
                         .start_housekeeping_thread(change_handler, protocol_info.router_ip)
                     {
+                        Err(AutomapError::ChangeHandlerUnconfigured) => {
+                            let change_handler = self.transactors[inner.transactor_idx].stop_housekeeping_thread();
+                            self.change_handler_opt.replace (change_handler);
+                            Ok(())
+                        },
                         Err(e) => Err(e),
                         Ok(commander) => {
                             self.housekeeping_thread_commander_opt = Some(commander);
@@ -312,10 +317,12 @@ mod tests {
         add_permanent_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
         delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
         delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
-        start_change_handler_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
-        start_change_handler_results:
+        start_housekeeping_thread_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+        start_housekeeping_thread_results:
             RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
-        stop_change_handler_params: Arc<Mutex<Vec<()>>>,
+        stop_housekeeping_thread_params: Arc<Mutex<Vec<()>>>,
+        stop_housekeeping_thread_results:
+            RefCell<Vec<ChangeHandler>>,
     }
 
     impl Transactor for TransactorMock {
@@ -370,15 +377,16 @@ mod tests {
             change_handler: ChangeHandler,
             router_ip: IpAddr,
         ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
-            self.start_change_handler_params
+            self.start_housekeeping_thread_params
                 .lock()
                 .unwrap()
                 .push((change_handler, router_ip));
-            self.start_change_handler_results.borrow_mut().remove(0)
+            self.start_housekeeping_thread_results.borrow_mut().remove(0)
         }
 
-        fn stop_housekeeping_thread(&mut self) {
-            self.stop_change_handler_params.lock().unwrap().push(());
+        fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
+            self.stop_housekeeping_thread_params.lock().unwrap().push(());
+            self.stop_housekeeping_thread_results.borrow_mut().remove(0)
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -399,9 +407,10 @@ mod tests {
                 add_permanent_mapping_results: RefCell::new(vec![]),
                 delete_mapping_params: Arc::new(Mutex::new(vec![])),
                 delete_mapping_results: RefCell::new(vec![]),
-                start_change_handler_params: Arc::new(Mutex::new(vec![])),
-                start_change_handler_results: RefCell::new(vec![]),
-                stop_change_handler_params: Arc::new(Mutex::new(vec![])),
+                start_housekeeping_thread_params: Arc::new(Mutex::new(vec![])),
+                start_housekeeping_thread_results: RefCell::new(vec![]),
+                stop_housekeeping_thread_params: Arc::new(Mutex::new(vec![])),
+                stop_housekeeping_thread_results: RefCell::new(vec![]),
             }
         }
 
@@ -453,24 +462,32 @@ mod tests {
             self
         }
 
-        pub fn start_change_handler_result(
+        pub fn start_housekeeping_thread_result(
             self,
             result: Result<Sender<HousekeepingThreadCommand>, AutomapError>,
         ) -> Self {
-            self.start_change_handler_results.borrow_mut().push(result);
+            self.start_housekeeping_thread_results.borrow_mut().push(result);
             self
         }
 
-        pub fn start_change_handler_params(
+        pub fn start_housekeeping_thread_params(
             mut self,
             params: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
         ) -> Self {
-            self.start_change_handler_params = params.clone();
+            self.start_housekeeping_thread_params = params.clone();
             self
         }
 
-        pub fn stop_change_handler_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-            self.stop_change_handler_params = params.clone();
+        pub fn stop_housekeeping_thread_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+            self.stop_housekeeping_thread_params = params.clone();
+            self
+        }
+
+        pub fn stop_housekeeping_thread_result(
+            self,
+            result: ChangeHandler,
+        ) -> Self {
+            self.stop_housekeeping_thread_results.borrow_mut().push(result);
             self
         }
     }
@@ -722,7 +739,7 @@ mod tests {
                 TransactorMock::new(AutomapProtocol::Pcp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
                     .get_public_ip_result(Ok(*PUBLIC_IP))
-                    .start_change_handler_result(Err(AutomapError::Unknown)),
+                    .start_housekeeping_thread_result(Err(AutomapError::Unknown)),
             ),
         );
         subject.change_handler_opt = Some(Box::new(|_| ()));
@@ -816,7 +833,7 @@ mod tests {
                 TransactorMock::new(AutomapProtocol::Pcp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
                     .add_mapping_result(Ok(12345))
-                    .start_change_handler_result(Err(AutomapError::Unknown)),
+                    .start_housekeeping_thread_result(Err(AutomapError::Unknown)),
             ),
         );
         subject.change_handler_opt = Some(Box::new(|_| ()));
@@ -934,7 +951,7 @@ mod tests {
                 .add_mapping_result(Err(AutomapError::PermanentLeasesOnly))
                 .add_permanent_mapping_params(&add_permanent_mapping_params_arc)
                 .add_permanent_mapping_result(Ok(1000))
-                .start_change_handler_params(&start_change_handler_params_arc),
+                .start_housekeeping_thread_params(&start_change_handler_params_arc),
         );
         subject.change_handler_opt = None;
         subject.housekeeping_thread_commander_opt = Some(tx);
@@ -980,7 +997,8 @@ mod tests {
             .delete_mapping_params(&delete_mapping_params_arc)
             .delete_mapping_result(Ok(()))
             .delete_mapping_result(Ok(()))
-            .stop_change_handler_params(&stop_change_handler_params_arc);
+            .stop_housekeeping_thread_params(&stop_change_handler_params_arc)
+            .stop_housekeeping_thread_result (Box::new (|_| ()));
         let mut subject = replace_transactor(subject, Box::new(transactor));
 
         let result = subject.delete_mappings();
@@ -1005,7 +1023,8 @@ mod tests {
             .delete_mapping_params(&delete_mapping_params_arc)
             .delete_mapping_result(Ok(()))
             .delete_mapping_result(Err(AutomapError::DeleteMappingError("Booga!".to_string())))
-            .stop_change_handler_params(&stop_change_handler_params_arc);
+            .stop_housekeeping_thread_params(&stop_change_handler_params_arc)
+            .stop_housekeeping_thread_result (Box::new (|_| ()));
         let mut subject = replace_transactor(subject, Box::new(transactor));
 
         let result = subject.delete_mappings();
@@ -1032,6 +1051,30 @@ mod tests {
         let result = subject.get_mapping_protocol();
 
         assert_eq! (result, Some (AutomapProtocol::Pmp));
+    }
+
+    #[test]
+    fn maybe_start_housekeeper_handles_uninitialized_change_handler() {
+        let mut subject = make_null_subject();
+        let change_handler_log_arc = Arc::new (Mutex::new (vec![]));
+        let chla_inner = change_handler_log_arc.clone();
+        let change_handler = Box::new(move |change| chla_inner.lock().unwrap().push (change));
+        subject.change_handler_opt = Some(Box::new (|_| ()));
+        subject.inner_opt = Some(AutomapControlRealInner{ router_ip: *ROUTER_IP, transactor_idx: 0 });
+        subject.transactors = vec![Box::new(
+            TransactorMock::new(AutomapProtocol::Igdp)
+                .start_housekeeping_thread_result(Err(AutomapError::ChangeHandlerUnconfigured))
+                .stop_housekeeping_thread_result(change_handler),
+        )];
+        let protocol_info_result = Ok(ProtocolInfo{ payload: 1234u32, router_ip: *ROUTER_IP });
+
+        let result = subject.maybe_start_housekeeper(&protocol_info_result);
+
+        assert_eq!(result, Ok(()));
+        let expected_change = AutomapChange::Error(AutomapError::ChangeHandlerAlreadyRunning);
+        subject.change_handler_opt.unwrap() (expected_change.clone());
+        let change_handler_log = change_handler_log_arc.lock().unwrap();
+        assert_eq! (*change_handler_log, vec![expected_change]);
     }
 
     #[test]
@@ -1084,7 +1127,7 @@ mod tests {
         let router_ip_count = router_ips.len();
         let mut transactor = TransactorMock::new(protocol)
             .find_routers_result(Ok(router_ips))
-            .start_change_handler_result(Ok(unbounded().0));
+            .start_housekeeping_thread_result(Ok(unbounded().0));
         for _ in 0..router_ip_count {
             transactor = transactor
                 .get_public_ip_result(Ok(*PUBLIC_IP))
@@ -1145,8 +1188,8 @@ mod tests {
                 .get_public_ip_result(Ok(*PUBLIC_IP))
                 .add_mapping_params(add_mapping_params_arc)
                 .add_mapping_result(Ok(1000))
-                .start_change_handler_params(start_change_handler_params_arc)
-                .start_change_handler_result(Ok(housekeeper_commander)),
+                .start_housekeeping_thread_params(start_change_handler_params_arc)
+                .start_housekeeping_thread_result(Ok(housekeeper_commander)),
         )
     }
 

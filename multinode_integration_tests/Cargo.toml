@@ -12,7 +12,7 @@ edition = "2018"
 base64 = "0.10.1"
 crossbeam-channel = "0.5.0"
 ethereum-types = "0.6.0"
-ethsign-crypto = "0.1.0"
+ethsign-crypto = "0.2.1"
 futures = "0.1.28"
 itertools = "0.8.0"
 masq_lib = { path = "../masq_lib" }
