@@ -63,7 +63,7 @@ use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::UiShutdownRequest;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::exit_process;
+use masq_lib::utils::{exit_process, ExpectValue};
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 use std::cmp::Ordering;
@@ -454,7 +454,7 @@ impl Neighborhood {
                             node_addr,
                             MessageType::Gossip(gossip.clone().into()),
                         )
-                        .expect("Key magically disappeared"),
+                        .expect_v("public key"),
                     )
                     .expect("hopper is dead");
                 trace!(
@@ -548,7 +548,7 @@ impl Neighborhood {
                     node_descriptor
                         .node_addr_opt
                         .as_ref()
-                        .expect("NodeAddr disappeared")
+                        .expect_v("NodeAddr")
                         .ip_addr(),
                     failure
                 );
@@ -567,7 +567,7 @@ impl Neighborhood {
                 NodeDescriptor::from((
                     self.neighborhood_database
                         .node_by_key(k)
-                        .expect("Node disappeared"),
+                        .expect_v("NodeRecord"),
                     self.chain_id == chain_id_from_name(DEFAULT_CHAIN_NAME),
                     self.cryptde,
                 ))

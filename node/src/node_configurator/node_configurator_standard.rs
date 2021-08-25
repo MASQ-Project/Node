@@ -476,6 +476,7 @@ pub mod standard {
         multi_config: &MultiConfig,
         neighbor_configs: Vec<NodeDescriptor>,
     ) -> Result<NeighborhoodMode, ConfiguratorError> {
+        //TODO make address validations here - GH-305
         let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
         match neighborhood_mode_opt {
             Some(ref s) if s == "standard" => {
