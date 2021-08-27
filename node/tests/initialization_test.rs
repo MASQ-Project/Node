@@ -147,9 +147,9 @@ fn wait_for_process_end(process_id: u32) {
 }
 
 #[test]
-fn required_chain_name_parameter_meets_different_db_chain_name_and_panics_integration() {
+fn required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration() {
     let test_name =
-        "required_chain_name_parameter_meets_different_db_chain_name_and_panics_integration";
+        "required_chain_name_from_input_meets_different_db_chain_name_and_panics_integration";
     {
         fdlimit::raise_fd_limit();
         let port = find_free_port();

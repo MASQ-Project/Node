@@ -684,11 +684,11 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "DB migration failed; the resulting records are still incorrect")]
-    fn double_check_the_result_of_db_migration_panics_if_the_data_of_schema_version_does_not_fit_to_current_schema_after_an_allegedly_successful_update(
+    fn panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_update(
     ) {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "double_check_the_result_of_db_migration_panics_if_the_data_of_schema_version_does_not_fit_to_current_schema_after_an_allegedly_successful_update",
+            "panics_because_the_data_does_not_correspond_to_target_version_after_an_allegedly_successful_update",
         );
         let db_file_path = home_dir.join(DATABASE_FILE);
         let _ = revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_file_path);

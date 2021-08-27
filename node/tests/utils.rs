@@ -115,7 +115,7 @@ impl MASQNode {
             CommandConfig::new().pair("--data-directory", data_dir.to_str().unwrap());
         let command = Self::make_node_command(data_dir, Some(args_extension), false);
         eprintln!("{:?}", command);
-        Self::construct_masqnode(command, data_dir.into())
+        Self::spawn_process(command, data_dir.into())
     }
 
     #[allow(dead_code)]
@@ -234,14 +234,14 @@ impl MASQNode {
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
         let command = command_getter(&data_dir, config_opt, true);
         eprintln!("{:?}", command);
-        let mut result = Self::construct_masqnode(command, data_dir);
+        let mut result = Self::spawn_process(command, data_dir);
         if ensure_start {
             result.wait_for_node(ui_port).unwrap();
         }
         result
     }
 
-    fn construct_masqnode(mut cmd: Command, data_dir: PathBuf) -> MASQNode {
+    fn spawn_process(mut cmd: Command, data_dir: PathBuf) -> MASQNode {
         let child = cmd.spawn().unwrap();
         MASQNode {
             logfile_contents: String::new(),

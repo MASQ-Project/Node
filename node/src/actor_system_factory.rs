@@ -403,7 +403,7 @@ impl ActorFactory for ActorFactoryReal {
                 }),
         ));
         let persistent_config = Box::new(PersistentConfigurationReal::new(config_dao));
-        check_database_validity(
+        validate_database_chain_correctness(
             config.blockchain_bridge_config.chain_id,
             persistent_config.as_ref(),
         );
@@ -426,7 +426,10 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
-fn check_database_validity(chain_id: u8, persistent_config: &dyn PersistentConfiguration) {
+fn validate_database_chain_correctness(
+    chain_id: u8,
+    persistent_config: &dyn PersistentConfiguration,
+) {
     let required_chain = chain_name_from_id(chain_id).to_string();
     let chain_in_db = persistent_config.chain_name();
     if required_chain != chain_in_db {
@@ -1197,23 +1200,23 @@ mod tests {
     }
 
     #[test]
-    fn check_database_validity_happy_path() {
+    fn database_chain_validity_happy_path() {
         let chain_id = 1;
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
 
-        let _ = check_database_validity(chain_id, &persistent_config);
+        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
     }
 
     #[test]
     #[should_panic(
         expected = "Database with the wrong chain name detected; expected: ropsten, was: mainnet"
     )]
-    fn check_database_validity_sad_path() {
+    fn database_chain_validity_sad_path() {
         let chain_id = 3; //Ropsten
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("mainnet".to_string());
 
-        let _ = check_database_validity(chain_id, &persistent_config);
+        let _ = validate_database_chain_correctness(chain_id, &persistent_config);
     }
 }
