@@ -4,6 +4,7 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Reception, Transmission, UnexpectedResponse,
 };
+use masq_lib::intentionally_blank;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::short_writeln;
 use masq_lib::ui_gateway::MessageBody;
@@ -41,7 +42,7 @@ pub trait Command: Debug {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError>;
 
     fn as_any(&self) -> &dyn Any {
-        unimplemented!("If your tests don't use this, don't implement it");
+        intentionally_blank!()
     }
 }
 
