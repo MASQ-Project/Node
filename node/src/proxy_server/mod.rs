@@ -532,7 +532,7 @@ impl ProxyServer {
                                 Err(e) => {
                                     error!(
                                         logger,
-                                        "Neighborhood refused to answer route request: {}", e
+                                        "Neighborhood refused to answer route request: {:?}", e
                                     );
                                 }
                             };
@@ -983,15 +983,13 @@ mod tests {
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{make_meaningless_route, make_paying_wallet};
     use actix::System;
+    use crossbeam_channel::{self as channel};
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::sync::Mutex;
-    use std::sync::MutexGuard;
+    use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
 
     const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
@@ -4009,7 +4007,7 @@ mod tests {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = channel::unbounded();
         thread::spawn(move || {
             let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_does_not_exist");
             let mut subject = ProxyServer::new(

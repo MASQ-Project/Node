@@ -443,6 +443,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::{await_value, make_paying_wallet};
+    use crossbeam_channel::{self as channel};
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core as rpc;
@@ -456,7 +457,6 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::rc::Rc;
     use std::str::FromStr;
-    use std::sync::mpsc;
     use std::thread;
     use web3::{transports::Http, Error, RequestId, Transport};
 
@@ -530,7 +530,7 @@ mod tests {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
 
-        let (tx, rx) = mpsc::sync_channel(1337);
+        let (tx, rx) = channel::bounded(1337);
         thread::spawn(move || {
             Server::new(move |req, mut rsp| {
                 tx.send(req.body().clone()).unwrap();

@@ -37,6 +37,7 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
+use crossbeam_channel::{self as channel, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
@@ -54,9 +55,7 @@ use std::iter::repeat;
 use std::net::SocketAddr;
 use std::net::{Shutdown, TcpStream};
 use std::str::FromStr;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -139,7 +138,7 @@ pub fn to_millis(dur: &Duration) -> u64 {
 }
 
 pub fn signal() -> (Signaler, Waiter) {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = channel::unbounded();
     (Signaler { tx }, Waiter { rx })
 }
 
@@ -570,8 +569,7 @@ mod tests {
     use crate::sub_lib::neighborhood::ExpectedService;
     use std::borrow::BorrowMut;
     use std::iter;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 

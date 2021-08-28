@@ -124,8 +124,7 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget};
     use masq_lib::utils::find_free_port;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn inbound_ui_message_is_disseminated_properly() {

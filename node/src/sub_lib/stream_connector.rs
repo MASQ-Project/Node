@@ -156,12 +156,12 @@ mod tests {
     use crate::test_utils::little_tcp_server::LittleTcpServer;
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
+    use crossbeam_channel::{self as channel};
     use futures::future::lazy;
     use futures::future::ok;
     use masq_lib::utils::{find_free_port, localhost};
     use std::net::{IpAddr, Shutdown};
     use std::str::FromStr;
-    use std::sync::mpsc;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
@@ -225,7 +225,7 @@ mod tests {
         let subject = StreamConnectorReal {};
         let ip_addrs = vec![bogus_ip, good_ip];
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = channel::unbounded();
         let test_future = lazy(move || {
             let connection_result = subject.connect_one(
                 ip_addrs,
@@ -261,7 +261,7 @@ mod tests {
         let subject = StreamConnectorReal {};
         let ip_addrs = vec![ip_addr, ip_addr];
 
-        let (connection_info_tx, connection_info_rx) = mpsc::channel();
+        let (connection_info_tx, connection_info_rx) = channel::unbounded();
         let test_future = lazy(move || {
             let connection_result = subject.connect_one(
                 ip_addrs,
@@ -297,7 +297,7 @@ mod tests {
         let subject = StreamConnectorReal {};
         let ip_addrs = vec![bogus_ip];
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = channel::unbounded();
         let test_future = lazy(move || {
             let connection_result =
                 subject.connect_one(ip_addrs, &"some hostname".to_string(), 9876, &logger);

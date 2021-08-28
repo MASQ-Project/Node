@@ -10,8 +10,7 @@ use std::cell::RefCell;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
 use tokio::prelude::Async;
 
