@@ -2,6 +2,7 @@
 
 use crate::masq_node::NodeReference;
 use crate::masq_node_cluster::MASQNodeCluster;
+use crossbeam_channel::{self as channel, Receiver};
 use masq_lib::utils::find_free_port;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
@@ -23,8 +24,6 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::TcpListener;
-use std::sync::mpsc;
-use std::sync::mpsc::Receiver;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -81,7 +80,7 @@ impl MASQCoresServer {
         let mut key = main_cryptde.public_key().as_slice().to_vec();
         key.reverse();
         let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain_id);
-        let (io_tx, io_rx) = mpsc::channel::<io::Result<Vec<u8>>>();
+        let (io_tx, io_rx) = channel::unbounded();
         let join_handle = thread::spawn(move || loop {
             let (mut stream, _) = match listener.accept() {
                 Err(e) => {

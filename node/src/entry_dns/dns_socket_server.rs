@@ -106,8 +106,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::ops::DerefMut;
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use tokio;
     use trust_dns::op::ResponseCode;
 

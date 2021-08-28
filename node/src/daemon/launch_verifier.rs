@@ -334,9 +334,11 @@ mod tests {
     }
 
     #[test]
+
     fn can_connect_to_ui_gateway_handles_success() {
+        use crossbeam_channel::{self as channel};
         let port = find_free_port();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = channel::unbounded();
         thread::spawn(move || {
             let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
             tx.send(()).unwrap();
