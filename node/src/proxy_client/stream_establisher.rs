@@ -104,8 +104,8 @@ pub trait StreamEstablisherFactory: Send {
 
 pub struct StreamEstablisherFactoryReal {
     pub cryptde: &'static dyn CryptDE,
-    pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
-    pub stream_killer_tx: Sender<(StreamKey, u64)>,
+    pub stream_adder_tx: crossbeam_channel::Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
+    pub stream_killer_tx: crossbeam_channel::Sender<(StreamKey, u64)>,
     pub proxy_client_subs: ProxyClientSubs,
     pub logger: Logger,
 }
