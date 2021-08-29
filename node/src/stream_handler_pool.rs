@@ -59,7 +59,6 @@ pub struct StreamHandlerPoolSubs {
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
 }
 
-
 impl Clone for StreamHandlerPoolSubs {
     fn clone(&self) -> Self {
         StreamHandlerPoolSubs {
