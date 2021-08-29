@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 #[cfg(not(test))]
 mod prod_cfg {
-    pub use crate::terminal::integration_tests_utils::{
+    pub use crate::terminal::integration_test_utils::{
         IntegrationTestTerminal, MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
     };
     pub use linefeed::DefaultTerminal;
@@ -24,9 +24,9 @@ mod test_cfg {
     pub use masq_lib::intentionally_blank;
 }
 
-//Unlike linefeed is designed to be used, I stick with using the system stdout handles for writing in instead of the custom handles provided from linefeed.
+//Unlike linefeed is designed to be used, I stick with using the system stdout handles for writing into them instead of the custom handles provided from linefeed.
 //I take benefits from linefeed's synchronization abilities, and other handy stuff it offers, while the implementation stays simpler than if I'd had to
-//distribute the nonstandard, custom handles all over a lot of places.
+//distribute the nonstandard, custom handles over a lot of places in our code.
 
 pub struct TerminalWrapper {
     interface: Arc<Box<dyn MasqTerminal>>,
@@ -55,7 +55,7 @@ impl TerminalWrapper {
         streams: &mut StdStreams,
         stderr: bool,
     ) -> Box<dyn WriterLock + '_> {
-        self.interface.lock_ultimately(streams, stderr)
+        self.interface.lock_without_prompt(streams, stderr)
     }
 
     pub fn read_line(&self) -> TerminalEvent {

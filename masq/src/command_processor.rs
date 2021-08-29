@@ -133,9 +133,9 @@ mod tests {
             "Roger.",
         ];
 
-        fn send_piece_of_whole_message(&self, time_lap_after: u64, piece: &str) {
+        fn send_piece_of_whole_message(&self, piece: &str) {
             self.sender.send(piece.to_string()).unwrap();
-            thread::sleep(Duration::from_millis(time_lap_after));
+            thread::sleep(Duration::from_millis(1));
         }
 
         fn whole_message() -> String {

@@ -373,11 +373,7 @@ log-level              error                                                    
 neighborhood-mode      standard                                                         Default
 ";
 
-        test_generic_for_handle_broadcast(
-            SetupCommand::handle_broadcast,
-            setup_body,
-            broadcast_output,
-        )
+        assertion_for_handle_broadcast(SetupCommand::handle_broadcast, setup_body, broadcast_output)
     }
 
     #[test]
@@ -393,7 +389,7 @@ The Daemon is once more accepting setup changes.
 
 ";
 
-        test_generic_for_handle_broadcast(
+        assertion_for_handle_broadcast(
             CrashNotifier::handle_broadcast,
             crash_notifier_body,
             broadcast_output,
@@ -409,7 +405,7 @@ The Node's database password has changed.
 
 ";
 
-        test_generic_for_handle_broadcast(
+        assertion_for_handle_broadcast(
             ChangePasswordCommand::handle_broadcast,
             change_password_body,
             broadcast_output,
@@ -427,7 +423,7 @@ Cannot handle crash request: Node is not running.
 
 ";
 
-        test_generic_for_handle_broadcast(
+        assertion_for_handle_broadcast(
             handle_node_is_dead_while_f_f_on_the_way_broadcast,
             ffm_undelivered_body,
             broadcast_output,
@@ -444,14 +440,14 @@ Cannot handle crash request: Node is not running.
 
         let broadcast_output = "Discarding unrecognized broadcast with opcode 'messageFromMars'\n";
 
-        test_generic_for_handle_broadcast(
+        assertion_for_handle_broadcast(
             handle_unrecognized_broadcast,
             unrecognizable_broadcast,
             broadcast_output,
         )
     }
 
-    fn test_generic_for_handle_broadcast<F, U>(
+    fn assertion_for_handle_broadcast<F, U>(
         broadcast_handler: F,
         broadcast_message_body: U,
         broadcast_desired_output: &str,

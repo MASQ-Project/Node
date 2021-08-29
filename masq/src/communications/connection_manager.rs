@@ -552,7 +552,7 @@ mod tests {
     use super::*;
     use crate::communications::node_conversation::ClientError;
     use crate::test_utils::client_utils::make_client;
-    use crossbeam_channel::TryRecvError;
+    use crossbeam_channel::{TryRecvError, TrySendError};
     use masq_lib::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiSetupBroadcast,
     };
@@ -1437,9 +1437,7 @@ mod tests {
     fn handles_close_order() {
         running_test();
         let port = find_free_port();
-        let server =
-            MockWebSocketsServer::new(port) /*.queue_owned_message(OwnedMessage::Close(None))*/
-                .write_logs();
+        let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
         let mut subject = ConnectionManager::new();
         thread::sleep(Duration::from_millis(500)); // let the server get started
@@ -1463,7 +1461,7 @@ mod tests {
         );
         assert_eq!(result, Err(ClientError::ConnectionDropped));
         let received = stop_handle.stop();
-        assert_eq!(received, vec![Err("Close(None)".to_string())])
+        assert_eq!(received, vec![Err("Close(None)".to_string())]);
     }
 
     fn make_inner() -> CmsInner {

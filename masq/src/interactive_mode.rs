@@ -13,10 +13,9 @@ use masq_lib::utils::ExpectValue;
 use std::io::Write;
 
 #[derive(Debug, PartialEq)]
-enum GoInEvent {
-    Break,
+enum InteractiveEvent {
+    Break(bool), //exit code 0 vs 1
     Continue,
-    Return(bool),
 }
 
 pub fn go_interactive(
@@ -32,12 +31,10 @@ pub fn go_interactive(
             command_processor,
             read_line_result,
         ) {
-            GoInEvent::Continue => continue,
-            GoInEvent::Break => break,
-            GoInEvent::Return(ending_flag) => return ending_flag,
+            InteractiveEvent::Continue => continue,
+            InteractiveEvent::Break(exit_flag) => break exit_flag,
         }
     }
-    true
 }
 
 fn handle_terminal_event(
@@ -45,16 +42,16 @@ fn handle_terminal_event(
     command_factory: &dyn CommandFactory,
     command_processor: &mut dyn CommandProcessor,
     read_line_result: TerminalEvent,
-) -> GoInEvent {
+) -> InteractiveEvent {
     match pass_args_or_print_messages(
         streams,
         read_line_result,
         command_processor.terminal_wrapper_ref(),
     ) {
         CommandLine(args) => handle_args(&args, streams, command_factory, command_processor),
-        Break | EoF => GoInEvent::Break,
-        Continue => GoInEvent::Continue,
-        Error(_) => GoInEvent::Return(false),
+        Break | EoF => InteractiveEvent::Break(true),
+        Error(_) => InteractiveEvent::Break(false),
+        Continue => InteractiveEvent::Continue,
     }
 }
 
@@ -63,31 +60,32 @@ fn handle_args(
     streams: &mut StdStreams<'_>,
     command_factory: &dyn CommandFactory,
     command_processor: &mut dyn CommandProcessor,
-) -> GoInEvent {
-    if args.is_empty() {
-        return GoInEvent::Continue;
-    }
-    match args[0].as_str() {
-        str if str == "exit" => return GoInEvent::Break,
-        str if str == "help" || str == "version" => {
-            handle_help_or_version(
-                str,
-                streams.stdout,
-                command_processor.terminal_wrapper_ref(),
-            );
-            return GoInEvent::Continue;
-        }
+) -> InteractiveEvent {
+    match args {
+        [] => return InteractiveEvent::Continue,
+        [arg] => match arg.as_str() {
+            "exit" => return InteractiveEvent::Break(true),
+            //tested by integration tests
+            "help" | "version" => {
+                return handle_help_or_version(
+                    str,
+                    streams.stdout,
+                    command_processor.terminal_wrapper_ref(),
+                )
+            }
+            _ => (),
+        },
         _ => (),
     }
     let _ = handle_command_common(command_factory, command_processor, args, streams.stderr);
-    GoInEvent::Continue
+    InteractiveEvent::Continue
 }
 
 fn handle_help_or_version(
     arg: &str,
     mut stdout: &mut dyn Write,
     terminal_interface: &TerminalWrapper,
-) {
+) -> InteractiveEvent {
     let _lock = terminal_interface.lock();
     match arg {
         "help" => app()
@@ -99,6 +97,7 @@ fn handle_help_or_version(
         _ => unreachable!("should have been treated before"),
     }
     short_writeln!(stdout, "");
+    InteractiveEvent::Continue
 }
 
 fn pass_args_or_print_messages(
@@ -149,14 +148,15 @@ fn print_protected(
 mod tests {
     use crate::command_factory::CommandFactoryError;
     use crate::interactive_mode::{
-        go_interactive, handle_help_or_version, handle_terminal_event, pass_args_or_print_messages,
-        GoInEvent,
+        go_interactive, handle_args, handle_help_or_version, handle_terminal_event,
+        pass_args_or_print_messages, InteractiveEvent,
     };
     use crate::terminal::line_reader::TerminalEvent;
     use crate::terminal::line_reader::TerminalEvent::{Break, Continue, Error};
     use crate::terminal::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{
         CommandFactoryMock, CommandProcessorMock, TerminalActiveMock, TerminalPassiveMock,
+        TestStreamFactory,
     };
     use crossbeam_channel::bounded;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
@@ -169,14 +169,7 @@ mod tests {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut stream_holder = FakeStreamHolder::new();
         let mut streams = stream_holder.streams();
-        let terminal_interface = TerminalWrapper::new(Box::new(
-            TerminalPassiveMock::new()
-                .read_line_result(TerminalEvent::CommandLine(vec![
-                    "error".to_string(),
-                    "command".to_string(),
-                ]))
-                .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
-        ));
+        let terminal_interface = make_terminal_interface();
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Err(CommandFactoryError::UnrecognizedSubcommand(
@@ -199,19 +192,23 @@ mod tests {
         )
     }
 
-    #[test]
-    fn interactive_mode_works_for_command_with_bad_syntax() {
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut stream_holder = FakeStreamHolder::new();
-        let mut streams = stream_holder.streams();
-        let terminal_interface = TerminalWrapper::new(Box::new(
+    fn make_terminal_interface() -> TerminalWrapper {
+        TerminalWrapper::new(Box::new(
             TerminalPassiveMock::new()
                 .read_line_result(TerminalEvent::CommandLine(vec![
                     "error".to_string(),
                     "command".to_string(),
                 ]))
                 .read_line_result(TerminalEvent::CommandLine(vec!["exit".to_string()])),
-        ));
+        ))
+    }
+
+    #[test]
+    fn interactive_mode_works_for_command_with_bad_syntax() {
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut stream_holder = FakeStreamHolder::new();
+        let mut streams = stream_holder.streams();
+        let terminal_interface = make_terminal_interface();
         let command_factory = CommandFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Err(CommandFactoryError::CommandSyntax(
@@ -229,6 +226,24 @@ mod tests {
             vec![vec!["error".to_string(), "command".to_string()]]
         );
         assert_eq!(stream_holder.stderr.get_string(), "Booga!\n".to_string());
+    }
+
+    #[test]
+    fn handle_args_process_empty_args_short_circuit() {
+        let args = &[];
+        let mut stream_holder = FakeStreamHolder::new();
+        let mut streams = stream_holder.streams();
+
+        let result = handle_args(
+            args,
+            &mut streams,
+            &CommandFactoryMock::new(),
+            &mut CommandProcessorMock::default(),
+        );
+
+        assert_eq!(result, InteractiveEvent::Continue);
+        assert!(stream_holder.stdout.get_string().is_empty());
+        assert!(stream_holder.stderr.get_string().is_empty())
     }
 
     #[test]
@@ -313,7 +328,7 @@ mod tests {
             readline_result,
         );
 
-        assert_eq!(result, GoInEvent::Break);
+        assert_eq!(result, InteractiveEvent::Break(true));
         assert_eq!(stream_holder.stdout.get_string(), "\nTerminated\n\n")
     }
 

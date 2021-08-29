@@ -525,7 +525,7 @@ impl MasqTerminal for TerminalPassiveMock {
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(WriterInactive {})
     }
-    fn lock_ultimately(&self, _streams: &mut StdStreams, _stderr: bool) -> Box<dyn WriterLock> {
+    fn lock_without_prompt(&self, _streams: &mut StdStreams, _stderr: bool) -> Box<dyn WriterLock> {
         Box::new(WriterInactive {})
     }
 }
@@ -558,7 +558,7 @@ impl MasqTerminal for TerminalActiveMock {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
     }
 
-    fn lock_ultimately(
+    fn lock_without_prompt(
         &self,
         _streams: &mut StdStreams,
         _stderr: bool,

@@ -91,7 +91,7 @@ impl NodeConversation {
         timeout_millis: u64,
     ) -> Result<MessageBody, ClientError> {
         if outgoing_msg.path == MessagePath::FireAndForget {
-            panic! ("Cannot use NodeConversation::transact() to send message with MessagePath::FireAndForget. Use NodeCoversation::send() instead.")
+            panic! ("Cannot use NodeConversation::transact() to send message with MessagePath::FireAndForget. Use NodeConversation::send() instead.")
         }
         outgoing_msg.path = MessagePath::Conversation(self.context_id());
         match self
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Cannot use NodeConversation::transact() to send message with MessagePath::FireAndForget. Use NodeCoversation::send() instead."
+        expected = "Cannot use NodeConversation::transact() to send message with MessagePath::FireAndForget. Use NodeConversation::send() instead."
     )]
     fn transact_rejects_fire_and_forget_message() {
         let (subject, _, _) = make_subject();
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeCoversation::transact() instead."
+        expected = "Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeConversation::transact() instead."
     )]
     fn send_rejects_conversation_message() {
         let (subject, _, _) = make_subject();

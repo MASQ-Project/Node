@@ -107,7 +107,7 @@ impl MasqTerminal for IntegrationTestTerminal {
         })
     }
 
-    fn lock_ultimately(&self, _streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_> {
+    fn lock_without_prompt(&self, _streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_> {
         let lock = Box::new(IntegrationTestWriter {
             mutex_guard_that_simulates_the_core_locking: self.lock.lock().expect_v("MutexGuard"),
             ultimate_drop_behavior: true,

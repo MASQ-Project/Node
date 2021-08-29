@@ -7,12 +7,13 @@ use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::short_writeln;
 use std::fmt::Debug;
 use std::io::Write;
+use std::error::Error;
 
 //most of the events depends on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
 #[derive(Debug, PartialEq, Clone)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
-    Error(Option<String>), //'None' when already consumed by printing out
+    Error(Option<String>), //'None' when already processed by printing out
     Continue,              //as ignore
     Break,
     EoF,
@@ -25,8 +26,8 @@ pub struct TerminalReal {
 impl MasqTerminal for TerminalReal {
     fn read_line(&self) -> TerminalEvent {
         match self.interface.read_line() {
-            Ok(ReadResult::Input(line)) => self.process_captured_command_line(line),
-            Err(e) => TerminalEvent::Error(Some(format!("Reading from the terminal: {}", e))),
+            Ok(ReadResult::Input(line)) => self.process_command_line(line),
+            Err(e) => Self::dispatch_error_msg(e),
             Ok(ReadResult::Signal(Signal::Resize)) | Ok(ReadResult::Signal(Signal::Continue)) => {
                 TerminalEvent::Continue
             }
@@ -36,15 +37,15 @@ impl MasqTerminal for TerminalReal {
     }
 
     fn lock(&self) -> Box<dyn WriterLock + '_> {
-        self.interface.lock_writer_append().expect("l_w_a failed")
+        self.interface.lock_writer_append().expect("lock writer append failed")
     }
 
     //used because we don't want to see the prompt show up again after this last-second printing operation;
     //to assure a decent screen appearance while the whole app's going down
-    fn lock_ultimately(&self, streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_> {
+    fn lock_without_prompt(&self, streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_> {
         let kept_buffer = self.interface.get_buffer();
         self.make_prompt_vanish();
-        let lock = self.interface.lock_writer_append().expect("l_w_a failed");
+        let lock = self.interface.lock_writer_append().expect("lock writer append failed");
         short_writeln!(
             if !stderr {
                 &mut streams.stdout
@@ -74,7 +75,7 @@ impl TerminalReal {
         Self { interface }
     }
 
-    fn process_captured_command_line(&self, line: String) -> TerminalEvent {
+    fn process_command_line(&self, line: String) -> TerminalEvent {
         self.add_history(line.clone());
         let args = split_quoted_line(line);
         TerminalEvent::CommandLine(args)
@@ -89,6 +90,10 @@ impl TerminalReal {
 
     fn add_history(&self, line: String) {
         self.interface.add_history(line)
+    }
+
+    fn dispatch_error_msg<E:Error>(error: E)->TerminalEvent{
+        TerminalEvent::Error(Some(format!("Reading from the terminal: {}", error)))
     }
 }
 
@@ -265,7 +270,7 @@ mod tests {
         let mut streams_holder = FakeStreamHolder::default();
         let mut streams = streams_holder.streams();
 
-        let _ = subject.lock_ultimately(&mut streams, false);
+        let _ = subject.lock_without_prompt(&mut streams, false);
 
         assert_eq!(
             streams_holder.stdout.get_string(),
@@ -288,7 +293,7 @@ mod tests {
         let mut streams_holder = FakeStreamHolder::default();
         let mut streams = streams_holder.streams();
 
-        let _ = subject.lock_ultimately(&mut streams, true);
+        let _ = subject.lock_without_prompt(&mut streams, true);
 
         assert!(streams_holder.stdout.get_string().is_empty());
         assert_eq!(
