@@ -42,7 +42,7 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
-use crossbeam_channel::{self as channel, Sender};
+use crossbeam_channel::{unbounded, Sender};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
@@ -66,7 +66,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
     ) -> StreamHandlerPoolSubs {
         let main_cryptde = bootstrapper::main_cryptde_ref();
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
-        let (tx, rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
 
         ActorSystemFactoryReal::prepare_initial_messages(
             main_cryptde,
@@ -930,7 +930,7 @@ mod tests {
                 mode: NeighborhoodMode::ZeroHop,
             },
         };
-        let (tx, rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
@@ -1048,7 +1048,7 @@ mod tests {
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            channel::unbounded().0,
+            unbounded().0,
         );
 
         System::current().stop();
@@ -1103,7 +1103,7 @@ mod tests {
                 ),
             },
         };
-        let (tx, _) = channel::unbounded();
+        let (tx, _) = unbounded();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(

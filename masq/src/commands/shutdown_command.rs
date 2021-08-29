@@ -1,5 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-#![allow(unused_imports)]
+
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Transmission,
@@ -8,7 +8,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, SubCommand};
-use crossbeam_channel::{self as channel};
+use crossbeam_channel::unbounded;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
 use masq_lib::short_writeln;
@@ -409,7 +409,7 @@ mod tests {
         let port = find_free_port();
         let server = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
         server.set_nonblocking(true).unwrap();
-        let (term_tx, term_rx) = channel::unbounded();
+        let (term_tx, term_rx) = unbounded();
         let handle = thread::spawn(move || {
             while term_rx.try_recv().is_err() {
                 let _ = server.accept();

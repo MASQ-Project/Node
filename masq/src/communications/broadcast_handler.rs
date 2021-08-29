@@ -157,7 +157,7 @@ mod tests {
         make_tools_for_test_streams_with_thread_life_checker, StdoutBlender, TerminalActiveMock,
         TerminalPassiveMock, TestStreamFactory,
     };
-    use crossbeam_channel::{bounded, Receiver};
+    use crossbeam_channel::{bounded, unbounded, Receiver};
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;

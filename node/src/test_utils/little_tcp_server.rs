@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use crossbeam_channel::{self as channel, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use masq_lib::utils::localhost;
 use std::io::Read;
 use std::io::Write;
@@ -24,8 +24,8 @@ impl LittleTcpServer {
     pub fn start() -> LittleTcpServer {
         let listener = TcpListener::bind(SocketAddr::new(localhost(), 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
-        let (tx, rx) = channel::unbounded();
-        let (count_tx, count_rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
+        let (count_tx, count_rx) = unbounded();
         thread::spawn(move || {
             let mut buf = [0u8; 1024];
             loop {

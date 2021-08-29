@@ -2,7 +2,7 @@
 
 use crate::masq_node::NodeReference;
 use crate::masq_node_cluster::MASQNodeCluster;
-use crossbeam_channel::{self as channel, Receiver};
+use crossbeam_channel::{unbounded, Receiver};
 use masq_lib::utils::find_free_port;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
@@ -80,7 +80,7 @@ impl MASQCoresServer {
         let mut key = main_cryptde.public_key().as_slice().to_vec();
         key.reverse();
         let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain_id);
-        let (io_tx, io_rx) = channel::unbounded();
+        let (io_tx, io_rx) = unbounded();
         let join_handle = thread::spawn(move || loop {
             let (mut stream, _) = match listener.accept() {
                 Err(e) => {

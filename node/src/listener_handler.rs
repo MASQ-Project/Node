@@ -146,7 +146,7 @@ mod tests {
     use actix::Actor;
     use actix::Addr;
     use actix::System;
-    use crossbeam_channel::{self as channel};
+    use crossbeam_channel::unbounded;
     use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
     use std::io::Error;
@@ -284,7 +284,7 @@ mod tests {
         init_test_logging();
         let (stream_handler_pool, _, recording_arc) = make_recorder();
 
-        let (tx, rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new("handles_connection_errors");
             let add_stream_sub = start_recorder(stream_handler_pool);
@@ -371,7 +371,7 @@ mod tests {
     fn converts_connections_into_connection_infos() {
         let (stream_handler_pool, awaiter, recording_arc) = make_recorder();
 
-        let (tx, rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new("converts_connections_into_connection_infos");
             let add_stream_sub = start_recorder(stream_handler_pool);

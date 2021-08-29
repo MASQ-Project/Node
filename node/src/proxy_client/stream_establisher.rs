@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![allow(unused_imports)]
+
 use crate::proxy_client::stream_reader::StreamReader;
 use crate::proxy_client::stream_writer::StreamWriter;
 use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
@@ -15,7 +15,7 @@ use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
-use crossbeam_channel::{self as channel, Sender};
+use crossbeam_channel::{unbounded, Sender};
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn spawn_stream_reader_handles_data() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (sub_tx, sub_rx) = channel::unbounded();
+        let (sub_tx, sub_rx) = unbounded();
         thread::spawn(move || {
             let system = System::new("spawn_stream_reader_handles_data");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -155,12 +155,12 @@ mod tests {
             system.run();
         });
 
-        let (ibsd_tx, ibsd_rx) = channel::unbounded();
+        let (ibsd_tx, ibsd_rx) = unbounded();
         let test_future = lazy(move || {
             let proxy_client_sub = sub_rx.recv().unwrap();
 
-            let (stream_adder_tx, _stream_adder_rx) = channel::unbounded();
-            let (stream_killer_tx, _) = channel::unbounded();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let (stream_killer_tx, _) = unbounded();
             let mut read_stream = Box::new(ReadHalfWrapperMock::new());
             let bytes = b"I'm a stream establisher test not a framer test";
             read_stream.poll_read_results = vec![

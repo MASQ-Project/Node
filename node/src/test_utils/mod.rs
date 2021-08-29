@@ -37,7 +37,7 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use crossbeam_channel::{self as channel, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
@@ -138,7 +138,7 @@ pub fn to_millis(dur: &Duration) -> u64 {
 }
 
 pub fn signal() -> (Signaler, Waiter) {
-    let (tx, rx) = channel::unbounded();
+    let (tx, rx) = unbounded();
     (Signaler { tx }, Waiter { rx })
 }
 

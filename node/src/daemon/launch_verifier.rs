@@ -336,9 +336,9 @@ mod tests {
     #[test]
 
     fn can_connect_to_ui_gateway_handles_success() {
-        use crossbeam_channel::{self as channel};
+        use crossbeam_channel::unbounded;
         let port = find_free_port();
-        let (tx, rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let mut server = Server::bind(SocketAddr::new(localhost(), port)).unwrap();
             tx.send(()).unwrap();

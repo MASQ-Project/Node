@@ -124,7 +124,7 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
-    use crossbeam_channel::{self as channel};
+    use crossbeam_channel::unbounded;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
@@ -159,7 +159,7 @@ mod tests {
             (vec![], Ok(Async::Ready(0))),
         ];
 
-        let (tx, rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -170,7 +170,7 @@ mod tests {
         });
 
         let proxy_client_sub = rx.recv().unwrap();
-        let (stream_killer, stream_killer_params) = channel::unbounded();
+        let (stream_killer, stream_killer_params) = unbounded();
         let mut subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
             proxy_client_sub,
@@ -240,7 +240,7 @@ mod tests {
             ),
             (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
         ];
-        let (tx, rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new("test");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -250,7 +250,7 @@ mod tests {
             system.run();
         });
         let proxy_client_sub = rx.recv().unwrap();
-        let (stream_killer, stream_killer_params) = channel::unbounded();
+        let (stream_killer, stream_killer_params) = unbounded();
         let mut subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
             proxy_client_sub,
@@ -308,7 +308,7 @@ mod tests {
     fn receiving_0_bytes_kills_stream() {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
-        let (stream_killer, kill_stream_params) = channel::unbounded();
+        let (stream_killer, kill_stream_params) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
 
@@ -343,7 +343,7 @@ mod tests {
         init_test_logging();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
-        let (stream_killer, _) = channel::unbounded();
+        let (stream_killer, _) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![
             (vec![], Err(Error::from(ErrorKind::Other))),
@@ -354,7 +354,7 @@ mod tests {
             (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
         ];
 
-        let (tx, rx) = channel::unbounded();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("non_dead_stream_read_errors_log_but_do_not_shut_down");
