@@ -135,13 +135,13 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
+    use crossbeam_channel::unbounded;
     use futures::future::lazy;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
     use tokio::prelude::Async;
-    use crossbeam_channel::unbounded;
 
     #[test]
     fn spawn_stream_reader_handles_data() {
