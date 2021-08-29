@@ -35,7 +35,6 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use crossbeam_channel::unbounded;
 use masq_lib::utils::localhost;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -785,6 +784,7 @@ mod tests {
 
     #[test]
     fn terminal_packet_is_transmitted_and_then_stream_is_shut_down() {
+        use crossbeam_channel::unbounded;
         init_test_logging();
         let (sub_tx, sub_rx) = unbounded();
 
@@ -1137,6 +1137,7 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing() {
+        use crossbeam_channel::unbounded;
         let public_key = PublicKey::from(vec![0, 1, 2, 3]);
         let masquerader = JsonMasquerader::new();
         let incoming_unmasked = b"Incoming data".to_vec();
@@ -1244,6 +1245,7 @@ mod tests {
 
     #[test]
     fn transmit_data_msg_handler_finds_ip_from_neighborhood_and_transmits_message() {
+        use crossbeam_channel::unbounded;
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key();
@@ -1435,6 +1437,7 @@ mod tests {
 
     #[test]
     fn node_query_response_handler_resends_transmit_data_msg_when_connection_is_in_progress() {
+        use crossbeam_channel::unbounded;
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key().clone();
@@ -1534,6 +1537,7 @@ mod tests {
     #[test]
     fn when_a_new_connection_fails_the_stream_writer_flag_is_removed_and_another_connection_is_attempted_for_the_next_message_with_the_same_stream_key(
     ) {
+        use crossbeam_channel::unbounded;
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key().clone();
@@ -1876,6 +1880,7 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_logs_error_and_returns_when_local_connection_is_gone() {
+        use crossbeam_channel::unbounded;
         init_test_logging();
         let outgoing_unmasked = b"Outgoing data".to_vec();
         let outgoing_unmasked_len = outgoing_unmasked.len();

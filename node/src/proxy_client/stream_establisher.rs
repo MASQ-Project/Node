@@ -15,7 +15,7 @@ use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
-use crossbeam_channel::{unbounded, Sender};
+use crossbeam_channel::Sender;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -141,6 +141,7 @@ mod tests {
     use std::str::FromStr;
     use std::thread;
     use tokio::prelude::Async;
+    use crossbeam_channel::unbounded;
 
     #[test]
     fn spawn_stream_reader_handles_data() {
