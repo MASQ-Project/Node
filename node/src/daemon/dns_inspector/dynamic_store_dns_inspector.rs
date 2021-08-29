@@ -251,7 +251,9 @@ mod tests {
     use super::super::core_foundation::array::CFArray;
     use super::super::core_foundation::propertylist::CFPropertyList;
     use super::*;
-    use crate::daemon::dns_inspector::dynamic_store_dns_inspector::{DynamicStoreDnsInspector, StoreWrapper, PRIMARY_SERVICE, SERVER_ADDRESSES};
+    use crate::daemon::dns_inspector::dynamic_store_dns_inspector::{
+        DynamicStoreDnsInspector, StoreWrapper, PRIMARY_SERVICE, SERVER_ADDRESSES,
+    };
     use crate::daemon::dns_inspector::DnsInspectionError;
     use core_foundation::boolean::CFBoolean;
     use core_foundation::propertylist::CFPropertyListSubClass;
