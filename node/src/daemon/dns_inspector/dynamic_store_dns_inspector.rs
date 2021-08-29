@@ -248,19 +248,19 @@ impl StoreWrapperReal {
 
 #[cfg(test)]
 mod tests {
+    use super::super::core_foundation::array::CFArray;
+    use super::super::core_foundation::propertylist::CFPropertyList;
     use super::*;
+    use crate::daemon::dns_inspector::dynamic_store_dns_inspector::{DynamicStoreDnsInspector, StoreWrapper, PRIMARY_SERVICE, SERVER_ADDRESSES};
+    use crate::daemon::dns_inspector::DnsInspectionError;
     use core_foundation::boolean::CFBoolean;
     use core_foundation::propertylist::CFPropertyListSubClass;
     use core_foundation::string::CFString;
     use std::cell::RefCell;
-    use std::sync::{Arc, Mutex};
     use std::collections::HashMap;
-    use super::super::core_foundation::propertylist::CFPropertyList;
-    use crate::daemon::dns_inspector::dynamic_store_dns_inspector::{StoreWrapper, PRIMARY_SERVICE, SERVER_ADDRESSES, DynamicStoreDnsInspector};
-    use crate::daemon::dns_inspector::DnsInspectionError;
-    use super::super::core_foundation::array::CFArray;
     use std::net::IpAddr;
     use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
 
     struct StoreWrapperMock {
         get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>>,
