@@ -8,7 +8,6 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, SubCommand};
-use crossbeam_channel::unbounded;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
 use masq_lib::short_writeln;
@@ -406,6 +405,7 @@ mod tests {
 
     #[test]
     fn shutdown_awaiter_sad_path() {
+        use crossbeam_channel::unbounded;
         let port = find_free_port();
         let server = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
         server.set_nonblocking(true).unwrap();
