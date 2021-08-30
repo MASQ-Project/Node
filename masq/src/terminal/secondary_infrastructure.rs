@@ -53,7 +53,7 @@ pub trait InterfaceWrapper: Send + Sync {
     fn add_history(&self, line: String);
     fn lock_writer_append(&self) -> std::io::Result<Box<dyn WriterLock + '_>>;
     fn get_buffer(&self) -> String;
-    fn clear_buffer(&self);
+    fn set_buffer(&self, text: &str) -> std::io::Result<()>;
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()>;
     fn set_report_signal(&self, signal: Signal, set: bool);
 }
@@ -80,9 +80,13 @@ impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
         self.buffer()
     }
 
-    fn clear_buffer(&self) {
-        self.set_buffer("").expect("clearing buffer failed")
+    fn set_buffer(&self, text: &str) -> std::io::Result<()> {
+        self.set_buffer(text)
     }
+
+    // // fn clear_buffer(&self) {
+    //      self.set_buffer("").expect("clearing buffer failed")
+    //  }
 
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
         self.set_prompt(prompt)

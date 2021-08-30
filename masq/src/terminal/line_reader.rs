@@ -9,7 +9,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::io::Write;
 
-//most of the events depends on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
+//most of the events depend on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
 #[derive(Debug, PartialEq, Clone)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
@@ -94,7 +94,9 @@ impl TerminalReal {
         self.interface
             .set_prompt("")
             .expect("unsetting the prompt failed");
-        self.interface.clear_buffer();
+        self.interface
+            .set_buffer("")
+            .expect("clearing the buffer failed");
     }
 
     fn add_history(&self, line: String) {
@@ -266,11 +268,12 @@ mod tests {
 
     #[test]
     //unfortunately, I haven't been 't able to write a stronger test for this
-    fn lock_ultimately_utilizes_inner_components_properly() {
-        let clear_buffer_params_arc = Arc::new(Mutex::new(vec![]));
+    fn lock_without_prompt_utilizes_inner_components_properly() {
+        let set_buffer_params_arc = Arc::new(Mutex::new(vec![]));
         let set_prompt_params_arc = Arc::new(Mutex::new(vec![]));
         let terminal = InterfaceRawMock::default()
-            .clear_buffer_params(&clear_buffer_params_arc)
+            .set_buffer_params(&set_buffer_params_arc)
+            .set_buffer_result(Ok(()))
             .set_prompt_params(&set_prompt_params_arc)
             .set_prompt_result(Ok(()))
             .get_buffer_result("my once opened writing".to_string())
@@ -286,16 +289,17 @@ mod tests {
             "masq> my once opened writing\n".to_string()
         );
         assert!(streams_holder.stderr.get_string().is_empty());
-        let clear_buffer_params = clear_buffer_params_arc.lock().unwrap();
-        assert_eq!(*clear_buffer_params, vec![()]);
+        let set_buffer_params = set_buffer_params_arc.lock().unwrap();
+        assert_eq!(*set_buffer_params, vec!["".to_string()]);
         let set_prompt_params = set_prompt_params_arc.lock().unwrap();
         assert_eq!(*set_prompt_params, vec!["".to_string()])
     }
 
     #[test]
-    fn lock_ultimately_writes_in_stderr_if_specified_so() {
+    fn lock_without_prompt_writes_in_stderr_if_specified_so() {
         let terminal = InterfaceRawMock::default()
             .set_prompt_result(Ok(()))
+            .set_buffer_result(Ok(()))
             .get_buffer_result("my once opened writing".to_string())
             .lock_writer_append_result(Ok(Box::new(WriterInactive {})));
         let subject = TerminalReal::new(Box::new(terminal));

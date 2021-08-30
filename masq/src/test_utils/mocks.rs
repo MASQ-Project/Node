@@ -608,7 +608,8 @@ pub struct InterfaceRawMock {
     set_prompt_results: Arc<Mutex<Vec<std::io::Result<()>>>>,
     set_report_signal_params: Arc<Mutex<Vec<(Signal, bool)>>>,
     get_buffer_results: Arc<Mutex<Vec<String>>>,
-    clear_buffer_params: Arc<Mutex<Vec<()>>>,
+    set_buffer_params: Arc<Mutex<Vec<String>>>,
+    set_buffer_results: Arc<Mutex<Vec<std::io::Result<()>>>>,
     lock_writer_append_results: Arc<Mutex<Vec<std::io::Result<Box<WriterInactive>>>>>, //for testing the outer result not the structure when ok
 }
 
@@ -636,8 +637,12 @@ impl InterfaceWrapper for InterfaceRawMock {
         self.get_buffer_results.lock().unwrap().remove(0)
     }
 
-    fn clear_buffer(&self) {
-        self.clear_buffer_params.lock().unwrap().push(())
+    fn set_buffer(&self, text: &str) -> io::Result<()> {
+        self.set_buffer_params
+            .lock()
+            .unwrap()
+            .push(text.to_string());
+        self.set_buffer_results.lock().unwrap().remove(0)
     }
 
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
@@ -665,7 +670,8 @@ impl InterfaceRawMock {
             set_prompt_results: Arc::new(Mutex::new(vec![])),
             set_report_signal_params: Arc::new(Mutex::new(vec![])),
             get_buffer_results: Arc::new(Mutex::new(vec![])),
-            clear_buffer_params: Arc::new(Mutex::new(vec![])),
+            set_buffer_params: Arc::new(Mutex::new(vec![])),
+            set_buffer_results: Arc::new(Mutex::new(vec![])),
             lock_writer_append_results: Arc::new(Mutex::new(vec![])),
         }
     }
@@ -693,10 +699,16 @@ impl InterfaceRawMock {
         self.get_buffer_results.lock().unwrap().push(result);
         self
     }
-    pub fn clear_buffer_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.clear_buffer_params = params.clone();
+    pub fn set_buffer_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.set_buffer_params = params.clone();
         self
     }
+
+    pub fn set_buffer_result(self, result: std::io::Result<()>) -> Self {
+        self.set_buffer_results.lock().unwrap().push(result);
+        self
+    }
+
     pub fn lock_writer_append_result(self, result: std::io::Result<Box<WriterInactive>>) -> Self {
         self.lock_writer_append_results.lock().unwrap().push(result);
         self

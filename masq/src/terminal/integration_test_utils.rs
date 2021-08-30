@@ -129,7 +129,7 @@ impl MasqTerminal for IntegrationTestTerminal {
         Box::new(IntegrationTestWriter {
             mutex_guard_that_simulates_the_core_locking: self.lock.lock().expect_v("MutexGuard"),
             ultimate_drop_behavior: false,
-            stderr: false
+            stderr: false,
         })
     }
 
@@ -141,7 +141,7 @@ impl MasqTerminal for IntegrationTestTerminal {
         let lock = Box::new(IntegrationTestWriter {
             mutex_guard_that_simulates_the_core_locking: self.lock.lock().expect_v("MutexGuard"),
             ultimate_drop_behavior: true,
-            stderr
+            stderr,
         });
         let mut writers = self.write_handles.lock().expect("write handles poisoned");
         let handle = if !stderr {
@@ -158,12 +158,16 @@ struct IntegrationTestWriter<'a> {
     #[allow(dead_code)]
     mutex_guard_that_simulates_the_core_locking: MutexGuard<'a, ()>,
     ultimate_drop_behavior: bool,
-    stderr:bool
+    stderr: bool,
 }
 
-impl IntegrationTestWriter<'_>{
-    fn provide_correct_handle(std_err: bool)->Box<dyn Write>{
-        if std_err {Box::new(stderr())} else {Box::new(stdout())}
+impl IntegrationTestWriter<'_> {
+    fn provide_correct_handle(std_err: bool) -> Box<dyn Write> {
+        if std_err {
+            Box::new(stderr())
+        } else {
+            Box::new(stdout())
+        }
     }
 }
 
