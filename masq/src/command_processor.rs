@@ -81,7 +81,7 @@ mod tests {
         BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
     };
     use crate::test_utils::mocks::TestStreamFactory;
-    use crossbeam_channel::{bounded, unbounded, Sender};
+    use crossbeam_channel::{bounded, Sender};
     use masq_lib::messages::UiShutdownRequest;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
