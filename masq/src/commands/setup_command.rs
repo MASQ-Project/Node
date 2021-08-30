@@ -1,9 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
-};
+use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
 use masq_lib::as_any_impl;
@@ -18,6 +16,8 @@ use masq_lib::utils::index_of_from;
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
+
+pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup")
@@ -35,7 +35,7 @@ impl Command for SetupCommand {
             values: self.values.clone(),
         };
         let result: Result<UiSetupResponse, CommandError> =
-            transaction(out_message, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+            transaction(out_message, context, SETUP_COMMAND_TIMEOUT_MILLIS);
         match result {
             Ok(response) => {
                 Self::dump_setup(UiSetupInner::from(response), context.stdout());
@@ -205,7 +205,7 @@ mod tests {
                     ]
                 }
                 .tmb(0),
-                STANDARD_COMMAND_TIMEOUT_MILLIS
+                SETUP_COMMAND_TIMEOUT_MILLIS
             )]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
@@ -263,7 +263,7 @@ neighborhood-mode      zero-hop                                                 
                     ]
                 }
                 .tmb(0),
-                STANDARD_COMMAND_TIMEOUT_MILLIS
+                SETUP_COMMAND_TIMEOUT_MILLIS
             )]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),

@@ -729,6 +729,27 @@ impl ValueRetriever for Ip {
         "ip"
     }
 
+    fn computed_default(
+        &self,
+        bootstrapper_config: &BootstrapperConfig,
+        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        let automap_ip_opt = &bootstrapper_config.automap_public_ip_opt;
+        let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
+        match (automap_ip_opt, neighborhood_mode) {
+            (None, crate::sub_lib::neighborhood::NeighborhoodMode::Standard(_, _, _)) => {
+                Some(("".to_string(), UiSetupResponseValueStatus::Required))
+            }
+            (
+                Some(public_ip),
+                crate::sub_lib::neighborhood::NeighborhoodMode::Standard(_, _, _),
+            ) => Some((public_ip.to_string(), UiSetupResponseValueStatus::Default)),
+            (None, _) => Some(("".to_string(), UiSetupResponseValueStatus::Blank)),
+            (Some(_), _) => Some(("".to_string(), UiSetupResponseValueStatus::Blank)),
+        }
+    }
+
     fn is_required(&self, _params: &SetupCluster) -> bool {
         false
     }
@@ -899,6 +920,7 @@ mod tests {
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
@@ -2317,6 +2339,62 @@ mod tests {
         let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
 
         assert_eq!(result, Some(("1".to_string(), Default)))
+    }
+
+    #[test]
+    fn ip_computed_default_when_automap_works_and_neighborhood_mode_is_standard() {
+        let subject = Ip {};
+        let mut config = BootstrapperConfig::new();
+        config.automap_public_ip_opt = Some(IpAddr::from_str("1.2.3.4").unwrap());
+        config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("5.6.7.8").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+
+        let result = subject.computed_default(&config, &None, &None);
+
+        assert_eq!(result, Some(("1.2.3.4".to_string(), Default)));
+    }
+
+    #[test]
+    fn ip_computed_default_when_automap_works_and_neighborhood_mode_is_not_standard() {
+        let subject = Ip {};
+        let mut config = BootstrapperConfig::new();
+        config.automap_public_ip_opt = Some(IpAddr::from_str("1.2.3.4").unwrap());
+        config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
+
+        let result = subject.computed_default(&config, &None, &None);
+
+        assert_eq!(result, Some(("".to_string(), Blank)));
+    }
+
+    #[test]
+    fn ip_computed_default_when_automap_does_not_work_and_neighborhood_mode_is_standard() {
+        let subject = Ip {};
+        let mut config = BootstrapperConfig::new();
+        config.automap_public_ip_opt = None;
+        config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::Standard(
+            NodeAddr::new(&IpAddr::from_str("5.6.7.8").unwrap(), &[1234]),
+            vec![],
+            DEFAULT_RATE_PACK,
+        );
+
+        let result = subject.computed_default(&config, &None, &None);
+
+        assert_eq!(result, Some(("".to_string(), Required)));
+    }
+
+    #[test]
+    fn ip_computed_default_when_automap_does_not_work_and_neighborhood_mode_is_not_standard() {
+        let subject = Ip {};
+        let mut config = BootstrapperConfig::new();
+        config.automap_public_ip_opt = None;
+        config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
+
+        let result = subject.computed_default(&config, &None, &None);
+
+        assert_eq!(result, Some(("".to_string(), Blank)));
     }
 
     #[test]

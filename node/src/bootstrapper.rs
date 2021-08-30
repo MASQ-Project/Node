@@ -1970,7 +1970,7 @@ mod tests {
             self
         }
 
-        #[allow (dead_code)]
+        #[allow(dead_code)]
         fn temporary_automap_control_factory(
             mut self,
             temporary_automap_control_factory: AutomapControlFactoryMock,

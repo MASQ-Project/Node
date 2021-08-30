@@ -7,6 +7,8 @@ use crate::comm_layer::{
     AutomapError, HousekeepingThreadCommand, Transactor, DEFAULT_MAPPING_LIFETIME_SECONDS,
 };
 use crossbeam_channel::Sender;
+use masq_lib::debug;
+use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, AutomapProtocol};
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -50,10 +52,12 @@ pub struct AutomapControlReal {
     usual_protocol_opt: Option<AutomapProtocol>,
     hole_ports: HashSet<u16>,
     inner_opt: Option<AutomapControlRealInner>,
+    logger: Logger,
 }
 
 impl AutomapControl for AutomapControlReal {
     fn get_public_ip(&mut self) -> Result<IpAddr, AutomapError> {
+        debug!(self.logger, "Seeking public IP");
         let experiment = Box::new(move |transactor: &dyn Transactor, router_ip: IpAddr| {
             transactor.get_public_ip(router_ip)
         });
@@ -71,12 +75,16 @@ impl AutomapControl for AutomapControlReal {
             None => self.choose_working_protocol(experiment),
         };
         match self.maybe_start_housekeeper(&protocol_info_result) {
-            Ok(_) => protocol_info_result.map(|protocol_info| protocol_info.payload),
+            Ok(_) => protocol_info_result.map(|protocol_info| {
+                debug!(self.logger, "Public IP {:?}", protocol_info.payload);
+                protocol_info.payload
+            }),
             Err(e) => Err(e),
         }
     }
 
     fn add_mapping(&mut self, hole_port: u16) -> Result<(), AutomapError> {
+        debug!(self.logger, "Adding mapping for port {}", hole_port);
         let experiment = Box::new(move |transactor: &dyn Transactor, router_ip: IpAddr| {
             match transactor.add_mapping(router_ip, hole_port, DEFAULT_MAPPING_LIFETIME_SECONDS) {
                 Ok(remap_after_sec) => Ok(remap_after_sec),
@@ -132,6 +140,7 @@ impl AutomapControl for AutomapControlReal {
                 "No port mapping to remove".to_string(),
             )),
             Some(inner) => {
+                debug!(self.logger, "Deleting public mappings");
                 let transactor = &mut self.transactors[inner.transactor_idx];
                 let init: Vec<AutomapError> = vec![];
                 let errors =
@@ -169,6 +178,7 @@ impl AutomapControlReal {
             usual_protocol_opt,
             hole_ports: HashSet::new(),
             inner_opt: None,
+            logger: Logger::new("AutomapControl"),
         }
     }
 
@@ -191,16 +201,26 @@ impl AutomapControlReal {
                     unreachable!("Experiment succeeded but produced no Inner structure")
                 }
                 (Ok(protocol_info), Some(inner)) => {
+                    debug!(self.logger, "Attempting to start housekeeping thread");
                     match self.transactors[inner.transactor_idx]
                         .start_housekeeping_thread(change_handler, protocol_info.router_ip)
                     {
                         Err(AutomapError::ChangeHandlerUnconfigured) => {
-                            let change_handler = self.transactors[inner.transactor_idx].stop_housekeeping_thread();
-                            self.change_handler_opt.replace (change_handler);
+                            debug!(
+                                self.logger,
+                                "Housekeeping thread failed: change handler unconfigured"
+                            );
+                            let change_handler =
+                                self.transactors[inner.transactor_idx].stop_housekeeping_thread();
+                            self.change_handler_opt.replace(change_handler);
                             Ok(())
-                        },
-                        Err(e) => Err(e),
+                        }
+                        Err(e) => {
+                            debug!(self.logger, "Housekeeping thread failed: {:?}", e);
+                            Err(e)
+                        }
                         Ok(commander) => {
+                            debug!(self.logger, "Housekeeping thread running");
                             self.housekeeping_thread_commander_opt = Some(commander);
                             Ok(())
                         }
@@ -321,8 +341,7 @@ mod tests {
         start_housekeeping_thread_results:
             RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
         stop_housekeeping_thread_params: Arc<Mutex<Vec<()>>>,
-        stop_housekeeping_thread_results:
-            RefCell<Vec<ChangeHandler>>,
+        stop_housekeeping_thread_results: RefCell<Vec<ChangeHandler>>,
     }
 
     impl Transactor for TransactorMock {
@@ -381,11 +400,16 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((change_handler, router_ip));
-            self.start_housekeeping_thread_results.borrow_mut().remove(0)
+            self.start_housekeeping_thread_results
+                .borrow_mut()
+                .remove(0)
         }
 
         fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
-            self.stop_housekeeping_thread_params.lock().unwrap().push(());
+            self.stop_housekeeping_thread_params
+                .lock()
+                .unwrap()
+                .push(());
             self.stop_housekeeping_thread_results.borrow_mut().remove(0)
         }
 
@@ -466,7 +490,9 @@ mod tests {
             self,
             result: Result<Sender<HousekeepingThreadCommand>, AutomapError>,
         ) -> Self {
-            self.start_housekeeping_thread_results.borrow_mut().push(result);
+            self.start_housekeeping_thread_results
+                .borrow_mut()
+                .push(result);
             self
         }
 
@@ -483,11 +509,10 @@ mod tests {
             self
         }
 
-        pub fn stop_housekeeping_thread_result(
-            self,
-            result: ChangeHandler,
-        ) -> Self {
-            self.stop_housekeeping_thread_results.borrow_mut().push(result);
+        pub fn stop_housekeeping_thread_result(self, result: ChangeHandler) -> Self {
+            self.stop_housekeeping_thread_results
+                .borrow_mut()
+                .push(result);
             self
         }
     }
@@ -998,7 +1023,7 @@ mod tests {
             .delete_mapping_result(Ok(()))
             .delete_mapping_result(Ok(()))
             .stop_housekeeping_thread_params(&stop_change_handler_params_arc)
-            .stop_housekeeping_thread_result (Box::new (|_| ()));
+            .stop_housekeeping_thread_result(Box::new(|_| ()));
         let mut subject = replace_transactor(subject, Box::new(transactor));
 
         let result = subject.delete_mappings();
@@ -1024,7 +1049,7 @@ mod tests {
             .delete_mapping_result(Ok(()))
             .delete_mapping_result(Err(AutomapError::DeleteMappingError("Booga!".to_string())))
             .stop_housekeeping_thread_params(&stop_change_handler_params_arc)
-            .stop_housekeeping_thread_result (Box::new (|_| ()));
+            .stop_housekeeping_thread_result(Box::new(|_| ()));
         let mut subject = replace_transactor(subject, Box::new(transactor));
 
         let result = subject.delete_mappings();
@@ -1046,35 +1071,41 @@ mod tests {
     #[test]
     fn get_mapping_protocol_returns_usual_mapping_protocol_opt() {
         let mut subject = make_null_subject();
-        subject.usual_protocol_opt = Some (AutomapProtocol::Pmp);
+        subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
 
         let result = subject.get_mapping_protocol();
 
-        assert_eq! (result, Some (AutomapProtocol::Pmp));
+        assert_eq!(result, Some(AutomapProtocol::Pmp));
     }
 
     #[test]
     fn maybe_start_housekeeper_handles_uninitialized_change_handler() {
         let mut subject = make_null_subject();
-        let change_handler_log_arc = Arc::new (Mutex::new (vec![]));
+        let change_handler_log_arc = Arc::new(Mutex::new(vec![]));
         let chla_inner = change_handler_log_arc.clone();
-        let change_handler = Box::new(move |change| chla_inner.lock().unwrap().push (change));
-        subject.change_handler_opt = Some(Box::new (|_| ()));
-        subject.inner_opt = Some(AutomapControlRealInner{ router_ip: *ROUTER_IP, transactor_idx: 0 });
+        let change_handler = Box::new(move |change| chla_inner.lock().unwrap().push(change));
+        subject.change_handler_opt = Some(Box::new(|_| ()));
+        subject.inner_opt = Some(AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            transactor_idx: 0,
+        });
         subject.transactors = vec![Box::new(
             TransactorMock::new(AutomapProtocol::Igdp)
                 .start_housekeeping_thread_result(Err(AutomapError::ChangeHandlerUnconfigured))
                 .stop_housekeeping_thread_result(change_handler),
         )];
-        let protocol_info_result = Ok(ProtocolInfo{ payload: 1234u32, router_ip: *ROUTER_IP });
+        let protocol_info_result = Ok(ProtocolInfo {
+            payload: 1234u32,
+            router_ip: *ROUTER_IP,
+        });
 
         let result = subject.maybe_start_housekeeper(&protocol_info_result);
 
         assert_eq!(result, Ok(()));
         let expected_change = AutomapChange::Error(AutomapError::ChangeHandlerAlreadyRunning);
-        subject.change_handler_opt.unwrap() (expected_change.clone());
+        subject.change_handler_opt.unwrap()(expected_change.clone());
         let change_handler_log = change_handler_log_arc.lock().unwrap();
-        assert_eq! (*change_handler_log, vec![expected_change]);
+        assert_eq!(*change_handler_log, vec![expected_change]);
     }
 
     #[test]

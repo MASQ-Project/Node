@@ -28,9 +28,9 @@ use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{io, thread};
-use std::thread::JoinHandle;
 
 trait MappingNonceFactory: Send {
     fn make(&self) -> [u8; 12];
@@ -228,7 +228,7 @@ impl Transactor for PcpTransactor {
         let router_addr = SocketAddr::new(router_ip, self.router_port);
         let read_timeout_millis = self.read_timeout_millis;
         let logger = self.logger.clone();
-        self.join_handle_opt = Some (thread::spawn(move || {
+        self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(
                 socket.as_ref(),
                 &rx,
@@ -245,24 +245,31 @@ impl Transactor for PcpTransactor {
 
     fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
         debug!(self.logger, "Stopping housekeeping thread");
-        let stopper = self.housekeeper_commander_opt.take()
-            .expect ("No HousekeepingCommander: can't stop housekeeping thread");
+        let stopper = self
+            .housekeeper_commander_opt
+            .take()
+            .expect("No HousekeepingCommander: can't stop housekeeping thread");
         match stopper.send(HousekeepingThreadCommand::Stop) {
-            Ok (_) => {
-                let join_handle = self.join_handle_opt.take()
-                    .expect ("No JoinHandle: can't stop housekeeping thread");
-                match join_handle.join () {
-                    Ok (change_handler) => change_handler,
-                    Err (_) => {
-                        warning!(self.logger, "Tried to stop housekeeping thread that had panicked");
-                        Box::new (Self::null_change_handler)
-                    },
+            Ok(_) => {
+                let join_handle = self
+                    .join_handle_opt
+                    .take()
+                    .expect("No JoinHandle: can't stop housekeeping thread");
+                match join_handle.join() {
+                    Ok(change_handler) => change_handler,
+                    Err(_) => {
+                        warning!(
+                            self.logger,
+                            "Tried to stop housekeeping thread that had panicked"
+                        );
+                        Box::new(Self::null_change_handler)
+                    }
                 }
-            },
-            Err (_) => {
+            }
+            Err(_) => {
                 warning!(self.logger, "Tried to stop housekeeping thread that had already disconnected from the commander");
-                Box::new (Self::null_change_handler)
-            },
+                Box::new(Self::null_change_handler)
+            }
         }
     }
 
@@ -422,8 +429,11 @@ impl PcpTransactor {
     }
 
     fn null_change_handler(change: AutomapChange) {
-        let logger = Logger::new ("PcpTransactor");
-        error!(logger, "Change handler recovery failed: discarded {:?}", change);
+        let logger = Logger::new("PcpTransactor");
+        error!(
+            logger,
+            "Change handler recovery failed: discarded {:?}", change
+        );
     }
 }
 
@@ -1514,30 +1524,31 @@ mod tests {
 
     #[test]
     fn stop_housekeeping_thread_returns_same_change_handler_sent_into_start_housekeeping_thread() {
-        let change_log_arc = Arc::new (Mutex::new (vec![]));
+        let change_log_arc = Arc::new(Mutex::new(vec![]));
         let inner_cla = change_log_arc.clone();
-        let change_handler = Box::new (move |change| {
+        let change_handler = Box::new(move |change| {
             let mut change_log = inner_cla.lock().unwrap();
-            change_log.push (change)
+            change_log.push(change)
         });
         let mut subject = PcpTransactor::default();
-        subject.change_handler_config_opt = RefCell::new (Some (ChangeHandlerConfig{
+        subject.change_handler_config_opt = RefCell::new(Some(ChangeHandlerConfig {
             hole_port: 0,
             next_lifetime: Duration::from_secs(0),
             remap_interval: Duration::from_secs(0),
         }));
-        let _ = subject.start_housekeeping_thread(change_handler, IpAddr::from_str ("1.2.3.4").unwrap());
+        let _ =
+            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
 
         let change_handler = subject.stop_housekeeping_thread();
 
-        let change = AutomapChange::NewIp(IpAddr::from_str ("4.3.2.1").unwrap());
+        let change = AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap());
         change_handler(change.clone());
         let change_log = change_log_arc.lock().unwrap();
-        assert_eq! (change_log.last().unwrap(), &change)
+        assert_eq!(change_log.last().unwrap(), &change)
     }
 
     #[test]
-    #[should_panic (expected = "No HousekeepingCommander: can't stop housekeeping thread")]
+    #[should_panic(expected = "No HousekeepingCommander: can't stop housekeeping thread")]
     fn stop_housekeeping_thread_handles_missing_housekeeper_commander() {
         let mut subject = PcpTransactor::default();
         subject.housekeeper_commander_opt = None;
@@ -1550,23 +1561,25 @@ mod tests {
         init_test_logging();
         let mut subject = PcpTransactor::default();
         let (tx, rx) = unbounded();
-        subject.housekeeper_commander_opt = Some (tx);
-        std::mem::drop (rx);
+        subject.housekeeper_commander_opt = Some(tx);
+        std::mem::drop(rx);
 
         let change_handler = subject.stop_housekeeping_thread();
 
-        change_handler (AutomapChange::Error(AutomapError::ChangeHandlerUnconfigured));
+        change_handler(AutomapChange::Error(
+            AutomapError::ChangeHandlerUnconfigured,
+        ));
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("WARN: PcpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
         tlh.exists_log_containing("ERROR: PcpTransactor: Change handler recovery failed: discarded Error(ChangeHandlerUnconfigured)");
     }
 
     #[test]
-    #[should_panic (expected = "No JoinHandle: can't stop housekeeping thread")]
+    #[should_panic(expected = "No JoinHandle: can't stop housekeeping thread")]
     fn stop_housekeeping_thread_handles_missing_join_handle() {
         let mut subject = PcpTransactor::default();
         let (tx, _rx) = unbounded();
-        subject.housekeeper_commander_opt = Some (tx);
+        subject.housekeeper_commander_opt = Some(tx);
         subject.join_handle_opt = None;
 
         let _ = subject.stop_housekeeping_thread();
@@ -1577,14 +1590,16 @@ mod tests {
         init_test_logging();
         let mut subject = PcpTransactor::default();
         let (tx, _rx) = unbounded();
-        subject.housekeeper_commander_opt = Some (tx);
-        subject.join_handle_opt = Some (thread::spawn (|| panic! ("Booga!")));
+        subject.housekeeper_commander_opt = Some(tx);
+        subject.join_handle_opt = Some(thread::spawn(|| panic!("Booga!")));
 
         let change_handler = subject.stop_housekeeping_thread();
 
-        change_handler (AutomapChange::Error(AutomapError::CantFindDefaultGateway));
+        change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("WARN: PcpTransactor: Tried to stop housekeeping thread that had panicked");
+        tlh.exists_log_containing(
+            "WARN: PcpTransactor: Tried to stop housekeeping thread that had panicked",
+        );
         tlh.exists_log_containing("ERROR: PcpTransactor: Change handler recovery failed: discarded Error(CantFindDefaultGateway)");
     }
 

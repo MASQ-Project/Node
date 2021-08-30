@@ -1132,10 +1132,12 @@ pub mod standard {
         fn compute_public_ip_opt_returns_none_if_neighborhood_mode_is_zero_hop() {
             let multi_config = make_new_test_multi_config(
                 &app_node(),
-                vec![Box::new(CommandLineVcl::new(ArgsBuilder::new()
-                    .param ("--ip", "1.2.3.4")
-                    .param ("--neighborhood-mode", "zero-hop")
-                    .into()))],
+                vec![Box::new(CommandLineVcl::new(
+                    ArgsBuilder::new()
+                        .param("--ip", "1.2.3.4")
+                        .param("--neighborhood-mode", "zero-hop")
+                        .into(),
+                ))],
             )
             .unwrap();
             let temporary_automap_control = AutomapControlMock::new();

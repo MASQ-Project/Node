@@ -129,7 +129,7 @@ impl Handler<NodeFromUiMessage> for Daemon {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        debug!(&self.logger,"Handing NodeFromUiMessage:\n  {:?}", msg);
+        debug!(&self.logger, "Handing NodeFromUiMessage:\n  {:?}", msg);
         let client_id = msg.client_id;
         if let Ok((setup_request, context_id)) = UiSetupRequest::fmb(msg.body.clone()) {
             self.handle_setup(client_id, context_id, setup_request);

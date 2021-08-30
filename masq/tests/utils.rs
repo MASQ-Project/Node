@@ -78,11 +78,11 @@ pub struct StdinHandle {
 #[allow(dead_code)]
 impl StdinHandle {
     pub fn type_command(&mut self, command: &str) {
-        match self.stdin.write_fmt(format_args! ("{}\n", command)) {
-            Ok (_) => (),
-            Err (e) => {
-                eprintln! ("{}", e);
-                panic! ("type_command failed: {}", e)
+        match self.stdin.write_fmt(format_args!("{}\n", command)) {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("{}", e);
+                panic!("type_command failed: {}", e)
             }
         }
         // short_writeln!(&self.stdin, "{}", command);
