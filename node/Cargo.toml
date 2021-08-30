@@ -21,8 +21,8 @@ chrono = "0.4.7"
 clap = "2.33.3"
 crossbeam-channel = "0.5.0"
 dirs = "2.0.2"
-ethsign = {version = "0.6.1", default-features = false, features = ["pure-rust"]}
-ethsign-crypto = "0.1.0"
+ethsign = {version = "0.8.0", default-features = false, features = ["pure-rust"]}
+ethsign-crypto = "0.2.1"
 ethereum-types = "0.6.0"
 fdlimit = "0.1.1"
 flexi_logger = { version = "0.14.1", features = [ "ziplogs" ] }

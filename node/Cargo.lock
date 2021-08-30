@@ -772,23 +772,23 @@ dependencies = [
 
 [[package]]
 name = "ethsign"
-version = "0.6.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96d29647713ba24ade587139ab8ac200e390ecb49df1e1010f1b2e45e9a0e5e3"
+checksum = "4dfbd5e7c2bd7ab6758207318f4b89028d11f927219a340d9e638bf0038046b4"
 dependencies = [
  "ethsign-crypto",
- "libsecp256k1 0.2.2",
- "memzero",
- "rand 0.6.5",
+ "libsecp256k1 0.3.5",
+ "rand 0.8.3",
  "rustc-hex",
  "serde",
+ "zeroize",
 ]
 
 [[package]]
 name = "ethsign-crypto"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0239998cf14901be86d9b30391fe873da495a80ae848016da4b8ff7cacbbc717"
+checksum = "4e62e068d05d580a2504f51e2a242a9ea4a0cd2a6ba378e13de390efcc1b1753"
 dependencies = [
  "aes-ctr",
  "hmac 0.7.1",
@@ -3786,3 +3786,9 @@ name = "yansi"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fc79f4a1e39857fc00c3f662cbf2651c771f00e9c15fe2abc341806bd46bd71"
+
+[[package]]
+name = "zeroize"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "377db0846015f7ae377174787dd452e1c5f5a9050bc6f954911d01f116daa0cd"

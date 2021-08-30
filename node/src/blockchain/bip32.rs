@@ -7,7 +7,6 @@ use serde::ser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
-use std::num::NonZeroU32;
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::types::Address;
 
@@ -70,7 +69,7 @@ impl Bip32ECKeyPair {
     pub fn clone_secret(&self) -> SecretKey {
         match self.secret.to_crypto(
             &Protected::from("secret"),
-            NonZeroU32::new(1).expect("Could not create"),
+            1,
         ) {
             Ok(crypto) => match SecretKey::from_crypto(&crypto, &Protected::from("secret")) {
                 Ok(secret) => secret,
@@ -131,7 +130,7 @@ impl Serialize for Bip32ECKeyPair {
             .secret
             .to_crypto(
                 &Protected::from("secret"),
-                NonZeroU32::new(1).expect("Could not create"),
+                1,
             )
             .map_err(ser::Error::custom)?;
         result.serialize(serializer)

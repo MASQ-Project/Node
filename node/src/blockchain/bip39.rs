@@ -4,7 +4,6 @@ use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use ethsign::keyfile::Crypto;
 use ethsign::Protected;
 use rustc_hex::{FromHex, ToHex};
-use std::num::NonZeroU32;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Bip39Error {
@@ -33,7 +32,7 @@ impl Bip39 {
         match Crypto::encrypt(
             seed.as_ref(),
             &Protected::new(db_password.as_bytes()),
-            NonZeroU32::new(10240).expect("Internal error"),
+            10240,
         ) {
             Ok(crypto) => match serde_cbor::to_vec(&crypto) {
                 Ok(cipher_seed) => Ok(cipher_seed.to_hex()),
