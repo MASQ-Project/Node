@@ -1,7 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::terminal_interface::{MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE};
-use masq_lib::short_writeln;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
