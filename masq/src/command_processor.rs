@@ -68,7 +68,7 @@ impl CommandProcessor for CommandProcessorReal {
         self.context
             .terminal_interface
             .as_ref()
-            .expect_v("Some(TerminalWrapper)")
+            .expect_v("TerminalWrapper")
     }
 }
 
@@ -115,43 +115,6 @@ mod tests {
                 "Expected Some(CommandError::ConnectionProblem(_); got {:?} instead",
                 x
             ),
-        }
-    }
-
-    #[derive(Debug)]
-    struct TameCommand {
-        sender: Sender<String>,
-    }
-
-    impl<'a> TameCommand {
-        const MESSAGE_IN_PIECES: &'a [&'a str] = &[
-            "This is a message ",
-            "which must be delivered as one piece ",
-            "; we'll do all possible for that. ",
-            "If only we have enough strength and spirit ",
-            "and determination and support and... snacks. ",
-            "Roger.",
-        ];
-
-        fn send_piece_of_whole_message(&self, piece: &str) {
-            self.sender.send(piece.to_string()).unwrap();
-            thread::sleep(Duration::from_millis(1));
-        }
-
-        fn whole_message() -> String {
-            TameCommand::MESSAGE_IN_PIECES
-                .iter()
-                .map(|str| str.to_string())
-                .collect()
-        }
-    }
-
-    impl Command for TameCommand {
-        fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            Self::MESSAGE_IN_PIECES
-                .iter()
-                .for_each(|piece| self.send_piece_of_whole_message(piece));
-            Ok(())
         }
     }
 
@@ -222,5 +185,42 @@ mod tests {
             .count();
         assert_eq!(number_of_broadcast_received, 5);
         stop_handle.stop();
+    }
+
+    #[derive(Debug)]
+    struct TameCommand {
+        sender: Sender<String>,
+    }
+
+    impl<'a> TameCommand {
+        const MESSAGE_IN_PIECES: &'a [&'a str] = &[
+            "This is a message ",
+            "which must be delivered as one piece ",
+            "; we'll do all possible for that. ",
+            "If only we have enough strength and spirit ",
+            "and determination and support and... snacks. ",
+            "Roger.",
+        ];
+
+        fn send_piece_of_whole_message(&self, piece: &str) {
+            self.sender.send(piece.to_string()).unwrap();
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        fn whole_message() -> String {
+            TameCommand::MESSAGE_IN_PIECES
+                .iter()
+                .map(|str| str.to_string())
+                .collect()
+        }
+    }
+
+    impl Command for TameCommand {
+        fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
+            Self::MESSAGE_IN_PIECES
+                .iter()
+                .for_each(|piece| self.send_piece_of_whole_message(piece));
+            Ok(())
+        }
     }
 }

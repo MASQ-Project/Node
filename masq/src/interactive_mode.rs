@@ -58,27 +58,37 @@ fn handle_terminal_event(
 fn handle_args(
     args: &[String],
     streams: &mut StdStreams<'_>,
-    command_factory: &dyn CommandFactory,
-    command_processor: &mut dyn CommandProcessor,
+    c_f: &dyn CommandFactory,
+    c_p: &mut dyn CommandProcessor,
 ) -> InteractiveEvent {
     match args {
         [] => return InteractiveEvent::Continue,
-        [arg] => match arg.as_str() {
-            "exit" => return InteractiveEvent::Break(true),
-            //tested by integration tests
-            "help" | "version" => {
-                return handle_help_or_version(
-                    str,
-                    streams.stdout,
-                    command_processor.terminal_wrapper_ref(),
-                )
+        [arg] => {
+            if let Some(event) = handle_special_args(arg, streams, c_p) {
+                return event;
             }
-            _ => (),
-        },
+        }
         _ => (),
     }
-    let _ = handle_command_common(command_factory, command_processor, args, streams.stderr);
+    let _ = handle_command_common(c_f, c_p, args, streams.stderr);
     InteractiveEvent::Continue
+}
+
+fn handle_special_args(
+    arg: &String,
+    streams: &mut StdStreams<'_>,
+    c_p: &mut dyn CommandProcessor,
+) -> Option<InteractiveEvent> {
+    match arg.as_str() {
+        "exit" => Some(InteractiveEvent::Break(true)),
+        //tested by integration tests
+        "help" | "version" => Some(handle_help_or_version(
+            arg,
+            streams.stdout,
+            c_p.terminal_wrapper_ref(),
+        )),
+        _ => None,
+    }
 }
 
 fn handle_help_or_version(
@@ -156,7 +166,6 @@ mod tests {
     use crate::terminal::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::{
         CommandFactoryMock, CommandProcessorMock, TerminalActiveMock, TerminalPassiveMock,
-        TestStreamFactory,
     };
     use crossbeam_channel::bounded;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};

@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::utils::{DaemonProcess, MasqProcess};
+use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
 use regex::Regex;
 use std::thread;
@@ -60,13 +61,20 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
 }
 
 #[test]
-fn masq_terminates_based_on_the_loss_of_connection_to_the_daemon_integration() {
+fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
+    let dir_path = ensure_node_home_directory_exists(
+        "masq_integration_tests",
+        "masq_terminates_based_on_loss_of_connection_to_the_daemon_integration",
+    );
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(300));
     let mut masq_handle = MasqProcess::new().start_interactive(port, true);
     let mut stdin_handle = masq_handle.create_stdin_handle();
-    stdin_handle.type_command("setup");
+    stdin_handle.type_command(&format!(
+        "setup --data-directory {}",
+        dir_path.to_str().unwrap()
+    ));
     thread::sleep(Duration::from_millis(300));
 
     daemon_handle.kill();
@@ -85,6 +93,10 @@ fn masq_terminates_based_on_the_loss_of_connection_to_the_daemon_integration() {
 
 #[test]
 fn handles_startup_and_shutdown_integration() {
+    let dir_path = ensure_node_home_directory_exists(
+        "masq_integration_tests",
+        "handles_startup_and_shutdown_integration",
+    );
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(200));
@@ -97,6 +109,8 @@ fn handles_startup_and_shutdown_integration() {
         "error",
         "--neighborhood-mode",
         "zero-hop",
+        "--data-directory",
+        dir_path.to_str().unwrap(),
     ]);
 
     let (stdout, stderr, exit_code) = masq_handle.stop();

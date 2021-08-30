@@ -5,9 +5,9 @@ use linefeed::{ReadResult, Signal};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::MASQ_PROMPT;
 use masq_lib::short_writeln;
+use std::error::Error;
 use std::fmt::Debug;
 use std::io::Write;
-use std::error::Error;
 
 //most of the events depends on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
 #[derive(Debug, PartialEq, Clone)]
@@ -37,15 +37,24 @@ impl MasqTerminal for TerminalReal {
     }
 
     fn lock(&self) -> Box<dyn WriterLock + '_> {
-        self.interface.lock_writer_append().expect("lock writer append failed")
+        self.interface
+            .lock_writer_append()
+            .expect("lock writer append failed")
     }
 
     //used because we don't want to see the prompt show up again after this last-second printing operation;
     //to assure a decent screen appearance while the whole app's going down
-    fn lock_without_prompt(&self, streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_> {
+    fn lock_without_prompt(
+        &self,
+        streams: &mut StdStreams,
+        stderr: bool,
+    ) -> Box<dyn WriterLock + '_> {
         let kept_buffer = self.interface.get_buffer();
         self.make_prompt_vanish();
-        let lock = self.interface.lock_writer_append().expect("lock writer append failed");
+        let lock = self
+            .interface
+            .lock_writer_append()
+            .expect("lock writer append failed");
         short_writeln!(
             if !stderr {
                 &mut streams.stdout
@@ -92,7 +101,7 @@ impl TerminalReal {
         self.interface.add_history(line)
     }
 
-    fn dispatch_error_msg<E:Error>(error: E)->TerminalEvent{
+    fn dispatch_error_msg<E: Error>(error: E) -> TerminalEvent {
         TerminalEvent::Error(Some(format!("Reading from the terminal: {}", error)))
     }
 }

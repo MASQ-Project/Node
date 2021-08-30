@@ -28,7 +28,11 @@ macro_rules! improvised_struct_id {
 pub trait MasqTerminal: Send + Sync {
     fn read_line(&self) -> TerminalEvent;
     fn lock(&self) -> Box<dyn WriterLock + '_>;
-    fn lock_without_prompt(&self, streams: &mut StdStreams, stderr: bool) -> Box<dyn WriterLock + '_>;
+    fn lock_without_prompt(
+        &self,
+        streams: &mut StdStreams,
+        stderr: bool,
+    ) -> Box<dyn WriterLock + '_>;
     improvised_struct_id!();
 }
 

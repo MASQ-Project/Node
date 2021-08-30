@@ -552,7 +552,7 @@ mod tests {
     use super::*;
     use crate::communications::node_conversation::ClientError;
     use crate::test_utils::client_utils::make_client;
-    use crossbeam_channel::{TryRecvError, TrySendError};
+    use crossbeam_channel::TryRecvError;
     use masq_lib::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiSetupBroadcast,
     };

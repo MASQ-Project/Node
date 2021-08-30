@@ -34,8 +34,9 @@ fn masq_terminates_because_of_an_interrupt_signal_integration() {
             desired_line.replace(|char: char| char != '.' && char.is_numeric().not(), "");
         if linefeed_version != "0.6.0" {
             panic!("This test must be reconsidered when the version becomes different;\
-        the exampled output I test against fully depends on what humans eyes see at the real masq version;\
-        here linefeed is just mimicked by a mock that could diverge from the way linefeed behaved when this was written")
+        the exampled output I test against fully depends on what human eyes see at the real masq version;\
+        here linefeed is just mimicked by a mock that could hypothetically diverge from the way linefeed \
+        behaved when the feature tested here was written")
         }
     }
     let port = find_free_port();
