@@ -3,7 +3,6 @@
 use crate::shared_schema::{ConfiguratorError, ParamError};
 use crate::utils::WrapResult;
 
-use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
 use regex::Regex;
 use serde::export::Formatter;
