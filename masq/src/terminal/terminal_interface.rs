@@ -93,12 +93,12 @@ impl TerminalWrapper {
 //so to say skeleton which accepts injections of closures where I can exactly say how these mocked, injected
 //constructors shall behave and what it shall produce
 
-fn interface_configurator<Term, Itf, TeConstructor, ItfConstructor>(
-    construct_typed_terminal: Box<TeConstructor>,
+fn interface_configurator<Term, Itf, TermConstructor, ItfConstructor>(
+    construct_typed_terminal: Box<TermConstructor>,
     construct_interface: Box<ItfConstructor>,
 ) -> Result<TerminalReal, String>
 where
-    TeConstructor: FnOnce() -> std::io::Result<Term>,
+    TermConstructor: FnOnce() -> std::io::Result<Term>,
     ItfConstructor: FnOnce(&'static str, Term) -> std::io::Result<Itf>,
     Term: linefeed::Terminal,
     Itf: InterfaceWrapper + 'static,
@@ -106,8 +106,8 @@ where
     let mut interface: Box<Itf> = construct_typed_terminal()
         .map_err(|e| format!("Local terminal recognition: {}", e))?
         .chain_constructors(construct_interface)
-        .map_err(|e| format!("Preparing terminal interface: {}", e))
-        .map(Box::new)?;
+        .map(Box::new)
+        .map_err(|e| format!("Preparing terminal interface: {}", e))?;
 
     set_all_settable_parameters(interface.as_mut())?;
 
@@ -246,9 +246,9 @@ mod tests {
     #[test]
     fn configure_interface_catches_an_error_at_initiating_a_terminal_of_a_certain_type() {
         let result = interface_configurator(
-                Box::new(producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error),
-                Box::new(Interface::with_term)
-            );
+            Box::new(constructor_of_default_terminal_resulting_in_immediate_error),
+            Box::new(Interface::with_term),
+        );
 
         let err_message = if let Err(e) = result {
             e
@@ -264,7 +264,7 @@ mod tests {
         )
     }
 
-    fn producer_of_terminal_type_initializer_simulating_default_terminal_and_resulting_in_immediate_error(
+    fn constructor_of_default_terminal_resulting_in_immediate_error(
     ) -> std::io::Result<impl linefeed::Terminal> {
         Err(Error::from_raw_os_error(1)) as std::io::Result<DefaultTerminal>
     }
@@ -286,7 +286,7 @@ mod tests {
     fn configure_interface_catches_an_error_when_creating_an_interface_instance() {
         let result = interface_configurator(
             Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
-            Box::new(producer_of_interface_raw_resulting_in_an_early_error),
+            Box::new(constructor_of_interface_raw_resulting_in_early_error),
         );
 
         let err_message = if let Err(e) = result {
@@ -303,7 +303,7 @@ mod tests {
         )
     }
 
-    fn producer_of_interface_raw_resulting_in_an_early_error(
+    fn constructor_of_interface_raw_resulting_in_early_error(
         _name: &str,
         _terminal: impl linefeed::Terminal,
     ) -> std::io::Result<impl InterfaceWrapper + Send + Sync + 'static> {
@@ -318,8 +318,8 @@ mod tests {
             Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
             Box::new(|_name, _terminal| {
                 Ok(InterfaceRawMock::new()
-                    .set_prompt_result(Err(Error::from_raw_os_error(10)))
-                    .set_prompt_params(&set_prompt_params_arc))
+                    .set_prompt_params(&set_prompt_params_arc)
+                    .set_prompt_result(Err(Error::from_raw_os_error(10))))
             }),
         );
 
@@ -344,8 +344,8 @@ mod tests {
             Box::new(TerminalWrapper::result_wrapper_for_in_memory_terminal),
             Box::new(|_name, _terminal| {
                 Ok(InterfaceRawMock::new()
-                    .set_prompt_result(Ok(()))
-                    .set_report_signal_params(&set_report_signal_arc))
+                    .set_report_signal_params(&set_report_signal_arc)
+                    .set_prompt_result(Ok(())))
             }),
         );
 

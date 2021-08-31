@@ -75,11 +75,11 @@ fn handle_args(
 }
 
 fn handle_special_args(
-    arg: &String,
+    arg: &str,
     streams: &mut StdStreams<'_>,
     c_p: &mut dyn CommandProcessor,
 ) -> Option<InteractiveEvent> {
-    match arg.as_str() {
+    match arg {
         "exit" => Some(InteractiveEvent::Break(true)),
         //tested by integration tests
         "help" | "version" => Some(handle_help_or_version(

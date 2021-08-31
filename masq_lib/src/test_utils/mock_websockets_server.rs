@@ -164,13 +164,6 @@ impl MockWebSocketsServer {
                                 );
                             }
                         }
-                    } else if matches!(incoming.as_ref().unwrap_err().as_str(), "Close(None)") {
-                        log(
-                            do_log,
-                            index,
-                            "Received an order in the incoming message to destruct the connection",
-                        );
-                        break;
                     } else {
                         log(
                             do_log,

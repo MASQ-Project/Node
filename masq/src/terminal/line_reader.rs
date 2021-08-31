@@ -133,7 +133,7 @@ fn split_quoted_line(input: String) -> Vec<String> {
     pieces
 }
 
-pub fn split_quoted_line_for_integration_tests(input: String) -> Vec<String> {
+pub fn split_quoted_line_for_fake_terminals_in_tests(input: String) -> Vec<String> {
     split_quoted_line(input)
 }
 

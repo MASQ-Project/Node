@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::line_reader::{split_quoted_line_for_integration_tests, TerminalEvent};
+use crate::terminal::line_reader::{split_quoted_line_for_fake_terminals_in_tests, TerminalEvent};
 use crate::terminal::secondary_infrastructure::{MasqTerminal, WriterLock};
 use crossbeam_channel::{bounded, Sender, TryRecvError};
 use ctrlc;
@@ -78,7 +78,7 @@ impl IntegrationTestTerminalConsole {
             self.write_with_sync("\n");
         }
         let _ = result_sender.send(TerminalEvent::CommandLine(
-            split_quoted_line_for_integration_tests(captured_command_line),
+            split_quoted_line_for_fake_terminals_in_tests(captured_command_line),
         ));
     }
 

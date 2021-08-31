@@ -65,7 +65,7 @@ impl NodeConversation {
 
     pub fn send(&self, outgoing_msg: MessageBody) -> Result<(), ClientError> {
         if let MessagePath::Conversation(_) = outgoing_msg.path {
-            panic! ("Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeCoversation::transact() instead.")
+            panic! ("Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeConversation::transact() instead.")
         }
         match self
             .conversations_to_manager_tx

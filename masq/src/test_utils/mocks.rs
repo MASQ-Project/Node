@@ -515,12 +515,12 @@ impl Write for StdoutBlender {
 
 #[derive(Clone)]
 pub struct TerminalPassiveMock {
-    read_line_result: Arc<Mutex<Vec<TerminalEvent>>>,
+    read_line_results: Arc<Mutex<Vec<TerminalEvent>>>,
 }
 
 impl MasqTerminal for TerminalPassiveMock {
     fn read_line(&self) -> TerminalEvent {
-        self.read_line_result.lock().unwrap().remove(0)
+        self.read_line_results.lock().unwrap().remove(0)
     }
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(WriterInactive {})
@@ -533,11 +533,11 @@ impl MasqTerminal for TerminalPassiveMock {
 impl TerminalPassiveMock {
     pub fn new() -> Self {
         Self {
-            read_line_result: Arc::new(Mutex::new(vec![])),
+            read_line_results: Arc::new(Mutex::new(vec![])),
         }
     }
     pub fn read_line_result(self, result: TerminalEvent) -> Self {
-        self.read_line_result.lock().unwrap().push(result);
+        self.read_line_results.lock().unwrap().push(result);
         self
     }
 }
@@ -546,13 +546,16 @@ impl TerminalPassiveMock {
 
 pub struct TerminalActiveMock {
     in_memory_terminal: Interface<MemoryTerminal>,
-    user_input: Arc<Mutex<Vec<String>>>,
+    read_line_results: Arc<Mutex<Vec<TerminalEvent>>>,
 }
 
 impl MasqTerminal for TerminalActiveMock {
     fn read_line(&self) -> TerminalEvent {
-        let line = self.user_input.lock().unwrap().borrow_mut().remove(0);
-        TerminalEvent::CommandLine(vec![line])
+        self.read_line_results
+            .lock()
+            .unwrap()
+            .borrow_mut()
+            .remove(0)
     }
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
@@ -575,16 +578,16 @@ impl TerminalActiveMock {
                 MemoryTerminal::new().clone(),
             )
             .unwrap(),
-            user_input: Arc::new(Mutex::new(vec![])),
+            read_line_results: Arc::new(Mutex::new(vec![])),
         }
     }
 
-    pub fn read_line_result(self, line: String) -> Self {
-        self.user_input
+    pub fn read_line_result(self, event: TerminalEvent) -> Self {
+        self.read_line_results
             .lock()
             .unwrap()
             .borrow_mut()
-            .push(format!("{}\n", line));
+            .push(event);
         self
     }
 }
