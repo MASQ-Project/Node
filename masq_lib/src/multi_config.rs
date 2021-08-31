@@ -2,7 +2,8 @@
 
 use crate::shared_schema::{ConfiguratorError, ParamError};
 use crate::utils::WrapResult;
-
+#[allow(unused_imports)]
+use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
 use regex::Regex;
 use serde::export::Formatter;
