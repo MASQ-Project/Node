@@ -261,8 +261,9 @@ pub mod standard {
             compute_mapping_protocol_opt(multi_config, persistent_config);
         unprivileged_config.automap_public_ip_opt = compute_public_ip_opt(
             multi_config,
-            temporary_automap_control_factory,
             unprivileged_config,
+            persistent_config,
+            temporary_automap_control_factory,
         );
         let mnc_result = {
             get_wallets(
@@ -512,8 +513,9 @@ pub mod standard {
 
     fn compute_public_ip_opt(
         multi_config: &MultiConfig,
-        factory: &dyn AutomapControlFactory,
         config: &mut BootstrapperConfig,
+        persistent_config: &mut dyn PersistentConfiguration,
+        factory: &dyn AutomapControlFactory,
     ) -> Option<IpAddr> {
         if value_m!(multi_config, "neighborhood-mode", String) == Some("zero-hop".to_string()) {
             return None;
@@ -526,6 +528,10 @@ pub mod standard {
                 match automap_control.get_public_ip() {
                     Ok(public_ip) => {
                         config.mapping_protocol_opt = automap_control.get_mapping_protocol();
+                        match persistent_config.set_mapping_protocol (config.mapping_protocol_opt) {
+                            Ok (_) => (),
+                            Err (e) => todo! ("{:?}", e),
+                        }
                         Some(public_ip)
                     }
                     Err(_) => None,
@@ -1120,8 +1126,9 @@ pub mod standard {
 
             let result = compute_public_ip_opt(
                 &multi_config,
-                &temporary_automap_control_factory,
                 &mut config,
+                &mut make_default_persistent_configuration(),
+                &temporary_automap_control_factory,
             );
 
             assert_eq!(result, None);
@@ -1148,8 +1155,9 @@ pub mod standard {
 
             let result = compute_public_ip_opt(
                 &multi_config,
-                &temporary_automap_control_factory,
                 &mut config,
+                &mut make_default_persistent_configuration(),
+                &temporary_automap_control_factory,
             );
 
             assert_eq!(result, None);
@@ -1982,7 +1990,7 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let temporary_automap_control = AutomapControlMock::new();
+        let temporary_automap_control = AutomapControlMock::new(); // Don't use it; --mapping-protocol and --ip are specified
         let automap_control_factory =
             AutomapControlFactoryMock::new().make_result(temporary_automap_control);
 
@@ -2048,15 +2056,19 @@ mod tests {
             .get_mapping_protocol_result(Some(AutomapProtocol::Igdp));
         let automap_control_factory =
             AutomapControlFactoryMock::new().make_result(temporary_automap_control);
+        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
+        let mut persistent_config = make_default_persistent_configuration()
+            .mapping_protocol_result(Ok(None))
+            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+            .set_mapping_protocol_result(Ok(()))
+            .set_mapping_protocol_result(Ok(()))
+            .check_password_result(Ok(false));
 
         standard::unprivileged_parse_args(
             &multi_config,
             &mut config,
             &mut FakeStreamHolder::new().streams(),
-            &mut make_default_persistent_configuration()
-                .mapping_protocol_result(Ok(None))
-                .set_mapping_protocol_result(Ok(()))
-                .check_password_result(Ok(false)),
+            &mut persistent_config,
             &automap_control_factory,
         )
         .unwrap();
@@ -2087,6 +2099,8 @@ mod tests {
             config.automap_public_ip_opt,
             Some(IpAddr::from_str("192.168.0.17").unwrap())
         );
+        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
+        assert_eq! (*set_mapping_protocol_params, vec![None, Some (AutomapProtocol::Igdp)])
     }
 
     #[test]
@@ -2102,23 +2116,26 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_configuration = make_persistent_config(
-            None,
-            Some("password"),
-            None,
-            None,
-            None,
-            Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
-        )
-        .past_neighbors_params(&past_neighbors_params_arc);
+                None,
+                Some("password"),
+                None,
+                None,
+                None,
+                Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
+            )
+            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+            .past_neighbors_params(&past_neighbors_params_arc);
+        let temporary_automap_control = AutomapControlMock::new();
 
         standard::unprivileged_parse_args(
             &multi_config,
             &mut config,
             &mut FakeStreamHolder::new().streams(),
             &mut persistent_configuration,
-            &make_temporary_automap_control_factory(None, None),
+            &AutomapControlFactoryMock::new().make_result(temporary_automap_control),
         )
         .unwrap();
 
@@ -2132,14 +2149,14 @@ mod tests {
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(past_neighbors_params[0], "password".to_string());
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
+        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
+        assert_eq! (*set_mapping_protocol_params, vec![]);
     }
 
     #[test]
-    fn unprivileged_parse_args_with_mapping_protocol_on_command_line_but_not_in_database() {
+    fn privileged_parse_args_with_no_command_line_params() {
         running_test();
-        let args = ArgsBuilder::new()
-            .param("--ip", "1.2.3.4") // TODO: Figure out whether this should be removable
-            .param("--mapping-protocol", "pcp");
+        let args = ArgsBuilder::new();
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
@@ -2212,6 +2229,7 @@ mod tests {
             .get_mapping_protocol_result(Some(AutomapProtocol::Pmp));
         let automap_control_factory =
             AutomapControlFactoryMock::new().make_result(temporary_automap_control);
+        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
 
         standard::unprivileged_parse_args(
             &multi_config,
@@ -2219,6 +2237,8 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &mut make_default_persistent_configuration()
                 .mapping_protocol_result(Ok(None))
+                .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+                .set_mapping_protocol_result(Ok(()))
                 .set_mapping_protocol_result(Ok(()))
                 .check_password_result(Ok(false)),
             &automap_control_factory,
@@ -2230,6 +2250,8 @@ mod tests {
             config.automap_public_ip_opt,
             Some(IpAddr::from_str("1.2.3.4").unwrap())
         );
+        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
+        assert_eq! (*set_mapping_protocol_params, vec![None, Some(AutomapProtocol::Pmp)])
     }
 
     fn make_persistent_config(
