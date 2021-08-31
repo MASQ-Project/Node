@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-#![allow(unused_imports)]
+
 use crate::shared_schema::{ConfiguratorError, ParamError};
 use crate::utils::WrapResult;
 

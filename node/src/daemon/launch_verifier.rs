@@ -334,7 +334,6 @@ mod tests {
     }
 
     #[test]
-
     fn can_connect_to_ui_gateway_handles_success() {
         use crossbeam_channel::unbounded;
         let port = find_free_port();

@@ -142,6 +142,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
+    use crossbeam_channel::unbounded;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::utils::find_free_port;
@@ -405,7 +406,6 @@ mod tests {
 
     #[test]
     fn shutdown_awaiter_sad_path() {
-        use crossbeam_channel::unbounded;
         let port = find_free_port();
         let server = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
         server.set_nonblocking(true).unwrap();
