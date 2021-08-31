@@ -253,6 +253,8 @@ mod tests {
     use core_foundation::propertylist::CFPropertyListSubClass;
     use core_foundation::string::CFString;
     use std::cell::RefCell;
+    use std::sync::Arc;
+    use std::sync::Mutex;
 
     struct StoreWrapperMock {
         get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>>,
