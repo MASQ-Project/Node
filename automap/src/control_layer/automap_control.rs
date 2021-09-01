@@ -282,6 +282,7 @@ impl AutomapControlReal {
                     router_ip,
                     transactor_idx: self.find_transactor_index(protocol),
                 });
+                self.usual_protocol_opt = Some (protocol);
                 Ok(ProtocolInfo {
                     payload: t,
                     router_ip,
@@ -1076,6 +1077,43 @@ mod tests {
         let result = subject.get_mapping_protocol();
 
         assert_eq!(result, Some(AutomapProtocol::Pmp));
+    }
+
+    #[test]
+    fn get_public_ip_establishes_usual_mapping_protocol() {
+        let (tx, rx) = unbounded();
+        let mut subject = make_general_success_subject(
+            AutomapProtocol::Pcp,
+            &Arc::new (Mutex::new(vec![])),
+            &Arc::new (Mutex::new(vec![])),
+            &Arc::new (Mutex::new(vec![])),
+            tx,
+        );
+        subject.change_handler_opt = Some(Box::new(|_| {}));
+        subject.inner_opt = None;
+
+        let result = subject.get_public_ip();
+
+        assert_eq! (subject.get_mapping_protocol(), Some (AutomapProtocol::Pcp));
+    }
+
+    #[test]
+    fn add_mapping_establishes_usual_mapping_protocol() {
+        let (tx, rx) = unbounded();
+        let mut subject = make_general_success_subject(
+            AutomapProtocol::Pcp,
+            &Arc::new (Mutex::new(vec![])),
+            &Arc::new (Mutex::new(vec![])),
+            &Arc::new (Mutex::new(vec![])),
+            tx,
+        );
+        subject.inner_opt = None;
+        subject.change_handler_opt = Some(Box::new(|_| {}));
+        subject.housekeeping_thread_commander_opt = None;
+
+        subject.add_mapping(4567).unwrap();
+
+        assert_eq! (subject.get_mapping_protocol(), Some (AutomapProtocol::Pcp));
     }
 
     #[test]

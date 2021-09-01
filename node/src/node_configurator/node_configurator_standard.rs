@@ -502,6 +502,7 @@ pub mod standard {
         ) {
             (None, Some(persisted_mapping_protocol)) => Some(persisted_mapping_protocol),
             (cmd_line_mapping_protocol_opt, _) => {
+eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", cmd_line_mapping_protocol_opt);
                 match persistent_config.set_mapping_protocol(cmd_line_mapping_protocol_opt) {
                     Ok(_) => (),
                     Err(e) => todo!("Log warning and continue: {:?}", e),
@@ -528,6 +529,7 @@ pub mod standard {
                 match automap_control.get_public_ip() {
                     Ok(public_ip) => {
                         config.mapping_protocol_opt = automap_control.get_mapping_protocol();
+eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.mapping_protocol_opt);
                         match persistent_config.set_mapping_protocol (config.mapping_protocol_opt) {
                             Ok (_) => (),
                             Err (e) => todo! ("{:?}", e),

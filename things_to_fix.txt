@@ -1,7 +1,6 @@
 * multinode_integration_tests won't build
-* masq setup consults the router even if there's already a known IP address
-* the Daemon doesn't populate mapping_protocol in the database
-* the Node doesn't populate mapping_protocol in the database
+* Config dumper shows null value for mappingProtocol when populated
+* the Daemon shows mapping_protocol as blank in its setup
 * masq's configuration command doesn't report mapping_protocol
 * the database schema version hasn't been updated for mapping_protocol
 * todos in node_configurator_standard.rs
