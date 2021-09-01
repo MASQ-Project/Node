@@ -18,7 +18,6 @@ use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::WrapResult;
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::io::{Read, Write};
@@ -551,11 +550,7 @@ pub struct TerminalActiveMock {
 
 impl MasqTerminal for TerminalActiveMock {
     fn read_line(&self) -> TerminalEvent {
-        self.read_line_results
-            .lock()
-            .unwrap()
-            .borrow_mut()
-            .remove(0)
+        self.read_line_results.lock().unwrap().remove(0)
     }
     fn lock(&self) -> Box<dyn WriterLock + '_> {
         Box::new(self.in_memory_terminal.lock_writer_append().unwrap())
@@ -582,12 +577,9 @@ impl TerminalActiveMock {
         }
     }
 
+    //seems like dead code according to the search tool but the responsibility for properly tested code is taken by TerminalPassiveMock
     pub fn read_line_result(self, event: TerminalEvent) -> Self {
-        self.read_line_results
-            .lock()
-            .unwrap()
-            .borrow_mut()
-            .push(event);
+        self.read_line_results.lock().unwrap().push(event);
         self
     }
 }
@@ -604,7 +596,7 @@ impl WriterLock for WriterInactive {
 
 #[derive(Default)]
 pub struct InterfaceRawMock {
-    //this mock seems crippled, but the seeming overuse of Arc<Mutex<>> stems from InterfaceRawMock requires Send and Sync
+    //this mock seems crippled, but the seeming overuse of Arc<Mutex<>> stems from InterfaceRawMock requires Sync
     read_line_results: Arc<Mutex<Vec<std::io::Result<ReadResult>>>>,
     add_history_unique_params: Arc<Mutex<Vec<String>>>,
     set_prompt_params: Arc<Mutex<Vec<String>>>,

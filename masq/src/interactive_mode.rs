@@ -58,26 +58,26 @@ fn handle_terminal_event(
 fn handle_args(
     args: &[String],
     streams: &mut StdStreams<'_>,
-    c_f: &dyn CommandFactory,
-    c_p: &mut dyn CommandProcessor,
+    command_factory: &dyn CommandFactory,
+    command_processor: &mut dyn CommandProcessor,
 ) -> InteractiveEvent {
     match args {
         [] => return InteractiveEvent::Continue,
         [arg] => {
-            if let Some(event) = handle_special_args(arg, streams, c_p) {
+            if let Some(event) = handle_special_args(arg, streams, command_processor) {
                 return event;
             }
         }
         _ => (),
     }
-    let _ = handle_command_common(c_f, c_p, args, streams.stderr);
+    let _ = handle_command_common(command_factory, command_processor, args, streams.stderr);
     InteractiveEvent::Continue
 }
 
 fn handle_special_args(
     arg: &str,
     streams: &mut StdStreams<'_>,
-    c_p: &mut dyn CommandProcessor,
+    command_processor: &mut dyn CommandProcessor,
 ) -> Option<InteractiveEvent> {
     match arg {
         "exit" => Some(InteractiveEvent::Break(true)),
@@ -85,7 +85,7 @@ fn handle_special_args(
         "help" | "version" => Some(handle_help_or_version(
             arg,
             streams.stdout,
-            c_p.terminal_wrapper_ref(),
+            command_processor.terminal_wrapper_ref(),
         )),
         _ => None,
     }

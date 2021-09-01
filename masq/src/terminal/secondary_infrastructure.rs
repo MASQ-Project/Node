@@ -84,10 +84,6 @@ impl<U: linefeed::Terminal> InterfaceWrapper for Interface<U> {
         self.set_buffer(text)
     }
 
-    // // fn clear_buffer(&self) {
-    //      self.set_buffer("").expect("clearing buffer failed")
-    //  }
-
     fn set_prompt(&self, prompt: &str) -> std::io::Result<()> {
         self.set_prompt(prompt)
     }

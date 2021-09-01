@@ -71,9 +71,9 @@ impl Default for IntegrationTestTerminal {
 impl IntegrationTestTerminalConsole {
     fn input_reader(&mut self, result_sender: Sender<TerminalEvent>) {
         self.write_with_sync(MASQ_PROMPT);
-        // //the lock must not surround the read point
+        //the lock must not surround the read point
         let captured_command_line = self.read_input();
-        // //because of specific arrangement based on the combination of linefeed + Clap
+        //because of specific arrangement based on the combination of linefeed + Clap
         if captured_command_line.trim() == "version" || captured_command_line.trim() == "help" {
             self.write_with_sync("\n");
         }

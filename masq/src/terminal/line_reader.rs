@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    //unfortunately, I haven't been 't able to write a stronger test for this
+    //unfortunately, I haven't been able to write a stronger test for this
     fn lock_without_prompt_utilizes_inner_components_properly() {
         let set_buffer_params_arc = Arc::new(Mutex::new(vec![]));
         let set_prompt_params_arc = Arc::new(Mutex::new(vec![]));

@@ -14,11 +14,8 @@ use std::thread;
 use std::time::Duration;
 
 #[test]
-#[ignore]
-#[allow(unused_variables)] // 'node' below must not become '_' or disappear, or the
-                           // MASQNode will be immediately reclaimed.
 fn tls_through_node_integration() {
-    let node = utils::MASQNode::start_standard("tls_through_node_integration", None, true);
+    let _node = utils::MASQNode::start_standard("tls_through_node_integration", None, true);
 
     let mut tls_stream = {
         let mut tls_stream: Option<TlsStream<TcpStream>> = None;
@@ -58,7 +55,7 @@ fn tls_through_node_integration() {
         .write(request.clone())
         .expect("Could not write request to TLS stream");
     let buf = read_until_timeout(&mut tls_stream);
-    let _ = tls_stream.shutdown().is_ok(); // Can't do anything about an error here
+    let _ = tls_stream.shutdown(); // Can't do anything about an error here
 
     let response = String::from_utf8(Vec::from(&buf[..])).expect("Response is not UTF-8");
     assert_eq!(&response[9..15], &"200 OK"[..]);

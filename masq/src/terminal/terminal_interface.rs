@@ -24,7 +24,7 @@ mod test_cfg {
     pub use masq_lib::intentionally_blank;
 }
 
-//Unlike linefeed is designed to be used, I stick with using the system stdout handles for writing into them instead of the custom handles provided from linefeed.
+//Unlike the linefeed library is designed to be used, I stick with using the system stdout handles for writing into them instead of the custom handles provided from linefeed.
 //I take benefits from linefeed's synchronization abilities, and other handy stuff it offers, while the implementation stays simpler than if I'd had to
 //distribute the nonstandard, custom handles over a lot of places in our code.
 
@@ -122,7 +122,7 @@ where
         .set_prompt(MASQ_PROMPT)
         .map_err(|e| format!("Setting prompt: {}", e))?;
 
-    //according to linefeed docs we await no failure here
+    //according to linefeed's docs we await no failure here
     interface.set_report_signal(Signal::Interrupt, true);
 
     //here we can add another parameter to be configured,
