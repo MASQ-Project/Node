@@ -45,7 +45,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Addr;
@@ -60,8 +60,9 @@ use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
-use masq_lib::messages::FromMessageBody;
+use masq_lib::crash_point::CrashPoint;
 use masq_lib::messages::UiShutdownRequest;
+use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue};
 use neighborhood_database::NeighborhoodDatabase;
@@ -87,6 +88,7 @@ pub struct Neighborhood {
     next_return_route_id: u32,
     initial_neighbors: Vec<NodeDescriptor>,
     chain_id: u8,
+    crashable: bool,
     data_directory: PathBuf,
     persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
     db_password_opt: Option<String>,
@@ -265,8 +267,10 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body) {
+        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.clone().body) {
             self.handle_shutdown_order(client_id, body);
+        } else if let Ok((body, _)) = UiCrashRequest::fmb(msg.body) {
+            handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }
@@ -366,6 +370,7 @@ impl Neighborhood {
             consuming_wallet_opt: config.consuming_wallet.clone(),
             next_return_route_id: 0,
             initial_neighbors,
+            crashable: config.crash_point == CrashPoint::Message,
             chain_id: config.blockchain_bridge_config.chain_id,
             data_directory: config.data_directory.clone(),
             persistent_config_opt: None,

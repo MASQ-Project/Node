@@ -362,6 +362,7 @@ pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
         from_hopper_client: recipient!(addr, IncipientCoresPackage),
         from_hopper_client_no_lookup: recipient!(addr, NoLookupIncipientCoresPackage),
         from_dispatcher: recipient!(addr, InboundClientData),
+        node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
 

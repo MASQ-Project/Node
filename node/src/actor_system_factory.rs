@@ -127,6 +127,7 @@ impl ActorSystemFactoryReal {
                 .clone()
                 .routing_byte_rate,
             is_decentralized: config.neighborhood_config.mode.is_decentralized(),
+            crashable: ActorFactoryReal::find_out_crashable(&config),
         });
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
@@ -266,7 +267,8 @@ impl ActorFactory for ActorFactoryReal {
     }
 
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
-        let addr: Addr<Hopper> = Arbiter::start(|_| Hopper::new(config));
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<Hopper> = arbiter.start(|_| Hopper::new(config));
         Hopper::make_subs_from(&addr)
     }
 
@@ -276,8 +278,9 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
         let config_clone = config.clone();
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Neighborhood> =
-            Arbiter::start(move |_| Neighborhood::new(cryptde, &config_clone));
+            arbiter.start(move |_| Neighborhood::new(cryptde, &config_clone));
         Neighborhood::make_subs_from(&addr)
     }
 
@@ -316,7 +319,8 @@ impl ActorFactory for ActorFactoryReal {
             config.blockchain_bridge_config.chain_id,
             false,
         );
-        let addr: Addr<Accountant> = Arbiter::start(move |_| {
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
                 &cloned_config,
                 Box::new(payable_dao_factory),
@@ -428,6 +432,7 @@ mod tests {
     use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, ReportAccountsPayable};
     use crate::sub_lib::configurator::NewPasswordMessage;
     use crate::sub_lib::cryptde::PlainData;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
@@ -454,14 +459,14 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::{stream_handler_pool, ui_gateway};
+    use crate::{accountant, hopper, neighborhood, stream_handler_pool, ui_gateway};
     use actix::Message;
     use actix::{Context, Handler, System};
     use crossbeam_channel::{bounded, Sender};
     use log::LevelFilter;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;
@@ -569,6 +574,7 @@ mod tests {
                     .clone()
                     .recipient::<NoLookupIncipientCoresPackage>(),
                 from_dispatcher: recipient!(addr, InboundClientData),
+                node_from_ui: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -1101,6 +1107,70 @@ mod tests {
         assert_eq!(consuming_wallet_balance, None);
     }
 
+    static mut CRYPTDE_TESTING: Option<Box<dyn CryptDE>> = None;
+
+    unsafe fn set_cryptde_test() {
+        CRYPTDE_TESTING = Some(Box::new(CryptDENull::new(1)))
+    }
+
+    #[test]
+    fn hopper_drags_down_the_whole_system_due_to_local_panic() {
+        unsafe { set_cryptde_test() }
+        let closure = || unsafe {
+            let hopper_config = HopperConfig {
+                main_cryptde: CRYPTDE_TESTING.as_ref().unwrap().as_ref(),
+                alias_cryptde: CRYPTDE_TESTING.as_ref().unwrap().as_ref(),
+                per_routing_service: 100,
+                per_routing_byte: 50,
+                is_decentralized: false,
+                crashable: true,
+            };
+            let subscribers = ActorFactoryReal {}.make_and_start_hopper(hopper_config);
+            subscribers.node_from_ui
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), hopper::CRASH_KEY)
+    }
+
+    #[test]
+    fn neighborhood_drags_down_the_whole_system_due_to_local_panic() {
+        unsafe { set_cryptde_test() };
+        let closure = || unsafe {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers = ActorFactoryReal {}.make_and_start_neighborhood(
+                CRYPTDE_TESTING.as_ref().unwrap().as_ref(),
+                &bootstrapper_config,
+            );
+            subscribers.from_ui_message_sub
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), neighborhood::CRASH_KEY)
+    }
+
+    #[test]
+    fn accountant_drags_down_the_whole_system_due_to_local_panic() {
+        let dir_path = ensure_node_home_directory_exists(
+            "actor_system_factory",
+            "accountant_drags_down_the_whole_system_due_to_local_panic",
+        );
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let db_initializer = DbInitializerMock::default()
+                .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
+            let subscribers = ActorFactoryReal {}.make_and_start_accountant(
+                &bootstrapper_config,
+                dir_path.as_path(),
+                &db_initializer,
+                &BannedCacheLoaderMock::default(),
+            );
+            subscribers.ui_message_sub
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), accountant::CRASH_KEY)
+    }
+
     #[test]
     fn ui_gateway_drags_down_the_whole_system_due_to_local_panic() {
         let closure = || {
@@ -1110,7 +1180,7 @@ mod tests {
             subscribers.node_from_ui_message_sub
         };
 
-        simulate_panic_in_arbiter_thread_versus_system(Box::new(closure), ui_gateway::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(Box::new(closure), ui_gateway::CRASH_KEY)
     }
 
     #[test]
@@ -1123,10 +1193,7 @@ mod tests {
             subscribers.node_from_ui_sub
         };
 
-        simulate_panic_in_arbiter_thread_versus_system(
-            Box::new(closure),
-            stream_handler_pool::CRASH_KEY,
-        )
+        panic_in_arbiter_thread_versus_system(Box::new(closure), stream_handler_pool::CRASH_KEY)
     }
 
     #[test]
@@ -1144,10 +1211,7 @@ mod tests {
             subscribers.ui_sub
         };
 
-        simulate_panic_in_arbiter_thread_versus_system(
-            Box::new(closure),
-            blockchain_bridge::CRASH_KEY,
-        )
+        panic_in_arbiter_thread_versus_system(Box::new(closure), blockchain_bridge::CRASH_KEY)
     }
 
     #[test]
@@ -1159,13 +1223,11 @@ mod tests {
             subscribers.node_from_ui_sub
         };
 
-        simulate_panic_in_arbiter_thread_versus_system(Box::new(closure), configurator::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(Box::new(closure), configurator::CRASH_KEY)
     }
 
-    fn simulate_panic_in_arbiter_thread_versus_system<F>(
-        actor_initialization: Box<F>,
-        actor_crash_key: &str,
-    ) where
+    fn panic_in_arbiter_thread_versus_system<F>(actor_initialization: Box<F>, actor_crash_key: &str)
+    where
         F: FnOnce() -> Recipient<NodeFromUiMessage>,
     {
         let (mercy_signal_tx, mercy_signal_rx) = bounded(1);

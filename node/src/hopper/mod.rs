@@ -10,13 +10,16 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{HopperConfig, NoLookupIncipientCoresPackage};
+use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use consuming_service::ConsumingService;
+use masq_lib::messages::{FromMessageBody, UiCrashRequest};
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use routing_service::RoutingService;
 
 pub const CRASH_KEY: &str = "HOPPER";
@@ -29,6 +32,8 @@ pub struct Hopper {
     per_routing_service: u64,
     per_routing_byte: u64,
     is_decentralized: bool,
+    logger: Logger,
+    crashable: bool,
 }
 
 impl Actor for Hopper {
@@ -104,6 +109,16 @@ impl Handler<InboundClientData> for Hopper {
     }
 }
 
+impl Handler<NodeFromUiMessage> for Hopper {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
+            handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY)
+        }
+    }
+}
+
 impl Hopper {
     pub fn new(config: HopperConfig) -> Hopper {
         Hopper {
@@ -111,9 +126,11 @@ impl Hopper {
             alias_cryptde: config.alias_cryptde,
             consuming_service: None,
             routing_service: None,
+            crashable: config.crashable,
             per_routing_service: config.per_routing_service,
             per_routing_byte: config.per_routing_byte,
             is_decentralized: config.is_decentralized,
+            logger: Logger::new("Hopper"),
         }
     }
 
@@ -123,6 +140,7 @@ impl Hopper {
             from_hopper_client: recipient!(addr, IncipientCoresPackage),
             from_hopper_client_no_lookup: recipient!(addr, NoLookupIncipientCoresPackage),
             from_dispatcher: recipient!(addr, InboundClientData),
+            node_from_ui: recipient!(addr, NodeFromUiMessage),
         }
     }
 }
@@ -184,6 +202,7 @@ mod tests {
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
+            crashable: false,
         });
         let subject_addr: Addr<Hopper> = subject.start();
 
@@ -224,6 +243,7 @@ mod tests {
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
+            crashable: false,
         });
         let subject_addr: Addr<Hopper> = subject.start();
 
