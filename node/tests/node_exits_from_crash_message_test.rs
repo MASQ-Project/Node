@@ -88,6 +88,14 @@ fn node_exits_from_stream_handler_pool_panic_integration() {
     );
 }
 
+#[test]
+fn node_exits_configurator_panic_integration() {
+    start_node_and_request_crash(
+        "node_exits_configurator_panic_integration",
+        node_lib::node_configurator::configurator::CRASH_KEY,
+    );
+}
+
 fn start_node_and_request_crash(dir_name: &str, crash_key: &str) {
     let port = find_free_port();
     let panic_config = CommandConfig::new()

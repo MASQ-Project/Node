@@ -31,7 +31,7 @@ pub enum InitializationError {
     DbMigrationError(String),
 }
 
-pub trait DbInitializer: Send {
+pub trait DbInitializer {
     fn initialize(
         &self,
         path: &Path,

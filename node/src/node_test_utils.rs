@@ -19,6 +19,7 @@ use crate::test_utils::logging::TestLog;
 use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -285,6 +286,7 @@ pub fn make_stream_handler_pool_subs_from(
         remove_sub: recipient!(addr, RemoveStreamMsg),
         bind: recipient!(addr, PoolBindMessage),
         node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
+        node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
     }
 }
 

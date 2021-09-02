@@ -2,7 +2,6 @@
 use super::accountant::Accountant;
 use super::bootstrapper;
 use super::bootstrapper::BootstrapperConfig;
-use super::discriminator::DiscriminatorFactory;
 use super::dispatcher::Dispatcher;
 use super::hopper::Hopper;
 use super::neighborhood::Neighborhood;
@@ -30,7 +29,6 @@ use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
 use actix::Recipient;
@@ -139,10 +137,8 @@ impl ActorSystemFactoryReal {
         );
         let blockchain_bridge_subs =
             actor_factory.make_and_start_blockchain_bridge(&config, Box::new(db_initializer));
-        let ui_gateway_subs =
-            actor_factory.make_and_start_ui_gateway(config.ui_gateway_config.clone());
-        let stream_handler_pool_subs = actor_factory
-            .make_and_start_stream_handler_pool(config.clandestine_discriminator_factories.clone());
+        let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(&config);
+        let stream_handler_pool_subs = actor_factory.make_and_start_stream_handler_pool(&config);
         let configurator_subs = actor_factory.make_and_start_configurator(&config);
 
         // collect all the subs
@@ -219,16 +215,16 @@ pub trait ActorFactory: Send {
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs;
-    fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs;
+    fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs;
     fn make_and_start_stream_handler_pool(
         &self,
-        clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+        config: &BootstrapperConfig,
     ) -> StreamHandlerPoolSubs;
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs;
     fn make_and_start_blockchain_bridge(
         &self,
         config: &BootstrapperConfig,
-        db_initializer: Box<dyn DbInitializer>,
+        db_initializer: Box<dyn DbInitializer + Send>,
     ) -> BlockchainBridgeSubs;
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs;
 }
@@ -332,18 +328,24 @@ impl ActorFactory for ActorFactoryReal {
         Accountant::make_subs_from(&addr)
     }
 
-    fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs {
-        let ui_gateway = UiGateway::new(&config);
-        let addr: Addr<UiGateway> = Arbiter::start(|_| ui_gateway);
+    fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
+        let crashable = Self::find_out_crashable(config);
+        let ui_gateway = UiGateway::new(&config.ui_gateway_config, crashable);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<UiGateway> = arbiter.start(|_| ui_gateway);
         UiGateway::make_subs_from(&addr)
     }
 
     fn make_and_start_stream_handler_pool(
         &self,
-        clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+        config: &BootstrapperConfig,
     ) -> StreamHandlerPoolSubs {
-        let addr: Addr<StreamHandlerPool> =
-            Arbiter::start(|_| StreamHandlerPool::new(clandestine_discriminator_factories));
+        let clandestine_discriminator_factories =
+            config.clandestine_discriminator_factories.clone();
+        let crashable = Self::find_out_crashable(config);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<StreamHandlerPool> = arbiter
+            .start(move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
         StreamHandlerPool::make_subs_from(&addr)
     }
 
@@ -355,13 +357,13 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_blockchain_bridge(
         &self,
         config: &BootstrapperConfig,
-        db_initializer: Box<dyn DbInitializer>,
+        db_initializer: Box<dyn DbInitializer + Send>,
     ) -> BlockchainBridgeSubs {
         let blockchain_service_url = config
             .blockchain_bridge_config
             .blockchain_service_url
             .clone();
-        let crashable = config.crash_point == CrashPoint::Message;
+        let crashable = Self::find_out_crashable(config);
         let wallet_opt = config.consuming_wallet.clone();
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain_id;
@@ -387,8 +389,10 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain_id;
+        let crashable = Self::find_out_crashable(config);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Configurator> =
-            Arbiter::start(move |_| Configurator::new(data_directory, chain_id));
+            arbiter.start(move |_| Configurator::new(data_directory, chain_id, crashable));
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -396,15 +400,23 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
+impl ActorFactoryReal {
+    fn find_out_crashable(config: &BootstrapperConfig) -> bool {
+        config.crash_point == CrashPoint::Message
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
+    use crate::blockchain::blockchain_bridge;
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::neighborhood::gossip::Gossip_0v1;
+    use crate::node_configurator::configurator;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
     use crate::sub_lib::accountant::AccountantConfig;
@@ -442,6 +454,7 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::{stream_handler_pool, ui_gateway};
     use actix::Message;
     use actix::{Context, Handler, System};
     use crossbeam_channel::{bounded, Sender};
@@ -623,12 +636,12 @@ mod tests {
             }
         }
 
-        fn make_and_start_ui_gateway(&self, config: UiGatewayConfig) -> UiGatewaySubs {
+        fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
             self.parameters
                 .ui_gateway_params
                 .lock()
                 .unwrap()
-                .get_or_insert(config);
+                .get_or_insert(config.ui_gateway_config.clone());
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.ui_gateway);
             UiGatewaySubs {
                 bind: recipient!(addr, BindMessage),
@@ -639,7 +652,7 @@ mod tests {
 
         fn make_and_start_stream_handler_pool(
             &self,
-            _: Vec<Box<dyn DiscriminatorFactory>>,
+            _: &BootstrapperConfig,
         ) -> StreamHandlerPoolSubs {
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.stream_handler_pool);
             StreamHandlerPoolSubs {
@@ -648,6 +661,7 @@ mod tests {
                 remove_sub: recipient!(addr, RemoveStreamMsg),
                 bind: recipient!(addr, PoolBindMessage),
                 node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
+                node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -671,7 +685,7 @@ mod tests {
         fn make_and_start_blockchain_bridge(
             &self,
             config: &BootstrapperConfig,
-            _db_initializer: Box<dyn DbInitializer>,
+            _db_initializer: Box<dyn DbInitializer + Send>,
         ) -> BlockchainBridgeSubs {
             self.parameters
                 .blockchain_bridge_params
@@ -1088,22 +1102,64 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_bridge_drags_down_the_whole_system_on_its_panic() {
+    fn ui_gateway_drags_down_the_whole_system_due_to_local_panic() {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}
-                .make_and_start_blockchain_bridge(
+            let subscribers = ActorFactoryReal {}.make_and_start_ui_gateway(&bootstrapper_config);
+            subscribers.node_from_ui_message_sub
+        };
+
+        simulate_panic_in_arbiter_thread_versus_system(Box::new(closure), ui_gateway::CRASH_KEY)
+    }
+
+    #[test]
+    fn stream_handler_pool_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers =
+                ActorFactoryReal {}.make_and_start_stream_handler_pool(&bootstrapper_config);
+            subscribers.node_from_ui_sub
+        };
+
+        simulate_panic_in_arbiter_thread_versus_system(
+            Box::new(closure),
+            stream_handler_pool::CRASH_KEY,
+        )
+    }
+
+    #[test]
+    fn blockchain_bridge_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers = ActorFactoryReal {}.make_and_start_blockchain_bridge(
                 &bootstrapper_config,
                 Box::new(
                     DbInitializerMock::default()
-                        .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
-                )
+                        .initialize_result(Ok(Box::new(ConnectionWrapperMock::default()))),
+                ),
             );
             subscribers.ui_sub
         };
 
-        simulate_panic_in_arbiter_thread_versus_system(Box::new(closure), "BLOCKCHAINBRIDGE")
+        simulate_panic_in_arbiter_thread_versus_system(
+            Box::new(closure),
+            blockchain_bridge::CRASH_KEY,
+        )
+    }
+
+    #[test]
+    fn configurator_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers = ActorFactoryReal {}.make_and_start_configurator(&bootstrapper_config);
+            subscribers.node_from_ui_sub
+        };
+
+        simulate_panic_in_arbiter_thread_versus_system(Box::new(closure), configurator::CRASH_KEY)
     }
 
     fn simulate_panic_in_arbiter_thread_versus_system<F>(

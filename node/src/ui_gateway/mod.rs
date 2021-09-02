@@ -10,7 +10,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorReal;
 use actix::Actor;
@@ -18,6 +18,7 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
@@ -26,15 +27,17 @@ pub struct UiGateway {
     port: u16,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
+    crashable: bool,
     logger: Logger,
 }
 
 impl UiGateway {
-    pub fn new(config: &UiGatewayConfig) -> UiGateway {
+    pub fn new(config: &UiGatewayConfig, crashable: bool) -> UiGateway {
         UiGateway {
             port: config.ui_port,
             websocket_supervisor: None,
             incoming_message_recipients: vec![],
+            crashable,
             logger: Logger::new("UiGateway"),
         }
     }
@@ -104,6 +107,9 @@ impl Handler<NodeFromUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        if let Ok((body, _)) = UiCrashRequest::fmb(msg.clone().body) {
+            handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
+        }
         let len = self.incoming_message_recipients.len();
         (0..len).for_each(|idx| {
             let recipient = &self.incoming_message_recipients[idx];
@@ -140,9 +146,12 @@ mod tests {
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let subject = UiGateway::new(&UiGatewayConfig {
-            ui_port: find_free_port(),
-        });
+        let subject = UiGateway::new(
+            &UiGatewayConfig {
+                ui_port: find_free_port(),
+            },
+            false,
+        );
         let system = System::new("test");
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder()
@@ -195,9 +204,12 @@ mod tests {
         let send_msg_parameters_arc = Arc::new(Mutex::new(vec![]));
         let websocket_supervisor =
             WebSocketSupervisorMock::new().send_msg_parameters(&send_msg_parameters_arc);
-        let mut subject = UiGateway::new(&UiGatewayConfig {
-            ui_port: find_free_port(),
-        });
+        let mut subject = UiGateway::new(
+            &UiGatewayConfig {
+                ui_port: find_free_port(),
+            },
+            false,
+        );
         let system = System::new("test");
         subject.websocket_supervisor = Some(Box::new(websocket_supervisor));
         subject.incoming_message_recipients =

@@ -28,12 +28,14 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use masq_lib::messages::{FromMessageBody, UiCrashRequest};
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::localhost;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -55,6 +57,7 @@ pub struct StreamHandlerPoolSubs {
     pub remove_sub: Recipient<RemoveStreamMsg>,
     pub bind: Recipient<PoolBindMessage>,
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
+    pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
 }
 
 impl Clone for StreamHandlerPoolSubs {
@@ -65,6 +68,7 @@ impl Clone for StreamHandlerPoolSubs {
             remove_sub: self.remove_sub.clone(),
             bind: self.bind.clone(),
             node_query_response: self.node_query_response.clone(),
+            node_from_ui_sub: self.node_from_ui_sub.clone(),
         }
     }
 }
@@ -103,6 +107,7 @@ pub struct StreamHandlerPool {
     ask_neighborhood: Option<Recipient<DispatcherNodeQueryMessage>>,
     tell_neighborhood: Option<Recipient<RemoveNeighborMessage>>,
     logger: Logger,
+    crashable: bool,
     stream_connector: Box<dyn StreamConnector>,
     channel_factory: Box<dyn FuturesChannelFactory<SequencedPacket>>,
     clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
@@ -156,9 +161,20 @@ impl Handler<PoolBindMessage> for StreamHandlerPool {
     }
 }
 
+impl Handler<NodeFromUiMessage> for StreamHandlerPool {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
+            handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY)
+        }
+    }
+}
+
 impl StreamHandlerPool {
     pub fn new(
         clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+        crashable: bool,
     ) -> StreamHandlerPool {
         StreamHandlerPool {
             stream_writers: HashMap::new(),
@@ -167,6 +183,7 @@ impl StreamHandlerPool {
             ask_neighborhood: None,
             tell_neighborhood: None,
             logger: Logger::new("Dispatcher"),
+            crashable,
             stream_connector: Box::new(StreamConnectorReal {}),
             channel_factory: Box::new(FuturesChannelFactoryReal {}),
             clandestine_discriminator_factories,
@@ -181,6 +198,7 @@ impl StreamHandlerPool {
             remove_sub: recipient!(pool_addr, RemoveStreamMsg),
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
+            node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
         }
     }
 
@@ -617,7 +635,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec![]);
+            let mut subject = StreamHandlerPool::new(vec![], false);
             subject.stream_connector = Box::new(StreamConnectorMock::new());
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -727,7 +745,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let subject = StreamHandlerPool::new(vec![]);
+            let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -791,7 +809,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
 
-            let mut subject = StreamHandlerPool::new(vec![]);
+            let mut subject = StreamHandlerPool::new(vec![], false);
             subject.stream_connector = Box::new(
                 StreamConnectorMock::new()
                     .connect_pair_result(Err(Error::from(ErrorKind::ConnectionRefused))),
@@ -895,7 +913,8 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("test");
 
-            let mut subject = StreamHandlerPool::new(vec![Box::new(JsonDiscriminatorFactory {})]);
+            let mut subject =
+                StreamHandlerPool::new(vec![Box::new(JsonDiscriminatorFactory {})], false);
             subject.stream_connector = Box::new(StreamConnectorMock::new().connection(
                 local_addr,
                 peer_addr,
@@ -967,7 +986,7 @@ mod tests {
         let (recorder, _, recording_arc) = make_recorder();
         let system = System::new("test");
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
-        let mut subject = StreamHandlerPool::new(vec![]);
+        let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let sw_key = StreamWriterKey::from(peer_addr);
@@ -1003,7 +1022,7 @@ mod tests {
         let (recorder, _, recording_arc) = make_recorder();
         let system = System::new("test");
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
-        let mut subject = StreamHandlerPool::new(vec![]);
+        let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let sw_key = StreamWriterKey::from(peer_addr);
@@ -1041,7 +1060,7 @@ mod tests {
         let (recorder, _, recording_arc) = make_recorder();
         let system = System::new("test");
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
-        let mut subject = StreamHandlerPool::new(vec![]);
+        let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let sw_key = StreamWriterKey::from(peer_addr);
@@ -1080,7 +1099,7 @@ mod tests {
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_notifies_neighborhood");
-            let mut subject = StreamHandlerPool::new(vec![]);
+            let mut subject = StreamHandlerPool::new(vec![], false);
             subject.stream_connector = Box::new(
                 StreamConnectorMock::new()
                     .connect_pair_result(Err(Error::from(ErrorKind::Other)))
@@ -1154,7 +1173,7 @@ mod tests {
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
             );
             let discriminator_factory = JsonDiscriminatorFactory::new();
-            let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)]);
+            let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
             subject.stream_connector = Box::new(
                 StreamConnectorMock::new().connect_pair_result(Ok(ConnectionInfo {
                     reader: Box::new(
@@ -1263,7 +1282,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let subject = StreamHandlerPool::new(vec![]);
+            let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -1341,7 +1360,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let subject = StreamHandlerPool::new(vec![]);
+            let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -1389,7 +1408,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let subject = StreamHandlerPool::new(vec![]);
+            let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -1453,7 +1472,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec![]);
+            let mut subject = StreamHandlerPool::new(vec![], false);
             subject
                 .stream_writers
                 .insert(StreamWriterKey::from(peer_addr), None);
@@ -1574,7 +1593,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec![]);
+            let mut subject = StreamHandlerPool::new(vec![], false);
             subject.stream_connector = Box::new(
                 StreamConnectorMock::new()
                     .connect_pair_result(Err(Error::from(ErrorKind::Other)))
@@ -1643,7 +1662,7 @@ mod tests {
         let sender_wrapper = SenderWrapperMock::new(peer_addr)
             .unbounded_send_params(&sender_wrapper_unbounded_send_params_arc)
             .unbounded_send_result(Ok(()));
-        let mut subject = StreamHandlerPool::new(vec![]);
+        let mut subject = StreamHandlerPool::new(vec![], false);
         subject.stream_writers.insert(
             StreamWriterKey::from(peer_addr),
             Some(Box::new(sender_wrapper)),
@@ -1703,7 +1722,7 @@ mod tests {
         };
 
         let system = System::new("test");
-        let subject = StreamHandlerPool::new(vec![]);
+        let subject = StreamHandlerPool::new(vec![], false);
         let subject_addr: Addr<StreamHandlerPool> = subject.start();
         let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
         let peer_actors = peer_actors_builder().build();
@@ -1751,7 +1770,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let subject = StreamHandlerPool::new(vec![]);
+            let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -1824,7 +1843,7 @@ mod tests {
 
         thread::spawn(move || {
             let system = System::new("test");
-            let mut subject = StreamHandlerPool::new(vec![]);
+            let mut subject = StreamHandlerPool::new(vec![], false);
             subject.traffic_analyzer = Box::new(TrafficAnalyzerMock {});
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
@@ -1885,7 +1904,7 @@ mod tests {
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
             );
             let discriminator_factory = JsonDiscriminatorFactory::new();
-            let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)]);
+            let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
             subject.stream_connector = Box::new(StreamConnectorMock::new()); // this will panic if a connection is attempted
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);

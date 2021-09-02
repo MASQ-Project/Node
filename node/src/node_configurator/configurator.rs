@@ -5,7 +5,7 @@ use actix::{Actor, Context, Handler, Recipient};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
     UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
-    UiConfigurationResponse, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
+    UiConfigurationResponse, UiCrashRequest, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     UiNewPasswordBroadcast, UiRecoverWalletsRequest, UiRecoverWalletsResponse,
     UiSetConfigurationRequest, UiSetConfigurationResponse, UiWalletAddressesRequest,
     UiWalletAddressesResponse,
@@ -26,6 +26,7 @@ use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::{Wallet, WalletError};
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
@@ -38,10 +39,13 @@ use masq_lib::constants::{
 use rustc_hex::ToHex;
 use std::str::FromStr;
 
+pub const CRASH_KEY: &str = "CONFIGURATOR";
+
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub: Option<Recipient<NodeToUiMessage>>,
     new_password_subs: Option<Vec<Recipient<NewPasswordMessage>>>,
+    crashable: bool,
     logger: Logger,
 }
 
@@ -79,17 +83,8 @@ impl Handler<NodeFromUiMessage> for Configurator {
             self.call_handler(msg, |c| c.handle_set_configuration(body, context_id));
         } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.clone().body) {
             self.call_handler(msg, |c| c.handle_wallet_addresses(body, context_id));
-        }
-    }
-}
-
-impl From<Box<dyn PersistentConfiguration>> for Configurator {
-    fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
-        Configurator {
-            persistent_config,
-            node_to_ui_sub: None,
-            new_password_subs: None,
-            logger: Logger::new("Configurator"),
+        } else if let Ok((body, _)) = UiCrashRequest::fmb(msg.clone().body) {
+            handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }
@@ -97,7 +92,7 @@ impl From<Box<dyn PersistentConfiguration>> for Configurator {
 type MessageError = (u64, String);
 
 impl Configurator {
-    pub fn new(data_directory: PathBuf, chain_id: u8) -> Self {
+    pub fn new(data_directory: PathBuf, chain_id: u8, crashable: bool) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(&data_directory, chain_id, false)
@@ -105,7 +100,13 @@ impl Configurator {
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
-        Configurator::from(persistent_config)
+        Configurator {
+            persistent_config,
+            node_to_ui_sub: None,
+            new_password_subs: None,
+            crashable,
+            logger: Logger::new("Configurator"),
+        }
     }
 
     fn handle_check_password(
@@ -759,7 +760,7 @@ mod tests {
         )));
         let (recorder, _, _) = make_recorder();
         let recorder_addr = recorder.start();
-        let mut subject = Configurator::new(data_dir, DEFAULT_CHAIN_ID);
+        let mut subject = Configurator::new(data_dir, DEFAULT_CHAIN_ID, false);
         subject.node_to_ui_sub = Some(recorder_addr.recipient());
         subject.new_password_subs = Some(vec![]);
 
@@ -2057,6 +2058,18 @@ mod tests {
             mnemonic_phrase_language: "English".to_string(),
             consuming_derivation_path: derivation_path(0, 4),
             earning_wallet: "0x005e288d713a5fb3d7c9cf1b43810a98688c7223".to_string(),
+        }
+    }
+
+    impl From<Box<dyn PersistentConfiguration>> for Configurator {
+        fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
+            Configurator {
+                persistent_config,
+                node_to_ui_sub: None,
+                new_password_subs: None,
+                crashable: false,
+                logger: Logger::new("Configurator"),
+            }
         }
     }
 
