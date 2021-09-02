@@ -5,8 +5,7 @@ use futures::sync::mpsc::SendError;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::prelude::Async;
 
 type FuturesChannelFactoryMockResult<T> = (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>);

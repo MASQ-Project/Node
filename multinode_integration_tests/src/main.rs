@@ -20,9 +20,7 @@ use std::net::TcpListener;
 use std::net::TcpStream;
 use std::process;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::MutexGuard;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 pub const CONTROL_STREAM_PORT: u16 = 42511;
