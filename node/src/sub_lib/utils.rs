@@ -31,7 +31,7 @@ macro_rules! send_bind_message {
             .try_send(BindMessage {
                 peer_actors: $peer_actors.clone(),
             })
-            .unwrap_or_else(|_|panic!("Actor for {:?} is dead", $subs));
+            .unwrap_or_else(|_| panic!("Actor for {:?} is dead", $subs));
     };
 }
 
@@ -40,7 +40,7 @@ macro_rules! send_start_message {
         $subs
             .start
             .try_send(StartMessage {})
-            .unwrap_or_else(|_|panic!("Actor for {:?} is dead", $subs));
+            .unwrap_or_else(|_| panic!("Actor for {:?} is dead", $subs));
     };
 }
 

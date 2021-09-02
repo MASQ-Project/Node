@@ -14,15 +14,8 @@ use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
-use crate::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceClandestine, BlockchainInterfaceNonClandestine,
-};
 use crate::database::dao_utils::DaoFactoryReal;
-use crate::database::db_initializer::{
-    connection_or_panic, DbInitializer, DbInitializerReal, DATABASE_FILE,
-};
-use crate::db_config::config_dao::ConfigDaoReal;
-use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -42,12 +35,12 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
+use masq_lib::crash_point::CrashPoint;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-use web3::transports::Http;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
@@ -137,8 +130,6 @@ impl ActorSystemFactoryReal {
                 .routing_byte_rate,
             is_decentralized: config.neighborhood_config.mode.is_decentralized(),
         });
-        let blockchain_bridge_subs =
-            actor_factory.make_and_start_blockchain_bridge(&config, &db_initializer);
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(main_cryptde, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
@@ -146,6 +137,8 @@ impl ActorSystemFactoryReal {
             &db_initializer,
             &BannedCacheLoaderReal {},
         );
+        let blockchain_bridge_subs =
+            actor_factory.make_and_start_blockchain_bridge(&config, Box::new(db_initializer));
         let ui_gateway_subs =
             actor_factory.make_and_start_ui_gateway(config.ui_gateway_config.clone());
         let stream_handler_pool_subs = actor_factory
@@ -235,7 +228,7 @@ pub trait ActorFactory: Send {
     fn make_and_start_blockchain_bridge(
         &self,
         config: &BootstrapperConfig,
-        db_initializer: &dyn DbInitializer,
+        db_initializer: Box<dyn DbInitializer>,
     ) -> BlockchainBridgeSubs;
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs;
 }
@@ -362,56 +355,40 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_blockchain_bridge(
         &self,
         config: &BootstrapperConfig,
-        db_initializer: &dyn DbInitializer,
+        db_initializer: Box<dyn DbInitializer>,
     ) -> BlockchainBridgeSubs {
         let blockchain_service_url = config
             .blockchain_bridge_config
             .blockchain_service_url
             .clone();
-        let blockchain_interface: Box<dyn BlockchainInterface> = {
-            match blockchain_service_url {
-                Some(url) => match Http::new(&url) {
-                    Ok((event_loop_handle, transport)) => {
-                        Box::new(BlockchainInterfaceNonClandestine::new(
-                            transport,
-                            event_loop_handle,
-                            config.blockchain_bridge_config.chain_id,
-                        ))
-                    }
-                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
-                },
-                None => Box::new(BlockchainInterfaceClandestine::new(
-                    config.blockchain_bridge_config.chain_id,
-                )),
-            }
-        };
-        let config_dao = Box::new(ConfigDaoReal::new(
-            db_initializer
-                .initialize(
-                    &config.data_directory,
-                    config.blockchain_bridge_config.chain_id,
-                    true,
-                )
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        &config.data_directory.join(DATABASE_FILE)
-                    )
-                }),
-        ));
-        let persistent_config = Box::new(PersistentConfigurationReal::new(config_dao));
-        let blockchain_bridge =
-            BlockchainBridge::new(config, blockchain_interface, persistent_config);
-        let addr: Addr<BlockchainBridge> = blockchain_bridge.start();
+        let crashable = config.crash_point == CrashPoint::Message;
+        let wallet_opt = config.consuming_wallet.clone();
+        let data_directory = config.data_directory.clone();
+        let chain_id = config.blockchain_bridge_config.chain_id;
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
+            let (blockchain_interface, persistent_config) =
+                BlockchainBridge::complex_parameters_for_new(
+                    blockchain_service_url,
+                    db_initializer,
+                    data_directory,
+                    chain_id,
+                );
+            BlockchainBridge::new(
+                blockchain_interface,
+                persistent_config,
+                crashable,
+                wallet_opt,
+            )
+        });
         BlockchainBridge::make_subs_from(&addr)
     }
 
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
-        let configurator = Configurator::new(
-            config.data_directory.clone(),
-            config.blockchain_bridge_config.chain_id,
-        );
-        let addr: Addr<Configurator> = configurator.start();
+        let data_directory = config.data_directory.clone();
+        let chain_id = config.blockchain_bridge_config.chain_id;
+        let addr: Addr<Configurator> =
+            Arbiter::start(move |_| Configurator::new(data_directory, chain_id));
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -426,7 +403,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::database::db_initializer::test_utils::DbInitializerMock;
+    use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
@@ -465,9 +442,12 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use actix::System;
+    use actix::Message;
+    use actix::{Context, Handler, System};
+    use crossbeam_channel::{bounded, Sender};
     use log::LevelFilter;
     use masq_lib::crash_point::CrashPoint;
+    use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
@@ -691,7 +671,7 @@ mod tests {
         fn make_and_start_blockchain_bridge(
             &self,
             config: &BootstrapperConfig,
-            _db_initializer: &dyn DbInitializer,
+            _db_initializer: Box<dyn DbInitializer>,
         ) -> BlockchainBridgeSubs {
             self.parameters
                 .blockchain_bridge_params
@@ -819,21 +799,6 @@ mod tests {
         fn start_recorder(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
             recorder.borrow_mut().take().unwrap().start()
         }
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid blockchain node URL")]
-    fn invalid_blockchain_url_produces_panic() {
-        let bbconfig = BlockchainBridgeConfig {
-            blockchain_service_url: Some("http://λ:8545".to_string()),
-            chain_id: DEFAULT_CHAIN_ID,
-            gas_price: 1,
-        };
-        let mut config = BootstrapperConfig::new();
-        config.blockchain_bridge_config = bbconfig;
-        config.consuming_wallet = None;
-        let subject = ActorFactoryReal {};
-        subject.make_and_start_blockchain_bridge(&config, &DbInitializerMock::new());
     }
 
     #[test]
@@ -1120,6 +1085,80 @@ mod tests {
         system.run();
         let (_, _, _, consuming_wallet_balance) = Parameters::get(parameters.proxy_server_params);
         assert_eq!(consuming_wallet_balance, None);
+    }
+
+    #[test]
+    fn blockchain_bridge_drags_down_the_whole_system_on_its_panic() {
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers = ActorFactoryReal {}
+                .make_and_start_blockchain_bridge(
+                &bootstrapper_config,
+                Box::new(
+                    DbInitializerMock::default()
+                        .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())))
+                )
+            );
+            subscribers.ui_sub
+        };
+
+        simulate_panic_in_arbiter_thread_versus_system(Box::new(closure), "BLOCKCHAINBRIDGE")
+    }
+
+    fn simulate_panic_in_arbiter_thread_versus_system<F>(
+        actor_initialization: Box<F>,
+        actor_crash_key: &str,
+    ) where
+        F: FnOnce() -> Recipient<NodeFromUiMessage>,
+    {
+        let (mercy_signal_tx, mercy_signal_rx) = bounded(1);
+        let system = System::new("test");
+        let dummy_actor = DummyActor::new(mercy_signal_tx);
+        let addr = Arbiter::start(|_| dummy_actor);
+        let ui_node_addr = actor_initialization();
+        let crash_request = UiCrashRequest {
+            actor: actor_crash_key.to_string(),
+            panic_message: "Testing a panic in the arbiter's thread".to_string(),
+        };
+        let actor_message = NodeFromUiMessage {
+            client_id: 1,
+            body: crash_request.tmb(123),
+        };
+        addr.try_send(CleanUpMessage {}).unwrap();
+        ui_node_addr.try_send(actor_message).unwrap();
+        system.run();
+        assert!(
+            mercy_signal_rx.try_recv().is_err(),
+            "the panicking actor is unable to shut the system down"
+        )
+    }
+
+    #[derive(Debug, Message, Clone)]
+    struct CleanUpMessage {}
+
+    struct DummyActor {
+        system_stop_signal: Sender<()>,
+    }
+
+    impl DummyActor {
+        fn new(system_stop_signal: Sender<()>) -> Self {
+            Self { system_stop_signal }
+        }
+    }
+
+    impl Actor for DummyActor {
+        type Context = Context<Self>;
+    }
+
+    impl Handler<CleanUpMessage> for DummyActor {
+        type Result = ();
+
+        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+            thread::sleep(Duration::from_millis(1500));
+            let _ = self.system_stop_signal.send(());
+            System::current().stop();
+        }
     }
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
