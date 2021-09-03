@@ -471,8 +471,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io::Error;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn is_subverted_says_no_if_masq_dns_appears_too_late() {

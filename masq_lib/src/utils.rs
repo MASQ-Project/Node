@@ -5,8 +5,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {

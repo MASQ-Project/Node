@@ -42,11 +42,10 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
 use actix::Recipient;
 use actix::{Actor, Arbiter};
+use crossbeam_channel::{unbounded, Sender};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
 use web3::transports::Http;
 
 pub trait ActorSystemFactory: Send {
@@ -67,7 +66,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
     ) -> StreamHandlerPoolSubs {
         let main_cryptde = bootstrapper::main_cryptde_ref();
         let alias_cryptde = bootstrapper::alias_cryptde_ref();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         ActorSystemFactoryReal::prepare_initial_messages(
             main_cryptde,
@@ -476,8 +475,7 @@ mod tests {
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -932,7 +930,7 @@ mod tests {
                 mode: NeighborhoodMode::ZeroHop,
             },
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
@@ -1050,7 +1048,7 @@ mod tests {
             alias_cryptde(),
             config.clone(),
             Box::new(actor_factory),
-            mpsc::channel().0,
+            unbounded().0,
         );
 
         System::current().stop();
@@ -1105,7 +1103,7 @@ mod tests {
                 ),
             },
         };
-        let (tx, _) = mpsc::channel();
+        let (tx, _) = unbounded();
         let system = System::new("MASQNode");
 
         ActorSystemFactoryReal::prepare_initial_messages(
