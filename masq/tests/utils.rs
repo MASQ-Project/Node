@@ -1,6 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_cli_lib::terminal_interface::{MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE};
+use masq_cli_lib::terminal::integration_test_utils::{
+    MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
+};
 use masq_lib::short_writeln;
 use std::io::Write;
 use std::path::PathBuf;
@@ -55,13 +57,13 @@ impl MasqProcess {
         }
     }
 
-    pub fn start_interactive(self, port: u16, full_integration_test: bool) -> StopHandle {
-        if full_integration_test {
+    pub fn start_interactive(self, port: u16, fake_terminal: bool) -> StopHandle {
+        if fake_terminal {
             std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)
         };
         let mut command = Command::new(executable_path(executable_name("masq")));
         let command = command.arg("--ui-port").arg(port.to_string());
-        eprintln!("{:?}", command);
+        eprintln!("About to start masq using {:?}", command);
         let child = child_from_command(command);
         StopHandle {
             name: "masq".to_string(),
@@ -77,6 +79,11 @@ pub struct StdinHandle {
 
 #[allow(dead_code)]
 impl StdinHandle {
+    fn new(native_stdin: ChildStdin) -> Self {
+        Self {
+            stdin: native_stdin,
+        }
+    }
     pub fn type_command(&mut self, command: &str) {
         short_writeln!(&self.stdin, "{}", command);
     }
@@ -106,9 +113,11 @@ impl StopHandle {
     }
 
     pub fn create_stdin_handle(&mut self) -> StdinHandle {
-        StdinHandle {
-            stdin: self.child.stdin.take().unwrap(),
-        }
+        StdinHandle::new(self.child.stdin.take().unwrap())
+    }
+
+    pub fn child_id(&self) -> u32 {
+        self.child.id()
     }
 
     pub fn kill(mut self) {

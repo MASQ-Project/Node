@@ -2,17 +2,19 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::handle_node_not_running_for_fire_and_forget_on_the_way;
+use crate::communications::{
+    handle_node_is_dead_while_f_f_on_the_way_broadcast, handle_unrecognized_broadcast,
+};
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal_interface::TerminalWrapper;
+use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupBroadcast,
     UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
+use masq_lib::utils::ExpectValue;
 use masq_lib::{as_any_dcl, as_any_impl};
-
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
@@ -25,19 +27,12 @@ pub trait BroadcastHandle: Send {
     as_any_dcl!();
 }
 
-pub struct BroadcastHandleInactive {}
+pub struct BroadcastHandleInactive;
 
 impl BroadcastHandle for BroadcastHandleInactive {
     //simply dropped (unless we find a better use for such a message)
     fn send(&self, _message_body: MessageBody) {}
     as_any_impl!();
-}
-
-#[allow(clippy::new_without_default)]
-impl BroadcastHandleInactive {
-    pub fn new() -> Self {
-        Self {}
-    }
 }
 
 pub struct BroadcastHandleGeneric {
@@ -68,7 +63,7 @@ impl BroadcastHandler for BroadcastHandlerReal {
             let terminal_interface = self
                 .terminal_interface
                 .take()
-                .expect("BroadcastHandlerReal: start: some was expected");
+                .expect_v("Some(TerminalWrapper)");
             //release the loop if masq has died (testing concerns)
             let mut flag = true;
             while flag {
@@ -106,18 +101,13 @@ impl BroadcastHandlerReal {
                     ChangePasswordCommand::handle_broadcast(body, stdout, terminal_interface);
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
-                    handle_node_not_running_for_fire_and_forget_on_the_way(
+                    handle_node_is_dead_while_f_f_on_the_way_broadcast(
                         body,
                         stdout,
                         terminal_interface,
                     );
                 } else {
-                    write!(
-                        stderr,
-                        "Discarding unrecognized broadcast with opcode '{}'\n\nmasq> ",
-                        message_body.opcode
-                    )
-                    .expect("write! failed");
+                    handle_unrecognized_broadcast(message_body, stderr, terminal_interface)
                 }
                 true
             }
@@ -300,7 +290,7 @@ mod tests {
         assert_eq!(handle.stdout_so_far(), String::new());
         assert_eq!(
             handle.stderr_so_far(),
-            ("Discarding unrecognized broadcast with opcode 'unrecognized'\n\nmasq> ")
+            ("Discarding unrecognized broadcast with opcode 'unrecognized'\n\n")
         );
 
         subject.send(good_message);
@@ -383,11 +373,7 @@ log-level              error                                                    
 neighborhood-mode      standard                                                         Default
 ";
 
-        test_generic_for_handle_broadcast(
-            SetupCommand::handle_broadcast,
-            setup_body,
-            broadcast_output,
-        )
+        assertion_for_handle_broadcast(SetupCommand::handle_broadcast, setup_body, broadcast_output)
     }
 
     #[test]
@@ -403,7 +389,7 @@ The Daemon is once more accepting setup changes.
 
 ";
 
-        test_generic_for_handle_broadcast(
+        assertion_for_handle_broadcast(
             CrashNotifier::handle_broadcast,
             crash_notifier_body,
             broadcast_output,
@@ -419,7 +405,7 @@ The Node's database password has changed.
 
 ";
 
-        test_generic_for_handle_broadcast(
+        assertion_for_handle_broadcast(
             ChangePasswordCommand::handle_broadcast,
             change_password_body,
             broadcast_output,
@@ -427,8 +413,7 @@ The Node's database password has changed.
     }
 
     #[test]
-    fn ffm_undelivered_as_node_not_running_handle_broadcast_has_a_synchronizer_correctly_implemented(
-    ) {
+    fn ffm_undelivered_since_node_not_running_has_a_synchronizer_correctly_implemented() {
         let ffm_undelivered_body = UiUndeliveredFireAndForget {
             opcode: "crash".to_string(),
         };
@@ -438,14 +423,31 @@ Cannot handle crash request: Node is not running.
 
 ";
 
-        test_generic_for_handle_broadcast(
-            handle_node_not_running_for_fire_and_forget_on_the_way,
+        assertion_for_handle_broadcast(
+            handle_node_is_dead_while_f_f_on_the_way_broadcast,
             ffm_undelivered_body,
             broadcast_output,
         )
     }
 
-    fn test_generic_for_handle_broadcast<F, U>(
+    #[test]
+    fn unrecognized_broadcast_handle_has_a_synchronizer_correctly_implemented() {
+        let unrecognizable_broadcast = MessageBody {
+            opcode: "messageFromMars".to_string(),
+            path: MessagePath::FireAndForget,
+            payload: (Ok("".to_string())),
+        };
+
+        let broadcast_output = "Discarding unrecognized broadcast with opcode 'messageFromMars'\n";
+
+        assertion_for_handle_broadcast(
+            handle_unrecognized_broadcast,
+            unrecognizable_broadcast,
+            broadcast_output,
+        )
+    }
+
+    fn assertion_for_handle_broadcast<F, U>(
         broadcast_handler: F,
         broadcast_message_body: U,
         broadcast_desired_output: &str,
