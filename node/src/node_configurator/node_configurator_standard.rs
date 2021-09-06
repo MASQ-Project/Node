@@ -371,16 +371,33 @@ pub mod standard {
                 },
             }
         };
+        //TODO maybe this is a better place----and what about testing first the supplied now and the from the DB (corrupted DB if wrong)
         match make_neighborhood_mode(multi_config, neighbor_configs) {
             Ok(mode) => Ok(NeighborhoodConfig { mode }),
             Err(e) => Err(e),
         }
     }
 
-    #[allow(clippy::collapsible_if)]
+    fn validate_mandatory_node_addr(
+        supplied_version: &str,
+        descriptor: NodeDescriptor,
+    ) -> Result<NodeDescriptor, ParamError> {
+        match descriptor.node_addr_opt.is_some(){
+            true => Ok(descriptor),
+            false => Err(ParamError::new(
+                "neighbors",&format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",
+                                     if supplied_version.ends_with("@:") || supplied_version.ends_with("::")
+                                     {supplied_version.strip_suffix(":").expect("logic failed")}
+                                     else {supplied_version}))
+            )
+        }
+    }
+
     pub fn convert_ci_configs(
         multi_config: &MultiConfig,
     ) -> Result<Option<Vec<NodeDescriptor>>, ConfiguratorError> {
+        type NodeDescriptorParsingResult = Result<NodeDescriptor, ParamError>;
+
         match value_m!(multi_config, "neighbors", String) {
             None => Ok(None),
             Some(joined_configs) => {
@@ -388,51 +405,45 @@ pub mod standard {
                     .split(',')
                     .map(|s| s.to_string())
                     .collect_vec();
-                if cli_configs.is_empty() {
-                    Ok(None)
-                } else {
-                    let dummy_cryptde: Box<dyn CryptDE> = {
-                        if value_m!(multi_config, "fake-public-key", String) == None {
-                            Box::new(CryptDEReal::new(DEFAULT_CHAIN_ID))
-                        } else {
-                            Box::new(CryptDENull::new(DEFAULT_CHAIN_ID))
-                        }
-                    };
-                    let chain_name = value_m!(multi_config, "chain", String)
-                        .unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
-                    let results = cli_configs
+                let dummy_cryptde: Box<dyn CryptDE> = {
+                    if value_m!(multi_config, "fake-public-key", String) == None {
+                        Box::new(CryptDEReal::new(DEFAULT_CHAIN_ID))
+                    } else {
+                        Box::new(CryptDENull::new(DEFAULT_CHAIN_ID))
+                    }
+                };
+                let chain_name = value_m!(multi_config, "chain", String)
+                    .unwrap_or_else(|| DEFAULT_CHAIN_NAME.to_string());
+                let results = cli_configs
                         .into_iter()
                         .map(
-                            |s| match NodeDescriptor::from_str(dummy_cryptde.as_ref(), &s) {
+                            |string_record| match NodeDescriptor::from_str(dummy_cryptde.as_ref(), &string_record) {
                                 Ok(nd) => match (chain_name.as_str(), nd.mainnet) {
-                                    (DEFAULT_CHAIN_NAME, true) => Ok(nd),
+                                    (DEFAULT_CHAIN_NAME, true) => validate_mandatory_node_addr(&string_record,nd),
                                     (DEFAULT_CHAIN_NAME, false) => Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter")),
                                     (_, true) => Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name))),
-                                    (_, false) => Ok(nd),
+                                    (_, false) => validate_mandatory_node_addr(&string_record,nd),
                                 },
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
                             },
                         )
                         .collect_vec();
-                    let errors = results
-                        .clone()
-                        .into_iter()
-                        .flat_map(|result| match result {
-                            Err(e) => Some(e),
-                            Ok(_) => None,
-                        })
-                        .collect::<Vec<ParamError>>();
-                    if errors.is_empty() {
-                        Ok(Some(
-                            results
-                                .into_iter()
-                                .filter(|result| result.is_ok())
-                                .map(|result| result.expect("Error materialized"))
-                                .collect::<Vec<NodeDescriptor>>(),
-                        ))
-                    } else {
-                        Err(ConfiguratorError::new(errors))
-                    }
+                let (ok, err): (
+                    Vec<NodeDescriptorParsingResult>,
+                    Vec<NodeDescriptorParsingResult>,
+                ) = results.into_iter().partition(|result| result.is_ok());
+                let ok = ok
+                    .into_iter()
+                    .map(|ok| ok.expect("NodeDescriptor"))
+                    .collect_vec();
+                let err = err
+                    .into_iter()
+                    .map(|err| err.expect_err("ParamError"))
+                    .collect_vec();
+                if err.is_empty() {
+                    Ok(Some(ok))
+                } else {
+                    Err(ConfiguratorError::new(err))
                 }
             }
         }
@@ -1514,13 +1525,7 @@ mod tests {
     #[test]
     fn convert_ci_configs_does_not_like_neighbors_with_bad_syntax() {
         running_test();
-        let multi_config = make_new_test_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new().param("--neighbors", "ooga,booga").into(),
-            ))],
-        )
-        .unwrap();
+        let multi_config = make_simplified_multi_config(["program", "--neighbors", "ooga,booga"]);
 
         let result = standard::convert_ci_configs(&multi_config).err();
 
@@ -1537,6 +1542,32 @@ mod tests {
                 ),
             ]))
         );
+    }
+
+    #[test]
+    fn convert_ci_configs_complains_about_descriptor_without_node_address_when_mainnet_required() {
+        let key = "abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@:";
+        let multi_config = make_simplified_multi_config(["program", "--neighbors", key]);
+
+        let result = standard::convert_ci_configs(&multi_config);
+
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports aren't valid: 'abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@--NA--:--NA--")])));
+    }
+
+    #[test]
+    fn convert_ci_configs_complains_about_descriptor_without_node_address_when_test_chain_required()
+    {
+        let multi_config = make_simplified_multi_config([
+            "program",
+            "--chain",
+            "ropsten",
+            "--neighbors",
+            "abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw::",
+        ]);
+
+        let result = standard::convert_ci_configs(&multi_config);
+
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports aren't valid: 'abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:--NA--:--NA--")])))
     }
 
     #[test]

@@ -230,7 +230,7 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let descriptor = config.node_descriptor_opt.clone();
-        let crashable = Self::find_out_crashable(&config);
+        let crashable = Self::find_out_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Dispatcher> = arbiter
             .start(move |_| Dispatcher::new(descriptor.expect_v("node descriptor"), crashable));
@@ -247,12 +247,12 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
         let is_decentralized = config.neighborhood_config.mode.is_decentralized();
-        let consuming_wallet_balance = if let Some(_) = config.consuming_wallet {
+        let consuming_wallet_balance = if config.consuming_wallet.is_some() {
             Some(0)
         } else {
             None
         };
-        let crashable = Self::find_out_crashable(&config);
+        let crashable = Self::find_out_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<ProxyServer> = arbiter.start(move |_| {
             ProxyServer::new(

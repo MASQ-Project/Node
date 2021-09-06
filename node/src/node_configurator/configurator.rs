@@ -83,7 +83,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
             self.call_handler(msg, |c| c.handle_set_configuration(body, context_id));
         } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.clone().body) {
             self.call_handler(msg, |c| c.handle_wallet_addresses(body, context_id));
-        } else if let Ok((body, _)) = UiCrashRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, _)) = UiCrashRequest::fmb(msg.body) {
             handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
         }
     }

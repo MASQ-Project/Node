@@ -201,7 +201,6 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .help(help)
 }
 
-//TODO resolve this discrepancy: shared_app is in fact not used anywhere but in the crate of the node so the name may lack sense
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
     head.arg(
         Arg::with_name("blockchain-service-url")

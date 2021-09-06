@@ -140,7 +140,7 @@ mod tests {
         let subject = NodeAddr::from(&SocketAddr::from_str("9.8.7.6:543").unwrap());
 
         assert_eq!(subject.ip_addr(), IpAddr::from_str("9.8.7.6").unwrap());
-        assert_eq!(subject.ports(), vec!(543));
+        assert_eq!(subject.ports(), vec![543]);
     }
 
     #[test]
@@ -169,7 +169,7 @@ mod tests {
         let result = subject.clone();
 
         assert_eq!(result.ip_addr(), ip_addr);
-        assert_eq!(result.ports(), vec!(6, 9));
+        assert_eq!(result.ports(), vec![6, 9]);
     }
 
     #[test]
