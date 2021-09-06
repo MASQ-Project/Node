@@ -8,6 +8,14 @@ use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::{find_free_port, localhost};
 use websocket::{ClientBuilder, OwnedMessage};
 
+//we test only those actors who are subscribers of UiGateway who are:
+//accountant,
+//neighborhood,
+//blockchain_bridge,
+//dispatcher,
+//configurator,
+//don't add more tests unless you know what you're doing
+
 #[test]
 fn node_exits_from_blockchain_bridge_panic_integration() {
     start_node_and_request_crash(
@@ -17,7 +25,6 @@ fn node_exits_from_blockchain_bridge_panic_integration() {
 }
 
 #[test]
-#[ignore] // TODO: Bring these in to drive crash points in these actors
 fn node_exits_from_dispatcher_panic_integration() {
     start_node_and_request_crash(
         "node_exits_from_dispatcher_panic_integration",
@@ -26,7 +33,6 @@ fn node_exits_from_dispatcher_panic_integration() {
 }
 
 #[test]
-#[ignore]
 fn node_exits_from_accountant_panic_integration() {
     start_node_and_request_crash(
         "node_exits_from_accountant_panic_integration",
@@ -35,56 +41,10 @@ fn node_exits_from_accountant_panic_integration() {
 }
 
 #[test]
-#[ignore]
-fn node_exits_from_hopper_panic_integration() {
-    start_node_and_request_crash(
-        "node_exits_from_hopper_panic_integration",
-        node_lib::hopper::CRASH_KEY,
-    );
-}
-
-#[test]
-#[ignore]
 fn node_exits_from_neighborhood_panic_integration() {
     start_node_and_request_crash(
         "node_exits_from_neighborhood_panic_integration",
         node_lib::neighborhood::CRASH_KEY,
-    );
-}
-
-#[test]
-#[ignore]
-fn node_exits_from_proxy_client_panic_integration() {
-    start_node_and_request_crash(
-        "node_exits_from_proxy_client_panic_integration",
-        node_lib::proxy_client::CRASH_KEY,
-    );
-}
-
-#[test]
-#[ignore]
-fn node_exits_from_proxy_server_panic_integration() {
-    start_node_and_request_crash(
-        "node_exits_from_proxy_server_panic_integration",
-        node_lib::proxy_server::CRASH_KEY,
-    );
-}
-
-#[test]
-#[ignore]
-fn node_exits_from_ui_gateway_panic_integration() {
-    start_node_and_request_crash(
-        "node_exits_from_ui_gateway_panic_integration",
-        node_lib::ui_gateway::CRASH_KEY,
-    );
-}
-
-#[test]
-#[ignore]
-fn node_exits_from_stream_handler_pool_panic_integration() {
-    start_node_and_request_crash(
-        "node_exits_from_stream_handler_pool_panic_integration",
-        node_lib::stream_handler_pool::CRASH_KEY,
     );
 }
 

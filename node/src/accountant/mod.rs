@@ -25,7 +25,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
@@ -37,8 +37,8 @@ use actix::Recipient;
 use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use masq_lib::messages::UiMessageError::UnexpectedMessage;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest, UiMessageError};
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiCrashRequest, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -96,6 +96,7 @@ pub struct Accountant {
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     banned_dao: Box<dyn BannedDao>,
+    crashable: bool,
     persistent_configuration: Box<dyn PersistentConfiguration>,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
@@ -216,9 +217,31 @@ impl Handler<NodeFromUiMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_node_from_ui_message(msg);
+        let client_id = msg.client_id;
+        if let Ok((body, context_id)) = UiFinancialsRequest::fmb(msg.clone().body) {
+            self.handle_financials(client_id, context_id, body);
+        } else if let Ok((body, _)) = UiCrashRequest::fmb(msg.body) {
+            handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
+        }
     }
 }
+
+//TODO suggestions:
+// we either should remove the "ignoring" part fully, including the third branch? or we should keep it but then I suggest to add the "ignoring" with the "debug" level to all of those handles of NodeFromUiMessage that are connected with UiGateway.
+
+// fn handle_node_from_ui_message(&mut self, msg: NodeFromUiMessage) {
+//     let client_id = msg.client_id;
+//     let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
+//         UiFinancialsRequest::fmb(msg.body);
+//     match result {
+//         Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
+//         Err(UnexpectedMessage(opcode, path)) => debug!(
+//             &self.logger,
+//             "Ignoring {:?} request from client {} with opcode '{}'", path, client_id, opcode
+//         ),
+//         Err(e) => panic!("Received obsolete error: {:?}", e),
+//     }
+// }
 
 impl Accountant {
     pub fn new(
@@ -235,6 +258,7 @@ impl Accountant {
             payable_dao: payable_dao_factory.make(),
             receivable_dao: receivable_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
+            crashable: config.crash_point == CrashPoint::Message,
             persistent_configuration: Box::new(PersistentConfigurationReal::new(
                 config_dao_factory.make(),
             )),
@@ -630,20 +654,6 @@ impl Accountant {
             msg.payload_size,
             &msg.earning_wallet,
         );
-    }
-
-    fn handle_node_from_ui_message(&mut self, msg: NodeFromUiMessage) {
-        let client_id = msg.client_id;
-        let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
-            UiFinancialsRequest::fmb(msg.body);
-        match result {
-            Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
-            Err(UnexpectedMessage(opcode, path)) => debug!(
-                &self.logger,
-                "Ignoring {:?} request from client {} with opcode '{}'", path, client_id, opcode
-            ),
-            Err(e) => panic!("Received obsolete error: {:?}", e),
-        }
     }
 
     fn handle_financials(&mut self, client_id: u64, context_id: u64, request: UiFinancialsRequest) {

@@ -31,8 +31,8 @@ use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Addr;
+use actix::Arbiter;
 use actix::Recipient;
-use actix::{Actor, Arbiter};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
@@ -83,16 +83,8 @@ impl ActorSystemFactoryReal {
         let db_initializer = DbInitializerReal::default();
         // make all the actors
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
-        let proxy_server_subs = actor_factory.make_and_start_proxy_server(
-            main_cryptde,
-            alias_cryptde,
-            config.neighborhood_config.mode.is_decentralized(),
-            if config.consuming_wallet.is_none() {
-                None
-            } else {
-                Some(0)
-            },
-        );
+        let proxy_server_subs =
+            actor_factory.make_and_start_proxy_server(main_cryptde, alias_cryptde, &config);
         let proxy_client_subs = if !config.neighborhood_config.mode.is_consume_only() {
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
@@ -105,6 +97,7 @@ impl ActorSystemFactoryReal {
                         .clone()
                         .exit_service_rate,
                     exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
+                    crashable: ActorFactoryReal::find_out_crashable(&config),
                 }),
             )
         } else {
@@ -200,8 +193,7 @@ pub trait ActorFactory: Send {
         &self,
         main_cryptde: &'static dyn CryptDE,
         alias_cryptde: &'static dyn CryptDE,
-        is_decentralized: bool,
-        consuming_wallet_balance: Option<i64>,
+        config: &BootstrapperConfig,
     ) -> ProxyServerSubs;
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs;
     fn make_and_start_neighborhood(
@@ -237,11 +229,11 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
-        let crash_point = config.crash_point;
         let descriptor = config.node_descriptor_opt.clone();
-        let addr: Addr<Dispatcher> = Arbiter::start(move |_| {
-            Dispatcher::new(crash_point, descriptor.expect_v("node descriptor"))
-        });
+        let crashable = Self::find_out_crashable(&config);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<Dispatcher> = arbiter
+            .start(move |_| Dispatcher::new(descriptor.expect_v("node descriptor"), crashable));
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -252,15 +244,23 @@ impl ActorFactory for ActorFactoryReal {
         &self,
         main_cryptde: &'static dyn CryptDE,
         alias_cryptde: &'static dyn CryptDE,
-        is_decentralized: bool,
-        consuming_wallet_balance: Option<i64>,
+        config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
-        let addr: Addr<ProxyServer> = Arbiter::start(move |_| {
+        let is_decentralized = config.neighborhood_config.mode.is_decentralized();
+        let consuming_wallet_balance = if let Some(_) = config.consuming_wallet {
+            Some(0)
+        } else {
+            None
+        };
+        let crashable = Self::find_out_crashable(&config);
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<ProxyServer> = arbiter.start(move |_| {
             ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
                 is_decentralized,
                 consuming_wallet_balance,
+                crashable,
             )
         });
         ProxyServer::make_subs_from(&addr)
@@ -354,7 +354,8 @@ impl ActorFactory for ActorFactoryReal {
     }
 
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
-        let addr: Addr<ProxyClient> = Arbiter::start(|_| ProxyClient::new(config));
+        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let addr: Addr<ProxyClient> = arbiter.start(move |_| ProxyClient::new(config));
         ProxyClient::make_subs_from(&addr)
     }
 
@@ -414,13 +415,10 @@ impl ActorFactoryReal {
 mod tests {
     use super::*;
     use crate::accountant::{ReceivedPayments, SentPayments};
-    use crate::blockchain::blockchain_bridge;
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::database::db_initializer::test_utils::{ConnectionWrapperMock, DbInitializerMock};
     use crate::neighborhood::gossip::Gossip_0v1;
-    use crate::node_configurator::configurator;
     use crate::stream_messages::AddStreamMsg;
     use crate::stream_messages::RemoveStreamMsg;
     use crate::sub_lib::accountant::AccountantConfig;
@@ -432,7 +430,6 @@ mod tests {
     use crate::sub_lib::blockchain_bridge::{BlockchainBridgeConfig, ReportAccountsPayable};
     use crate::sub_lib::configurator::NewPasswordMessage;
     use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
@@ -459,21 +456,23 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::{accountant, hopper, neighborhood, stream_handler_pool, ui_gateway};
+    use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
+    use actix::Actor;
     use actix::Message;
     use actix::{Context, Handler, System};
     use crossbeam_channel::{bounded, Sender};
     use log::LevelFilter;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::net::IpAddr;
     use std::net::Ipv4Addr;
+    use std::net::{IpAddr, SocketAddr, SocketAddrV4};
     use std::path::PathBuf;
+    use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
@@ -530,19 +529,13 @@ mod tests {
             &self,
             main_cryptde: &'a dyn CryptDE,
             alias_cryptde: &'a dyn CryptDE,
-            is_decentralized: bool,
-            consuming_wallet_balance: Option<i64>,
+            config: &BootstrapperConfig,
         ) -> ProxyServerSubs {
             self.parameters
                 .proxy_server_params
                 .lock()
                 .unwrap()
-                .get_or_insert((
-                    main_cryptde,
-                    alias_cryptde,
-                    is_decentralized,
-                    consuming_wallet_balance,
-                ));
+                .get_or_insert((main_cryptde, alias_cryptde, config.clone()));
             let addr: Addr<Recorder> = ActorFactoryMock::start_recorder(&self.proxy_server);
             ProxyServerSubs {
                 bind: recipient!(addr, BindMessage),
@@ -557,6 +550,7 @@ mod tests {
                 add_route: recipient!(addr, AddRouteMessage),
                 stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
                 set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
+                node_from_ui: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -685,6 +679,7 @@ mod tests {
                     .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
                 inbound_server_data: recipient!(addr, InboundServerData),
                 dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
+                node_from_ui: recipient!(addr, NodeFromUiMessage),
             }
         }
 
@@ -739,7 +734,7 @@ mod tests {
         dispatcher_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         proxy_client_params: Arc<Mutex<Option<ProxyClientConfig>>>,
         proxy_server_params:
-            Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, bool, Option<i64>)>>>,
+            Arc<Mutex<Option<(&'a dyn CryptDE, &'a dyn CryptDE, BootstrapperConfig)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
         accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
@@ -947,20 +942,25 @@ mod tests {
         assert_eq!(proxy_client_config.exit_service_rate, 0);
         assert_eq!(proxy_client_config.exit_byte_rate, 0);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
-        let (
-            actual_main_cryptde,
-            actual_alias_cryptde,
-            actual_is_decentralized,
-            consuming_wallet_balance,
-        ) = Parameters::get(parameters.proxy_server_params);
+        let (actual_main_cryptde, actual_alias_cryptde, bootstrapper_config) =
+            Parameters::get(parameters.proxy_server_params);
         check_cryptde(actual_main_cryptde);
         check_cryptde(actual_alias_cryptde);
         assert_ne!(
             actual_main_cryptde.public_key(),
             actual_alias_cryptde.public_key()
         );
-        assert_eq!(actual_is_decentralized, false);
-        assert_eq!(consuming_wallet_balance, Some(0));
+        assert_eq!(
+            bootstrapper_config
+                .neighborhood_config
+                .mode
+                .is_decentralized(),
+            false
+        );
+        assert_eq!(
+            bootstrapper_config.consuming_wallet,
+            Some(make_wallet("consuming"))
+        );
         let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
         check_cryptde(cryptde);
         assert_eq!(
@@ -1103,23 +1103,51 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let (_, _, _, consuming_wallet_balance) = Parameters::get(parameters.proxy_server_params);
-        assert_eq!(consuming_wallet_balance, None);
+        let (_, _, bc) = Parameters::get(parameters.proxy_server_params);
+        assert_eq!(bc.consuming_wallet, None);
     }
 
-    static mut CRYPTDE_TESTING: Option<Box<dyn CryptDE>> = None;
+    #[test]
+    fn proxy_server_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let mut bootstrapper_config = BootstrapperConfig::default();
+            bootstrapper_config.crash_point = CrashPoint::Message;
+            let subscribers = ActorFactoryReal {}.make_and_start_proxy_server(
+                main_cryptde(),
+                alias_cryptde(),
+                &bootstrapper_config,
+            );
+            subscribers.node_from_ui
+        };
 
-    unsafe fn set_cryptde_test() {
-        CRYPTDE_TESTING = Some(Box::new(CryptDENull::new(1)))
+        panic_in_arbiter_thread_versus_system(Box::new(closure), proxy_server::CRASH_KEY)
+    }
+
+    #[test]
+    fn proxy_client_drags_down_the_whole_system_due_to_local_panic() {
+        let closure = || {
+            let proxy_cl_config = ProxyClientConfig {
+                cryptde: main_cryptde(),
+                dns_servers: vec![SocketAddr::V4(
+                    SocketAddrV4::from_str("1.1.1.1:45").unwrap(),
+                )],
+                exit_service_rate: 50,
+                crashable: true,
+                exit_byte_rate: 50,
+            };
+            let subscribers = ActorFactoryReal {}.make_and_start_proxy_client(proxy_cl_config);
+            subscribers.node_from_ui
+        };
+
+        panic_in_arbiter_thread_versus_system(Box::new(closure), proxy_client::CRASH_KEY)
     }
 
     #[test]
     fn hopper_drags_down_the_whole_system_due_to_local_panic() {
-        unsafe { set_cryptde_test() }
-        let closure = || unsafe {
+        let closure = || {
             let hopper_config = HopperConfig {
-                main_cryptde: CRYPTDE_TESTING.as_ref().unwrap().as_ref(),
-                alias_cryptde: CRYPTDE_TESTING.as_ref().unwrap().as_ref(),
+                main_cryptde: main_cryptde(),
+                alias_cryptde: alias_cryptde(),
                 per_routing_service: 100,
                 per_routing_byte: 50,
                 is_decentralized: false,
@@ -1130,45 +1158,6 @@ mod tests {
         };
 
         panic_in_arbiter_thread_versus_system(Box::new(closure), hopper::CRASH_KEY)
-    }
-
-    #[test]
-    fn neighborhood_drags_down_the_whole_system_due_to_local_panic() {
-        unsafe { set_cryptde_test() };
-        let closure = || unsafe {
-            let mut bootstrapper_config = BootstrapperConfig::default();
-            bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}.make_and_start_neighborhood(
-                CRYPTDE_TESTING.as_ref().unwrap().as_ref(),
-                &bootstrapper_config,
-            );
-            subscribers.from_ui_message_sub
-        };
-
-        panic_in_arbiter_thread_versus_system(Box::new(closure), neighborhood::CRASH_KEY)
-    }
-
-    #[test]
-    fn accountant_drags_down_the_whole_system_due_to_local_panic() {
-        let dir_path = ensure_node_home_directory_exists(
-            "actor_system_factory",
-            "accountant_drags_down_the_whole_system_due_to_local_panic",
-        );
-        let closure = || {
-            let mut bootstrapper_config = BootstrapperConfig::default();
-            bootstrapper_config.crash_point = CrashPoint::Message;
-            let db_initializer = DbInitializerMock::default()
-                .initialize_result(Ok(Box::new(ConnectionWrapperMock::default())));
-            let subscribers = ActorFactoryReal {}.make_and_start_accountant(
-                &bootstrapper_config,
-                dir_path.as_path(),
-                &db_initializer,
-                &BannedCacheLoaderMock::default(),
-            );
-            subscribers.ui_message_sub
-        };
-
-        panic_in_arbiter_thread_versus_system(Box::new(closure), accountant::CRASH_KEY)
     }
 
     #[test]
@@ -1196,36 +1185,6 @@ mod tests {
         panic_in_arbiter_thread_versus_system(Box::new(closure), stream_handler_pool::CRASH_KEY)
     }
 
-    #[test]
-    fn blockchain_bridge_drags_down_the_whole_system_due_to_local_panic() {
-        let closure = || {
-            let mut bootstrapper_config = BootstrapperConfig::default();
-            bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}.make_and_start_blockchain_bridge(
-                &bootstrapper_config,
-                Box::new(
-                    DbInitializerMock::default()
-                        .initialize_result(Ok(Box::new(ConnectionWrapperMock::default()))),
-                ),
-            );
-            subscribers.ui_sub
-        };
-
-        panic_in_arbiter_thread_versus_system(Box::new(closure), blockchain_bridge::CRASH_KEY)
-    }
-
-    #[test]
-    fn configurator_drags_down_the_whole_system_due_to_local_panic() {
-        let closure = || {
-            let mut bootstrapper_config = BootstrapperConfig::default();
-            bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}.make_and_start_configurator(&bootstrapper_config);
-            subscribers.node_from_ui_sub
-        };
-
-        panic_in_arbiter_thread_versus_system(Box::new(closure), configurator::CRASH_KEY)
-    }
-
     fn panic_in_arbiter_thread_versus_system<F>(actor_initialization: Box<F>, actor_crash_key: &str)
     where
         F: FnOnce() -> Recipient<NodeFromUiMessage>,
@@ -1233,22 +1192,26 @@ mod tests {
         let (mercy_signal_tx, mercy_signal_rx) = bounded(1);
         let system = System::new("test");
         let dummy_actor = DummyActor::new(mercy_signal_tx);
-        let addr = Arbiter::start(|_| dummy_actor);
+        let dummy_addr = Arbiter::start(|_| dummy_actor);
         let ui_node_addr = actor_initialization();
         let crash_request = UiCrashRequest {
             actor: actor_crash_key.to_string(),
-            panic_message: "Testing a panic in the arbiter's thread".to_string(),
+            panic_message: format!(
+                "Testing a panic in the arbiter's thread for {}",
+                actor_crash_key
+            ),
         };
         let actor_message = NodeFromUiMessage {
             client_id: 1,
             body: crash_request.tmb(123),
         };
-        addr.try_send(CleanUpMessage {}).unwrap();
+        dummy_addr.try_send(CleanUpMessage {}).unwrap();
         ui_node_addr.try_send(actor_message).unwrap();
         system.run();
         assert!(
             mercy_signal_rx.try_recv().is_err(),
-            "the panicking actor is unable to shut the system down"
+            "{} while panicking is unable to shut the system down",
+            actor_crash_key
         )
     }
 
