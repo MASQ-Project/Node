@@ -1041,9 +1041,7 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use crate::node_configurator::node_configurator_standard::standard::server_initializer_collected_params;
     use crate::node_configurator::DirsWrapperReal;
-    use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
     use crate::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1057,21 +1055,20 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::pure_test_utils;
     use crate::test_utils::pure_test_utils::{
-        make_default_persistent_configuration, make_pre_populated_mocked_directory_wrapper,
-        make_simplified_multi_config,
+        make_default_persistent_configuration, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    use crate::test_utils::{main_cryptde, ArgsBuilder};
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
     use masq_lib::multi_config::{
         CommandLineVcl, ConfigFileVcl, NameValueVclArg, VclArg, VirtualCommandLine,
     };
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-    use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
+    use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
     };
-    use masq_lib::utils::{running_test, SliceToVec};
+    use masq_lib::utils::running_test;
     use rustc_hex::FromHex;
     use std::fs::File;
     use std::io::Cursor;
@@ -1535,35 +1532,6 @@ mod tests {
                     "Should be <public key>[@ | :]<node address>, not 'booga'"
                 ),
             ]))
-        );
-    }
-
-    #[test]
-    fn server_initializer_collected_params_can_read_parameters_from_config_file() {
-        running_test();
-        let _guard = EnvironmentGuard::new();
-        let home_dir = ensure_node_home_directory_exists(
-            "node_configurator",
-            "server_initializer_collected_params_can_read_parameters_from_config_file",
-        );
-        {
-            let mut config_file = File::create(home_dir.join("config.toml")).unwrap();
-            config_file
-                .write_all(b"dns-servers = \"111.111.111.111,222.222.222.222\"\n")
-                .unwrap();
-        }
-        let directory_wrapper = make_pre_populated_mocked_directory_wrapper();
-
-        let gathered_params = server_initializer_collected_params(
-            &directory_wrapper,
-            &["", "--data-directory", home_dir.to_str().unwrap()].array_of_borrows_to_vec(),
-        )
-        .unwrap();
-
-        let multi_config = gathered_params.multi_config;
-        assert_eq!(
-            value_m!(multi_config, "dns-servers", String).unwrap(),
-            "111.111.111.111,222.222.222.222".to_string()
         );
     }
 
@@ -2527,33 +2495,6 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_senses_when_user_specifies_config_file() {
-        running_test();
-        let data_dir = ensure_node_home_directory_exists(
-            "node_configurator_standard",
-            "server_initializer_collected_params_senses_when_user_specifies_config_file",
-        );
-        let args = ArgsBuilder::new().param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
-        let args_vec: Vec<String> = args.into();
-        let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
-            .data_dir_result(Some(data_dir));
-
-        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).err();
-
-        match result {
-            None => panic!("Expected a value, got None"),
-            Some(mut error) => {
-                assert_eq!(error.param_errors.len(), 1);
-                let param_error = error.param_errors.remove(0);
-                assert_eq!(param_error.parameter, "config-file".to_string());
-                assert_string_contains(&param_error.reason, "Couldn't open configuration file ");
-                assert_string_contains(&param_error.reason, ". Are you sure it exists?");
-            }
-        }
-    }
-
-    #[test]
     fn privileged_configuration_accepts_network_chain_selection_for_multinode() {
         running_test();
         let _clap_guard = ClapGuard::new();
@@ -2686,24 +2627,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(config.blockchain_bridge_config.gas_price, 1);
-    }
-
-    #[test]
-    fn server_initializer_collected_params_rejects_invalid_gas_price() {
-        running_test();
-        let _clap_guard = ClapGuard::new();
-        let args = ArgsBuilder::new().param("--gas-price", "unleaded");
-        let args_vec: Vec<String> = args.into();
-        let dir_wrapper = make_pre_populated_mocked_directory_wrapper();
-
-        let result = server_initializer_collected_params(&dir_wrapper, &args_vec.as_slice())
-            .err()
-            .unwrap();
-
-        assert_eq!(
-            result,
-            ConfiguratorError::required("gas-price", "Invalid value: unleaded")
-        )
     }
 
     #[test]
