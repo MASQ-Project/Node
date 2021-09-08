@@ -22,7 +22,6 @@ use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
-use masq_lib::messages::{UiCrashRequest};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
 use std::path::PathBuf;
@@ -258,7 +257,7 @@ mod tests {
     use ethsign::SecretKey;
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
-    use masq_lib::messages::ToMessageBody;
+    use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::cell::RefCell;

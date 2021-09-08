@@ -12,6 +12,7 @@ fn node_exits_from_future_error_integration() {
         "node_exits_from_future_error_integration",
         Some(panic_config),
         false,
+        false,
     );
 
     let exit_code = node.wait_for_exit().unwrap().status.code();
@@ -25,6 +26,7 @@ fn node_exits_from_future_error_integration() {
     let mut node = utils::MASQNode::start_standard(
         "node_exits_from_future_error_integration",
         Some(panic_config),
+        false,
         false,
     );
 

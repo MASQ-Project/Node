@@ -10,7 +10,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::utils::{NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorReal;
 use actix::Actor;
@@ -62,12 +62,14 @@ impl UiGateway {
                     (true, true) => panic!("{}", crash_request.panic_message),
                     _ => None,
                 },
-                Err(e) if e.is_syntax() => Some(UiMessageError::DeserializationError(e.to_string())),
-                Err(_) => None
-            }
+                Err(e) if e.is_syntax() => {
+                    Some(UiMessageError::DeserializationError(e.to_string()))
+                }
                 Err(_) => None,
-            }
+            },
+            Err(_) => None,
         }
+    }
 }
 
 impl Actor for UiGateway {
@@ -197,7 +199,8 @@ mod tests {
                 opcode: "booga".to_string(),
                 path: FireAndForget,
                 payload: Ok("{\n
-                }".to_string()),
+                }"
+                .to_string()),
             },
         };
 
@@ -298,7 +301,11 @@ mod tests {
     #[test]
     fn other_than_syntactical_errors_are_ignored() {
         //we deserialize against the crash request so deviating from its syntax causes also a deserialization error
-        let msg_body = UiChangePasswordRequest{ old_password_opt: None, new_password: "bubbles".to_string() }.tmb(12);
+        let msg_body = UiChangePasswordRequest {
+            old_password_opt: None,
+            new_password: "bubbles".to_string(),
+        }
+        .tmb(12);
         let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, false);
 
         let result = subject.deserialization_check_with_potential_crash_request_handling(msg_body);

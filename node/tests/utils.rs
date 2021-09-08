@@ -11,6 +11,7 @@ use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Output;
+use std::process::Stdio;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -81,11 +82,13 @@ impl MASQNode {
         test_name: &str,
         config_opt: Option<CommandConfig>,
         ensure_start: bool,
+        piped_output: bool,
     ) -> MASQNode {
         Self::start_something(
             test_name,
             config_opt,
             ensure_start,
+            piped_output,
             Self::make_daemon_command,
         )
     }
@@ -95,8 +98,15 @@ impl MASQNode {
         test_name: &str,
         config_opt: Option<CommandConfig>,
         ensure_start: bool,
+        piped_output: bool,
     ) -> MASQNode {
-        Self::start_something(test_name, config_opt, ensure_start, Self::make_node_command)
+        Self::start_something(
+            test_name,
+            config_opt,
+            ensure_start,
+            piped_output,
+            Self::make_node_command,
+        )
     }
 
     #[allow(dead_code)]
@@ -218,6 +228,7 @@ impl MASQNode {
         test_name: &str,
         config_opt: Option<CommandConfig>,
         ensure_start: bool,
+        piped_streams: bool,
         command_getter: F,
     ) -> MASQNode {
         let data_dir = ensure_node_home_directory_exists("integration", test_name);
@@ -225,6 +236,11 @@ impl MASQNode {
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
         let mut command = command_getter(&data_dir, config_opt);
         eprintln!("{:?}", command);
+        let command = if piped_streams {
+            command.stdout(Stdio::piped()).stderr(Stdio::piped())
+        } else {
+            &mut command
+        };
         let child = command.spawn().unwrap();
         let mut result = MASQNode {
             logfile_contents: String::new(),

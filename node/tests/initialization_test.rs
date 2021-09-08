@@ -42,6 +42,7 @@ fn clap_help_does_not_initialize_database_integration() {
             CommandConfig::new().opt("--help"), // We don't specify --data-directory because the --help logic doesn't evaluate it
         ),
         false,
+        false,
     );
 
     node.wait_for_exit().unwrap();
@@ -56,6 +57,7 @@ fn initialization_sequence_integration() {
         "initialization_sequence_integration",
         Some(CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str())),
         true,
+        false,
     );
     let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
     let data_directory = std::env::current_dir()
@@ -118,6 +120,7 @@ fn initialization_sequence_integration() {
     match daemon.wait_for_exit() {
         None => eprintln!("wait_for_exit produced no output: weird"),
         Some(output) => {
+            //TODO this seems wrong - this lacks any assertion so why we print it and nothing more
             eprintln!(
                 "wait_for_exit produced exit status {:?} and stdout:\n------\n{}\n------\nstderr:\n------\n{}\n------\n",
                 output.status,
@@ -143,4 +146,37 @@ fn wait_for_process_end(process_id: u32) {
         }
         tools.delay(500);
     }
+}
+
+#[test]
+fn incomplete_node_descriptor_is_refused_integration() {
+    let port = find_free_port();
+    let mut node = utils::MASQNode::start_standard(
+        "incomplete_node_descriptor_is_refused_integration",
+        Some(
+            CommandConfig::new()
+                .pair("--ui-port", &port.to_string())
+                .pair(
+                    "--neighbors",
+                    "12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:12.23.34.45:5678,\
+            abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw::",
+                ),
+        ),
+        false,
+        true,
+    );
+    match node.wait_for_exit() {
+        None => panic!("the process terminated in a strange way"),
+        Some(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.contains("Log is written to"),
+                "instead we got: {}",
+                stdout
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("neighbors - Neighbors supplied without ip addresses and ports aren't valid: 'abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw:--NA--:--NA--"
+            ), "instead we got: {}",stderr)
+        }
+    };
 }

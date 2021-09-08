@@ -226,23 +226,6 @@ impl Handler<NodeFromUiMessage> for Accountant {
     }
 }
 
-//TODO suggestions:
-// we either should remove the "ignoring" part fully, including the third branch? or we should keep it but then I suggest to add the "ignoring" with the "debug" level to all of those handles of NodeFromUiMessage that are connected with UiGateway.
-
-// fn handle_node_from_ui_message(&mut self, msg: NodeFromUiMessage) {
-//     let client_id = msg.client_id;
-//     let result: Result<(UiFinancialsRequest, u64), UiMessageError> =
-//         UiFinancialsRequest::fmb(msg.body);
-//     match result {
-//         Ok((payload, context_id)) => self.handle_financials(client_id, context_id, payload),
-//         Err(UnexpectedMessage(opcode, path)) => debug!(
-//             &self.logger,
-//             "Ignoring {:?} request from client {} with opcode '{}'", path, client_id, opcode
-//         ),
-//         Err(e) => panic!("Received obsolete error: {:?}", e),
-//     }
-// }
-
 impl Accountant {
     pub fn new(
         config: &BootstrapperConfig,
@@ -745,7 +728,7 @@ pub mod tests {
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::ui_gateway::MessagePath::{Conversation};
+    use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
     use std::convert::TryFrom;
