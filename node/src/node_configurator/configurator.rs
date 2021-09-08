@@ -500,7 +500,7 @@ impl Configurator {
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
     ) -> Result<MessageBody, MessageError> {
-        let good_password = match &msg.db_password_opt {
+        let good_password_opt = match &msg.db_password_opt {
             None => None,
             Some(db_password) => {
                 match persistent_config.check_password(Some(db_password.clone())) {
@@ -526,7 +526,7 @@ impl Configurator {
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
                 .map(|p| p.to_string());
-        let (mnemonic_seed_opt, past_neighbors) = match good_password {
+        let (mnemonic_seed_opt, past_neighbors) = match good_password_opt {
             Some(password) => {
                 let mnemonic_seed_opt = Self::value_not_required(
                     persistent_config.mnemonic_seed(password),

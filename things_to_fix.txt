@@ -1,6 +1,5 @@
 * multinode_integration_tests won't build
-* Config dumper shows null value for mappingProtocol when populated
-* the Daemon shows mapping_protocol as blank in its setup
-* masq's configuration command doesn't report mapping_protocol
-* the database schema version hasn't been updated for mapping_protocol
+* Daemon uses database at /dnwiebe/.local/... instead of /home/dnwiebe/.local/...
 * todos in node_configurator_standard.rs
+* In compute_mapping_protocol_opt(), don't save the mapping protocol if it's None
+* Maybe allow setup --mapping-protocol NONE

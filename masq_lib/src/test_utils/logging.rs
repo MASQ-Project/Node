@@ -14,8 +14,13 @@ use std::sync::MutexGuard;
 use std::thread;
 use std::time::Instant;
 use std::time::{Duration, SystemTime};
+use lazy_static::lazy_static;
 
-static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
+lazy_static! {
+    static ref TEST_LOGS_ARC: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+}
+
+// static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
 static TEST_LOGGER: TestLogger = TestLogger {};
 
 #[derive(Default)]
@@ -49,14 +54,10 @@ impl TestLogHandler {
     }
 
     pub fn add_log(&self, log: String) {
-        unsafe {
-            TEST_LOGS_ARC
-                .as_ref()
-                .unwrap()
-                .lock()
-                .expect("TestLogHandler is poisoned in add_log")
-                .push(log)
-        }
+        TEST_LOGS_ARC
+            .lock()
+            .expect("TestLogHandler is poisoned in add_log")
+            .push(log)
     }
 
     pub fn exists_log_matching(&self, pattern: &str) -> usize {
@@ -161,22 +162,10 @@ impl TestLogHandler {
         self.get_logs()[index].clone()
     }
 
-    pub fn logs_initialized(&self) -> bool {
-        unsafe { TEST_LOGS_ARC.is_some() }
-    }
-
-    pub fn initialize_logs(&self) {
-        unsafe { TEST_LOGS_ARC = Some(Arc::new(Mutex::new(vec![]))) }
-    }
-
     fn get_logs(&self) -> MutexGuard<'_, Vec<String>> {
-        unsafe {
-            TEST_LOGS_ARC
-                .as_ref()
-                .expect("Test Logging in not initialized; please call `init_test_logging`")
-                .lock()
-                .expect("TestLogHandler is poisoned in get_logs")
-        }
+        TEST_LOGS_ARC
+            .lock()
+            .expect("TestLogHandler is poisoned in get_logs")
     }
 
     fn list_logs(&self) -> String {
@@ -246,19 +235,9 @@ impl TestLogHandler {
 }
 
 pub fn init_test_logging() -> bool {
-    let tlh = TestLogHandler::new();
-
-    if tlh.logs_initialized() {
-        true
-    } else {
-        tlh.initialize_logs();
-        match set_logger(&TEST_LOGGER) {
-            Ok(_) => true,
-            Err(e) => {
-                eprintln!("Couldn't set logger: {:?}", e);
-                false
-            }
-        }
+    match set_logger(&TEST_LOGGER) {
+        Ok(_) => true,
+        Err(_) => false, // logger has already been set
     }
 }
 

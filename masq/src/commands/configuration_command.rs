@@ -88,30 +88,25 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Mnemonic seed:",
-            &configuration
-                .mnemonic_seed_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration
+                .mnemonic_seed_opt),
         );
         Self::dump_configuration_line(
             stream,
             "Consuming wallet derivation path:",
-            &configuration
-                .consuming_wallet_derivation_path_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration
+                .consuming_wallet_derivation_path_opt),
         );
         Self::dump_configuration_line(
             stream,
             "Earning wallet address:",
-            &configuration
-                .earning_wallet_address_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration.earning_wallet_address_opt),
         );
         Self::dump_configuration_line(
             stream,
             "Port mapping protocol:",
-            &configuration
-                .port_mapping_protocol_opt
-                .unwrap_or_else(|| "[?]".to_string()),
+            &Self::interpret_option(&configuration
+                .port_mapping_protocol_opt),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
         Self::dump_configuration_line(
@@ -139,6 +134,13 @@ impl ConfigurationCommand {
 
     fn dump_configuration_line(stream: &mut dyn Write, name: &str, value: &str) {
         short_writeln!(stream, "{:33} {}", name, value);
+    }
+
+    fn interpret_option(value_opt: &Option<String>) -> String {
+        match value_opt {
+            None => "[?]".to_string(),
+            Some (s) => s.clone(),
+        }
     }
 }
 
