@@ -23,7 +23,7 @@ impl WebSocketSupervisorMock {
         }
     }
 
-    pub fn send_msg_parameters(
+    pub fn send_msg_params(
         mut self,
         parameters: &Arc<Mutex<Vec<NodeToUiMessage>>>,
     ) -> WebSocketSupervisorMock {

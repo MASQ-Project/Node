@@ -18,7 +18,6 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use consuming_service::ConsumingService;
-use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use routing_service::RoutingService;
 
@@ -113,9 +112,7 @@ impl Handler<NodeFromUiMessage> for Hopper {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
-            handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY)
-        }
+        handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
     }
 }
 

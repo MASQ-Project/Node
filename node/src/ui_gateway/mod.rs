@@ -10,7 +10,7 @@ use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{NODE_MAILBOX_CAPACITY};
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorReal;
 use actix::Actor;
@@ -18,8 +18,8 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use masq_lib::messages::{FromMessageBody, UiCrashRequest};
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::messages::{UiCrashRequest, UiMessageError};
+use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
 
@@ -38,6 +38,7 @@ impl UiGateway {
             websocket_supervisor: None,
             incoming_message_recipients: vec![],
             crashable,
+
             logger: Logger::new("UiGateway"),
         }
     }
@@ -49,6 +50,24 @@ impl UiGateway {
             node_to_ui_message_sub: recipient!(addr, NodeToUiMessage),
         }
     }
+
+    //TODO: this function will probably be transformed into more appropriate one with GH-472
+    fn deserialization_check_with_potential_crash_request_handling(
+        &self,
+        message_body: MessageBody,
+    ) -> Option<UiMessageError> {
+        match message_body.payload {
+            Ok(payload) => match serde_json::from_str::<UiCrashRequest>(&payload) {
+                Ok(crash_request) => match (self.crashable, crash_request.actor == CRASH_KEY) {
+                    (true, true) => panic!("{}", crash_request.panic_message),
+                    _ => None,
+                },
+                Err(e) if e.is_syntax() => Some(UiMessageError::DeserializationError(e.to_string())),
+                Err(_) => None
+            }
+                Err(_) => None,
+            }
+        }
 }
 
 impl Actor for UiGateway {
@@ -107,15 +126,18 @@ impl Handler<NodeFromUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((body, _)) = UiCrashRequest::fmb(msg.clone().body) {
-            handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
-        }
+        if let Some(UiMessageError::DeserializationError(error)) =
+            self.deserialization_check_with_potential_crash_request_handling(msg.body.clone())
+        {
+            warning!(self.logger, "Deserialization error: {}", error);
+            return;
+        };
         let len = self.incoming_message_recipients.len();
         (0..len).for_each(|idx| {
             let recipient = &self.incoming_message_recipients[idx];
             recipient.try_send(msg.clone()).unwrap_or_else(|_| {
                 panic!("UiGateway's NodeFromUiMessage recipient #{} has died.", idx)
-            })
+            });
         })
     }
 }
@@ -123,12 +145,15 @@ impl Handler<NodeFromUiMessage> for UiGateway {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dispatcher;
+    use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recording};
     use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
+    use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
-    use masq_lib::ui_gateway::{MessageBody, MessageTarget};
+    use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use masq_lib::utils::find_free_port;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -171,7 +196,8 @@ mod tests {
             body: MessageBody {
                 opcode: "booga".to_string(),
                 path: FireAndForget,
-                payload: Ok("{}".to_string()),
+                payload: Ok("{\n
+                }".to_string()),
             },
         };
 
@@ -201,9 +227,9 @@ mod tests {
     #[test]
     fn outbound_ui_message_goes_only_to_websocket_supervisor() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let send_msg_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let send_msg_params_arc = Arc::new(Mutex::new(vec![]));
         let websocket_supervisor =
-            WebSocketSupervisorMock::new().send_msg_parameters(&send_msg_parameters_arc);
+            WebSocketSupervisorMock::new().send_msg_params(&send_msg_params_arc);
         let mut subject = UiGateway::new(
             &UiGatewayConfig {
                 ui_port: find_free_port(),
@@ -212,6 +238,7 @@ mod tests {
         );
         let system = System::new("test");
         subject.websocket_supervisor = Some(Box::new(websocket_supervisor));
+        //TODO this doesn't work; but with the bind message it would
         subject.incoming_message_recipients =
             vec![accountant.start().recipient::<NodeFromUiMessage>()];
         let subject_addr: Addr<UiGateway> = subject.start();
@@ -230,7 +257,98 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        let send_parameters = send_msg_parameters_arc.lock().unwrap();
+        let send_parameters = send_msg_params_arc.lock().unwrap();
         assert_eq!(send_parameters[0], msg);
+    }
+
+    #[test]
+    fn a_syntactically_bad_json_is_caught() {
+        init_test_logging();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let subject = UiGateway::new(
+            &UiGatewayConfig {
+                ui_port: find_free_port(),
+            },
+            false,
+        );
+        let system = System::new("test");
+        let subject_addr: Addr<UiGateway> = subject.start();
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let msg = NodeFromUiMessage {
+            client_id: 0,
+            body: MessageBody {
+                opcode: "booga".to_string(),
+                path: FireAndForget,
+                payload: Ok("some bad bite for a jason processor".to_string()),
+            },
+        };
+
+        subject_addr.try_send(msg.clone()).unwrap();
+
+        System::current().stop();
+        system.run();
+        let random_actor_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(random_actor_recording.len(), 0);
+        TestLogHandler::new().exists_log_containing(
+            "WARN: UiGateway: Deserialization error: expected value at line 1 column 1",
+        );
+    }
+
+    #[test]
+    fn other_than_syntactical_errors_are_ignored() {
+        //we deserialize against the crash request so deviating from its syntax causes also a deserialization error
+        let msg_body = UiChangePasswordRequest{ old_password_opt: None, new_password: "bubbles".to_string() }.tmb(12);
+        let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, false);
+
+        let result = subject.deserialization_check_with_potential_crash_request_handling(msg_body);
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn deserialization_checker_does_not_care_about_errors_like_payload_errors() {
+        let msg_body = MessageBody {
+            opcode: "blah".to_string(),
+            path: MessagePath::Conversation(45),
+            payload: Err((1234, "We did it wrong".to_string())),
+        };
+        let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, false);
+
+        let result = subject.deserialization_check_with_potential_crash_request_handling(msg_body);
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn deserialization_checker_does_not_panic_on_a_crash_request_if_the_actor_is_not_crashable() {
+        let crash_request = UiCrashRequest {
+            actor: CRASH_KEY.to_string(),
+            panic_message: "Testing crashing".to_string(),
+        }
+        .tmb(0);
+        let crashable = false;
+        let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, crashable);
+
+        let result =
+            subject.deserialization_check_with_potential_crash_request_handling(crash_request);
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn deserialization_checker_does_not_panic_if_the_crash_request_belongs_to_another_actor() {
+        let crash_request = UiCrashRequest {
+            actor: dispatcher::CRASH_KEY.to_string(),
+            panic_message: "Testing crashing".to_string(),
+        }
+        .tmb(0);
+        let crashable = true;
+        let subject = UiGateway::new(&UiGatewayConfig { ui_port: 123 }, crashable);
+
+        let result =
+            subject.deserialization_check_with_potential_crash_request_handling(crash_request);
+
+        assert_eq!(result, None)
     }
 }

@@ -38,7 +38,7 @@ use futures::future::Future;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::crash_point::CrashPoint;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiCrashRequest, UiFinancialsRequest};
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{UiFinancialsResponse, UiPayableAccount, UiReceivableAccount};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -220,8 +220,8 @@ impl Handler<NodeFromUiMessage> for Accountant {
         let client_id = msg.client_id;
         if let Ok((body, context_id)) = UiFinancialsRequest::fmb(msg.clone().body) {
             self.handle_financials(client_id, context_id, body);
-        } else if let Ok((body, _)) = UiCrashRequest::fmb(msg.body) {
-            handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }
@@ -745,7 +745,7 @@ pub mod tests {
     use actix::System;
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
-    use masq_lib::ui_gateway::MessagePath::{Conversation, FireAndForget};
+    use masq_lib::ui_gateway::MessagePath::{Conversation};
     use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
     use std::cell::RefCell;
     use std::convert::TryFrom;
@@ -1341,48 +1341,6 @@ pub mod tests {
                 ],
                 total_receivable: 98765432
             }
-        );
-    }
-
-    #[test]
-    fn unexpected_ui_message_is_ignored() {
-        init_test_logging();
-        let system = System::new("test");
-        let subject = make_subject(
-            Some(bc_from_ac_plus_earning_wallet(
-                AccountantConfig {
-                    payable_scan_interval: Duration::from_millis(10_000),
-                    payment_received_scan_interval: Duration::from_millis(10_000),
-                },
-                make_wallet("some_wallet_address"),
-            )),
-            None,
-            None,
-            None,
-            None,
-        );
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: MessageBody {
-                    opcode: "farple-prang".to_string(),
-                    path: FireAndForget,
-                    payload: Ok("{}".to_string()),
-                },
-            })
-            .unwrap();
-
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(ui_gateway_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(
-            "DEBUG: Accountant: Ignoring FireAndForget request from client 1234 with opcode 'farple-prang'",
         );
     }
 

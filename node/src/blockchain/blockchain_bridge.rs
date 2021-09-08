@@ -22,7 +22,7 @@ use actix::Handler;
 use actix::Message;
 use actix::{Actor, MessageResult};
 use actix::{Addr, Recipient};
-use masq_lib::messages::{FromMessageBody, UiCrashRequest};
+use masq_lib::messages::{UiCrashRequest};
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::convert::TryFrom;
 use std::path::PathBuf;
@@ -108,9 +108,7 @@ impl Handler<NodeFromUiMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
-            handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY)
-        }
+        handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
     }
 }
 
@@ -691,20 +689,8 @@ mod tests {
     #[test]
     fn cant_be_crashed_if_key_doesnt_match() {
         let system = System::new("test");
-        let crashable = true;
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            crashable,
-            None,
-        );
-        let addr: Addr<BlockchainBridge> = subject.start();
 
-        addr.try_send(NodeFromUiMessage {
-            client_id: 0,
-            body: UiCrashRequest::new("MISMATCH", "panic message").tmb(0),
-        })
-        .unwrap();
+        start_blockchain_bridge_regarding_crashable(true, "MISMATCH");
 
         System::current().stop();
         system.run();
@@ -713,35 +699,27 @@ mod tests {
 
     #[test]
     fn cant_be_crashed_if_not_crashable() {
-        init_test_logging();
         let system = System::new("test");
-        let crashable = false;
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            crashable,
-            None,
-        );
-        let addr: Addr<BlockchainBridge> = subject.start();
 
-        addr.try_send(NodeFromUiMessage {
-            client_id: 0,
-            body: UiCrashRequest::new(CRASH_KEY, "panic message").tmb(0),
-        })
-        .unwrap();
+        start_blockchain_bridge_regarding_crashable(false, CRASH_KEY);
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing(
-            "INFO: BlockchainBridge: Rejected crash attempt: 'panic message'",
-        );
     }
 
     #[test]
     #[should_panic(expected = "panic message")]
     fn can_be_crashed() {
         let system = System::new("test");
-        let crashable = true;
+
+        start_blockchain_bridge_regarding_crashable(true, CRASH_KEY);
+
+        System::current().stop();
+        system.run();
+    }
+
+    //TODO shouldn't we throw away the three tests using this? It is in fact tested by a combination of other tests.
+    fn start_blockchain_bridge_regarding_crashable(crashable: bool, crash_key: &str) {
         let subject = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::default()),
@@ -752,11 +730,8 @@ mod tests {
 
         addr.try_send(NodeFromUiMessage {
             client_id: 0,
-            body: UiCrashRequest::new(CRASH_KEY, "panic message").tmb(0),
+            body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
         })
         .unwrap();
-
-        System::current().stop();
-        system.run();
     }
 }

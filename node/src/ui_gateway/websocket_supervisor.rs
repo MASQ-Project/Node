@@ -742,8 +742,7 @@ mod tests {
 
         ui_gateway_awaiter.await_message_count(3);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let messages = vec![0, 1, 2]
-            .into_iter()
+        let messages = (0..=2)
             .map(|i| {
                 ui_gateway_recording
                     .get_record::<NodeFromUiMessage>(i)

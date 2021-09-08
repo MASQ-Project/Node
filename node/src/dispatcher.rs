@@ -12,7 +12,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiCrashRequest, UiDescriptorRequest, UiDescriptorResponse,
+    FromMessageBody, ToMessageBody, UiDescriptorRequest, UiDescriptorResponse,
 };
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 
@@ -116,8 +116,8 @@ impl Handler<NodeFromUiMessage> for Dispatcher {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         if let Ok((_, context_id)) = UiDescriptorRequest::fmb(msg.body.clone()) {
             self.handle_descriptor_request(msg.client_id, context_id);
-        } else if let Ok((crash_request, _)) = UiCrashRequest::fmb(msg.body) {
-            handle_ui_crash_request(crash_request, &self.logger, self.crashable, CRASH_KEY);
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }

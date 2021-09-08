@@ -2,9 +2,10 @@
 
 use crate::sub_lib::logger::Logger;
 use clap::App;
-use masq_lib::messages::UiCrashRequest;
+use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::io::ErrorKind;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -104,18 +105,25 @@ pub fn make_new_multi_config<'a>(
 }
 
 pub fn handle_ui_crash_request(
-    msg: UiCrashRequest,
+    msg: NodeFromUiMessage,
     logger: &Logger,
     crashable: bool,
     crash_key: &str,
 ) {
-    if msg.actor != crash_key {
+    if !crashable {
         return;
     }
-    if crashable {
+    if let Ok((msg, _)) = UiCrashRequest::fmb(msg.body) {
+        if msg.actor != crash_key {
+            debug!(
+                logger,
+                "Rejected crash instruction for '{}' with message '{}'",
+                msg.actor,
+                msg.panic_message
+            );
+            return;
+        }
         panic!("{}", msg.panic_message);
-    } else {
-        info!(logger, "Rejected crash attempt: '{}'", msg.panic_message);
     }
 }
 
@@ -132,6 +140,7 @@ pub mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;
 
     #[test]
@@ -191,42 +200,54 @@ pub mod tests {
 
     #[test]
     fn handle_ui_crash_message_doesnt_crash_if_not_crashable() {
-        init_test_logging();
         let logger = Logger::new("Example");
-        let msg = UiCrashRequest {
+        let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),
+        }
+        .tmb(0);
+        let from_ui_message = NodeFromUiMessage {
+            client_id: 0,
+            body: msg_body,
         };
 
-        handle_ui_crash_request(msg, &logger, false, "CRASHKEY");
-
-        TestLogHandler::new()
-            .exists_log_containing("INFO: Example: Rejected crash attempt: 'Foiled again!'");
+        handle_ui_crash_request(from_ui_message, &logger, false, "CRASHKEY");
     }
 
     #[test]
     fn handle_ui_crash_message_doesnt_crash_if_no_actor_match() {
+        init_test_logging();
         let logger = Logger::new("Example");
-        let msg = UiCrashRequest {
+        let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),
+        }
+        .tmb(0);
+        let from_ui_message = NodeFromUiMessage {
+            client_id: 0,
+            body: msg_body,
         };
 
-        handle_ui_crash_request(msg, &logger, true, "mismatch");
+        handle_ui_crash_request(from_ui_message, &logger, true, "mismatch"); // no panic; test passes
 
-        // no panic; test passes
+        TestLogHandler::new().exists_log_containing("DEBUG: Example: Rejected crash instruction for 'CRASHKEY' with message 'Foiled again!'");
     }
 
     #[test]
     #[should_panic(expected = "Foiled again!")]
     fn handle_ui_crash_message_crashes_if_everythings_just_right() {
         let logger = Logger::new("Example");
-        let msg = UiCrashRequest {
+        let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),
+        }
+        .tmb(0);
+        let from_ui_message = NodeFromUiMessage {
+            client_id: 0,
+            body: msg_body,
         };
 
-        handle_ui_crash_request(msg, &logger, true, "CRASHKEY");
+        handle_ui_crash_request(from_ui_message, &logger, true, "CRASHKEY");
     }
 
     #[test]

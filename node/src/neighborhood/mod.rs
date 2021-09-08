@@ -62,7 +62,7 @@ use itertools::Itertools;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::messages::UiShutdownRequest;
-use masq_lib::messages::{FromMessageBody, UiCrashRequest};
+use masq_lib::messages::{FromMessageBody};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue};
 use neighborhood_database::NeighborhoodDatabase;
@@ -267,10 +267,10 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.clone().body) {
+        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
-        } else if let Ok((body, _)) = UiCrashRequest::fmb(msg.body) {
-            handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }

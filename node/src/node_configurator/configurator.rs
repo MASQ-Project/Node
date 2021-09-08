@@ -5,7 +5,7 @@ use actix::{Actor, Context, Handler, Recipient};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
     UiCheckPasswordRequest, UiCheckPasswordResponse, UiConfigurationRequest,
-    UiConfigurationResponse, UiCrashRequest, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
+    UiConfigurationResponse, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     UiNewPasswordBroadcast, UiRecoverWalletsRequest, UiRecoverWalletsResponse,
     UiSetConfigurationRequest, UiSetConfigurationResponse, UiWalletAddressesRequest,
     UiWalletAddressesResponse,
@@ -66,25 +66,25 @@ impl Handler<NodeFromUiMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.clone().body) {
+        if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body.clone()) {
             let client_id = msg.client_id;
             self.call_handler(msg, |c| {
                 c.handle_change_password(body, client_id, context_id)
             });
-        } else if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiCheckPasswordRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_check_password(body, context_id));
-        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_configuration(body, context_id));
-        } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_generate_wallets(body, context_id));
-        } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_recover_wallets(body, context_id));
-        } else if let Ok((body, context_id)) = UiSetConfigurationRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiSetConfigurationRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_set_configuration(body, context_id));
-        } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.clone().body) {
+        } else if let Ok((body, context_id)) = UiWalletAddressesRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_wallet_addresses(body, context_id));
-        } else if let Ok((body, _)) = UiCrashRequest::fmb(msg.body) {
-            handle_ui_crash_request(body, &self.logger, self.crashable, CRASH_KEY)
+        } else {
+            handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
     }
 }
