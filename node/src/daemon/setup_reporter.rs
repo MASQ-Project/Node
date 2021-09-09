@@ -60,6 +60,7 @@ pub trait SetupReporter {
 
 pub struct SetupReporterReal {
     dirs_wrapper: Box<dyn DirsWrapper>,
+    logger: Logger,
 }
 
 impl SetupReporter for SetupReporterReal {
@@ -121,7 +122,7 @@ impl SetupReporter for SetupReporterReal {
                 &chain_name,
             ),
         };
-        let (configured_setup, error_opt) = Self::calculate_configured_setup(
+        let (configured_setup, error_opt) = self.calculate_configured_setup(
             self.dirs_wrapper.as_ref(),
             &all_but_configured,
             &data_directory,
@@ -190,6 +191,7 @@ impl SetupReporterReal {
     pub fn new() -> Self {
         Self {
             dirs_wrapper: Box::new(DirsWrapperReal {}),
+            logger: Logger::new("SetupReporter"),
         }
     }
 
@@ -272,6 +274,7 @@ impl SetupReporterReal {
     }
 
     fn calculate_configured_setup(
+        &self,
         dirs_wrapper: &dyn DirsWrapper,
         combined_setup: &SetupCluster,
         data_directory: &Path,
@@ -286,7 +289,7 @@ impl SetupReporterReal {
                 Ok(mc) => mc,
                 Err(ce) => return (HashMap::new(), Some(ce)),
             };
-        let ((bootstrapper_config, persistent_config_opt), error_opt) = Self::run_configuration(
+        let ((bootstrapper_config, persistent_config_opt), error_opt) = self.run_configuration(
             dirs_wrapper,
             &multi_config,
             data_directory,
@@ -395,6 +398,7 @@ impl SetupReporterReal {
 
     #[allow(clippy::type_complexity)]
     fn run_configuration(
+        &self,
         dirs_wrapper: &dyn DirsWrapper,
         multi_config: &MultiConfig,
         data_directory: &Path,
@@ -428,6 +432,7 @@ impl SetupReporterReal {
                     &mut streams,
                     &mut persistent_config,
                     temporary_automap_control_factory,
+                    &self.logger,
                 ) {
                     Ok(_) => (
                         (bootstrapper_config, Some(Box::new(persistent_config))),
@@ -453,6 +458,7 @@ impl SetupReporterReal {
                     &mut streams,
                     &mut persistent_config,
                     temporary_automap_control_factory,
+                    &self.logger,
                 ) {
                     Ok(_) => ((bootstrapper_config, None), None),
                     Err(ce) => {
@@ -1949,14 +1955,15 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None),
-        )
-        .0;
+        let result = SetupReporterReal::new()
+            .calculate_configured_setup(
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .0;
 
         assert_eq!(
             result.get("config-file").unwrap().value,
@@ -1995,14 +2002,15 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None),
-        )
-        .0;
+        let result = SetupReporterReal::new()
+            .calculate_configured_setup(
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2034,14 +2042,15 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None),
-        )
-        .0;
+        let result = SetupReporterReal::new()
+            .calculate_configured_setup(
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2066,15 +2075,16 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::calculate_configured_setup(
-            &DirsWrapperReal,
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None),
-        )
-        .1
-        .unwrap();
+        let result = SetupReporterReal::new()
+            .calculate_configured_setup(
+                &DirsWrapperReal,
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .1
+            .unwrap();
 
         assert_eq!(result.param_errors[0].parameter, "config-file");
         assert_string_contains(&result.param_errors[0].reason, "Are you sure it exists?");
@@ -2112,14 +2122,15 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None),
-        )
-        .0;
+        let result = SetupReporterReal::new()
+            .calculate_configured_setup(
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2151,15 +2162,16 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let result = SetupReporterReal::calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None),
-        )
-        .1
-        .unwrap();
+        let result = SetupReporterReal::new()
+            .calculate_configured_setup(
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .1
+            .unwrap();
 
         assert_eq!(result.param_errors[0].parameter, "config-file");
         assert_string_contains(&result.param_errors[0].reason, "Are you sure it exists?");

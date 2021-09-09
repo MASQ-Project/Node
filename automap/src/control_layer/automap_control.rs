@@ -29,6 +29,7 @@ pub trait AutomapControl {
     fn add_mapping(&mut self, hole_port: u16) -> Result<(), AutomapError>;
     fn delete_mappings(&mut self) -> Result<(), AutomapError>;
     fn get_mapping_protocol(&self) -> Option<AutomapProtocol>;
+    fn logger(&self) -> &Logger;
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -162,6 +163,10 @@ impl AutomapControl for AutomapControlReal {
 
     fn get_mapping_protocol(&self) -> Option<AutomapProtocol> {
         self.usual_protocol_opt
+    }
+
+    fn logger(&self) -> &Logger {
+        &self.logger
     }
 }
 
