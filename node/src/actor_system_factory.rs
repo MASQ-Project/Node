@@ -38,7 +38,6 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::ExpectValue;
 use std::path::Path;
-use web3::transports::Http;
 
 pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
