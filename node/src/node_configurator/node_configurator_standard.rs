@@ -387,7 +387,7 @@ pub mod standard {
             false => Err(ParamError::new(
                 "neighbors",&format!("Neighbors supplied without ip addresses and ports aren't valid: '{}--NA--:--NA--",
                                      if supplied_version.ends_with("@:") || supplied_version.ends_with("::")
-                                     {supplied_version.strip_suffix(":").expect("logic failed")}
+                                     {supplied_version.strip_suffix(':').expect("logic failed")}
                                      else {supplied_version}))
             )
         }

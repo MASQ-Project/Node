@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 mod websocket_supervisor;
+mod websocket_supervisor_factory;
 
 #[cfg(test)]
 pub mod websocket_supervisor_mock;
@@ -12,7 +13,9 @@ use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::ui_gateway::websocket_supervisor::WebSocketSupervisor;
-use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorReal;
+use crate::ui_gateway::websocket_supervisor_factory::{
+    WebsocketSupervisorFactory, WebsocketSupervisorFactoryReal,
+};
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -20,11 +23,13 @@ use actix::Handler;
 use actix::Recipient;
 use masq_lib::messages::{UiCrashRequest, UiMessageError};
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::utils::ExpectValue;
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
 
 pub struct UiGateway {
     port: u16,
+    websocket_supervisor_factory: Option<Box<dyn WebsocketSupervisorFactory>>,
     websocket_supervisor: Option<Box<dyn WebSocketSupervisor>>,
     incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
     crashable: bool,
@@ -35,6 +40,7 @@ impl UiGateway {
     pub fn new(config: &UiGatewayConfig, crashable: bool) -> UiGateway {
         UiGateway {
             port: config.ui_port,
+            websocket_supervisor_factory: Some(Box::new(WebsocketSupervisorFactoryReal)),
             websocket_supervisor: None,
             incoming_message_recipients: vec![],
             crashable,
@@ -87,11 +93,15 @@ impl Handler<BindMessage> for UiGateway {
             msg.peer_actors.dispatcher.ui_sub.clone(),
             msg.peer_actors.configurator.node_from_ui_sub.clone(),
         ];
-        self.websocket_supervisor = match WebSocketSupervisorReal::new(
+        let factory = self
+            .websocket_supervisor_factory
+            .take()
+            .expect_v("websocket supervisor factory");
+        self.websocket_supervisor = match factory.make(
             self.port,
             msg.peer_actors.ui_gateway.node_from_ui_message_sub,
         ) {
-            Ok(wss) => Some(Box::new(wss)),
+            Ok(wss) => Some(wss),
             Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
         };
         debug!(self.logger, "UIGateway bound");
@@ -104,11 +114,14 @@ impl Handler<DaemonBindMessage> for UiGateway {
     fn handle(&mut self, msg: DaemonBindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.incoming_message_recipients = msg.from_ui_message_recipients;
-        self.websocket_supervisor =
-            match WebSocketSupervisorReal::new(self.port, msg.from_ui_message_recipient) {
-                Ok(wss) => Some(Box::new(wss)),
-                Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
-            };
+        let factory = self
+            .websocket_supervisor_factory
+            .take()
+            .expect_v("websocket supervisor factory");
+        self.websocket_supervisor = match factory.make(self.port, msg.from_ui_message_recipient) {
+            Ok(wss) => Some(wss),
+            Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
+        };
         debug!(self.logger, "UIGateway bound");
     }
 }
@@ -151,6 +164,7 @@ mod tests {
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recording};
+    use crate::ui_gateway::websocket_supervisor_factory::mock::WebsocketSupervisorFactoryMock;
     use crate::ui_gateway::websocket_supervisor_mock::WebSocketSupervisorMock;
     use actix::System;
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
@@ -233,18 +247,16 @@ mod tests {
         let send_msg_params_arc = Arc::new(Mutex::new(vec![]));
         let websocket_supervisor =
             WebSocketSupervisorMock::new().send_msg_params(&send_msg_params_arc);
-        let mut subject = UiGateway::new(
-            &UiGatewayConfig {
-                ui_port: find_free_port(),
-            },
-            false,
-        );
+        let websocket_supervisor_factory = WebsocketSupervisorFactoryMock::default()
+            .make_result(Ok(Box::new(websocket_supervisor)));
+        let port = find_free_port();
+        let mut subject = UiGateway::new(&UiGatewayConfig { ui_port: port }, false);
+        subject.websocket_supervisor_factory =
+            Some(Box::new(websocket_supervisor_factory) as Box<dyn WebsocketSupervisorFactory>);
         let system = System::new("test");
-        subject.websocket_supervisor = Some(Box::new(websocket_supervisor));
-        //TODO this doesn't work; but with the bind message it would
-        subject.incoming_message_recipients =
-            vec![accountant.start().recipient::<NodeFromUiMessage>()];
         let subject_addr: Addr<UiGateway> = subject.start();
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let msg = NodeToUiMessage {
             target: MessageTarget::ClientId(1234),
             body: MessageBody {

@@ -120,7 +120,6 @@ fn initialization_sequence_integration() {
     match daemon.wait_for_exit() {
         None => eprintln!("wait_for_exit produced no output: weird"),
         Some(output) => {
-            //TODO this seems wrong - this lacks any assertion so why we print it and nothing more
             eprintln!(
                 "wait_for_exit produced exit status {:?} and stdout:\n------\n{}\n------\nstderr:\n------\n{}\n------\n",
                 output.status,

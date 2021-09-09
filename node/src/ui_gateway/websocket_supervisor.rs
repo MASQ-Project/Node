@@ -85,7 +85,7 @@ impl WebSocketSupervisorReal {
     pub fn new(
         port: u16,
         from_ui_message_sub: Recipient<NodeFromUiMessage>,
-    ) -> std::io::Result<WebSocketSupervisorReal> {
+    ) -> std::io::Result<Box<WebSocketSupervisorReal>> {
         let inner = Arc::new(Mutex::new(WebSocketSupervisorInner {
             port,
             next_client_id: 0,
@@ -117,7 +117,7 @@ impl WebSocketSupervisorReal {
                 Err(())
             }
         }));
-        Ok(WebSocketSupervisorReal { inner })
+        Ok(Box::new(WebSocketSupervisorReal { inner }))
     }
 
     fn send_msg(locked_inner: &mut MutexGuard<WebSocketSupervisorInner>, msg: NodeToUiMessage) {
