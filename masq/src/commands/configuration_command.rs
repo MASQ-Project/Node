@@ -88,14 +88,12 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Mnemonic seed:",
-            &Self::interpret_option(&configuration
-                .mnemonic_seed_opt),
+            &Self::interpret_option(&configuration.mnemonic_seed_opt),
         );
         Self::dump_configuration_line(
             stream,
             "Consuming wallet derivation path:",
-            &Self::interpret_option(&configuration
-                .consuming_wallet_derivation_path_opt),
+            &Self::interpret_option(&configuration.consuming_wallet_derivation_path_opt),
         );
         Self::dump_configuration_line(
             stream,
@@ -105,8 +103,7 @@ impl ConfigurationCommand {
         Self::dump_configuration_line(
             stream,
             "Port mapping protocol:",
-            &Self::interpret_option(&configuration
-                .port_mapping_protocol_opt),
+            &Self::interpret_option(&configuration.port_mapping_protocol_opt),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
         Self::dump_configuration_line(
@@ -139,7 +136,7 @@ impl ConfigurationCommand {
     fn interpret_option(value_opt: &Option<String>) -> String {
         match value_opt {
             None => "[?]".to_string(),
-            Some (s) => s.clone(),
+            Some(s) => s.clone(),
         }
     }
 }

@@ -496,17 +496,25 @@ pub mod standard {
             Ok(mp_opt) => mp_opt,
             Err(_) => todo!(),
         };
-eprintln! ("In compute_mapping_protocol, persistent_mapping_protocol_opt = {:?}", persistent_mapping_protocol_opt);
+        eprintln!(
+            "In compute_mapping_protocol, persistent_mapping_protocol_opt = {:?}",
+            persistent_mapping_protocol_opt
+        );
         match (
             value_m!(multi_config, "mapping-protocol", AutomapProtocol),
             persistent_mapping_protocol_opt,
         ) {
             (None, Some(persisted_mapping_protocol)) => Some(persisted_mapping_protocol),
             (cmd_line_mapping_protocol_opt, _) => {
-eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", cmd_line_mapping_protocol_opt);
-                match persistent_config.set_mapping_protocol(cmd_line_mapping_protocol_opt) {
-                    Ok(_) => (),
-                    Err(e) => todo!("Log warning and continue: {:?}", e),
+                eprintln!(
+                    "Saving mapping protocol in compute_mapping_protocol_opt() {:?}",
+                    cmd_line_mapping_protocol_opt
+                );
+                if cmd_line_mapping_protocol_opt != persistent_mapping_protocol_opt {
+                    match persistent_config.set_mapping_protocol(cmd_line_mapping_protocol_opt) {
+                        Ok(_) => (),
+                        Err(e) => todo!("Log warning and continue: {:?}", e),
+                    }
                 }
                 cmd_line_mapping_protocol_opt
             }
@@ -530,10 +538,13 @@ eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", cmd
                 match automap_control.get_public_ip() {
                     Ok(public_ip) => {
                         config.mapping_protocol_opt = automap_control.get_mapping_protocol();
-eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.mapping_protocol_opt);
-                        match persistent_config.set_mapping_protocol (config.mapping_protocol_opt) {
-                            Ok (_) => (),
-                            Err (e) => todo! ("{:?}", e),
+                        eprintln!(
+                            "Saving mapping protocol in compute_public_ip_opt(): {:?}",
+                            config.mapping_protocol_opt
+                        );
+                        match persistent_config.set_mapping_protocol(config.mapping_protocol_opt) {
+                            Ok(_) => (),
+                            Err(e) => todo!("{:?}", e),
                         }
                         Some(public_ip)
                     }
@@ -771,7 +782,9 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
         use crate::sub_lib::utils::make_new_test_multi_config;
         use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
         use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-        use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
+        use crate::test_utils::pure_test_utils::{
+            make_default_persistent_configuration, make_simplified_multi_config,
+        };
         use crate::test_utils::ArgsBuilder;
         use automap_lib::comm_layer::AutomapError;
         use masq_lib::multi_config::VirtualCommandLine;
@@ -1115,8 +1128,17 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
 
         #[test]
         fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
+            let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
+            let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol", "pcp"]);
+            let mut persistent_config = PersistentConfigurationMock::default()
+                .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
+                .set_mapping_protocol_params(&set_mapping_protocol_params_arc);
+
             let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config);
-            todo! ("Complete me");
+
+            assert_eq!(result, Some(AutomapProtocol::Pcp));
+            let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
+            assert_eq!(*set_mapping_protocol_params, vec![])
         }
 
         #[test]
@@ -2065,7 +2087,7 @@ mod tests {
             .get_mapping_protocol_result(Some(AutomapProtocol::Igdp));
         let automap_control_factory =
             AutomapControlFactoryMock::new().make_result(temporary_automap_control);
-        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
+        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Ok(None))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
@@ -2109,7 +2131,10 @@ mod tests {
             Some(IpAddr::from_str("192.168.0.17").unwrap())
         );
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq! (*set_mapping_protocol_params, vec![None, Some (AutomapProtocol::Igdp)])
+        assert_eq!(
+            *set_mapping_protocol_params,
+            vec![None, Some(AutomapProtocol::Igdp)]
+        )
     }
 
     #[test]
@@ -2125,18 +2150,18 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
+        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_configuration = make_persistent_config(
-                None,
-                Some("password"),
-                None,
-                None,
-                None,
-                Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
-            )
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .past_neighbors_params(&past_neighbors_params_arc);
+            None,
+            Some("password"),
+            None,
+            None,
+            None,
+            Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
+        )
+        .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+        .past_neighbors_params(&past_neighbors_params_arc);
         let temporary_automap_control = AutomapControlMock::new();
 
         standard::unprivileged_parse_args(
@@ -2159,7 +2184,7 @@ mod tests {
         assert_eq!(past_neighbors_params[0], "password".to_string());
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq! (*set_mapping_protocol_params, vec![]);
+        assert_eq!(*set_mapping_protocol_params, vec![]);
     }
 
     #[test]
@@ -2238,7 +2263,7 @@ mod tests {
             .get_mapping_protocol_result(Some(AutomapProtocol::Pmp));
         let automap_control_factory =
             AutomapControlFactoryMock::new().make_result(temporary_automap_control);
-        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
+        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
 
         standard::unprivileged_parse_args(
             &multi_config,
@@ -2260,7 +2285,10 @@ mod tests {
             Some(IpAddr::from_str("1.2.3.4").unwrap())
         );
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq! (*set_mapping_protocol_params, vec![None, Some(AutomapProtocol::Pmp)])
+        assert_eq!(
+            *set_mapping_protocol_params,
+            vec![None, Some(AutomapProtocol::Pmp)]
+        )
     }
 
     fn make_persistent_config(

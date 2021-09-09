@@ -67,10 +67,7 @@ impl Bip32ECKeyPair {
     }
 
     pub fn clone_secret(&self) -> SecretKey {
-        match self.secret.to_crypto(
-            &Protected::from("secret"),
-            1,
-        ) {
+        match self.secret.to_crypto(&Protected::from("secret"), 1) {
             Ok(crypto) => match SecretKey::from_crypto(&crypto, &Protected::from("secret")) {
                 Ok(secret) => secret,
                 Err(e) => panic!("{:?}", e),
@@ -128,10 +125,7 @@ impl Serialize for Bip32ECKeyPair {
     {
         let result = self
             .secret
-            .to_crypto(
-                &Protected::from("secret"),
-                1,
-            )
+            .to_crypto(&Protected::from("secret"), 1)
             .map_err(ser::Error::custom)?;
         result.serialize(serializer)
     }

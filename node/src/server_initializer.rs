@@ -155,7 +155,10 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         log_level: LevelFilter,
         discriminant_opt: Option<&str>,
     ) {
-eprintln! ("Initializing logger: file_path = {:?}, real_user home = {:?}", file_path, real_user.home_dir_opt);
+        eprintln!(
+            "Initializing logger: file_path = {:?}, real_user home = {:?}",
+            file_path, real_user.home_dir_opt
+        );
         let mut logger = Logger::with(
             LogSpecBuilder::new()
                 .default(log_level)
