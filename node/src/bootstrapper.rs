@@ -220,11 +220,17 @@ impl RealUser {
         RealUser::new(Some(uid), Some(gid), Some(home_dir))
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
         match self.environment_wrapper.var ("SUDO_USER") {
             Some (sudo_user) => Some (Self::home_dir_from_sudo_user(sudo_user)),
             _ => None
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
+        None
     }
 
     #[cfg(target_os = "linux")]
