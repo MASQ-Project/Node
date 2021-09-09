@@ -496,6 +496,7 @@ pub mod standard {
             Ok(mp_opt) => mp_opt,
             Err(_) => todo!(),
         };
+eprintln! ("In compute_mapping_protocol, persistent_mapping_protocol_opt = {:?}", persistent_mapping_protocol_opt);
         match (
             value_m!(multi_config, "mapping-protocol", AutomapProtocol),
             persistent_mapping_protocol_opt,
@@ -1110,6 +1111,12 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
                 *change_password_params,
                 vec![(None, "password".to_string())]
             )
+        }
+
+        #[test]
+        fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
+            let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config);
+            todo! ("Complete me");
         }
 
         #[test]
