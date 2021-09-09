@@ -162,8 +162,7 @@ mod tests {
     use std::io::Error;
     use std::io::ErrorKind;
     use std::str::FromStr;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn stream_writer_writes_packets_in_sequenced_order() {

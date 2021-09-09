@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+
 use crate::bootstrapper::PortConfiguration;
 use crate::discriminator::DiscriminatorFactory;
 use crate::json_masquerader::JsonMasquerader;
@@ -588,6 +589,7 @@ mod tests {
     use actix::Actor;
     use actix::Addr;
     use actix::System;
+    use crossbeam_channel::unbounded;
     use masq_lib::constants::HTTP_PORT;
     use std::io::Error;
     use std::io::ErrorKind;
@@ -595,9 +597,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::ops::Deref;
     use std::str::FromStr;
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Async;
 
@@ -801,7 +801,7 @@ mod tests {
     #[test]
     fn terminal_packet_is_transmitted_and_then_stream_is_shut_down() {
         init_test_logging();
-        let (sub_tx, sub_rx) = mpsc::channel();
+        let (sub_tx, sub_rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1153,6 +1153,7 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing() {
+        use crossbeam_channel::unbounded;
         let public_key = PublicKey::from(vec![0, 1, 2, 3]);
         let masquerader = JsonMasquerader::new();
         let incoming_unmasked = b"Incoming data".to_vec();
@@ -1164,7 +1165,7 @@ mod tests {
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         let poll_write_params_arc = Arc::new(Mutex::new(vec![]));
         let poll_write_params_arc_a = poll_write_params_arc.clone();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new(
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
@@ -1275,7 +1276,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
         let (neighborhood, awaiter, recording_arc) = make_recorder();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1465,7 +1466,7 @@ mod tests {
         };
         let msg_a = msg.clone();
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1586,7 +1587,7 @@ mod tests {
             peer_addr: peer_addr_a,
         };
 
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -1895,7 +1896,7 @@ mod tests {
         init_test_logging();
         let outgoing_unmasked = b"Outgoing data".to_vec();
         let outgoing_unmasked_len = outgoing_unmasked.len();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new(
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
