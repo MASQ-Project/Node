@@ -155,6 +155,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         log_level: LevelFilter,
         discriminant_opt: Option<&str>,
     ) {
+eprintln! ("Initializing logger: file_path = {:?}, real_user home = {:?}", file_path, real_user.home_dir_opt);
         let mut logger = Logger::with(
             LogSpecBuilder::new()
                 .default(log_level)
@@ -277,8 +278,8 @@ pub mod test_utils {
     use crate::privilege_drop::PrivilegeDropper;
     use crate::server_initializer::LoggerInitializerWrapper;
     use log::LevelFilter;
-    #[cfg(not(target_os = "windows"))]
-    use masq_lib::test_utils::logging::init_test_logging;
+    // #[cfg(not(target_os = "windows"))]
+    // use masq_lib::test_utils::logging::init_test_logging;
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
@@ -366,8 +367,8 @@ pub mod test_utils {
                     None => None,
                 },
             ));
-            #[cfg(not(target_os = "windows"))]
-            assert!(init_test_logging());
+            // #[cfg(not(target_os = "windows"))]
+            // assert!(init_test_logging());
         }
     }
 

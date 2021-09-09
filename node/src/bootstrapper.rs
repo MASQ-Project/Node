@@ -214,21 +214,33 @@ impl RealUser {
         let gid = Self::first_present(vec![self.gid_opt, self.id_from_env("SUDO_GID")]);
         let home_dir = Self::first_present(vec![
             self.home_dir_opt.clone(),
-            self.sudo_home_from_sudo_user_and_home(dirs_wrapper),
+            self.sudo_home_from_sudo_user_and_home(),
             dirs_wrapper.home_dir(),
         ]);
         RealUser::new(Some(uid), Some(gid), Some(home_dir))
     }
 
-    fn sudo_home_from_sudo_user_and_home(&self, dirs_wrapper: &dyn DirsWrapper) -> Option<PathBuf> {
-        match (self.environment_wrapper.var ("SUDO_USER"), dirs_wrapper.home_dir()) {
-            (Some (sudo_user), Some (home_dir)) =>
-                match home_dir.parent().map(|px| px.join(PathBuf::from(sudo_user))) {
-                    Some (hd) => Some (hd),
-                    None => panic!("Cannot determine non-privileged home directory. Make sure you're specifying --real-user."),
-                },
+    #[cfg(not(target_os = "windows"))]
+    fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
+        match self.environment_wrapper.var ("SUDO_USER") {
+            Some (sudo_user) => Some (Self::home_dir_from_sudo_user(sudo_user)),
             _ => None
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
+        None
+    }
+
+    #[cfg(target_os = "linux")]
+    fn home_dir_from_sudo_user(sudo_user: String) -> PathBuf {
+        format! ("/home/{}", sudo_user).into()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn home_dir_from_sudo_user(sudo_user: String) -> PathBuf {
+        format! ("/Users/{}", sudo_user).into()
     }
 
     fn id_from_env(&self, name: &str) -> Option<i32> {
@@ -1818,41 +1830,50 @@ mod tests {
         assert_eq!(result, from_configurator);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn environment_beats_id_wrapper() {
         let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
         let environment_wrapper =
-            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
+            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("username"));
         let mut from_configurator = RealUser::null();
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
         from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
 
         let result = from_configurator
-            .populate(&DirsWrapperMock::new().home_dir_result(Some("/wibble/whop/ooga".into())));
+            .populate(&DirsWrapperMock::new().home_dir_result(Some("/root".into())));
 
         assert_eq!(
             result,
             RealUser::new(
                 Some(123),
                 Some(456),
-                Some(PathBuf::from("/wibble/whop/booga"))
+                Some(PathBuf::from("/home/username"))
             )
         );
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
-    #[should_panic(
-        expected = "Cannot determine non-privileged home directory. Make sure you're specifying --real-user."
-    )]
-    fn zero_element_home_directory_panics() {
+    fn environment_beats_id_wrapper() {
         let id_wrapper = IdWrapperMock::new().getuid_result(111).getgid_result(222);
         let environment_wrapper =
-            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("booga"));
+            EnvironmentWrapperMock::new(Some("123"), Some("456"), Some("username"));
         let mut from_configurator = RealUser::null();
-        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
         from_configurator.environment_wrapper = Box::new(environment_wrapper);
+        from_configurator.initialize_ids(Box::new(id_wrapper), None, None);
 
-        from_configurator.populate(&DirsWrapperMock::new().home_dir_result(Some("/".into())));
+        let result = from_configurator
+            .populate(&DirsWrapperMock::new().home_dir_result(Some("/var/root".into())));
+
+        assert_eq!(
+            result,
+            RealUser::new(
+                Some(123),
+                Some(456),
+                Some(PathBuf::from("/Users/username"))
+            )
+        );
     }
 
     #[test]
