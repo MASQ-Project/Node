@@ -141,6 +141,19 @@ pub fn data_directory_from_context(
     }
 }
 
+pub fn check_for_past_initialization(
+    persistent_config: &dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
+    match persistent_config.mnemonic_seed_exists() {
+        Ok(true) => Err(ConfiguratorError::required(
+            "seed",
+            "Cannot re-initialize Node: already initialized",
+        )),
+        Ok(false) => Ok(()),
+        Err(pce) => Err(pce.into_configurator_error("seed")),
+    }
+}
+
 //TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
 pub fn request_existing_db_password(
     streams: &mut StdStreams,
@@ -265,6 +278,16 @@ pub fn possible_reader_from_stream(
     }
 }
 
+pub fn data_directory_default(dirs_wrapper: &dyn DirsWrapper, chain_name: &'static str) -> String {
+    match dirs_wrapper.data_dir() {
+        Some(path) => path.join("MASQ").join(chain_name),
+        None => PathBuf::from(""),
+    }
+    .to_str()
+    .expect("Internal Error")
+    .to_string()
+}
+
 pub fn flushed_write(target: &mut dyn io::Write, string: &str) {
     write!(target, "{}", string).expect("Failed console write.");
     target.flush().expect("Failed flush.");
@@ -384,16 +407,21 @@ pub struct WalletCreationConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::apps::app_node;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::masq_lib::utils::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
-
+    use crate::node_test_utils::DirsWrapperMock;
+    use crate::sub_lib::utils::make_new_test_multi_config;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::ArgsBuilder;
+    use masq_lib::constants::DEFAULT_CHAIN_NAME;
+    use masq_lib::shared_schema::ParamError;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
     use masq_lib::utils::find_free_port;
-
     use std::net::{SocketAddr, TcpListener};
-
     use tiny_hderive::bip44::DerivationPath;
 
     #[test]
@@ -574,10 +602,93 @@ mod tests {
         assert_eq!(Ok(()), result);
     }
 
+    #[test]
+    fn data_directory_default_given_no_default() {
+        assert_eq!(
+            String::from(""),
+            data_directory_default(
+                &DirsWrapperMock::new().data_dir_result(None),
+                TEST_DEFAULT_CHAIN_NAME
+            )
+        );
+    }
+
+    #[test]
+    fn data_directory_default_works() {
+        let mock_dirs_wrapper = DirsWrapperMock::new().data_dir_result(Some("mocked/path".into()));
+
+        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
+
+        let expected = PathBuf::from("mocked/path")
+            .join("MASQ")
+            .join(DEFAULT_CHAIN_NAME);
+        assert_eq!(result, expected.as_path().to_str().unwrap().to_string());
+    }
+
     fn determine_config_file_path_app() -> App<'static, 'static> {
         App::new("test")
             .arg(data_directory_arg())
             .arg(config_file_arg())
+    }
+
+    #[test]
+    fn check_for_past_initialization_is_happy_when_database_is_uninitialized() {
+        let persistent_config =
+            PersistentConfigurationMock::new().mnemonic_seed_exists_result(Ok(false));
+
+        let result = check_for_past_initialization(&persistent_config);
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn check_for_past_initialization_is_unhappy_when_database_is_initialized() {
+        let persistent_config =
+            PersistentConfigurationMock::new().mnemonic_seed_exists_result(Ok(true));
+
+        let result = check_for_past_initialization(&persistent_config);
+
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::new(vec![ParamError::new(
+                "seed",
+                "Cannot re-initialize Node: already initialized"
+            )]))
+        );
+    }
+
+    #[test]
+    fn check_for_past_initialization_handles_database_error() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
+
+        let result = check_for_past_initialization(&persistent_config);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("seed"))
+        );
+    }
+
+    #[test]
+    fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
+        let args = ArgsBuilder::new();
+        let vcl = Box::new(CommandLineVcl::new(args.into()));
+        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
+
+        let (real_user, data_directory_opt, chain_name) =
+            real_user_data_directory_opt_and_chain_name(&DirsWrapperReal {}, &multi_config);
+        let directory = data_directory_from_context(
+            &DirsWrapperReal {},
+            &real_user,
+            &data_directory_opt,
+            &chain_name,
+        );
+
+        let expected_root = DirsWrapperReal {}.data_dir().unwrap();
+        let expected_directory = expected_root.join("MASQ").join(DEFAULT_CHAIN_NAME);
+        assert_eq!(directory, expected_directory);
+        assert_eq!(&chain_name, DEFAULT_CHAIN_NAME);
     }
 
     #[test]
