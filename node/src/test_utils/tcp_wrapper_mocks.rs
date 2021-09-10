@@ -7,8 +7,7 @@ use std::io::Read;
 use std::io::Write;
 use std::net::Shutdown;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 

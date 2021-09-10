@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::messages::{FromMessageBody, UiBroadcastTrigger, NODE_UI_PROTOCOL};
-use crate::ui_gateway::{MessageBody, MessagePath};
+
+use crate::messages::NODE_UI_PROTOCOL;
+use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -123,9 +124,16 @@ impl MockWebSocketsServer {
             }
             log(do_log, index, "Entering background loop");
             loop {
+                log(do_log, index, "Checking for fire-and-forget messages");
+                self.handle_all_f_f_messages_introducing_the_queue(
+                    &mut client,
+                    &inner_responses_arc,
+                    index,
+                    do_log,
+                );
                 log(do_log, index, "Checking for message from client");
                 if let Some(incoming) =
-                    Self::handle_incoming_raw(client.recv_message(), do_log, index)
+                    Self::handle_incoming_msg_raw(client.recv_message(), do_log, index)
                 {
                     log(
                         do_log,
@@ -135,31 +143,17 @@ impl MockWebSocketsServer {
                     requests.push(incoming.clone());
                     if let Ok(message_body) = incoming {
                         match message_body.path {
-                            MessagePath::Conversation(context_id) => {
+                            MessagePath::Conversation(_) => {
                                 if Self::handle_conversational_incoming_message(
                                     &mut client,
-                                    message_body,
                                     &inner_responses_arc,
-                                    context_id,
-                                    do_log,
                                     index,
+                                    do_log,
                                 )
                                 .not()
                                 {
                                     break; //"disconnect" received
                                 }
-                            }
-
-                            MessagePath::FireAndForget
-                                if message_body.opcode == "broadcastTrigger" =>
-                            {
-                                self.handle_broadcast_trigger(
-                                    &mut client,
-                                    message_body,
-                                    &inner_responses_arc,
-                                    do_log,
-                                    index,
-                                )
                             }
 
                             MessagePath::FireAndForget => {
@@ -176,7 +170,7 @@ impl MockWebSocketsServer {
                             index,
                             "Going to panic: Unrecognizable form of a text message",
                         );
-                        panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}",incoming)
+                        panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}", incoming)
                     }
                 }
                 log(do_log, index, "Checking for termination directive");
@@ -212,7 +206,7 @@ impl MockWebSocketsServer {
         }
     }
 
-    fn handle_incoming_raw(
+    fn handle_incoming_msg_raw(
         incoming: WebSocketResult<OwnedMessage>,
         do_log: bool,
         index: u64,
@@ -241,13 +235,57 @@ impl MockWebSocketsServer {
         }
     }
 
+    fn handle_all_f_f_messages_introducing_the_queue(
+        &self,
+        client: &mut Client<TcpStream>,
+        inner_responses_arc: &Arc<Mutex<Vec<OwnedMessage>>>,
+        index: u64,
+        do_log: bool,
+    ) {
+        let mut counter = 0usize;
+        let sender_opt = self.signal_sender.clone().take();
+        loop {
+            let signalization_required = sender_opt.is_some() && counter == 1;
+            let mut inner_responses_vec = inner_responses_arc.lock().unwrap();
+            if inner_responses_vec.is_empty() {
+                break;
+            }
+            let temporarily_owned = inner_responses_vec.remove(0);
+            if match &temporarily_owned {
+                OwnedMessage::Text(text) =>
+                    match UiTrafficConverter::new_unmarshal_to_ui(text, MessageTarget::AllClients)
+                    {
+                        Ok(msg) => match msg.body.path {
+                            MessagePath::FireAndForget => {
+                                if signalization_required {
+                                    log(do_log,index,"Sending a signal between the first two fire-and-forget messages");
+                                    sender_opt.as_ref().unwrap().send(()).unwrap()
+                                }
+                                client.send_message(&temporarily_owned).unwrap();
+                                log(do_log, index, "Sending a fire-and-forget message to the UI");
+                                true
+                            }
+                            _ => false
+                        }
+                        _ => false
+                    }
+                _ => false
+            }.not() {
+                inner_responses_vec.insert(0, temporarily_owned);
+                log(do_log, index, "No fire-and-forget message found; heading over to conversational messages");
+                break
+            }
+            thread::sleep(Duration::from_millis(1));
+            counter += 1;
+            //for true, we keep looping
+        }
+    }
+
     fn handle_conversational_incoming_message(
         client: &mut Client<TcpStream>,
-        message_body: MessageBody,
         inner_responses_arc: &Arc<Mutex<Vec<OwnedMessage>>>,
-        context_id: u64,
-        do_log: bool,
         index: u64,
+        do_log: bool,
     ) -> bool {
         let mut temporary_access_to_inner_responses_arc = inner_responses_arc.lock().unwrap();
         if temporary_access_to_inner_responses_arc.len() != 0 {
@@ -264,28 +302,9 @@ impl MockWebSocketsServer {
                         log(
                             do_log,
                             index,
-                            &format!("Responding with preset message: '{}'", outgoing),
+                            &format!("Responding with preset message: '{}'", &outgoing),
                         );
-                        //asserting on that we've truly been given a conversational message from the queue
-                        let response_to_the_client = if outgoing.contains("\"contextId\"") {
-                            outgoing
-                        }
-                        //all messages not being conversational but still recognisable from our point of view
-                        else if outgoing.starts_with("{\"opcode\":") {
-                            //giving the pulled message back into the queue on its former position
-                            temporary_access_to_inner_responses_arc
-                                .insert(0, OwnedMessage::Text(outgoing));
-                            format!(
-                                r#"{{"opcode": "{}", "contextId": {}, "error": {{"code": 0, "message": "You tried to call up a fire-and-forget message from the queue by sending a conversational request; try to adjust the queue or similar"}}}}"#,
-                                message_body.opcode, context_id
-                            )
-                        } else {
-                            //this branch is for processing messages from the queue dissimilar to our UI-Node protocol...simply garbage
-                            outgoing
-                        };
-                        client
-                            .send_message(&OwnedMessage::Text(response_to_the_client))
-                            .unwrap()
+                        client.send_message(&OwnedMessage::Text(outgoing)).unwrap()
                     }
                 }
                 om => {
@@ -300,75 +319,10 @@ impl MockWebSocketsServer {
         } else {
             log(do_log, index, "Sending Close message");
             client
-                //a response that's going to be interpreted as an empty queue
                 .send_message(&OwnedMessage::Binary(b"EMPTY QUEUE".to_vec()))
                 .unwrap()
         };
         true
-    }
-
-    fn handle_broadcast_trigger(
-        &self,
-        client: &mut Client<TcpStream>,
-        message_body: MessageBody,
-        inner_responses_arc: &Arc<Mutex<Vec<OwnedMessage>>>,
-        do_log: bool,
-        index: u64,
-    ) {
-        log(do_log, index, "Responding to a BroadcastTrigger");
-        let queued_messages = &mut *inner_responses_arc.lock().unwrap();
-        let (signal_params, batch_size_of_broadcasts_to_be_released_at_once) =
-            match (UiBroadcastTrigger::fmb(message_body),self.signal_sender.clone().take()) {
-            (Ok((trigger_message, _)), Some(sender)) => match (trigger_message.position_to_send_the_signal_opt, trigger_message.number_of_broadcasts_in_one_batch){
-                (Some(position),Some(demanded_batch_size)) => (Some((position, sender)), demanded_batch_size),
-                (Some(position),None) => (Some((position, sender)), queued_messages.len()),
-                (None,_) => panic!("You provided a Sender<()> but forgot to provide the positional number of the broadcast where it should be sent; settable within the trigger message"),
-            }
-
-            (Ok((trigger_message, _)), None) => match (trigger_message.position_to_send_the_signal_opt,trigger_message.number_of_broadcasts_in_one_batch){
-                (Some(_),_) => panic!("You require to send a signal but haven't provided Sender<()> by inject_signal_sender()"),
-                (None,Some(demanded_batch_size)) => (None,demanded_batch_size),
-                (None,None) =>  (None, queued_messages.len())
-            },
-            (_,_) => panic!("BroadcastTrigger received but somehow malformed")
-        };
-
-        //////////////////////////////////////////////////////////////////////////////////////////////
-        //here the proper algorithm carrying out messaging starts
-        let mut already_sent = 0_usize;
-        let starting_length = queued_messages.len();
-        for i in 0..starting_length {
-            //sending signal if wanted ///////////////////////////////
-            if let Some((position, signal_sender)) = signal_params.as_ref() {
-                if *position == i {
-                    log(
-                        do_log,
-                        index,
-                        "Sending a generic signal required by a BroadcastTrigger",
-                    );
-                    signal_sender.send(()).unwrap()
-                }
-            }
-            //generally: watching that we don't grab any conversational message from the queue accidentally
-            //first line: consider the minus after 'i' as a factor of positional reduction inside the queue
-            //caused by how I remove each message after I send it
-            if let OwnedMessage::Text(json) = &queued_messages[i - already_sent] {
-                if let Ok(msg) = UiTrafficConverter::new_unmarshal_from_ui(json, 0) {
-                    if msg.body.path == MessagePath::FireAndForget {
-                        //////////////////////////////////////////////////////////////////////
-                        client.send_message(&queued_messages.remove(0)).unwrap();
-                        already_sent += 1;
-                        if already_sent == batch_size_of_broadcasts_to_be_released_at_once {
-                            break;
-                        }
-                        //////////////////////////////////////////////////////////////////////////////////////////
-                    } else {
-                        //let's end it; we ran into a conversational message in the queue
-                        break;
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -429,96 +383,67 @@ fn log(log: bool, index: u64, msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::UiSetupResponseValueStatus::Set;
     use crate::messages::{
-        CrashReason, FromMessageBody, ToMessageBody, UiBroadcastTrigger, UiCheckPasswordRequest,
-        UiCheckPasswordResponse, UiConfigurationChangedBroadcast, UiDescriptorRequest,
-        UiDescriptorResponse, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiSetupRequest,
-        UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, NODE_UI_PROTOCOL,
+        CrashReason, FromMessageBody, ToMessageBody, UiChangePasswordRequest,
+        UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
+        UiConfigurationChangedBroadcast, UiDescriptorRequest, UiDescriptorResponse,
+        UiNewPasswordBroadcast, UiNodeCrashedBroadcast, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
     use crate::utils::find_free_port;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
     fn conversational_communication_happy_path_with_full_assertion() {
         let port = find_free_port();
-        let expected_response = UiSetupResponse {
-            running: true,
-            values: vec![UiSetupResponseValue {
-                name: "direction".to_string(),
-                value: "to UI".to_string(),
-                status: Set,
-            }],
-            errors: vec![
-                ("param1".to_string(), "reason1".to_string()),
-                ("param2".to_string(), "reason2".to_string()),
-            ],
-        };
+        let expected_response = UiCheckPasswordResponse { matches: false };
         let stop_handle = MockWebSocketsServer::new(port)
             .queue_response(expected_response.clone().tmb(123))
             .start();
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
-
-        let request = UiSetupRequest {
-            values: vec![UiSetupRequestValue {
-                name: "direction".to_string(),
-                value: Some("to UI".to_string()),
-            }],
+        let request = UiCheckPasswordRequest {
+            db_password_opt: None,
         };
 
-        let actual_response: UiSetupResponse = connection
+        let actual_response: UiCheckPasswordResponse = connection
             .transact_with_context_id(request.clone(), 123)
             .unwrap();
 
         let requests = stop_handle.stop();
-        let actual_body_gotten_by_the_server =
-            UiSetupRequest::fmb(requests[0].clone().unwrap()).unwrap().0;
-        assert_eq!(actual_body_gotten_by_the_server, request);
+        let actual_message_gotten_by_the_server =
+            UiCheckPasswordRequest::fmb(requests[0].clone().unwrap())
+                .unwrap()
+                .0;
+        assert_eq!(actual_message_gotten_by_the_server, request);
         assert_eq!(
             (actual_response, 123),
-            UiSetupResponse::fmb(expected_response.tmb(123)).unwrap()
+            UiCheckPasswordResponse::fmb(expected_response.tmb(123)).unwrap()
         );
     }
 
     #[test]
-    fn conversational_and_broadcast_messages_can_work_together_testing_corner_cases() {
-        //The test follows these presumptions:
+    fn conversational_and_broadcast_messages_work_together() {
         // Queue:
         // Conversation 1
         // Conversation 2
         // Broadcast 1
         // Broadcast 2
-        // Broadcast 3
-        // Broadcast 4
         // Conversation 3
-        // Conversation 4
-        // Broadcast 5
-        //
+        // Broadcast 3
+
         // Code:
         // connection.transact(stimulus) -> Conversation 1
         // connection.transact(stimulus) -> Conversation 2
-        // connection.send(BroadcastTrigger {limit: Some(2)});
         // connection.receive() -> Broadcast 1
         // connection.receive() -> Broadcast 2
-        // connection.receive() -> error: Limit of two Broadcasts specified in trigger
-        // connection.transact(stimulus) -> error: next queued message is a Broadcast, not a Conversation
-        // connection.send(BroadcastTrigger {limit: None});
-        // connection.receive() -> Broadcast 3
-        // connection.receive() -> Broadcast 4
-        // connection.receive() -> error: No more Broadcasts available before a Conversation
         // connection.transact(stimulus) -> Conversation 3
-        // connection.transact(stimulus) -> Conversation 4
-        // connection.send(BroadcastTrigger {limit: None});
-        // connection.receive() -> Broadcast 5
-        // connection.receive() -> error: No more Broadcasts available
+        // connection.receive() -> Broadcast 3
 
-        //Content of those messages is practically irrelevant because it's not under the scope of this test.
-        //Also, a lot of lines could be highlighted with text like this "TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED",
-        //but it may have made the test (even) harder to read.
+        //Content of those messages is practically irrelevant because it's not in the scope of this test.
 
-        //Lists of messages used in this test
+        //You may consider some lines of this test as if they were highlighted with "TESTED BY COMPLETING THE TASK - NO ADDITIONAL ASSERTION NEEDED"
 
-        //A) All messages "sent from UI to D/N" (in an exact order)
+        //A) All messages "sent from UI to D/N", an exact order
         ////////////////////////////////////////////////////////////////////////////////////////////
         let conversation_number_one_request = UiCheckPasswordRequest {
             db_password_opt: None,
@@ -526,156 +451,103 @@ mod tests {
         let conversation_number_two_request = UiCheckPasswordRequest {
             db_password_opt: Some("Titanic".to_string()),
         };
-        //nonconversational stimulus
-        let broadcast_trigger_one_with_limit_on_two = UiBroadcastTrigger {
-            number_of_broadcasts_in_one_batch: Some(2),
-            position_to_send_the_signal_opt: None,
-        };
-        //the following message is expected not to get answered
-        let conversation_number_three_request = UiDescriptorRequest {};
-        //nonconversational stimulus
-        let broadcast_trigger_two_with_no_limit = UiBroadcastTrigger::default();
-        let conversation_number_four_request = UiDescriptorRequest {};
-        //nonconversational stimulus
-        let broadcast_trigger_three_with_no_limit = UiBroadcastTrigger::default();
 
-        //B) All messages "responding the opposite way" (in an exact order)
+        let conversation_number_three_request = UiDescriptorRequest {};
+
+        //B) All messages "responding the opposite way", an exact order
         ////////////////////////////////////////////////////////////////////////////////////////////
-        let conversation_number_one_response = UiCheckPasswordResponse { matches: false }.tmb(1);
-        let conversation_number_two_response = UiCheckPasswordResponse { matches: true }.tmb(2);
+        let conversation_number_one_response = UiCheckPasswordResponse { matches: false };
+        let conversation_number_two_response = UiCheckPasswordResponse { matches: true };
         let broadcast_number_one = UiConfigurationChangedBroadcast {}.tmb(0);
         let broadcast_number_two = UiNodeCrashedBroadcast {
             process_id: 0,
             crash_reason: CrashReason::NoInformation,
         }
         .tmb(0);
-        let broadcast_number_three = UiNewPasswordBroadcast {}.tmb(0);
-        let broadcast_number_four = broadcast_number_three.clone();
-        let broadcast_number_five = broadcast_number_three.clone();
         let conversation_number_three_response = UiDescriptorResponse {
             node_descriptor: "ae15fe6".to_string(),
         }
-        .tmb(4);
-        let broadcast_number_six = broadcast_number_two.clone();
+        .tmb(3);
+        let broadcast_number_three = UiNewPasswordBroadcast {}.tmb(0);
         ////////////////////////////////////////////////////////////////////////////////////////////
         let port = find_free_port();
-        //preparing the server and filling the queue
         let server = MockWebSocketsServer::new(port)
-            .queue_response(conversation_number_one_response)
-            .queue_response(conversation_number_two_response)
+            .queue_response(conversation_number_one_response.clone().tmb(1))
+            .queue_response(conversation_number_two_response.clone().tmb(2))
             .queue_response(broadcast_number_one)
             .queue_response(broadcast_number_two)
-            .queue_response(broadcast_number_three)
-            .queue_response(broadcast_number_four)
-            .queue_response(broadcast_number_five)
             .queue_response(conversation_number_three_response)
-            .queue_response(broadcast_number_six);
+            .queue_response(broadcast_number_three);
         let stop_handle = server.start();
-        let waiting_for_message_time_out = if cfg!(target_os = "macos") { 250 } else { 150 };
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
 
-        let _received_message_number_one: UiCheckPasswordResponse = connection
-            .transact_with_context_id(conversation_number_one_request, 1)
+        let received_message_number_one: UiCheckPasswordResponse = connection
+            .transact_with_context_id(conversation_number_one_request.clone(), 1)
             .unwrap();
+        assert_eq!(
+            received_message_number_one.matches,
+            conversation_number_one_response.matches
+        );
 
-        let _received_message_number_two: UiCheckPasswordResponse = connection
-            .transact_with_context_id(conversation_number_two_request, 2)
+        let received_message_number_two: UiCheckPasswordResponse = connection
+            .transact_with_context_id(conversation_number_two_request.clone(), 2)
             .unwrap();
+        assert_eq!(
+            received_message_number_two.matches,
+            conversation_number_two_response.matches
+        );
 
-        //sending the first demand to send broadcasts; just two should come
-        connection.send(broadcast_trigger_one_with_limit_on_two);
-
-        //checking what is arriving
         let _received_message_number_three: UiConfigurationChangedBroadcast =
             connection.receive().unwrap();
 
         let _received_message_number_four: UiNodeCrashedBroadcast = connection.receive().unwrap();
 
-        //because we've demanded to "trigger" just two broadcasts; there should be no other broadcast waiting for us
-        let naive_attempt_number_one_to_receive_the_third_broadcast: Result<
-            UiNewPasswordBroadcast,
-            (u64, String),
-        > = connection.receive_custom(waiting_for_message_time_out);
-
-        connection.send_with_context_id(conversation_number_three_request, 3);
-        let naive_attempt_number_two_now_to_receive_a_conversational_message: Result<
-            UiDescriptorResponse,
-            (u64, String),
-        > = connection.receive_custom(waiting_for_message_time_out);
-
-        //sending another broadcast trigger (unlimited) to get the fifth, sixth and seventh message
-        connection.send(broadcast_trigger_two_with_no_limit);
-        //finally, when using the trigger again, we can get three other messages
-
-        let _ = (0..3)
-            .map(|_| connection.receive().unwrap())
-            .collect::<Vec<UiNewPasswordBroadcast>>();
-
-        //here we shouldn't be able to jump over to some other broadcast in the queue though there is one!;
-        //instead we should see an error because next we meet a conversational message
-        let naive_attempt_number_three_to_receive_another_broadcast_from_the_queue: Result<
-            UiNodeCrashedBroadcast,
-            (u64, String),
-        > = connection.receive_custom(waiting_for_message_time_out);
-
-        let _received_message_number_eight: UiDescriptorResponse = connection
-            .transact_with_context_id(conversation_number_four_request, 4)
+        let received_message_number_five: UiDescriptorResponse = connection
+            .transact_with_context_id(conversation_number_three_request.clone(), 3)
             .unwrap();
-        //we want to get to the last broadcast
-        connection.send(broadcast_trigger_three_with_no_limit);
+        assert_eq!(received_message_number_five.node_descriptor, "ae15fe6");
 
-        let _received_message_number_ninth: UiNodeCrashedBroadcast = connection.receive().unwrap();
-        //the queue should be empty now
+        let _received_message_number_six: UiNewPasswordBroadcast = connection.receive().unwrap();
 
-        let naive_attempt_number_four: Result<UiNodeCrashedBroadcast, (u64, String)> =
-            connection.receive_custom(waiting_for_message_time_out);
-        //the previous attempt eliminated the possibility of another broadcast
-        //but what happens when new conversation tried
+        let requests = stop_handle.stop();
 
-        connection.send_with_context_id(UiDescriptorRequest {}, 5);
-        let naive_attempt_number_five: Result<UiDescriptorResponse, (u64, String)> =
-            connection.receive_custom(waiting_for_message_time_out);
-
-        let _ = stop_handle.stop();
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        //assertions for deliberately caused errors
-        let expected_time_out_message = &format!("Expected a response. Probably none is to come, waiting was too long (with time limit: {} ms)",waiting_for_message_time_out);
-
-        let error_message_number_one = naive_attempt_number_one_to_receive_the_third_broadcast
-            .unwrap_err()
-            .1;
-        assert!(
-            error_message_number_one.contains(expected_time_out_message),
-            "this text was unexpected: {}",
-            error_message_number_one
-        );
-        let error_message_number_two =
-            naive_attempt_number_two_now_to_receive_a_conversational_message
-                .unwrap_err()
-                .1;
-        assert!(error_message_number_two.contains("You tried to call up a fire-and-forget message from the queue by sending a conversational request; \
-        try to adjust the queue or similar"),"this text was unexpected: {}",error_message_number_two);
-        let error_message_number_three =
-            naive_attempt_number_three_to_receive_another_broadcast_from_the_queue
-                .unwrap_err()
-                .1;
-        assert!(
-            error_message_number_three.contains(expected_time_out_message),
-            "this text was unexpected: {}",
-            error_message_number_three
-        );
-        let error_message_number_four = naive_attempt_number_four.unwrap_err().1;
-        assert!(
-            error_message_number_four.contains(expected_time_out_message),
-            "this text was unexpected: {}",
-            error_message_number_four
-        );
-
-        let error_message_number_five = naive_attempt_number_five.unwrap_err().1;
-        assert!(
-            error_message_number_five.contains("The queue is empty"),
-            "this text was unexpected: {}",
-            error_message_number_five
+        assert_eq!(
+            requests
+                .into_iter()
+                .flat_map(|x| x)
+                .collect::<Vec<MessageBody>>(),
+            vec![
+                conversation_number_one_request.tmb(1),
+                conversation_number_two_request.tmb(2),
+                conversation_number_three_request.tmb(3)
+            ]
         )
+    }
+
+    #[test]
+    fn attempt_to_get_a_message_from_an_empty_queue_causes_a_panic() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let stop_handle = server.start();
+        let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL);
+        let conversation_request = UiChangePasswordRequest {
+            old_password_opt: None,
+            new_password: "password".to_string(),
+        };
+
+        //catch_unwind so that we have a chance to shut down the server manually, not letting its thread leak away
+        let encapsulated_panic: Result<
+            Result<UiChangePasswordResponse, (u64, std::string::String)>,
+            Box<dyn std::any::Any + Send>,
+        > = catch_unwind(AssertUnwindSafe(|| {
+            connection.transact(conversation_request)
+        }));
+
+        stop_handle.stop();
+        let panic_message = *encapsulated_panic
+            .unwrap_err()
+            .downcast_ref::<&str>()
+            .unwrap();
+        assert_eq!(panic_message, "The queue is empty; all messages are gone.")
     }
 }

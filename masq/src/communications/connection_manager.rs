@@ -117,6 +117,7 @@ impl ConnectionManager {
             redirect_order_rx,
             redirect_response_tx,
             active_port_response_tx,
+            closing_stage: false,
         };
         ConnectionManagerThread::start(inner);
         Ok(())
@@ -205,6 +206,7 @@ struct CmsInner {
     redirect_order_rx: Receiver<RedirectOrder>,
     redirect_response_tx: Sender<Result<(), ClientListenerError>>,
     active_port_response_tx: Sender<Option<u16>>,
+    closing_stage: bool,
 }
 
 pub struct ConnectionManagerThread {}
@@ -219,16 +221,14 @@ impl ConnectionManagerThread {
 
     fn spawn_thread(mut inner: CmsInner) -> JoinHandle<()> {
         thread::spawn(move || loop {
-            if inner.active_port == None {
-                let msg_body = UiNodeCrashedBroadcast {
-                    process_id: 0,
-                    crash_reason: CrashReason::DaemonCrashed,
+            match (inner.closing_stage, inner.active_port) {
+                (true, _) => break,
+                (false, None) => {
+                    Self::send_daemon_crashed(&inner);
+                    break;
                 }
-                .tmb(0);
-                inner.broadcast_handle.send(msg_body);
-                break;
+                _ => inner = Self::thread_loop_guts(inner),
             }
-            inner = Self::thread_loop_guts(inner)
         })
     }
 
@@ -422,6 +422,7 @@ impl ConnectionManagerThread {
     }
 
     fn handle_close(mut inner: CmsInner) -> CmsInner {
+        inner.closing_stage = true;
         let _ = inner
             .talker_half
             .sender
@@ -484,6 +485,14 @@ impl ConnectionManagerThread {
         inner.conversations.clear();
         inner.conversations_waiting.clear();
         inner
+    }
+
+    fn send_daemon_crashed(inner: &CmsInner) {
+        let crash_msg = UiNodeCrashedBroadcast {
+            process_id: 0,
+            crash_reason: CrashReason::DaemonCrashed,
+        };
+        inner.broadcast_handle.send(crash_msg.tmb(0))
     }
 }
 
@@ -1304,9 +1313,7 @@ mod tests {
     #[test]
     fn handles_outgoing_conversation_messages_to_dead_server() {
         let daemon_port = find_free_port();
-        let daemon_server = MockWebSocketsServer::new(daemon_port)
-            .queue_string("disconnect")
-            .write_logs();
+        let daemon_server = MockWebSocketsServer::new(daemon_port).queue_string("disconnect");
         let daemon_stop_handle = daemon_server.start();
         let (conversation1_tx, conversation1_rx) = unbounded();
         let (conversation2_tx, conversation2_rx) = unbounded();
@@ -1430,7 +1437,7 @@ mod tests {
     fn handles_close_order() {
         running_test();
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port).queue_owned_message(OwnedMessage::Close(None));
+        let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start();
         let mut subject = ConnectionManager::new();
         thread::sleep(Duration::from_millis(500)); // let the server get started
@@ -1453,7 +1460,8 @@ mod tests {
             .tmb(0),
         );
         assert_eq!(result, Err(ClientError::ConnectionDropped));
-        let _ = stop_handle.stop();
+        let received = stop_handle.stop();
+        assert_eq!(received, vec![Err("Close(None)".to_string())]);
     }
 
     fn make_inner() -> CmsInner {
@@ -1465,6 +1473,7 @@ mod tests {
             conversations_waiting: HashSet::new(),
             next_context_id: 0,
             demand_rx: unbounded().1,
+            closing_stage: false,
             conversation_return_tx: unbounded().0,
             conversations_to_manager_tx: unbounded().0,
             conversations_to_manager_rx: unbounded().1,
