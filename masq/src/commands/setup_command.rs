@@ -293,7 +293,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, _) = stream_factory.make();
-        let term_interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         SetupCommand::handle_broadcast(message, &mut stdout, &term_interface);
 

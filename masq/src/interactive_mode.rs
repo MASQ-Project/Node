@@ -202,7 +202,7 @@ mod tests {
     }
 
     fn make_terminal_interface() -> TerminalWrapper {
-        TerminalWrapper::new(Box::new(
+        TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new()
                 .read_line_result(TerminalEvent::CommandLine(vec![
                     "error".to_string(),
@@ -259,7 +259,7 @@ mod tests {
     fn continue_and_break_orders_work_for_interactive_mode() {
         let mut stream_holder = FakeStreamHolder::new();
         let mut streams = stream_holder.streams();
-        let terminal_interface = TerminalWrapper::new(Box::new(
+        let terminal_interface = TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new()
                 .read_line_result(TerminalEvent::Continue)
                 .read_line_result(TerminalEvent::Break),
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn pass_args_or_print_messages_announces_break_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
-        let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         let result = pass_args_or_print_messages(&mut stream_holder.streams(), Break, &interface);
 
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn pass_args_or_print_messages_announces_continue_signal_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
-        let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         let result =
             pass_args_or_print_messages(&mut stream_holder.streams(), Continue, &interface);
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn pass_args_or_print_messages_announces_error_from_line_reader() {
         let mut stream_holder = FakeStreamHolder::new();
-        let interface = TerminalWrapper::new(Box::new(TerminalPassiveMock::new()));
+        let interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         let result = pass_args_or_print_messages(
             &mut stream_holder.streams(),
@@ -327,7 +327,7 @@ mod tests {
         let mut stream_holder = FakeStreamHolder::new();
         let command_factory = CommandFactoryMock::default();
         let mut command_processor = CommandProcessorMock::default()
-            .inject_terminal_interface(TerminalWrapper::new(Box::new(TerminalPassiveMock::new())));
+            .inject_terminal_interface(TerminalWrapper::new(Arc::new(TerminalPassiveMock::new())));
         let readline_result = TerminalEvent::EoF;
 
         let result = handle_terminal_event(
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn handle_help_or_version_provides_fine_lock_for_help_text() {
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
         let background_interface_clone = terminal_interface.clone();
         let mut stdout = ByteArrayWriter::new();
         let (tx, rx) = bounded(1);
@@ -385,7 +385,7 @@ mod tests {
     }
 
     fn test_body_for_testing_the_classic_lock(tested_variant: TerminalEvent) {
-        let terminal_interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
         let background_interface_clone = terminal_interface.clone();
         let mut stream_holder = FakeStreamHolder::new();
         let mut streams = stream_holder.streams();

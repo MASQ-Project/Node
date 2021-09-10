@@ -550,7 +550,7 @@ mod tests {
             .process_result(Ok(()))
             .process_result(Ok(()))
             .process_params(&process_params_arc)
-            .inject_terminal_interface(TerminalWrapper::new(Box::new(terminal_mock)));
+            .inject_terminal_interface(TerminalWrapper::new(Arc::new(terminal_mock)));
         let processor_factory =
             CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
         let mut subject = Main {
@@ -594,7 +594,7 @@ mod tests {
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
             .close_params(&close_params_arc)
-            .inject_terminal_interface(TerminalWrapper::new(Box::new(
+            .inject_terminal_interface(TerminalWrapper::new(Arc::new(
                 TerminalPassiveMock::new()
                     .read_line_result(TerminalEvent::Error(Some("ConnectionRefused".to_string()))),
             )));
