@@ -205,7 +205,7 @@ impl AutomapControlReal {
                     match self.transactors[inner.transactor_idx]
                         .start_housekeeping_thread(change_handler, protocol_info.router_ip)
                     {
-                        Err(AutomapError::ChangeHandlerUnconfigured) => {
+                        Err(AutomapError::HousekeeperUnconfigured) => {
                             debug!(
                                 self.logger,
                                 "Housekeeping thread failed: change handler unconfigured"
@@ -1129,7 +1129,7 @@ mod tests {
         });
         subject.transactors = vec![Box::new(
             TransactorMock::new(AutomapProtocol::Igdp)
-                .start_housekeeping_thread_result(Err(AutomapError::ChangeHandlerUnconfigured))
+                .start_housekeeping_thread_result(Err(AutomapError::HousekeeperUnconfigured))
                 .stop_housekeeping_thread_result(change_handler),
         )];
         let protocol_info_result = Ok(ProtocolInfo {

@@ -60,6 +60,7 @@ pub trait SetupReporter {
 
 pub struct SetupReporterReal {
     dirs_wrapper: Box<dyn DirsWrapper>,
+    logger: Logger,
 }
 
 impl SetupReporter for SetupReporterReal {
@@ -127,6 +128,7 @@ impl SetupReporter for SetupReporterReal {
             &data_directory,
             &chain_name,
             temporary_automap_control_factory,
+            &self.logger,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -190,6 +192,7 @@ impl SetupReporterReal {
     pub fn new() -> Self {
         Self {
             dirs_wrapper: Box::new(DirsWrapperReal {}),
+            logger: Logger::new ("Setup Reporter"),
         }
     }
 
@@ -277,6 +280,7 @@ impl SetupReporterReal {
         data_directory: &Path,
         chain_name: &str,
         temporary_automap_control_factory: &dyn AutomapControlFactory,
+        logger: &Logger,
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
@@ -292,6 +296,7 @@ impl SetupReporterReal {
             data_directory,
             chain_id_from_name(chain_name),
             temporary_automap_control_factory,
+            logger,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -400,6 +405,7 @@ impl SetupReporterReal {
         data_directory: &Path,
         chain_id: u8,
         temporary_automap_control_factory: &dyn AutomapControlFactory,
+        logger: &Logger,
     ) -> (
         (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
         Option<ConfiguratorError>,
@@ -428,6 +434,7 @@ impl SetupReporterReal {
                     &mut streams,
                     &mut persistent_config,
                     temporary_automap_control_factory,
+                    &logger,
                 ) {
                     Ok(_) => (
                         (bootstrapper_config, Some(Box::new(persistent_config))),
@@ -453,6 +460,7 @@ impl SetupReporterReal {
                     &mut streams,
                     &mut persistent_config,
                     temporary_automap_control_factory,
+                    &logger,
                 ) {
                     Ok(_) => ((bootstrapper_config, None), None),
                     Err(ce) => {
@@ -779,6 +787,17 @@ struct MappingProtocol {}
 impl ValueRetriever for MappingProtocol {
     fn value_name(&self) -> &'static str {
         "mapping-protocol"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+eprintln! ("Computing default for mapping protocol, with bootstrapper_config = {:?}, persistent_config = {:?}",
+           _bootstrapper_config.mapping_protocol_opt, _persistent_config_opt.map (|pc| pc.mapping_protocol()));
+        None
     }
 }
 
@@ -1955,6 +1974,7 @@ mod tests {
             &data_directory,
             "irrelevant",
             &make_temporary_automap_control_factory(None, None),
+            &Logger::new("test"),
         )
         .0;
 
@@ -2001,6 +2021,7 @@ mod tests {
             &data_directory,
             "irrelevant",
             &make_temporary_automap_control_factory(None, None),
+            &Logger::new("test"),
         )
         .0;
 
@@ -2040,6 +2061,7 @@ mod tests {
             &data_directory,
             "irrelevant",
             &make_temporary_automap_control_factory(None, None),
+            &Logger::new("test"),
         )
         .0;
 
@@ -2072,6 +2094,7 @@ mod tests {
             &data_directory,
             "irrelevant",
             &make_temporary_automap_control_factory(None, None),
+            &Logger::new("test"),
         )
         .1
         .unwrap();
@@ -2118,6 +2141,7 @@ mod tests {
             &data_directory,
             "irrelevant",
             &make_temporary_automap_control_factory(None, None),
+            &Logger::new("test"),
         )
         .0;
 
@@ -2157,6 +2181,7 @@ mod tests {
             &data_directory,
             "irrelevant",
             &make_temporary_automap_control_factory(None, None),
+            &Logger::new("test"),
         )
         .1
         .unwrap();

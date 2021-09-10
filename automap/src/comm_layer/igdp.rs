@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::ChangeHandlerConfig;
+use crate::comm_layer::pcp_pmp_common::HousekeeperConfig;
 use crate::comm_layer::{
     AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor,
     DEFAULT_MAPPING_LIFETIME_SECONDS,
@@ -114,7 +114,7 @@ struct IgdpTransactorInner {
     housekeeping_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     public_ip_opt: Option<Ipv4Addr>,
     mapping_adder: Box<dyn MappingAdder>,
-    change_handler_config_opt: RefCell<Option<ChangeHandlerConfig>>,
+    change_handler_config_opt: RefCell<Option<HousekeeperConfig>>,
     logger: Logger,
 }
 
@@ -195,7 +195,7 @@ impl Transactor for IgdpTransactor {
             .map(|remap_interval| {
                 inner
                     .change_handler_config_opt
-                    .replace(Some(ChangeHandlerConfig {
+                    .replace(Some(HousekeeperConfig {
                         hole_port,
                         next_lifetime: Duration::from_secs(lifetime as u64),
                         remap_interval: Duration::from_secs(remap_interval as u64),
@@ -942,7 +942,7 @@ mod tests {
         let inner = subject.inner_arc.lock().unwrap();
         assert_eq!(
             inner.change_handler_config_opt.take(),
-            Some(ChangeHandlerConfig {
+            Some(HousekeeperConfig {
                 hole_port: 7777,
                 next_lifetime: Duration::from_secs(1234),
                 remap_interval: Duration::from_secs(617),
@@ -1290,7 +1290,7 @@ mod tests {
         let change_handler = subject.stop_housekeeping_thread();
 
         change_handler(AutomapChange::Error(
-            AutomapError::ChangeHandlerUnconfigured,
+            AutomapError::HousekeeperUnconfigured,
         ));
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
@@ -1368,7 +1368,7 @@ mod tests {
             housekeeping_commander_opt: None,
             public_ip_opt: None,
             mapping_adder,
-            change_handler_config_opt: RefCell::new(Some(ChangeHandlerConfig {
+            change_handler_config_opt: RefCell::new(Some(HousekeeperConfig {
                 hole_port: 6689,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
@@ -1389,7 +1389,7 @@ mod tests {
         let inner = inner_arc.lock().unwrap();
         assert_eq!(
             inner.change_handler_config_opt.take(),
-            Some(ChangeHandlerConfig {
+            Some(HousekeeperConfig {
                 hole_port: 6689,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
@@ -1485,7 +1485,7 @@ mod tests {
             mapping_adder: Box::new(MappingAdderMock::new().add_mapping_result(Err(
                 AutomapError::PermanentMappingError("Booga".to_string()),
             ))),
-            change_handler_config_opt: RefCell::new(Some(ChangeHandlerConfig {
+            change_handler_config_opt: RefCell::new(Some(HousekeeperConfig {
                 hole_port: 6689,
                 next_lifetime: Duration::from_secs(600),
                 remap_interval: Duration::from_secs(0),

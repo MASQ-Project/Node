@@ -53,7 +53,7 @@ pub enum AutomapError {
     AllProtocolsFailed,
     AllRoutersFailed(AutomapProtocol),
     ChangeHandlerAlreadyRunning,
-    ChangeHandlerUnconfigured,
+    HousekeeperUnconfigured,
 }
 
 impl AutomapError {
@@ -85,7 +85,7 @@ impl AutomapError {
             AutomapError::ChangeHandlerAlreadyRunning => {
                 AutomapErrorCause::Unknown("Sequencing error".to_string())
             }
-            AutomapError::ChangeHandlerUnconfigured => {
+            AutomapError::HousekeeperUnconfigured => {
                 AutomapErrorCause::Unknown("Sequencing error".to_string())
             }
         }
@@ -124,6 +124,7 @@ impl Debug for dyn Transactor {
 pub enum HousekeepingThreadCommand {
     Stop,
     SetRemapIntervalMs(u64),
+    // TODO AddMappingConfig(u16, Duration, Duration),
 }
 
 pub trait LocalIpFinder: Send {
@@ -283,7 +284,7 @@ mod tests {
                 AutomapErrorCause::Unknown("Sequencing error".to_string()),
             ),
             (
-                AutomapError::ChangeHandlerUnconfigured,
+                AutomapError::HousekeeperUnconfigured,
                 AutomapErrorCause::Unknown("Sequencing error".to_string()),
             ),
         ];
