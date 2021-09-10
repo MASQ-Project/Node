@@ -199,9 +199,7 @@ impl DbMigratorReal {
     }
 
     fn list_of_updates<'a>() -> &'a [&'a dyn DatabaseMigration] {
-        &[
-            &Migrate_0_to_1
-        ]
+        &[&Migrate_0_to_1]
     }
 
     fn make_updates<'a>(

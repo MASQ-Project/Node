@@ -1,5 +1,3 @@
-* multinode_integration_tests won't build
-* todos in node_configurator_standard.rs
 * Maybe allow `setup --mapping-protocol`
 * Sometimes, mapping protocol can be set in the database, yet a setup command in masq doesn't show it.
 * Add capability for HousekeeperConfig to be populated after housekeeping thread starts.

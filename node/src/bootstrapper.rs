@@ -222,9 +222,9 @@ impl RealUser {
 
     #[cfg(not(target_os = "windows"))]
     fn sudo_home_from_sudo_user_and_home(&self) -> Option<PathBuf> {
-        match self.environment_wrapper.var ("SUDO_USER") {
-            Some (sudo_user) => Some (Self::home_dir_from_sudo_user(sudo_user)),
-            _ => None
+        match self.environment_wrapper.var("SUDO_USER") {
+            Some(sudo_user) => Some(Self::home_dir_from_sudo_user(sudo_user)),
+            _ => None,
         }
     }
 
@@ -235,12 +235,12 @@ impl RealUser {
 
     #[cfg(target_os = "linux")]
     fn home_dir_from_sudo_user(sudo_user: String) -> PathBuf {
-        format! ("/home/{}", sudo_user).into()
+        format!("/home/{}", sudo_user).into()
     }
 
     #[cfg(target_os = "macos")]
     fn home_dir_from_sudo_user(sudo_user: String) -> PathBuf {
-        format! ("/Users/{}", sudo_user).into()
+        format!("/Users/{}", sudo_user).into()
     }
 
     fn id_from_env(&self, name: &str) -> Option<i32> {
@@ -1845,11 +1845,7 @@ mod tests {
 
         assert_eq!(
             result,
-            RealUser::new(
-                Some(123),
-                Some(456),
-                Some(PathBuf::from("/home/username"))
-            )
+            RealUser::new(Some(123), Some(456), Some(PathBuf::from("/home/username")))
         );
     }
 
@@ -1868,11 +1864,7 @@ mod tests {
 
         assert_eq!(
             result,
-            RealUser::new(
-                Some(123),
-                Some(456),
-                Some(PathBuf::from("/Users/username"))
-            )
+            RealUser::new(Some(123), Some(456), Some(PathBuf::from("/Users/username")))
         );
     }
 

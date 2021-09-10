@@ -2,6 +2,7 @@
 use crate::test_utils::fake_stream_holder::ByteArrayWriter;
 use crate::test_utils::utils::{real_format_function, to_millis};
 use chrono::DateTime;
+use lazy_static::lazy_static;
 use log::set_logger;
 use log::Log;
 use log::Metadata;
@@ -14,7 +15,6 @@ use std::sync::MutexGuard;
 use std::thread;
 use std::time::Instant;
 use std::time::{Duration, SystemTime};
-use lazy_static::lazy_static;
 
 lazy_static! {
     static ref TEST_LOGS_ARC: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));

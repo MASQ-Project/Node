@@ -3,6 +3,7 @@
 use crate::actor_system_factory::AutomapControlFactory;
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{AutomapControl, ChangeHandler};
+use masq_lib::logger::Logger;
 use masq_lib::utils::AutomapProtocol;
 use std::cell::RefCell;
 use std::net::IpAddr;
@@ -63,6 +64,7 @@ pub struct AutomapControlMock {
     add_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
     delete_mappings_results: RefCell<Vec<Result<(), AutomapError>>>,
     get_mapping_protocol_results: RefCell<Vec<Option<AutomapProtocol>>>,
+    logger_opt: Option<Logger>,
 }
 
 impl AutomapControl for AutomapControlMock {
@@ -98,6 +100,7 @@ impl AutomapControlMock {
             add_mapping_results: RefCell::new(vec![]),
             delete_mappings_results: RefCell::new(vec![]),
             get_mapping_protocol_results: RefCell::new(vec![]),
+            logger_opt: None,
         }
     }
 
@@ -123,6 +126,11 @@ impl AutomapControlMock {
 
     pub fn get_mapping_protocol_result(self, result: Option<AutomapProtocol>) -> Self {
         self.get_mapping_protocol_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn inject_logger(mut self) -> Self {
+        self.logger_opt = Some(Logger::new("test logger"));
         self
     }
 }

@@ -6,6 +6,7 @@ use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use masq_lib::command::StdStreams;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::AutomapProtocol;
@@ -270,6 +271,7 @@ pub mod standard {
             unprivileged_config,
             persistent_config,
             temporary_automap_control_factory,
+            logger,
         );
         let mnc_result = {
             get_wallets(
@@ -514,6 +516,7 @@ pub mod standard {
             (cmd_line_mapping_protocol_opt, _) => cmd_line_mapping_protocol_opt,
         };
         if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
+eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", cmd_line_mapping_protocol_opt);
             match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
                 Ok(_) => (),
                 Err(e) => {
@@ -530,6 +533,7 @@ pub mod standard {
         config: &mut BootstrapperConfig,
         persistent_config: &mut dyn PersistentConfiguration,
         factory: &dyn AutomapControlFactory,
+        logger: &Logger,
     ) -> Option<IpAddr> {
         if value_m!(multi_config, "neighborhood-mode", String) == Some("zero-hop".to_string()) {
             return None;
@@ -542,10 +546,17 @@ pub mod standard {
                 match automap_control.get_public_ip() {
                     Ok(public_ip) => {
                         config.mapping_protocol_opt = automap_control.get_mapping_protocol();
-eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.mapping_protocol_opt);
-                        match persistent_config.set_mapping_protocol (config.mapping_protocol_opt) {
-                            Ok (_) => (),
-                            Err (e) => todo! ("{:?}", e),
+                        eprintln!(
+                            "Saving mapping protocol in compute_public_ip_opt(): {:?}",
+                            config.mapping_protocol_opt
+                        );
+                        match persistent_config.set_mapping_protocol(config.mapping_protocol_opt) {
+                            Ok(_) => (),
+                            Err(e) => warning!(
+                                logger,
+                                "Saving mapping protocol failed after fetched by automap: {:?}",
+                                e
+                            ),
                         }
                         Some(public_ip)
                     }
@@ -783,11 +794,14 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
         use crate::sub_lib::utils::make_new_test_multi_config;
         use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
         use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-        use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
+        use crate::test_utils::pure_test_utils::{
+            make_default_persistent_configuration, make_simplified_multi_config,
+        };
         use crate::test_utils::ArgsBuilder;
         use automap_lib::comm_layer::AutomapError;
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+        use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
         use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
         use masq_lib::utils::running_test;
         use std::sync::{Arc, Mutex};
@@ -1167,12 +1181,8 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
 
         #[test]
         fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
-            let multi_config = make_new_test_multi_config(
-                &app_node(),
-                vec![Box::new (CommandLineVcl::new (ArgsBuilder::new()
-                    .param("--mapping-protocol", "IGDP")
-                    .into()))]
-            ).unwrap();
+            let multi_config =
+                make_simplified_multi_config(["MASQNode", "--mapping-protocol", "pcp"]);
             let logger = Logger::new("test");
             let mut persistent_config = make_default_persistent_configuration()
                 .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
@@ -1186,11 +1196,8 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
         #[test]
         fn compute_mapping_protocol_logs_and_uses_none_if_saved_mapping_protocol_cannot_be_read() {
             init_test_logging();
-            let multi_config = make_new_test_multi_config(
-                &app_node(),
-                vec![Box::new (CommandLineVcl::new (ArgsBuilder::new()
-                    .into()))]
-            ).unwrap();
+            let multi_config =
+                make_simplified_multi_config(["MASQNode"]);
             let logger = Logger::new("BAD_MP_READ");
             let mut persistent_config = make_default_persistent_configuration()
                 .mapping_protocol_result(Err(PersistentConfigError::NotPresent));
@@ -1205,13 +1212,9 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
         #[test]
         fn compute_mapping_protocol_logs_and_moves_on_if_mapping_protocol_cannot_be_saved() {
             init_test_logging();
-            let multi_config = make_new_test_multi_config(
-                &app_node(),
-                vec![Box::new (CommandLineVcl::new (ArgsBuilder::new()
-                    .param("--mapping-protocol", "IGDP")
-                    .into()))]
-            ).unwrap();
-            let logger = Logger::new("BAD_MP_READ");
+            let multi_config =
+                make_simplified_multi_config(["MASQNode", "--mapping-protocol", "IGDP"]);
+            let logger = Logger::new("BAD_MP_WRITE");
             let mut persistent_config = make_default_persistent_configuration()
                 .mapping_protocol_result(Ok(Some (AutomapProtocol::Pcp)))
                 .set_mapping_protocol_result(Err (PersistentConfigError::NotPresent));
@@ -1219,7 +1222,7 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
             let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
             assert_eq! (result, Some(AutomapProtocol::Igdp));
-            TestLogHandler::new().exists_log_containing("WARN: BAD_MP_READ: Could not save mapping protocol to database: NotPresent");
+            TestLogHandler::new().exists_log_containing("WARN: BAD_MP_WRITE: Could not save mapping protocol to database: NotPresent");
         }
 
         #[test]
@@ -1241,6 +1244,7 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
                 &mut config,
                 &mut make_default_persistent_configuration(),
                 &temporary_automap_control_factory,
+                &Logger::new("test logger"),
             );
 
             assert_eq!(result, None);
@@ -1270,10 +1274,41 @@ eprintln! ("Saving mapping protocol in compute_public_ip_opt(): {:?}", config.ma
                 &mut config,
                 &mut make_default_persistent_configuration(),
                 &temporary_automap_control_factory,
+                &Logger::new("test logger"),
             );
 
             assert_eq!(result, None);
             assert_eq!(config.mapping_protocol_opt, None);
+        }
+
+        #[test]
+        fn compute_public_ip_opt_logs_an_error_at_setting_mapping_protocol_but_returns_obtained_ip()
+        {
+            init_test_logging();
+            let multi_config = make_simplified_multi_config(["MASQNode"]);
+            let fetched_ip = IpAddr::V4(Ipv4Addr::from_str("1.2.3.4").unwrap());
+            let temporary_automap_control = AutomapControlMock::new()
+                .inject_logger()
+                .get_public_ip_result(Ok(fetched_ip))
+                .get_mapping_protocol_result(Some(AutomapProtocol::Igdp));
+            let temporary_automap_control_factory =
+                AutomapControlFactoryMock::new().make_result(temporary_automap_control);
+            let mut config = BootstrapperConfig::default();
+            config.mapping_protocol_opt = None;
+            let mut persist_config = PersistentConfigurationMock::default()
+                .set_mapping_protocol_result(Err(PersistentConfigError::TransactionError));
+
+            let result = compute_public_ip_opt(
+                &multi_config,
+                &mut config,
+                &mut persist_config,
+                &temporary_automap_control_factory,
+                &Logger::new("test logger"),
+            );
+
+            assert_eq!(result, Some(fetched_ip));
+            assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Igdp));
+            TestLogHandler::new().exists_log_containing("WARN: test logger: Saving mapping protocol failed after fetched by automap: TransactionError");
         }
     }
 }
@@ -1908,7 +1943,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &make_temporary_automap_control_factory(None, None),
-            &Logger::new ("test"),
+            &Logger::new("test logger"),
         )
         .unwrap();
         let consuming_private_key_bytes: Vec<u8> = consuming_private_key.from_hex().unwrap();
@@ -2114,7 +2149,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &automap_control_factory,
-            &Logger::new ("test"),
+            &Logger::new("test logger"),
         )
         .unwrap();
 
@@ -2171,11 +2206,10 @@ mod tests {
             .get_mapping_protocol_result(Some(AutomapProtocol::Igdp));
         let automap_control_factory =
             AutomapControlFactoryMock::new().make_result(temporary_automap_control);
-        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
+        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Ok(None))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .set_mapping_protocol_result(Ok(()))
             .set_mapping_protocol_result(Ok(()))
             .check_password_result(Ok(false));
 
@@ -2185,7 +2219,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &automap_control_factory,
-            &Logger::new ("test"),
+            &Logger::new("test logger"),
         )
         .unwrap();
 
@@ -2216,7 +2250,10 @@ mod tests {
             Some(IpAddr::from_str("192.168.0.17").unwrap())
         );
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq! (*set_mapping_protocol_params, vec![Some (AutomapProtocol::Igdp)])
+        assert_eq!(
+            *set_mapping_protocol_params,
+            vec![Some(AutomapProtocol::Igdp)]
+        )
     }
 
     #[test]
@@ -2232,18 +2269,18 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
+        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_configuration = make_persistent_config(
-                None,
-                Some("password"),
-                None,
-                None,
-                None,
-                Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
-            )
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .past_neighbors_params(&past_neighbors_params_arc);
+            None,
+            Some("password"),
+            None,
+            None,
+            None,
+            Some("AQIDBA:1.2.3.4:1234,AgMEBQ:2.3.4.5:2345"),
+        )
+        .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+        .past_neighbors_params(&past_neighbors_params_arc);
         let temporary_automap_control = AutomapControlMock::new();
 
         standard::unprivileged_parse_args(
@@ -2252,7 +2289,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &mut persistent_configuration,
             &AutomapControlFactoryMock::new().make_result(temporary_automap_control),
-            &Logger::new ("test"),
+            &Logger::new("test logger"),
         )
         .unwrap();
 
@@ -2267,7 +2304,7 @@ mod tests {
         assert_eq!(past_neighbors_params[0], "password".to_string());
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq! (*set_mapping_protocol_params, vec![]);
+        assert_eq!(*set_mapping_protocol_params, vec![]);
     }
 
     #[test]
@@ -2322,7 +2359,7 @@ mod tests {
             &mut FakeStreamHolder::new().streams(),
             &mut persistent_config,
             &make_temporary_automap_control_factory(None, None),
-            &Logger::new ("test"),
+            &Logger::new("test logger"),
         )
         .unwrap();
 
@@ -2347,7 +2384,7 @@ mod tests {
             .get_mapping_protocol_result(Some(AutomapProtocol::Pmp));
         let automap_control_factory =
             AutomapControlFactoryMock::new().make_result(temporary_automap_control);
-        let set_mapping_protocol_params_arc = Arc::new (Mutex::new (vec![]));
+        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
 
         standard::unprivileged_parse_args(
             &multi_config,
@@ -2357,10 +2394,9 @@ mod tests {
                 .mapping_protocol_result(Ok(None))
                 .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
                 .set_mapping_protocol_result(Ok(()))
-                .set_mapping_protocol_result(Ok(()))
                 .check_password_result(Ok(false)),
             &automap_control_factory,
-            &Logger::new ("test"),
+            &Logger::new("test logger"),
         )
         .unwrap();
 
@@ -2370,7 +2406,10 @@ mod tests {
             Some(IpAddr::from_str("1.2.3.4").unwrap())
         );
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq! (*set_mapping_protocol_params, vec![Some(AutomapProtocol::Pmp)])
+        assert_eq!(
+            *set_mapping_protocol_params,
+            vec![Some(AutomapProtocol::Pmp)]
+        )
     }
 
     fn make_persistent_config(
@@ -2840,7 +2879,7 @@ mod tests {
             &mut make_default_persistent_configuration()
                 .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp))),
             &make_temporary_automap_control_factory(None, None),
-            &Logger::new ("test"),
+            &Logger::new("test logger"),
         )
         .unwrap();
 
