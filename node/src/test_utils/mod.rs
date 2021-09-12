@@ -498,6 +498,9 @@ pub mod pure_test_utils {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use actix::{System, Addr, Actor};
+    use masq_lib::messages::{UiCrashRequest, ToMessageBody};
+    use masq_lib::ui_gateway::NodeFromUiMessage;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
         let owned_args = args.array_of_borrows_to_vec();
@@ -550,6 +553,24 @@ pub mod pure_test_utils {
             self.make_results.borrow_mut().push((sender, receiver));
             self
         }
+    }
+
+    pub fn prove_that_crash_request_handler_is_hooked_up<
+        T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
+    >(
+        actor: T,
+        crash_key: &str,
+    ) {
+        let system = System::new("test");
+        let addr: Addr<T> = actor.start();
+
+        addr.try_send(NodeFromUiMessage {
+            client_id: 0,
+            body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
+        })
+            .unwrap();
+        System::current().stop();
+        system.run();
     }
 
     pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {

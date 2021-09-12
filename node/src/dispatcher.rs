@@ -190,6 +190,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
@@ -452,6 +453,15 @@ mod tests {
             neighborhood_recording.get_record::<StreamShutdownMsg>(0),
             &msg
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn dispatcher_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests(){
+        let crashable = true;
+        let actor = Dispatcher::new("blah".to_string(), crashable);
+
+        prove_that_crash_request_handler_is_hooked_up(actor, CRASH_KEY);
     }
 
     #[test]

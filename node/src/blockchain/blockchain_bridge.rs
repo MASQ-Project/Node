@@ -249,7 +249,7 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::make_default_persistent_configuration;
+    use crate::test_utils::pure_test_utils::{make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up};
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::Addr;
@@ -261,6 +261,7 @@ mod tests {
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
+    use std::panic::catch_unwind;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
@@ -686,51 +687,17 @@ mod tests {
     }
 
     #[test]
-    fn cant_be_crashed_if_key_doesnt_match() {
-        let system = System::new("test");
-
-        start_blockchain_bridge_regarding_crashable(true, "MISMATCH");
-
-        System::current().stop();
-        system.run();
-        // no panic: test passes
-    }
-
-    #[test]
-    fn cant_be_crashed_if_not_crashable() {
-        let system = System::new("test");
-
-        start_blockchain_bridge_regarding_crashable(false, CRASH_KEY);
-
-        System::current().stop();
-        system.run();
-    }
-
-    #[test]
-    #[should_panic(expected = "panic message")]
-    fn can_be_crashed() {
-        let system = System::new("test");
-
-        start_blockchain_bridge_regarding_crashable(true, CRASH_KEY);
-
-        System::current().stop();
-        system.run();
-    }
-
-    //TODO shouldn't we throw away the three tests using this? It is in fact tested by a combination of other tests.
-    fn start_blockchain_bridge_regarding_crashable(crashable: bool, crash_key: &str) {
-        let subject = BlockchainBridge::new(
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn blockchain_bridge_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests(){
+        let crashable = true;
+        let actor = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::default()),
             crashable,
             None,
         );
-        let addr: Addr<BlockchainBridge> = subject.start();
 
-        addr.try_send(NodeFromUiMessage {
-            client_id: 0,
-            body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
-        })
-        .unwrap();
+        prove_that_crash_request_handler_is_hooked_up(actor, CRASH_KEY);
     }
+
 }

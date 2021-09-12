@@ -748,6 +748,7 @@ mod tests {
     use masq_lib::automap_tools::AutomapProtocol;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -1976,6 +1977,16 @@ mod tests {
                 start_block: 3456
             }
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn configurator_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
+        let persistent_config = PersistentConfigurationMock::new();
+        let mut configurator = make_subject(Some(persistent_config));
+        configurator.crashable = true;
+
+        prove_that_crash_request_handler_is_hooked_up(configurator, CRASH_KEY);
     }
 
     #[test]

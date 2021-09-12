@@ -195,6 +195,10 @@ impl<T> WrapResult for T {
     }
 }
 
+pub fn type_name_of<T>(_examined: T) -> &'static str {
+    std::any::type_name::<T>()
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
@@ -386,5 +390,11 @@ mod tests {
         let result = subject.expect_v("safety feature");
 
         assert_eq!(result, "all right".to_string())
+    }
+
+    #[test]
+    fn type_name_of_works() {
+        let result = type_name_of(running_test);
+        assert_eq!(result, "masq_lib::utils::running_test")
     }
 }

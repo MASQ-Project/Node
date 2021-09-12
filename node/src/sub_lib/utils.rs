@@ -1,12 +1,17 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::logger::Logger;
+use backtrace::Backtrace;
 use clap::App;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::type_name_of;
+use serde_json::ser::CharEscape::Backspace;
 use std::io::ErrorKind;
+use std::panic::Location;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
@@ -110,20 +115,31 @@ pub fn handle_ui_crash_request(
     crashable: bool,
     crash_key: &str,
 ) {
-    if !crashable {
-        return;
+    let crasher = crash_request_analyzer;
+    if let Some(cr) = crasher(msg, logger, crashable, crash_key) {
+        let requester = type_name_of(crasher);
+        panic!("{}: {}", cr.panic_message, requester)
     }
-    if let Ok((msg, _)) = UiCrashRequest::fmb(msg.body) {
-        if msg.actor != crash_key {
+}
+fn crash_request_analyzer(
+    msg: NodeFromUiMessage,
+    logger: &Logger,
+    crashable: bool,
+    crash_key: &str,
+) -> Option<UiCrashRequest> {
+    match (crashable, UiCrashRequest::fmb(msg.body)) {
+        (false, _) => None,
+        (true, Err(e)) => None,
+        (true, Ok((msg, _))) if msg.actor == crash_key => Some(msg),
+        (true, Ok((msg, _))) => {
             debug!(
                 logger,
                 "Rejected crash instruction for '{}' with message '{}'",
                 msg.actor,
                 msg.panic_message
             );
-            return;
+            None
         }
-        panic!("{}", msg.panic_message);
     }
 }
 
@@ -140,6 +156,7 @@ pub mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
+    use chrono::{NaiveDate, Utc};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;
 
@@ -234,8 +251,8 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Foiled again!")]
-    fn handle_ui_crash_message_crashes_if_everythings_just_right() {
+    #[should_panic(expected = "Foiled again!: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn handle_ui_crash_message_crashes_if_everything_is_just_right() {
         let logger = Logger::new("Example");
         let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
@@ -252,7 +269,7 @@ pub mod tests {
 
     #[test]
     #[should_panic(expected = "The program's entry check failed to catch this.")]
-    fn make_new_multi_config_should_panic_after_trying_to_process_help_request() {
+    fn make_new_multi_config_should_panic_trying_to_process_help_request() {
         let app = app_node();
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
             String::from("program"),
@@ -264,13 +281,17 @@ pub mod tests {
 
     #[test]
     #[should_panic(expected = "The program's entry check failed to catch this.")]
-    fn make_new_multi_config_should_panic_after_trying_to_process_version_request() {
-        let app = app_node();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
-            String::from("program"),
-            "--version".to_string(),
-        ]))];
+    fn make_new_multi_config_should_panic_trying_to_process_version_request() {
+        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2021, 9, 30) {
+            let app = app_node();
+            let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
+                String::from("program"),
+                "--version".to_string(),
+            ]))];
 
-        let _ = make_new_multi_config(&app, vcls);
+            let _ = make_new_multi_config(&app, vcls);
+        } else {
+            panic!("The program's entry check failed to catch this.")
+        }
     }
 }

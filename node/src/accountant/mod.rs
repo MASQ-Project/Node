@@ -741,6 +741,7 @@ pub mod tests {
     use std::time::SystemTime;
     use web3::types::H256;
     use web3::types::U256;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
 
     #[derive(Debug, Default)]
     pub struct PayableDaoMock {
@@ -2815,6 +2816,17 @@ pub mod tests {
             wallet,
             H256::from_uint(&U256::from(1))
         ));
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn accountant_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests(){
+        let crashable = true;
+        let mut config = BootstrapperConfig::default();
+        config.crash_point = CrashPoint::Message;
+        let accountant = make_subject(Some(config),None,None,None,None);
+
+        prove_that_crash_request_handler_is_hooked_up(accountant, CRASH_KEY);
     }
 
     #[test]

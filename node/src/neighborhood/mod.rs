@@ -1276,6 +1276,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -4227,6 +4228,15 @@ mod tests {
         system.run();
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn neighborhood_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests(){
+        let mut neighborhood = make_standard_subject();
+        neighborhood.crashable = true;
+
+        prove_that_crash_request_handler_is_hooked_up(neighborhood, CRASH_KEY);
     }
 
     fn make_standard_subject() -> Neighborhood {
