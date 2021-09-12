@@ -305,6 +305,8 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         Arg::with_name("mapping-protocol")
             .long("mapping-protocol")
             .value_name("MAPPING-PROTOCOL")
+            .min_values(0)
+            .max_values(1)
             .possible_values(&["pcp", "pmp", "igdp", "none"])
             .case_insensitive(true)
             .help(MAPPING_PROTOCOL_HELP),

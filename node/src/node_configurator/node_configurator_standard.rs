@@ -11,7 +11,6 @@ use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::ExpectValue;
-use masq_lib::logger::Logger;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -516,7 +515,7 @@ pub mod standard {
             (cmd_line_mapping_protocol_opt, _) => cmd_line_mapping_protocol_opt,
         };
         if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
-eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", cmd_line_mapping_protocol_opt);
+eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", computed_mapping_protocol_opt);
             match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
                 Ok(_) => (),
                 Err(e) => {
@@ -805,7 +804,6 @@ eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", cmd
         use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
         use masq_lib::utils::running_test;
         use std::sync::{Arc, Mutex};
-        use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
         #[test]
         fn get_wallets_handles_consuming_private_key_and_earning_wallet_address_when_database_contains_mnemonic_seed(
