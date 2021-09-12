@@ -492,15 +492,15 @@ pub mod pure_test_utils {
     use crate::daemon::ChannelFactory;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use actix::{Actor, Addr, System};
     use crossbeam_channel::{Receiver, Sender};
+    use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
+    use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::SliceToVec;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use actix::{System, Addr, Actor};
-    use masq_lib::messages::{UiCrashRequest, ToMessageBody};
-    use masq_lib::ui_gateway::NodeFromUiMessage;
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
         let owned_args = args.array_of_borrows_to_vec();
@@ -568,7 +568,7 @@ pub mod pure_test_utils {
             client_id: 0,
             body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
         })
-            .unwrap();
+        .unwrap();
         System::current().stop();
         system.run();
     }

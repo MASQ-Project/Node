@@ -1249,6 +1249,7 @@ mod tests {
         neighborhood_from_nodes,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1276,7 +1277,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
 
     #[test]
     #[should_panic(expected = "Neighbor AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain")]
@@ -4232,7 +4232,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
-    fn neighborhood_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests(){
+    fn neighborhood_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
         let mut neighborhood = make_standard_subject();
         neighborhood.crashable = true;
 

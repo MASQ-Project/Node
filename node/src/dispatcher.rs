@@ -180,6 +180,7 @@ mod tests {
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::stream_messages::NonClandestineAttributes;
     use crate::sub_lib::dispatcher::Endpoint;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use actix::Addr;
@@ -190,7 +191,6 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
-    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
-    fn dispatcher_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests(){
+    fn dispatcher_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
         let crashable = true;
         let actor = Dispatcher::new("blah".to_string(), crashable);
 

@@ -1,17 +1,13 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::logger::Logger;
-use backtrace::Backtrace;
 use clap::App;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::type_name_of;
-use serde_json::ser::CharEscape::Backspace;
 use std::io::ErrorKind;
-use std::panic::Location;
-use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
@@ -129,7 +125,7 @@ fn crash_request_analyzer(
 ) -> Option<UiCrashRequest> {
     match (crashable, UiCrashRequest::fmb(msg.body)) {
         (false, _) => None,
-        (true, Err(e)) => None,
+        (true, Err(_)) => None,
         (true, Ok((msg, _))) if msg.actor == crash_key => Some(msg),
         (true, Ok((msg, _))) => {
             debug!(

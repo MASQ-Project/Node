@@ -249,7 +249,9 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::pure_test_utils::{make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up};
+    use crate::test_utils::pure_test_utils::{
+        make_default_persistent_configuration, prove_that_crash_request_handler_is_hooked_up,
+    };
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::Addr;
@@ -257,11 +259,9 @@ mod tests {
     use ethsign::SecretKey;
     use ethsign_crypto::Keccak256;
     use futures::future::Future;
-    use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
-    use std::panic::catch_unwind;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
@@ -688,7 +688,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
-    fn blockchain_bridge_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests(){
+    fn blockchain_bridge_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
         let crashable = true;
         let actor = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
@@ -699,5 +699,4 @@ mod tests {
 
         prove_that_crash_request_handler_is_hooked_up(actor, CRASH_KEY);
     }
-
 }
