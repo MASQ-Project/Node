@@ -343,7 +343,7 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!(
             format!("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Writing 19 bytes over existing stream", stream_key).as_str (),
-            format!("WARN: StreamWriter for {:?}/1.3.3.4:5678: Continuing after write error: other os error", stream_key).as_str (),
+            format!("WARN: StreamWriter for {:?}/1.3.3.4:5678: Continuing after write error: other error", stream_key).as_str (),
             format!("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Wrote 19/19 bytes of clear data", stream_key).as_str ()));
     }
 

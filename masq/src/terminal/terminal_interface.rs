@@ -29,7 +29,7 @@ mod test_cfg {
 //distribute the nonstandard, custom handles over a lot of places in our code.
 
 pub struct TerminalWrapper {
-    interface: Arc<Box<dyn MasqTerminal>>,
+    interface: Arc<dyn MasqTerminal>,
 }
 
 impl Clone for TerminalWrapper {
@@ -41,10 +41,8 @@ impl Clone for TerminalWrapper {
 }
 
 impl TerminalWrapper {
-    pub fn new(interface: Box<dyn MasqTerminal>) -> Self {
-        Self {
-            interface: Arc::new(interface),
-        }
+    pub fn new(interface: Arc<dyn MasqTerminal>) -> Self {
+        Self { interface }
     }
     pub fn lock(&self) -> Box<dyn WriterLock + '_> {
         self.interface.lock()
@@ -67,7 +65,7 @@ impl TerminalWrapper {
         if std::env::var(prod_cfg::MASQ_TEST_INTEGRATION_KEY)
             .eq(&Ok(prod_cfg::MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
-            TerminalWrapper::new(Box::new(prod_cfg::IntegrationTestTerminal::default()))
+            TerminalWrapper::new(Arc::new(prod_cfg::IntegrationTestTerminal::default()))
                 .wrap_to_ok()
         } else {
             //we have no positive test aimed at this (only negative and as an integration test)
@@ -82,7 +80,7 @@ impl TerminalWrapper {
         F: FnOnce() -> std::io::Result<TerminalType>,
         TerminalType: linefeed::Terminal + 'static,
     {
-        Self::new(Box::new(interface_configurator(
+        Self::new(Arc::new(interface_configurator(
             terminal_creator_of_certain_type,
             Box::new(Interface::with_term),
         )?))
@@ -204,7 +202,7 @@ mod tests {
     where
         C: FnMut(TerminalWrapper, StdoutBlender) -> () + Sync + Send + 'static,
     {
-        let interface = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let interface = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
         let barrier = Arc::new(Barrier::new(2));
         let (tx, rx) = unbounded();
         let stdout_c1 = StdoutBlender::new(tx);
