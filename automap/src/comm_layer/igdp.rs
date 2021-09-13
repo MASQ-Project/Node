@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::HousekeeperConfig;
+use crate::comm_layer::pcp_pmp_common::MappingConfig;
 use crate::comm_layer::{
     AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor,
     DEFAULT_MAPPING_LIFETIME_SECONDS,
@@ -114,7 +114,7 @@ struct IgdpTransactorInner {
     housekeeping_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     public_ip_opt: Option<Ipv4Addr>,
     mapping_adder: Box<dyn MappingAdder>,
-    change_handler_config_opt: RefCell<Option<HousekeeperConfig>>,
+    change_handler_config_opt: RefCell<Option<MappingConfig>>,
     logger: Logger,
 }
 
@@ -195,7 +195,7 @@ impl Transactor for IgdpTransactor {
             .map(|remap_interval| {
                 inner
                     .change_handler_config_opt
-                    .replace(Some(HousekeeperConfig {
+                    .replace(Some(MappingConfig {
                         hole_port,
                         next_lifetime: Duration::from_secs(lifetime as u64),
                         remap_interval: Duration::from_secs(remap_interval as u64),
@@ -389,7 +389,10 @@ impl IgdpTransactor {
                 Ok(HousekeepingThreadCommand::Stop) => break,
                 Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
                     remap_interval = Duration::from_millis(remap_after)
-                }
+                },
+                Ok(HousekeepingThreadCommand::AddMappingConfig(mapping_config)) => {
+                    todo! ("{:?}", mapping_config)
+                },
                 Err(_) => continue,
             }
         }
@@ -942,7 +945,7 @@ mod tests {
         let inner = subject.inner_arc.lock().unwrap();
         assert_eq!(
             inner.change_handler_config_opt.take(),
-            Some(HousekeeperConfig {
+            Some(MappingConfig {
                 hole_port: 7777,
                 next_lifetime: Duration::from_secs(1234),
                 remap_interval: Duration::from_secs(617),
@@ -1368,7 +1371,7 @@ mod tests {
             housekeeping_commander_opt: None,
             public_ip_opt: None,
             mapping_adder,
-            change_handler_config_opt: RefCell::new(Some(HousekeeperConfig {
+            change_handler_config_opt: RefCell::new(Some(MappingConfig {
                 hole_port: 6689,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
@@ -1389,7 +1392,7 @@ mod tests {
         let inner = inner_arc.lock().unwrap();
         assert_eq!(
             inner.change_handler_config_opt.take(),
-            Some(HousekeeperConfig {
+            Some(MappingConfig {
                 hole_port: 6689,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
@@ -1485,7 +1488,7 @@ mod tests {
             mapping_adder: Box::new(MappingAdderMock::new().add_mapping_result(Err(
                 AutomapError::PermanentMappingError("Booga".to_string()),
             ))),
-            change_handler_config_opt: RefCell::new(Some(HousekeeperConfig {
+            change_handler_config_opt: RefCell::new(Some(MappingConfig {
                 hole_port: 6689,
                 next_lifetime: Duration::from_secs(600),
                 remap_interval: Duration::from_secs(0),

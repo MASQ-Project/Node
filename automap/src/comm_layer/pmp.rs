@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::comm_layer::pcp_pmp_common::{
-    find_routers, make_local_socket_address, HousekeeperConfig, FreePortFactory,
+    find_routers, make_local_socket_address, MappingConfig, FreePortFactory,
     FreePortFactoryReal, UdpSocketFactory, UdpSocketFactoryReal, UdpSocketWrapper,
     CHANGE_HANDLER_PORT, READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
@@ -48,7 +48,7 @@ pub struct PmpTransactor {
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
     listen_port: u16,
-    housekeeper_config_opt: RefCell<Option<HousekeeperConfig>>,
+    mapping_config_opt: RefCell<Option<MappingConfig>>,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
@@ -113,7 +113,7 @@ impl Transactor for PmpTransactor {
             router_ip,
             lifetime
         );
-        let mut housekeeper_config = HousekeeperConfig {
+        let mut mapping_config = MappingConfig {
             hole_port,
             next_lifetime: Duration::from_secs(lifetime as u64),
             remap_interval: Duration::from_secs(0),
@@ -124,11 +124,11 @@ impl Transactor for PmpTransactor {
             .add_mapping(
                 &self.factories_arc,
                 SocketAddr::new(router_ip, self.router_port),
-                &mut housekeeper_config,
+                &mut mapping_config,
             )
             .map(|remap_interval| {
-                self.housekeeper_config_opt
-                    .replace(Some(housekeeper_config));
+                self.mapping_config_opt
+                    .replace(Some(mapping_config));
                 remap_interval
             })
     }
@@ -166,7 +166,7 @@ impl Transactor for PmpTransactor {
         if let Some(_housekeeper_commander) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
-        let housekeeper_config = match self.housekeeper_config_opt.borrow().deref() {
+        let mapping_config = match self.mapping_config_opt.borrow().deref() {
             None => return Err(AutomapError::HousekeeperUnconfigured),
             Some(chc) => chc.clone(),
         };
@@ -200,7 +200,7 @@ impl Transactor for PmpTransactor {
                 factories_arc,
                 SocketAddr::new(router_ip, router_port),
                 change_handler,
-                housekeeper_config,
+                mapping_config,
                 read_timeout_millis,
                 logger,
             )
@@ -250,7 +250,7 @@ impl Default for PmpTransactor {
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
-            housekeeper_config_opt: RefCell::new(None),
+            mapping_config_opt: RefCell::new(None),
             housekeeper_commander_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
             join_handle_opt: None,
@@ -354,7 +354,7 @@ impl PmpTransactor {
         factories_arc: Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
         change_handler: ChangeHandler,
-        mut housekeeper_config: HousekeeperConfig,
+        mut mapping_config: MappingConfig,
         read_timeout_millis: u64,
         logger: Logger,
     ) -> ChangeHandler {
@@ -369,7 +369,7 @@ impl PmpTransactor {
             &factories_arc,
             router_addr,
             &change_handler,
-            &mut housekeeper_config,
+            &mut mapping_config,
             &mut last_remapped,
             &logger,
         ) {}
@@ -384,7 +384,7 @@ impl PmpTransactor {
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
         change_handler: &ChangeHandler,
-        housekeeper_config: &mut HousekeeperConfig,
+        mapping_config: &mut MappingConfig,
         last_remapped: &mut Instant,
         logger: &Logger,
     ) -> bool {
@@ -393,7 +393,7 @@ impl PmpTransactor {
             factories_arc,
             router_addr,
             change_handler,
-            housekeeper_config,
+            mapping_config,
             logger,
         ) {
             return true;
@@ -403,14 +403,17 @@ impl PmpTransactor {
             factories_arc,
             router_addr,
             change_handler,
-            housekeeper_config,
+            mapping_config,
             last_remapped,
             logger,
         );
         match rx.try_recv() {
             Ok(HousekeepingThreadCommand::Stop) => return false,
             Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
-                housekeeper_config.remap_interval = Duration::from_millis(remap_after)
+                mapping_config.remap_interval = Duration::from_millis(remap_after)
+            },
+            Ok(HousekeepingThreadCommand::AddMappingConfig(mapping_config)) => {
+                todo! ("{:?}", mapping_config)
             }
             Err(_) => (),
         };
@@ -422,7 +425,7 @@ impl PmpTransactor {
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
         change_handler: &ChangeHandler,
-        housekeeper_config: &mut HousekeeperConfig,
+        mapping_config: &mut MappingConfig,
         logger: &Logger,
     ) -> bool {
         let mut buffer = [0u8; 100];
@@ -440,7 +443,7 @@ impl PmpTransactor {
                             router_addr,
                             public_ip,
                             change_handler,
-                            housekeeper_config,
+                            mapping_config,
                             logger,
                         );
                         false
@@ -463,24 +466,24 @@ impl PmpTransactor {
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
         change_handler: &ChangeHandler,
-        housekeeper_config: &mut HousekeeperConfig,
+        mapping_config: &mut MappingConfig,
         last_remapped: &mut Instant,
         logger: &Logger,
     ) {
         let since_last_remapped = last_remapped.elapsed();
-        if since_last_remapped.gt(&housekeeper_config.remap_interval) {
+        if since_last_remapped.gt(&mapping_config.remap_interval) {
             let mapping_adder = mapping_adder_arc.lock().expect("PcpTransactor is dead");
             if let Err(e) = Self::remap_port(
                 (*mapping_adder).as_ref(),
                 factories_arc,
                 router_addr,
-                housekeeper_config,
+                mapping_config,
                 logger,
             ) {
                 error!(
                     logger,
                     "Automatic PMP remapping failed for port {}: {:?})",
-                    housekeeper_config.hole_port,
+                    mapping_config.hole_port,
                     e
                 );
                 change_handler(AutomapChange::Error(e));
@@ -493,14 +496,14 @@ impl PmpTransactor {
         mapping_adder: &dyn MappingAdder,
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
-        housekeeper_config: &mut HousekeeperConfig,
+        mapping_config: &mut MappingConfig,
         logger: &Logger,
     ) -> Result<u32, AutomapError> {
-        info!(logger, "Remapping port {}", housekeeper_config.hole_port);
-        if housekeeper_config.next_lifetime.as_millis() < 1000 {
-            housekeeper_config.next_lifetime = Duration::from_millis(1000);
+        info!(logger, "Remapping port {}", mapping_config.hole_port);
+        if mapping_config.next_lifetime.as_millis() < 1000 {
+            mapping_config.next_lifetime = Duration::from_millis(1000);
         }
-        mapping_adder.add_mapping(factories_arc, router_addr, housekeeper_config)
+        mapping_adder.add_mapping(factories_arc, router_addr, mapping_config)
     }
 
     fn parse_buffer(
@@ -557,7 +560,7 @@ impl PmpTransactor {
         router_address: SocketAddr,
         public_ip: Ipv4Addr,
         change_handler: &ChangeHandler,
-        housekeeper_config: &HousekeeperConfig,
+        mapping_config: &MappingConfig,
         logger: &Logger,
     ) {
         let mut packet = PmpPacket {
@@ -567,9 +570,9 @@ impl PmpTransactor {
         };
         let opcode_data = MapOpcodeData {
             epoch_opt: None,
-            internal_port: housekeeper_config.hole_port,
-            external_port: housekeeper_config.hole_port,
-            lifetime: housekeeper_config.next_lifetime_secs(),
+            internal_port: mapping_config.hole_port,
+            external_port: mapping_config.hole_port,
+            lifetime: mapping_config.next_lifetime_secs(),
         };
         packet.opcode_data = Box::new(opcode_data);
         debug!(
@@ -633,7 +636,7 @@ trait MappingAdder: Send {
         &self,
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
-        housekeeper_config: &mut HousekeeperConfig,
+        mapping_config: &mut MappingConfig,
     ) -> Result<u32, AutomapError>;
 }
 
@@ -655,14 +658,14 @@ impl MappingAdder for MappingAdderReal {
         &self,
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
-        housekeeper_config: &mut HousekeeperConfig,
+        mapping_config: &mut MappingConfig,
     ) -> Result<u32, AutomapError> {
         debug!(
             self.logger,
             "Adding mapping for port {} through router at {} for {}ms",
-            housekeeper_config.hole_port,
+            mapping_config.hole_port,
             router_addr,
-            housekeeper_config.next_lifetime.as_millis(),
+            mapping_config.next_lifetime.as_millis(),
         );
         let request = PmpPacket {
             direction: Direction::Request,
@@ -670,9 +673,9 @@ impl MappingAdder for MappingAdderReal {
             result_code_opt: None,
             opcode_data: Box::new(MapOpcodeData {
                 epoch_opt: None,
-                internal_port: housekeeper_config.hole_port,
-                external_port: housekeeper_config.hole_port,
-                lifetime: housekeeper_config.next_lifetime_secs(),
+                internal_port: mapping_config.hole_port,
+                external_port: mapping_config.hole_port,
+                lifetime: mapping_config.next_lifetime_secs(),
             }),
         };
         let response = PmpTransactor::transact(
@@ -715,9 +718,9 @@ impl MappingAdder for MappingAdderReal {
             .expect("transact allowed absent result code")
         {
             ResultCode::Success => {
-                housekeeper_config.next_lifetime =
+                mapping_config.next_lifetime =
                     Duration::from_secs(opcode_data.lifetime as u64);
-                housekeeper_config.remap_interval =
+                mapping_config.remap_interval =
                     Duration::from_secs((opcode_data.lifetime / 2) as u64);
                 Ok(opcode_data.lifetime / 2)
             }
@@ -739,7 +742,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::mocks::{
         FreePortFactoryMock, UdpSocketFactoryMock, UdpSocketMock,
     };
-    use crate::comm_layer::pcp_pmp_common::{HousekeeperConfig, UdpSocket};
+    use crate::comm_layer::pcp_pmp_common::{MappingConfig, UdpSocket};
     use crate::comm_layer::AutomapErrorCause;
     use crate::control_layer::automap_control::AutomapChange;
     use crate::protocols::pmp::get_packet::GetOpcodeData;
@@ -759,7 +762,7 @@ mod tests {
 
     struct MappingAdderMock {
         add_mapping_params:
-            Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, HousekeeperConfig)>>>,
+            Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, MappingConfig)>>>,
         add_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
     }
 
@@ -768,16 +771,16 @@ mod tests {
             &self,
             factories_arc: &Arc<Mutex<Factories>>,
             router_addr: SocketAddr,
-            housekeeper_config: &mut HousekeeperConfig,
+            mapping_config: &mut MappingConfig,
         ) -> Result<u32, AutomapError> {
             let result = self.add_mapping_results.borrow_mut().remove(0);
             if let Ok(remap_interval) = &result {
-                housekeeper_config.remap_interval = Duration::from_secs(*remap_interval as u64);
+                mapping_config.remap_interval = Duration::from_secs(*remap_interval as u64);
             }
             self.add_mapping_params.lock().unwrap().push((
                 factories_arc.clone(),
                 router_addr,
-                housekeeper_config.clone(),
+                mapping_config.clone(),
             ));
             result
         }
@@ -793,7 +796,7 @@ mod tests {
 
         fn add_mapping_params(
             mut self,
-            params: &Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, HousekeeperConfig)>>>,
+            params: &Arc<Mutex<Vec<(Arc<Mutex<Factories>>, SocketAddr, MappingConfig)>>>,
         ) -> Self {
             self.add_mapping_params = params.clone();
             self
@@ -943,7 +946,7 @@ mod tests {
             .add_mapping(
                 &Arc::new(Mutex::new(factories)),
                 SocketAddr::new(router_ip, ROUTER_PORT),
-                &mut HousekeeperConfig {
+                &mut MappingConfig {
                     hole_port: 6666,
                     next_lifetime: Duration::from_secs(4321),
                     remap_interval: Default::default(),
@@ -983,7 +986,7 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new(Mutex::new(factories)),
             SocketAddr::new(router_ip, ROUTER_PORT),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
                 remap_interval: Default::default(),
@@ -1020,7 +1023,7 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new(Mutex::new(factories)),
             SocketAddr::new(router_ip, ROUTER_PORT),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
                 remap_interval: Default::default(),
@@ -1055,7 +1058,7 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new(Mutex::new(factories)),
             SocketAddr::new(router_ip, ROUTER_PORT),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
                 remap_interval: Default::default(),
@@ -1096,7 +1099,7 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new(Mutex::new(factories)),
             SocketAddr::new(router_ip, ROUTER_PORT),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
                 remap_interval: Default::default(),
@@ -1142,7 +1145,7 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new(Mutex::new(factories)),
             SocketAddr::new(router_ip, ROUTER_PORT),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(4321),
                 remap_interval: Default::default(),
@@ -1276,8 +1279,8 @@ mod tests {
 
         assert_eq!(result, Ok(4));
         assert_eq!(
-            subject.housekeeper_config_opt.borrow().as_ref(),
-            Some(&HousekeeperConfig {
+            subject.mapping_config_opt.borrow().as_ref(),
+            Some(&MappingConfig {
                 hole_port: 7777,
                 next_lifetime: Duration::from_secs(8),
                 remap_interval: Duration::from_secs(4),
@@ -1444,7 +1447,7 @@ mod tests {
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        subject.housekeeper_config_opt = RefCell::new(Some(HousekeeperConfig {
+        subject.mapping_config_opt = RefCell::new(Some(MappingConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
             remap_interval: Duration::from_millis(0),
@@ -1519,7 +1522,7 @@ mod tests {
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        subject.housekeeper_config_opt = RefCell::new(Some(HousekeeperConfig {
+        subject.mapping_config_opt = RefCell::new(Some(MappingConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
             remap_interval: Duration::from_millis(0),
@@ -1571,7 +1574,7 @@ mod tests {
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        subject.housekeeper_config_opt = RefCell::new(Some(HousekeeperConfig {
+        subject.mapping_config_opt = RefCell::new(Some(MappingConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
             remap_interval: Duration::from_millis(0),
@@ -1625,7 +1628,7 @@ mod tests {
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        subject.housekeeper_config_opt = RefCell::new(Some(HousekeeperConfig {
+        subject.mapping_config_opt = RefCell::new(Some(MappingConfig {
             hole_port: 0,
             next_lifetime: Duration::from_secs(0),
             remap_interval: Duration::from_secs(0),
@@ -1708,7 +1711,7 @@ mod tests {
         let (tx, rx) = unbounded();
         let mapping_adder = Box::new(MappingAdderMock::new()); // no results specified
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let housekeeper_config = HousekeeperConfig {
+        let mapping_config = MappingConfig {
             hole_port: 0,
             next_lifetime: Duration::from_secs(2),
             remap_interval: Duration::from_secs(1),
@@ -1724,7 +1727,7 @@ mod tests {
             Arc::new(Mutex::new(Factories::default())),
             SocketAddr::new(localhost(), 0),
             change_handler,
-            housekeeper_config,
+            mapping_config,
             10,
             Logger::new("no_remap_test"),
         );
@@ -1751,7 +1754,7 @@ mod tests {
                 .recv_from_result(Err(io::Error::from(ErrorKind::WouldBlock)), vec![]),
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let housekeeper_config = HousekeeperConfig {
+        let mapping_config = MappingConfig {
             hole_port: 6689,
             next_lifetime: Duration::from_secs(1000),
             remap_interval: Duration::from_millis(80),
@@ -1767,7 +1770,7 @@ mod tests {
                 Arc::new(Mutex::new(factories)),
                 SocketAddr::new(IpAddr::from_str("6.6.6.6").unwrap(), 6666),
                 change_handler,
-                housekeeper_config,
+                mapping_config,
                 10,
                 Logger::new("timed_remap_test"),
             );
@@ -1792,7 +1795,7 @@ mod tests {
         );
         assert_eq!(
             add_mapping_params.2,
-            HousekeeperConfig {
+            MappingConfig {
                 hole_port: 6689,
                 next_lifetime: Duration::from_secs(1000),
                 remap_interval: Duration::from_secs(300)
@@ -1817,7 +1820,7 @@ mod tests {
         let change_handler: ChangeHandler = Box::new(move |change| {
             change_records_arc_inner.lock().unwrap().push(change);
         });
-        let mut housekeeper_config = HousekeeperConfig {
+        let mut mapping_config = MappingConfig {
             hole_port: 6689,
             next_lifetime: Duration::from_secs(600),
             remap_interval: Duration::from_secs(0),
@@ -1830,7 +1833,7 @@ mod tests {
             &factories_arc,
             router_addr,
             &change_handler,
-            &mut housekeeper_config,
+            &mut mapping_config,
             &mut last_remapped,
             &logger,
         );
@@ -1942,7 +1945,7 @@ mod tests {
             SocketAddr::from_str("7.7.7.7:1234").unwrap(),
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 2222,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
@@ -1989,7 +1992,7 @@ mod tests {
             router_address,
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &HousekeeperConfig {
+            &MappingConfig {
                 hole_port: 2222,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
@@ -2028,7 +2031,7 @@ mod tests {
             router_address,
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 2222,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
@@ -2077,7 +2080,7 @@ mod tests {
             router_address,
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 2222,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
@@ -2107,7 +2110,7 @@ mod tests {
             &mapping_adder,
             &Arc::new(Mutex::new(Factories::default())),
             SocketAddr::new(localhost(), 0),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 0,
                 next_lifetime: Duration::from_millis(100900),
                 remap_interval: Default::default(),
@@ -2131,7 +2134,7 @@ mod tests {
             &mapping_adder,
             &Arc::new(Mutex::new(Factories::default())),
             SocketAddr::new(localhost(), 0),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 0,
                 next_lifetime: Duration::from_millis(80),
                 remap_interval: Default::default(),
@@ -2154,7 +2157,7 @@ mod tests {
             &mapping_adder,
             &Arc::new(Mutex::new(Factories::default())),
             SocketAddr::new(localhost(), 0),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 0,
                 next_lifetime: Default::default(),
                 remap_interval: Default::default(),
@@ -2180,7 +2183,7 @@ mod tests {
             &mapping_transactor,
             &Arc::new(Mutex::new(Factories::default())),
             SocketAddr::new(localhost(), 0),
-            &mut HousekeeperConfig {
+            &mut MappingConfig {
                 hole_port: 0,
                 next_lifetime: Default::default(),
                 remap_interval: Default::default(),

@@ -1081,7 +1081,7 @@ mod tests {
 
     #[test]
     fn get_public_ip_establishes_usual_mapping_protocol() {
-        let (tx, rx) = unbounded();
+        let (tx, _rx) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
             &Arc::new(Mutex::new(vec![])),
@@ -1092,14 +1092,14 @@ mod tests {
         subject.change_handler_opt = Some(Box::new(|_| {}));
         subject.inner_opt = None;
 
-        let result = subject.get_public_ip();
+        let _ = subject.get_public_ip();
 
         assert_eq!(subject.get_mapping_protocol(), Some(AutomapProtocol::Pcp));
     }
 
     #[test]
     fn add_mapping_establishes_usual_mapping_protocol() {
-        let (tx, rx) = unbounded();
+        let (tx, _rx) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
             &Arc::new(Mutex::new(vec![])),

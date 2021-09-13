@@ -28,14 +28,14 @@ pub const ROUTER_PORT: u16 = 5351;
 pub const CHANGE_HANDLER_PORT: u16 = 5350;
 pub const READ_TIMEOUT_MILLIS: u64 = 1000;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct HousekeeperConfig {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MappingConfig {
     pub hole_port: u16,
     pub next_lifetime: Duration,
     pub remap_interval: Duration,
 }
 
-impl HousekeeperConfig {
+impl MappingConfig {
     pub fn next_lifetime_secs(&self) -> u32 {
         self.next_lifetime.as_secs() as u32
     }
@@ -331,7 +331,7 @@ pub mod mocks {
 
     #[test]
     fn change_handler_config_next_lifetime_secs_handles_greater_than_one_second() {
-        let subject = HousekeeperConfig {
+        let subject = MappingConfig {
             hole_port: 0,
             next_lifetime: Duration::from_millis(1001),
             remap_interval: Duration::from_millis(0),
@@ -344,7 +344,7 @@ pub mod mocks {
 
     #[test]
     fn change_handler_config_next_lifetime_secs_handles_less_than_one_second() {
-        let subject = HousekeeperConfig {
+        let subject = MappingConfig {
             hole_port: 0,
             next_lifetime: Duration::from_millis(999),
             remap_interval: Duration::from_millis(2000),

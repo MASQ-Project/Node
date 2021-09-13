@@ -5,10 +5,14 @@ use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
+use crossbeam_channel::Sender;
+
+use masq_lib::utils::AutomapProtocol;
+
+use crate::comm_layer::pcp_pmp_common::MappingConfig;
 use crate::control_layer::automap_control::ChangeHandler;
 use crate::protocols::utils::ParseError;
-use crossbeam_channel::Sender;
-use masq_lib::utils::AutomapProtocol;
+
 pub mod igdp;
 pub mod pcp;
 mod pcp_pmp_common;
@@ -124,7 +128,7 @@ impl Debug for dyn Transactor {
 pub enum HousekeepingThreadCommand {
     Stop,
     SetRemapIntervalMs(u64),
-    // TODO AddMappingConfig(u16, Duration, Duration),
+    AddMappingConfig(MappingConfig),
 }
 
 pub trait LocalIpFinder: Send {
