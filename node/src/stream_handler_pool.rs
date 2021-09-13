@@ -578,6 +578,7 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::main_cryptde;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1942,5 +1943,13 @@ mod tests {
             .as_str(),
             1000,
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn stream_handler_pool_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
+        let stream_handler_pool = StreamHandlerPool::new(vec![], true);
+
+        prove_that_crash_request_handler_is_hooked_up(stream_handler_pool, CRASH_KEY);
     }
 }

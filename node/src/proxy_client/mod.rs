@@ -352,14 +352,15 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::*;
     use actix::System;
     use std::cell::RefCell;
-    use std::net::IpAddr;
     use std::net::SocketAddr;
+    use std::net::{IpAddr, SocketAddrV4};
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -474,6 +475,22 @@ mod tests {
             self.make_results.borrow_mut().push(result);
             self
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn proxy_client_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
+        let proxy_client = ProxyClient::new(ProxyClientConfig {
+            cryptde: main_cryptde(),
+            dns_servers: vec![SocketAddr::V4(
+                SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
+            )],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+            crashable: true,
+        });
+
+        prove_that_crash_request_handler_is_hooked_up(proxy_client, CRASH_KEY);
     }
 
     #[test]

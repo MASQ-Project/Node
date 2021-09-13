@@ -153,6 +153,7 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::{
         alias_cryptde, main_cryptde, make_meaningless_message_type, make_paying_wallet,
         route_to_proxy_client,
@@ -248,5 +249,20 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn hopper_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
+        let hopper = Hopper::new(HopperConfig {
+            main_cryptde: main_cryptde(),
+            alias_cryptde: alias_cryptde(),
+            per_routing_service: 100,
+            per_routing_byte: 200,
+            is_decentralized: false,
+            crashable: true,
+        });
+
+        prove_that_crash_request_handler_is_hooked_up(hopper, CRASH_KEY);
     }
 }

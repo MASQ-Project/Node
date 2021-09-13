@@ -984,6 +984,7 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::pure_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
@@ -4463,5 +4464,13 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
+    }
+
+    #[test]
+    #[should_panic(expected = "panic message: node_lib::sub_lib::utils::crash_request_analyzer")]
+    fn proxy_server_can_be_crashed_and_implicitly_given_resists_to_mismatched_requests() {
+        let proxy_server = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, true);
+
+        prove_that_crash_request_handler_is_hooked_up(proxy_server, CRASH_KEY);
     }
 }
