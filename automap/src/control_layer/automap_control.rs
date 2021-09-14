@@ -74,6 +74,7 @@ impl AutomapControl for AutomapControlReal {
             }
             None => self.choose_working_protocol(experiment),
         };
+        // TODO: Move this up above the experiment.
         match self.maybe_start_housekeeper(&protocol_info_result) {
             Ok(_) => protocol_info_result.map(|protocol_info| {
                 debug!(self.logger, "Public IP {:?}", protocol_info.payload);
@@ -122,6 +123,7 @@ impl AutomapControl for AutomapControlReal {
                 Err(e) => Err(e),
             },
         };
+        // TODO: Move this up above the experiment.
         self.maybe_start_housekeeper(&protocol_info_result)?;
         let remap_after_sec: u32 = protocol_info_result?.payload;
         self.housekeeping_thread_commander_opt

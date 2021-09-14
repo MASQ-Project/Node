@@ -17,11 +17,9 @@ use masq_lib::utils::AutomapProtocol;
 use masq_lib::{debug, error, info, warning};
 use pretty_hex::PrettyHex;
 use std::any::Any;
-use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -48,7 +46,6 @@ pub struct PmpTransactor {
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
     listen_port: u16,
-    mapping_config_opt: RefCell<Option<MappingConfig>>,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
@@ -127,8 +124,10 @@ impl Transactor for PmpTransactor {
                 &mut mapping_config,
             )
             .map(|remap_interval| {
-                self.mapping_config_opt
-                    .replace(Some(mapping_config));
+                self.housekeeper_commander_opt
+                    .as_ref()
+                    .expect("Housekeeping thread is dead")
+                    .send (HousekeepingThreadCommand::AddMappingConfig(mapping_config));
                 remap_interval
             })
     }
@@ -166,10 +165,6 @@ impl Transactor for PmpTransactor {
         if let Some(_housekeeper_commander) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
-        let mapping_config = match self.mapping_config_opt.borrow().deref() {
-            None => return Err(AutomapError::HousekeeperUnconfigured),
-            Some(chc) => chc.clone(),
-        };
         let ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, 1));
         let socket_addr = SocketAddr::new(ip_addr, self.listen_port);
         let socket_result = {
@@ -200,7 +195,6 @@ impl Transactor for PmpTransactor {
                 factories_arc,
                 SocketAddr::new(router_ip, router_port),
                 change_handler,
-                mapping_config,
                 read_timeout_millis,
                 logger,
             )
@@ -250,7 +244,6 @@ impl Default for PmpTransactor {
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
             listen_port: CHANGE_HANDLER_PORT,
-            mapping_config_opt: RefCell::new(None),
             housekeeper_commander_opt: None,
             read_timeout_millis: READ_TIMEOUT_MILLIS,
             join_handle_opt: None,
@@ -354,11 +347,11 @@ impl PmpTransactor {
         factories_arc: Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
         change_handler: ChangeHandler,
-        mut mapping_config: MappingConfig,
         read_timeout_millis: u64,
         logger: Logger,
     ) -> ChangeHandler {
         let mut last_remapped = Instant::now();
+        let mut mapping_config_opt = None;
         announcement_socket
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
@@ -369,7 +362,7 @@ impl PmpTransactor {
             &factories_arc,
             router_addr,
             &change_handler,
-            &mut mapping_config,
+            &mut mapping_config_opt,
             &mut last_remapped,
             &logger,
         ) {}
@@ -384,7 +377,7 @@ impl PmpTransactor {
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
         change_handler: &ChangeHandler,
-        mapping_config: &mut MappingConfig,
+        mapping_config_opt: &mut Option<MappingConfig>,
         last_remapped: &mut Instant,
         logger: &Logger,
     ) -> bool {
@@ -393,27 +386,29 @@ impl PmpTransactor {
             factories_arc,
             router_addr,
             change_handler,
-            mapping_config,
+            mapping_config_opt,
             logger,
         ) {
             return true;
         }
-        Self::maybe_remap(
-            mapping_adder_arc,
-            factories_arc,
-            router_addr,
-            change_handler,
-            mapping_config,
-            last_remapped,
-            logger,
-        );
+        if let Some(mapping_config) = mapping_config_opt {
+            Self::maybe_remap(
+                mapping_adder_arc,
+                factories_arc,
+                router_addr,
+                change_handler,
+                mapping_config,
+                last_remapped,
+                logger,
+            );
+        }
         match rx.try_recv() {
             Ok(HousekeepingThreadCommand::Stop) => return false,
             Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
-                mapping_config.remap_interval = Duration::from_millis(remap_after)
+                mapping_config_opt.map (|mut mc| mc.remap_interval = Duration::from_millis(remap_after));
             },
             Ok(HousekeepingThreadCommand::AddMappingConfig(mapping_config)) => {
-                todo! ("{:?}", mapping_config)
+                mapping_config_opt.replace (mapping_config);
             }
             Err(_) => (),
         };
@@ -425,7 +420,7 @@ impl PmpTransactor {
         factories_arc: &Arc<Mutex<Factories>>,
         router_addr: SocketAddr,
         change_handler: &ChangeHandler,
-        mapping_config: &mut MappingConfig,
+        mapping_config_opt: &Option<MappingConfig>,
         logger: &Logger,
     ) -> bool {
         let mut buffer = [0u8; 100];
@@ -443,7 +438,7 @@ impl PmpTransactor {
                             router_addr,
                             public_ip,
                             change_handler,
-                            mapping_config,
+                            mapping_config_opt,
                             logger,
                         );
                         false
@@ -560,65 +555,73 @@ impl PmpTransactor {
         router_address: SocketAddr,
         public_ip: Ipv4Addr,
         change_handler: &ChangeHandler,
-        mapping_config: &MappingConfig,
+        mapping_config_opt: &Option<MappingConfig>,
         logger: &Logger,
     ) {
-        let mut packet = PmpPacket {
-            opcode: Opcode::MapTcp,
-            direction: Direction::Request,
-            ..Default::default()
-        };
-        let opcode_data = MapOpcodeData {
-            epoch_opt: None,
-            internal_port: mapping_config.hole_port,
-            external_port: mapping_config.hole_port,
-            lifetime: mapping_config.next_lifetime_secs(),
-        };
-        packet.opcode_data = Box::new(opcode_data);
-        debug!(
-            logger,
-            "Sending mapping request to {} and waiting for response", router_address
-        );
-        match Self::transact(
-            &factories_arc,
-            router_address,
-            &packet,
-            PMP_READ_TIMEOUT_MS,
-            logger,
-        ) {
-            Ok(response) => match response.result_code_opt {
-                Some(ResultCode::Success) => {
-                    debug!(logger, "Prod: Received response; triggering change handler");
-                    change_handler(AutomapChange::NewIp(IpAddr::V4(public_ip)));
-                }
-                Some(result_code) => {
-                    let err_msg = format!(
-                        "Remapping after IP change failed; Node is useless: {:?}",
-                        result_code
-                    );
-                    error!(logger, "{}\n{:?}", err_msg, packet);
-                    let automap_error = if result_code.is_permanent() {
-                        AutomapError::PermanentMappingError(err_msg)
-                    } else {
-                        AutomapError::TemporaryMappingError(err_msg)
-                    };
-                    change_handler(AutomapChange::Error(automap_error));
-                }
-                None => {
-                    let err_msg = "Remapping after IP change failed; Node is useless: Received request when expecting response".to_string();
-                    error!(logger, "{}\n{:?}", err_msg, packet);
-                    change_handler(AutomapChange::Error(AutomapError::ProtocolError(err_msg)));
+        match &mapping_config_opt {
+            Some(mapping_config) => {
+                let mut packet = PmpPacket {
+                    opcode: Opcode::MapTcp,
+                    direction: Direction::Request,
+                    ..Default::default()
+                };
+                let opcode_data = MapOpcodeData {
+                    epoch_opt: None,
+                    internal_port: mapping_config.hole_port,
+                    external_port: mapping_config.hole_port,
+                    lifetime: mapping_config.next_lifetime_secs(),
+                };
+                packet.opcode_data = Box::new(opcode_data);
+                debug!(
+                    logger,
+                    "Sending mapping request to {} and waiting for response", router_address
+                );
+                match Self::transact(
+                    &factories_arc,
+                    router_address,
+                    &packet,
+                    PMP_READ_TIMEOUT_MS,
+                    logger,
+                ) {
+                    Ok(response) => match response.result_code_opt {
+                        Some(ResultCode::Success) => {
+                            debug!(logger, "Remapping successful; triggering change handler");
+                            change_handler(AutomapChange::NewIp(IpAddr::V4(public_ip)));
+                        }
+                        Some(result_code) => {
+                            let err_msg = format!(
+                                "Remapping after IP change failed; Node is useless: {:?}",
+                                result_code
+                            );
+                            error!(logger, "{}\n{:?}", err_msg, packet);
+                            let automap_error = if result_code.is_permanent() {
+                                AutomapError::PermanentMappingError(err_msg)
+                            } else {
+                                AutomapError::TemporaryMappingError(err_msg)
+                            };
+                            change_handler(AutomapChange::Error(automap_error));
+                        }
+                        None => {
+                            let err_msg = "Remapping after IP change failed; Node is useless: Received request when expecting response".to_string();
+                            error!(logger, "{}\n{:?}", err_msg, packet);
+                            change_handler(AutomapChange::Error(AutomapError::ProtocolError(err_msg)));
+                        }
+                    },
+                    Err(e) => {
+                        error!(
+                            logger,
+                            "Remapping after IP change failed; Node is useless: {:?}", e
+                        );
+                        change_handler(AutomapChange::Error(AutomapError::SocketReceiveError(
+                            AutomapErrorCause::SocketFailure,
+                        )));
+                    }
                 }
             },
-            Err(e) => {
-                error!(
-                    logger,
-                    "Remapping after IP change failed; Node is useless: {:?}", e
-                );
-                change_handler(AutomapChange::Error(AutomapError::SocketReceiveError(
-                    AutomapErrorCause::SocketFailure,
-                )));
-            }
+            None => {
+                debug!(logger, "Public IP change detected; triggering change handler");
+                change_handler(AutomapChange::NewIp(IpAddr::V4(public_ip)));
+            },
         }
     }
 
@@ -1262,7 +1265,8 @@ mod tests {
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
-        let socket = UdpSocketMock::new()
+        let announcement_socket = UdpSocketMock::new();
+        let main_socket = UdpSocketMock::new()
             .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
@@ -1272,20 +1276,16 @@ mod tests {
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject(socket_factory);
+        let socket_factory = UdpSocketFactoryMock::new()
+            .make_result(Ok(announcement_socket))
+            .make_result(Ok(main_socket));
+        let mut subject = make_subject(socket_factory);
+        subject.start_housekeeping_thread(Box::new (|_| ()), router_ip);
 
         let result = subject.add_mapping(router_ip, 7777, 10);
 
+        let _ = subject.stop_housekeeping_thread();
         assert_eq!(result, Ok(4));
-        assert_eq!(
-            subject.mapping_config_opt.borrow().as_ref(),
-            Some(&MappingConfig {
-                hole_port: 7777,
-                next_lifetime: Duration::from_secs(8),
-                remap_interval: Duration::from_secs(4),
-            })
-        );
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
             *set_read_timeout_params,
@@ -1405,7 +1405,8 @@ mod tests {
         let set_read_timeout_params_arc = Arc::new(Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let recv_from_params_arc = Arc::new(Mutex::new(vec![]));
-        let socket = UdpSocketMock::new()
+        let announcement_socket = UdpSocketMock::new();
+        let main_socket = UdpSocketMock::new()
             .set_read_timeout_params(&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
@@ -1415,11 +1416,15 @@ mod tests {
                 Ok((response_len, SocketAddr::new(router_ip, ROUTER_PORT))),
                 response_buffer[0..response_len].to_vec(),
             );
-        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
-        let subject = make_subject(socket_factory);
+        let socket_factory = UdpSocketFactoryMock::new()
+            .make_result(Ok (announcement_socket))
+            .make_result(Ok(main_socket));
+        let mut subject = make_subject(socket_factory);
+        subject.start_housekeeping_thread(Box::new (|_| ()), router_ip).unwrap();
 
         let result = subject.delete_mapping(router_ip, 7777);
 
+        let _ = subject.stop_housekeeping_thread();
         assert_eq!(result, Ok(()));
         let set_read_timeout_params = set_read_timeout_params_arc.lock().unwrap();
         assert_eq!(
@@ -1447,21 +1452,23 @@ mod tests {
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        subject.mapping_config_opt = RefCell::new(Some(MappingConfig {
+        subject.read_timeout_millis = 10;
+        let mapping_config = MappingConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
             remap_interval: Duration::from_millis(0),
-        }));
+        };
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
             changes_arc_inner.lock().unwrap().push(change);
         };
 
-        subject
+        let tx = subject
             .start_housekeeping_thread(Box::new(change_handler), localhost())
             .unwrap();
 
+        tx.send (HousekeepingThreadCommand::AddMappingConfig(mapping_config)).unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
@@ -1513,7 +1520,7 @@ mod tests {
     }
 
     #[test]
-    fn change_handler_rejects_data_from_non_router_ip_addresses() {
+    fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
         let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
@@ -1522,21 +1529,22 @@ mod tests {
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        subject.mapping_config_opt = RefCell::new(Some(MappingConfig {
+        let mapping_config = MappingConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
             remap_interval: Duration::from_millis(0),
-        }));
+        };
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
             changes_arc_inner.lock().unwrap().push(change);
         };
 
-        subject
+        let tx = subject
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
+        tx.send (HousekeepingThreadCommand::AddMappingConfig(mapping_config)).unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
@@ -1564,7 +1572,7 @@ mod tests {
     }
 
     #[test]
-    fn change_handler_rejects_data_that_causes_parse_errors() {
+    fn housekeeping_thread_rejects_data_that_causes_parse_errors() {
         init_test_logging();
         let change_handler_port = find_free_port();
         let router_port = find_free_port();
@@ -1574,21 +1582,22 @@ mod tests {
         subject.router_port = router_port;
         subject.listen_port = change_handler_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        subject.mapping_config_opt = RefCell::new(Some(MappingConfig {
+        let mapping_config = MappingConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
             remap_interval: Duration::from_millis(0),
-        }));
+        };
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
             changes_arc_inner.lock().unwrap().push(change);
         };
 
-        subject
+        let tx = subject
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
+        tx.send (HousekeepingThreadCommand::AddMappingConfig(mapping_config)).unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
@@ -1628,11 +1637,6 @@ mod tests {
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        subject.mapping_config_opt = RefCell::new(Some(MappingConfig {
-            hole_port: 0,
-            next_lifetime: Duration::from_secs(0),
-            remap_interval: Duration::from_secs(0),
-        }));
         let _ =
             subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
 
@@ -1716,6 +1720,7 @@ mod tests {
             next_lifetime: Duration::from_secs(2),
             remap_interval: Duration::from_secs(1),
         };
+        tx.send(HousekeepingThreadCommand::AddMappingConfig(mapping_config)).unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000))
             .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
@@ -1727,7 +1732,6 @@ mod tests {
             Arc::new(Mutex::new(Factories::default())),
             SocketAddr::new(localhost(), 0),
             change_handler,
-            mapping_config,
             10,
             Logger::new("no_remap_test"),
         );
@@ -1759,6 +1763,7 @@ mod tests {
             next_lifetime: Duration::from_secs(1000),
             remap_interval: Duration::from_millis(80),
         };
+        tx.send(HousekeepingThreadCommand::AddMappingConfig(mapping_config)).unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
             .unwrap();
 
@@ -1770,7 +1775,6 @@ mod tests {
                 Arc::new(Mutex::new(factories)),
                 SocketAddr::new(IpAddr::from_str("6.6.6.6").unwrap(), 6666),
                 change_handler,
-                mapping_config,
                 10,
                 Logger::new("timed_remap_test"),
             );
@@ -1802,6 +1806,11 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
+    }
+
+    #[test]
+    fn thread_guts_iteration_modifies_mapping_config_upon_mapping() {
+        todo! ("Complete me");
     }
 
     #[test]
@@ -1945,11 +1954,11 @@ mod tests {
             SocketAddr::from_str("7.7.7.7:1234").unwrap(),
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &mut MappingConfig {
+            &mut Some (MappingConfig {
                 hole_port: 2222,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
-            },
+            }),
             &logger,
         );
 
@@ -1992,11 +2001,11 @@ mod tests {
             router_address,
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &MappingConfig {
+            &Some (MappingConfig {
                 hole_port: 2222,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
-            },
+            }),
             &logger,
         );
     }
@@ -2031,11 +2040,11 @@ mod tests {
             router_address,
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &mut MappingConfig {
+            &mut Some (MappingConfig {
                 hole_port: 2222,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
-            },
+            }),
             &logger,
         );
 
@@ -2080,11 +2089,11 @@ mod tests {
             router_address,
             Ipv4Addr::from_str("4.3.2.1").unwrap(),
             &change_handler,
-            &mut MappingConfig {
+            &mut Some (MappingConfig {
                 hole_port: 2222,
                 next_lifetime: Duration::from_secs(10),
                 remap_interval: Duration::from_secs(0),
-            },
+            }),
             &logger,
         );
 

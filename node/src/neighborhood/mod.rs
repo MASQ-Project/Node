@@ -421,6 +421,7 @@ impl Neighborhood {
             self.logger,
             "Changed public IP from {} to {}", old_public_ip, new_public_ip
         );
+        // TODO: Add code to abort process here until we have Gossip capable of notifying neighbors of new IP
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
