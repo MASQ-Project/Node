@@ -89,7 +89,7 @@ pub const MAPPING_PROTOCOL_HELP: &str =
     and you don't need Node to negotiate with your router, say 'none' here and be sure to specify your \
     public IP address with the --ip parameter. If the Node communicates successfully with your router, \
     it will remember the protocol it used, and on its next run it will try that protocol first, unless \
-    you specify a different protocol (or 'none') on the command line.";
+    you specify a different protocol on the command line.";
 pub const REAL_USER_HELP: &str =
     "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
@@ -305,7 +305,9 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         Arg::with_name("mapping-protocol")
             .long("mapping-protocol")
             .value_name("MAPPING-PROTOCOL")
-            .possible_values(&["pcp", "pmp", "igdp", "none"])
+            .min_values(0)
+            .max_values(1)
+            .possible_values(&["pcp", "pmp", "igdp"])
             .case_insensitive(true)
             .help(MAPPING_PROTOCOL_HELP),
     )
