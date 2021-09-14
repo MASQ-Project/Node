@@ -19,7 +19,7 @@ pub fn revive_tables_of_the_version_0_and_return_the_connection_to_the_db(
         _ => (),
     };
     let connection = Connection::open(&db_path).unwrap();
-    &[
+    [
         "create table config (
             name text not null,
             value text,

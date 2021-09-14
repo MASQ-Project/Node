@@ -151,12 +151,13 @@ mod tests {
     use masq_lib::messages::{CrashReason, ToMessageBody, UiNodeCrashedBroadcast};
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[test]
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -188,7 +189,7 @@ mod tests {
     #[test]
     fn broadcast_of_crashed_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -218,7 +219,7 @@ mod tests {
     #[test]
     fn broadcast_of_new_password_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -242,7 +243,7 @@ mod tests {
     #[test]
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -269,7 +270,7 @@ mod tests {
     #[test]
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Box::new(
+        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
             TerminalPassiveMock::new(),
         ))))
         .start(Box::new(factory));
@@ -310,7 +311,7 @@ mod tests {
         let (life_checker_handle, stream_factory, stream_handle) =
             make_tools_for_test_streams_with_thread_life_checker();
         let broadcast_handler_real = BroadcastHandlerReal::new(Some(TerminalWrapper::new(
-            Box::new(TerminalPassiveMock::new()),
+            Arc::new(TerminalPassiveMock::new()),
         )));
         let broadcast_handle = broadcast_handler_real.start(Box::new(stream_factory));
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
@@ -459,7 +460,7 @@ Cannot handle crash request: Node is not running.
         let mut stdout = StdoutBlender::new(tx);
         let stdout_clone = stdout.clone();
         let stdout_second_clone = stdout.clone();
-        let synchronizer = TerminalWrapper::new(Box::new(TerminalActiveMock::new()));
+        let synchronizer = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
         let synchronizer_clone_idle = synchronizer.clone();
 
         //synchronized part proving that the broadcast print is synchronized

@@ -214,7 +214,7 @@ mod tests {
         subject.poll().unwrap();
 
         TestLogHandler::new().await_log_containing(
-            "WARN: StreamWriter for 1.2.3.4:5678: Continuing after write error: other os error",
+            "WARN: StreamWriter for 1.2.3.4:5678: Continuing after write error: other error",
             1000,
         );
         assert_eq!(write_params.lock().unwrap().len(), 3);

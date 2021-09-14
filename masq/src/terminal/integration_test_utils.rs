@@ -203,7 +203,7 @@ mod tests {
         };
         terminal_interface.console = Arc::new(Mutex::new(console));
         terminal_interface.lock = lock;
-        let terminal = TerminalWrapper::new(Box::new(terminal_interface));
+        let terminal = TerminalWrapper::new(Arc::new(terminal_interface));
         let mut terminal_clone = terminal.clone();
         let (tx, rx) = bounded(1);
         let handle = thread::spawn(move || {
