@@ -403,7 +403,6 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
-    use masq_lib::shared_schema::ParamError;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
