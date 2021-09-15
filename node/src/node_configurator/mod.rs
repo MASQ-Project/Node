@@ -141,20 +141,6 @@ pub fn data_directory_from_context(
     }
 }
 
-pub fn check_for_past_initialization(
-    persistent_config: &dyn PersistentConfiguration,
-) -> Result<(), ConfiguratorError> {
-    match persistent_config.mnemonic_seed_exists() {
-        Ok(true) => Err(ConfiguratorError::required(
-            "seed",
-            "Cannot re-initialize Node: already initialized",
-        )),
-        Ok(false) => Ok(()),
-        Err(pce) => Err(pce.into_configurator_error("seed")),
-    }
-}
-
-//TODO this code (and the allied -- see thorough this file) is very likely to go away when GH-457 is played
 pub fn request_existing_db_password(
     streams: &mut StdStreams,
     possible_preamble: Option<&str>,
@@ -419,9 +405,12 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::shared_schema::ParamError;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
     use masq_lib::utils::find_free_port;
+    use std::io::Cursor;
     use std::net::{SocketAddr, TcpListener};
+    use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
 
     #[test]
@@ -632,45 +621,6 @@ mod tests {
     }
 
     #[test]
-    fn check_for_past_initialization_is_happy_when_database_is_uninitialized() {
-        let persistent_config =
-            PersistentConfigurationMock::new().mnemonic_seed_exists_result(Ok(false));
-
-        let result = check_for_past_initialization(&persistent_config);
-
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn check_for_past_initialization_is_unhappy_when_database_is_initialized() {
-        let persistent_config =
-            PersistentConfigurationMock::new().mnemonic_seed_exists_result(Ok(true));
-
-        let result = check_for_past_initialization(&persistent_config);
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::new(vec![ParamError::new(
-                "seed",
-                "Cannot re-initialize Node: already initialized"
-            )]))
-        );
-    }
-
-    #[test]
-    fn check_for_past_initialization_handles_database_error() {
-        let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_exists_result(Err(PersistentConfigError::NotPresent));
-
-        let result = check_for_past_initialization(&persistent_config);
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("seed"))
-        );
-    }
-
-    #[test]
     fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
         let args = ArgsBuilder::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
@@ -852,6 +802,170 @@ mod tests {
             &format!("{}", config_file_path.display())
         );
         assert_eq!(true, user_specified);
+    }
+
+    #[test]
+    fn request_database_password_happy_path() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_result(Ok(false))
+            .check_password_result(Ok(true));
+
+        let actual = request_existing_db_password(
+            streams,
+            Some("Decrypt wallet"),
+            "Enter password: ",
+            &persistent_configuration,
+        );
+
+        assert_eq!(actual, Ok(Some("Too Many S3cr3ts!".to_string())));
+        assert_eq!(
+            stdout_writer.get_string(),
+            "Decrypt wallet\n\
+             Enter password: "
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn request_database_password_rejects_blank_password() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"\nbooga\n"[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_result(Ok(false))
+            .check_password_result(Ok(true));
+
+        let actual = request_existing_db_password(
+            streams,
+            Some("Decrypt wallet"),
+            "Enter password: ",
+            &persistent_configuration,
+        );
+
+        assert_eq!(actual, Ok(Some("booga".to_string())));
+        assert_eq!(
+            stdout_writer.get_string(),
+            "Decrypt wallet\n\
+             Enter password: \
+             Password must not be blank. Try again.\n\
+             Enter password: "
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn request_existing_db_password_handles_error_checking_for_no_password() {
+        let mut holder = FakeStreamHolder::new();
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Err(PersistentConfigError::NotPresent));
+
+        let result =
+            request_existing_db_password(&mut holder.streams(), None, "prompt", &persistent_config);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
+        )
+    }
+
+    #[test]
+    fn request_existing_db_password_handles_error_checking_for_entered_password() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let mut streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(false))
+            .check_password_result(Err(PersistentConfigError::NotPresent));
+
+        let result = request_existing_db_password(&mut streams, None, "prompt", &persistent_config);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
+        )
+    }
+
+    #[test]
+    fn request_database_password_detects_bad_passwords() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(
+                &b"first bad password\nanother bad password\nfinal bad password\n"[..],
+            ),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let check_password_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_configuration = PersistentConfigurationMock::new()
+            .check_password_params(&check_password_params_arc)
+            .check_password_result(Ok(false))
+            .check_password_result(Ok(false))
+            .check_password_result(Ok(false))
+            .check_password_result(Ok(false));
+
+        let actual = request_existing_db_password(
+            streams,
+            Some("Decrypt wallet"),
+            "Enter password: ",
+            &persistent_configuration,
+        );
+
+        assert_eq!(actual, Ok(None));
+        assert_eq!(
+            stdout_writer.get_string(),
+            "Decrypt wallet\n\
+             Enter password: \
+             Incorrect password. Try again.\n\
+             Enter password: \
+             Incorrect password. Try again.\n\
+             Enter password: \
+             Incorrect password. Giving up.\n"
+                .to_string()
+        );
+        let check_password_params = check_password_params_arc.lock().unwrap();
+        assert_eq!(
+            *check_password_params,
+            vec![
+                None,
+                Some("first bad password".to_string()),
+                Some("another bad password".to_string()),
+                Some("final bad password".to_string())
+            ]
+        )
+    }
+
+    #[test]
+    fn request_database_password_aborts_before_prompting_if_database_has_no_password() {
+        let stdout_writer = &mut ByteArrayWriter::new();
+        let streams = &mut StdStreams {
+            stdin: &mut Cursor::new(&b""[..]),
+            stdout: stdout_writer,
+            stderr: &mut ByteArrayWriter::new(),
+        };
+        let persistent_configuration =
+            PersistentConfigurationMock::new().check_password_result(Ok(true));
+
+        let actual = request_existing_db_password(
+            streams,
+            Some("Decrypt wallet"),
+            "Enter password: ",
+            &persistent_configuration,
+        );
+
+        assert_eq!(actual, Ok(None));
+        assert_eq!(stdout_writer.get_string(), "".to_string());
     }
 
     #[test]
