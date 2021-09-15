@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(result, Err(()));
         proxy_client_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing(
-            "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other os error",
+            "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other error",
         );
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(

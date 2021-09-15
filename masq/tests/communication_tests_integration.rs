@@ -2,6 +2,7 @@
 
 use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
+use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
 use std::thread;
 use std::time::Duration;
@@ -10,6 +11,10 @@ mod utils;
 
 #[test]
 fn setup_results_are_broadcast_to_all_uis_integration() {
+    let dir_path = ensure_node_home_directory_exists(
+        "masq_integration_tests",
+        "setup_results_are_broadcast_to_all_uis_integration",
+    );
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
     thread::sleep(Duration::from_millis(300));
@@ -19,7 +24,10 @@ fn setup_results_are_broadcast_to_all_uis_integration() {
     let mut stdin_handle_receiver = receiver_handle.create_stdin_handle();
 
     //TODO This first "setup" call shouldn't be necessary. We want only one call here. Will be investigated within GH-438
-    stdin_handle_setupper.type_command("setup --dns-servers 4.5.6.5");
+    stdin_handle_setupper.type_command(&format!(
+        "setup --dns-servers 4.5.6.5 --data-directory {}",
+        dir_path.to_str().unwrap()
+    ));
 
     thread::sleep(Duration::from_millis(300));
 
