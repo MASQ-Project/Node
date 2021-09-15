@@ -107,7 +107,7 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
             .long("word-count")
             .value_name("WORD-COUNT")
             .required(false)
-            .default_value("24")
+            .default_value("12")
             .takes_value(true)
             .possible_values(&["12", "15", "18", "21", "24"])
         )
