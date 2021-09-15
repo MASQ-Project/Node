@@ -166,18 +166,18 @@ impl Transactor for PmpTransactor {
         if let Some(_housekeeper_commander) = &self.housekeeper_commander_opt {
             return Err(AutomapError::ChangeHandlerAlreadyRunning);
         }
-        let ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, 1));
-        let socket_addr = SocketAddr::new(ip_addr, self.listen_port);
-        let socket_result = {
+        let announce_ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, 1));
+        let announce_socket_addr = SocketAddr::new(announce_ip_addr, self.listen_port);
+        let announce_socket_result = {
             let factories = self.factories_arc.lock().expect("Automap is poisoned!");
-            factories.socket_factory.make(socket_addr)
+            factories.socket_factory.make(announce_socket_addr)
         };
-        let socket = match socket_result {
+        let announce_socket = match announce_socket_result {
             Ok(s) => s,
             Err(e) => {
                 return Err(AutomapError::SocketBindingError(
                     format!("{:?}", e),
-                    socket_addr,
+                    announce_socket_addr,
                 ))
             }
         };
@@ -190,7 +190,7 @@ impl Transactor for PmpTransactor {
         let logger = self.logger.clone();
         self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(
-                socket.as_ref(),
+                announce_socket.as_ref(),
                 &rx,
                 mapping_adder_arc,
                 factories_arc,
@@ -1173,6 +1173,47 @@ mod tests {
     }
 
     #[test]
+    fn add_mapping_modifies_mapping_config_upon_mapping() {
+        let router_ip = IpAddr::from_str("192.168.0.250").unwrap();
+        let mut buffer = [0u8; 1100];
+        let packet = make_response(
+            Opcode::MapTcp,
+            ResultCode::Success,
+            make_map_response(0, 6666, 1234),
+        );
+        let len = packet.marshal(&mut buffer).unwrap();
+        let socket = UdpSocketMock::new()
+            .set_read_timeout_result(Ok(()))
+            .send_to_result(Ok(1000))
+            .recv_from_result(
+                Ok((len, SocketAddr::new(router_ip, ROUTER_PORT))),
+                buffer[0..len].to_vec(),
+            );
+        let socket_factory = UdpSocketFactoryMock::new().make_result(Ok(socket));
+        let subject = MappingAdderReal::default();
+        let mut factories = Factories::default();
+        factories.socket_factory = Box::new(socket_factory);
+        let mut mapping_config = MappingConfig {
+            hole_port: 6666,
+            next_lifetime: Duration::from_secs(4321),
+            remap_interval: Default::default(),
+        };
+
+        let result = subject.add_mapping(
+            &Arc::new(Mutex::new(factories)),
+            SocketAddr::new(router_ip, ROUTER_PORT),
+            &mut mapping_config
+        );
+
+        assert_eq! (result, Ok(617));
+        assert_eq! (mapping_config, MappingConfig {
+            hole_port: 6666,
+            next_lifetime: Duration::from_secs(1234),
+            remap_interval: Duration::from_secs(617),
+        });
+    }
+
+    #[test]
     fn get_public_ip_works() {
         let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let public_ip = Ipv4Addr::from_str("72.73.74.75").unwrap();
@@ -1452,12 +1493,12 @@ mod tests {
 
     #[test]
     fn housekeeping_thread_works() {
-        let change_handler_port = find_free_port();
+        let announcement_port = find_free_port();
         let router_port = find_free_port();
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
-        subject.listen_port = change_handler_port;
+        subject.listen_port = announcement_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         subject.read_timeout_millis = 10;
         let mapping_config = MappingConfig {
@@ -1471,21 +1512,22 @@ mod tests {
             changes_arc_inner.lock().unwrap().push(change);
         };
 
-        let tx = subject
+        subject
             .start_housekeeping_thread(Box::new(change_handler), localhost())
             .unwrap();
 
-        tx.send(HousekeepingThreadCommand::AddMappingConfig(mapping_config))
+        subject
+            .housekeeper_commander_opt
+            .as_ref()
+            .unwrap()
+            .send(HousekeepingThreadCommand::AddMappingConfig(mapping_config))
             .unwrap();
-        assert!(subject.housekeeper_commander_opt.is_some());
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
+        thread::sleep (Duration::from_millis (50)); // wait for first announcement read to time out
+        let announcement_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
-        announce_socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
         announce_socket.set_broadcast(true).unwrap();
         announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
+            .connect(SocketAddr::new(announcement_ip, announcement_port))
             .unwrap();
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::Get;
@@ -1511,7 +1553,7 @@ mod tests {
         packet.opcode = Opcode::MapTcp;
         packet.direction = Direction::Response;
         packet.result_code_opt = Some(ResultCode::Success);
-        packet.opcode_data = make_map_response(0, 1234, 0);
+        packet.opcode_data = make_map_response(0, 1234, 1000);
         let len_to_send = packet.marshal(&mut buffer).unwrap();
         let sent_len = mapping_socket
             .send_to(&buffer[0..len_to_send], remapping_socket_addr)
@@ -1816,11 +1858,6 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
-    }
-
-    #[test]
-    fn thread_guts_iteration_modifies_mapping_config_upon_mapping() {
-        todo!("Complete me");
     }
 
     #[test]

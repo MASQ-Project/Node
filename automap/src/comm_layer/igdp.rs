@@ -1293,7 +1293,7 @@ mod tests {
         change_handler(AutomapChange::Error(AutomapError::HousekeeperUnconfigured));
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
-        tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(ChangeHandlerUnconfigured)");
+        tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(HousekeeperUnconfigured)");
     }
 
     #[test]
