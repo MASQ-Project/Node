@@ -193,13 +193,11 @@ impl Transactor for IgdpTransactor {
             .mapping_adder
             .add_mapping(gateway.as_ref(), hole_port, lifetime)
             .map(|remap_interval| {
-                inner
-                    .change_handler_config_opt
-                    .replace(Some(MappingConfig {
-                        hole_port,
-                        next_lifetime: Duration::from_secs(lifetime as u64),
-                        remap_interval: Duration::from_secs(remap_interval as u64),
-                    }));
+                inner.change_handler_config_opt.replace(Some(MappingConfig {
+                    hole_port,
+                    next_lifetime: Duration::from_secs(lifetime as u64),
+                    remap_interval: Duration::from_secs(remap_interval as u64),
+                }));
                 remap_interval
             })
     }
@@ -389,14 +387,14 @@ impl IgdpTransactor {
                 Ok(HousekeepingThreadCommand::Stop) => break,
                 Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
                     remap_interval = Duration::from_millis(remap_after)
-                },
+                }
                 Ok(HousekeepingThreadCommand::AddMappingConfig(mapping_config)) => {
-                    todo! ("{:?}", mapping_config)
-                },
+                    todo!("{:?}", mapping_config)
+                }
                 Err(_) => continue,
             }
         }
-        return change_handler;
+        change_handler
     }
 
     fn thread_guts_iteration(
@@ -1292,9 +1290,7 @@ mod tests {
 
         let change_handler = subject.stop_housekeeping_thread();
 
-        change_handler(AutomapChange::Error(
-            AutomapError::HousekeeperUnconfigured,
-        ));
+        change_handler(AutomapChange::Error(AutomapError::HousekeeperUnconfigured));
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("WARN: IgdpTransactor: Tried to stop housekeeping thread that had already disconnected from the commander");
         tlh.exists_log_containing("ERROR: IgdpTransactor: Change handler recovery failed: discarded Error(ChangeHandlerUnconfigured)");

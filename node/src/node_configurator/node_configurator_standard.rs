@@ -82,7 +82,7 @@ impl NodeConfiguratorStandardUnprivileged {
     pub fn new(privileged_config: &BootstrapperConfig) -> Self {
         Self {
             privileged_config: privileged_config.clone(),
-            logger: Logger::new ("NodeConfiguratorStandardUnprivileged"),
+            logger: Logger::new("NodeConfiguratorStandardUnprivileged"),
         }
     }
 }
@@ -123,6 +123,7 @@ pub mod standard {
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use itertools::Itertools;
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
+    use masq_lib::logger::Logger;
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
@@ -130,7 +131,6 @@ pub mod standard {
     use rustc_hex::FromHex;
     use std::ops::Deref;
     use std::str::FromStr;
-    use masq_lib::logger::Logger;
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -503,9 +503,13 @@ pub mod standard {
         let persistent_mapping_protocol_opt = match persistent_config.mapping_protocol() {
             Ok(mp_opt) => mp_opt,
             Err(e) => {
-                warning!(logger, "Could not read mapping protocol from database: {:?}", e);
+                warning!(
+                    logger,
+                    "Could not read mapping protocol from database: {:?}",
+                    e
+                );
                 None
-            },
+            }
         };
         let computed_mapping_protocol_opt = match (
             value_m!(multi_config, "mapping-protocol", AutomapProtocol),
@@ -515,13 +519,19 @@ pub mod standard {
             (cmd_line_mapping_protocol_opt, _) => cmd_line_mapping_protocol_opt,
         };
         if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
-eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", computed_mapping_protocol_opt);
+            eprintln!(
+                "Saving mapping protocol in compute_mapping_protocol_opt() {:?}",
+                computed_mapping_protocol_opt
+            );
             match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
                 Ok(_) => (),
                 Err(e) => {
-                    warning!(logger, "Could not save mapping protocol to database: {:?}", e);
-                    ()
-                },
+                    warning!(
+                        logger,
+                        "Could not save mapping protocol to database: {:?}",
+                        e
+                    );
+                }
             }
         }
         computed_mapping_protocol_opt
@@ -1142,16 +1152,17 @@ eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", com
         fn compute_mapping_protocol_returns_saved_value_if_nothing_supplied() {
             let multi_config = make_new_test_multi_config(
                 &app_node(),
-                vec![Box::new (CommandLineVcl::new (ArgsBuilder::new()
-                    .into()))]
-            ).unwrap();
+                vec![Box::new(CommandLineVcl::new(ArgsBuilder::new().into()))],
+            )
+            .unwrap();
             let logger = Logger::new("test");
             let mut persistent_config = make_default_persistent_configuration()
                 .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
 
-            let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+            let result =
+                compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
-            assert_eq! (result, Some(AutomapProtocol::Pmp));
+            assert_eq!(result, Some(AutomapProtocol::Pmp));
             // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
         }
 
@@ -1159,10 +1170,13 @@ eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", com
         fn compute_mapping_protocol_saves_computed_value_if_different() {
             let multi_config = make_new_test_multi_config(
                 &app_node(),
-                vec![Box::new (CommandLineVcl::new (ArgsBuilder::new()
-                    .param("--mapping-protocol", "IGDP")
-                    .into()))]
-            ).unwrap();
+                vec![Box::new(CommandLineVcl::new(
+                    ArgsBuilder::new()
+                        .param("--mapping-protocol", "IGDP")
+                        .into(),
+                ))],
+            )
+            .unwrap();
             let logger = Logger::new("test");
             let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
             let mut persistent_config = make_default_persistent_configuration()
@@ -1170,41 +1184,48 @@ eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", com
                 .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
                 .set_mapping_protocol_result(Ok(()));
 
-            let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+            let result =
+                compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
-            assert_eq! (result, Some(AutomapProtocol::Igdp));
+            assert_eq!(result, Some(AutomapProtocol::Igdp));
             let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-            assert_eq! (*set_mapping_protocol_params, vec![Some(AutomapProtocol::Igdp)]);
+            assert_eq!(
+                *set_mapping_protocol_params,
+                vec![Some(AutomapProtocol::Igdp)]
+            );
         }
 
         #[test]
         fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
             let multi_config =
-                make_simplified_multi_config(["MASQNode", "--mapping-protocol", "pcp"]);
+                make_simplified_multi_config(["MASQNode", "--mapping-protocol", "igdp"]);
             let logger = Logger::new("test");
             let mut persistent_config = make_default_persistent_configuration()
                 .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
 
-            let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+            let result =
+                compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
-            assert_eq! (result, Some(AutomapProtocol::Igdp));
+            assert_eq!(result, Some(AutomapProtocol::Igdp));
             // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
         }
 
         #[test]
         fn compute_mapping_protocol_logs_and_uses_none_if_saved_mapping_protocol_cannot_be_read() {
             init_test_logging();
-            let multi_config =
-                make_simplified_multi_config(["MASQNode"]);
+            let multi_config = make_simplified_multi_config(["MASQNode"]);
             let logger = Logger::new("BAD_MP_READ");
             let mut persistent_config = make_default_persistent_configuration()
                 .mapping_protocol_result(Err(PersistentConfigError::NotPresent));
 
-            let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+            let result =
+                compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
-            assert_eq! (result, None);
+            assert_eq!(result, None);
             // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
-            TestLogHandler::new().exists_log_containing("WARN: BAD_MP_READ: Could not read mapping protocol from database: NotPresent");
+            TestLogHandler::new().exists_log_containing(
+                "WARN: BAD_MP_READ: Could not read mapping protocol from database: NotPresent",
+            );
         }
 
         #[test]
@@ -1214,13 +1235,16 @@ eprintln! ("Saving mapping protocol in compute_mapping_protocol_opt() {:?}", com
                 make_simplified_multi_config(["MASQNode", "--mapping-protocol", "IGDP"]);
             let logger = Logger::new("BAD_MP_WRITE");
             let mut persistent_config = make_default_persistent_configuration()
-                .mapping_protocol_result(Ok(Some (AutomapProtocol::Pcp)))
-                .set_mapping_protocol_result(Err (PersistentConfigError::NotPresent));
+                .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
+                .set_mapping_protocol_result(Err(PersistentConfigError::NotPresent));
 
-            let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+            let result =
+                compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
-            assert_eq! (result, Some(AutomapProtocol::Igdp));
-            TestLogHandler::new().exists_log_containing("WARN: BAD_MP_WRITE: Could not save mapping protocol to database: NotPresent");
+            assert_eq!(result, Some(AutomapProtocol::Igdp));
+            TestLogHandler::new().exists_log_containing(
+                "WARN: BAD_MP_WRITE: Could not save mapping protocol to database: NotPresent",
+            );
         }
 
         #[test]
@@ -1350,6 +1374,7 @@ mod tests {
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
+    use masq_lib::logger::Logger;
     use masq_lib::multi_config::{
         CommandLineVcl, ConfigFileVcl, NameValueVclArg, VclArg, VirtualCommandLine,
     };
@@ -1369,7 +1394,6 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use masq_lib::logger::Logger;
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")

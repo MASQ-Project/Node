@@ -235,10 +235,7 @@ impl TestLogHandler {
 }
 
 pub fn init_test_logging() -> bool {
-    match set_logger(&TEST_LOGGER) {
-        Ok(_) => true,
-        Err(_) => false, // logger has already been set
-    }
+    set_logger(&TEST_LOGGER).is_ok()
 }
 
 #[derive(Clone, Default)]

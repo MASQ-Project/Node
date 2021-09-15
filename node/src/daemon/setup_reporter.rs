@@ -127,7 +127,7 @@ impl SetupReporter for SetupReporterReal {
             &all_but_configured,
             &data_directory,
             &chain_name,
-            temporary_automap_control_factory
+            temporary_automap_control_factory,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -279,7 +279,7 @@ impl SetupReporterReal {
         combined_setup: &SetupCluster,
         data_directory: &Path,
         chain_name: &str,
-        temporary_automap_control_factory: &dyn AutomapControlFactory
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
@@ -294,7 +294,7 @@ impl SetupReporterReal {
             &multi_config,
             data_directory,
             chain_id_from_name(chain_name),
-            temporary_automap_control_factory
+            temporary_automap_control_factory,
         );
         if let Some(error) = error_opt {
             error_so_far.extend(error);
@@ -403,7 +403,7 @@ impl SetupReporterReal {
         multi_config: &MultiConfig,
         data_directory: &Path,
         chain_id: u8,
-        temporary_automap_control_factory: &dyn AutomapControlFactory
+        temporary_automap_control_factory: &dyn AutomapControlFactory,
     ) -> (
         (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
         Option<ConfiguratorError>,
@@ -787,16 +787,16 @@ impl ValueRetriever for MappingProtocol {
         "mapping-protocol"
     }
 
-//     fn computed_default(
-//         &self,
-//         _bootstrapper_config: &BootstrapperConfig,
-//         _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
-//         _db_password_opt: &Option<String>,
-//     ) -> Option<(String, UiSetupResponseValueStatus)> {
-// eprintln! ("Computing default for mapping protocol, with bootstrapper_config = {:?}, persistent_config = {:?}",
-//            _bootstrapper_config.mapping_protocol_opt, _persistent_config_opt.as_ref().map (|pc| pc.mapping_protocol()));
-//         Some(("".to_string(),Blank))
-//     }
+    //     fn computed_default(
+    //         &self,
+    //         _bootstrapper_config: &BootstrapperConfig,
+    //         _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+    //         _db_password_opt: &Option<String>,
+    //     ) -> Option<(String, UiSetupResponseValueStatus)> {
+    // eprintln! ("Computing default for mapping protocol, with bootstrapper_config = {:?}, persistent_config = {:?}",
+    //            _bootstrapper_config.mapping_protocol_opt, _persistent_config_opt.as_ref().map (|pc| pc.mapping_protocol()));
+    //         Some(("".to_string(),Blank))
+    //     }
 }
 
 struct NeighborhoodMode {}
@@ -1968,13 +1968,13 @@ mod tests {
 
         let result = SetupReporterReal::new()
             .calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None)
-        )
-        .0;
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .0;
 
         assert_eq!(
             result.get("config-file").unwrap().value,
@@ -2015,13 +2015,13 @@ mod tests {
 
         let result = SetupReporterReal::new()
             .calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None)
-        )
-        .0;
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2055,13 +2055,13 @@ mod tests {
 
         let result = SetupReporterReal::new()
             .calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None)
-        )
-        .0;
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2088,14 +2088,14 @@ mod tests {
 
         let result = SetupReporterReal::new()
             .calculate_configured_setup(
-            &DirsWrapperReal,
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None)
-        )
-        .1
-        .unwrap();
+                &DirsWrapperReal,
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .1
+            .unwrap();
 
         assert_eq!(result.param_errors[0].parameter, "config-file");
         assert_string_contains(&result.param_errors[0].reason, "Are you sure it exists?");
@@ -2135,13 +2135,13 @@ mod tests {
 
         let result = SetupReporterReal::new()
             .calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None)
-        )
-        .0;
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2175,14 +2175,14 @@ mod tests {
 
         let result = SetupReporterReal::new()
             .calculate_configured_setup(
-            &DirsWrapperReal {},
-            &setup,
-            &data_directory,
-            "irrelevant",
-            &make_temporary_automap_control_factory(None, None)
-        )
-        .1
-        .unwrap();
+                &DirsWrapperReal {},
+                &setup,
+                &data_directory,
+                "irrelevant",
+                &make_temporary_automap_control_factory(None, None),
+            )
+            .1
+            .unwrap();
 
         assert_eq!(result.param_errors[0].parameter, "config-file");
         assert_string_contains(&result.param_errors[0].reason, "Are you sure it exists?");
