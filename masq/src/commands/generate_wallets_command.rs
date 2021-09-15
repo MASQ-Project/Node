@@ -226,7 +226,7 @@ mod tests {
             generate_wallets_command,
             &GenerateWalletsCommand {
                 db_password: "password".to_string(),
-                word_count: 24,
+                word_count: 12,
                 language: "English".to_string(),
                 passphrase_opt: None,
                 consuming_path: DEFAULT_CONSUMING_DERIVATION_PATH.to_string(),
