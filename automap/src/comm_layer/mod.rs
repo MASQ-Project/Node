@@ -128,7 +128,7 @@ impl Debug for dyn Transactor {
 pub enum HousekeepingThreadCommand {
     Stop,
     SetRemapIntervalMs(u64),
-    AddMappingConfig(MappingConfig),
+    InitializeMappingConfig(MappingConfig),
 }
 
 pub trait LocalIpFinder: Send {

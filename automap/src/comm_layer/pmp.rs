@@ -127,7 +127,7 @@ impl Transactor for PmpTransactor {
                 self.housekeeper_commander_opt
                     .as_ref()
                     .expect("Housekeeping thread is dead")
-                    .send(HousekeepingThreadCommand::AddMappingConfig(mapping_config))
+                    .send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
                     .expect("Housekeeping thread is dead");
                 remap_interval
             })
@@ -409,7 +409,7 @@ impl PmpTransactor {
                 mapping_config_opt
                     .map(|mut mc| mc.remap_interval = Duration::from_millis(remap_after));
             }
-            Ok(HousekeepingThreadCommand::AddMappingConfig(mapping_config)) => {
+            Ok(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)) => {
                 mapping_config_opt.replace(mapping_config);
             }
             Err(_) => (),
@@ -1520,7 +1520,7 @@ mod tests {
             .housekeeper_commander_opt
             .as_ref()
             .unwrap()
-            .send(HousekeepingThreadCommand::AddMappingConfig(mapping_config))
+            .send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
             .unwrap();
         thread::sleep (Duration::from_millis (50)); // wait for first announcement read to time out
         let announcement_ip = IpAddr::from_str("224.0.0.1").unwrap();
@@ -1594,7 +1594,7 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        tx.send(HousekeepingThreadCommand::AddMappingConfig(mapping_config))
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
             .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
@@ -1648,7 +1648,7 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        tx.send(HousekeepingThreadCommand::AddMappingConfig(mapping_config))
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
             .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
@@ -1770,7 +1770,7 @@ mod tests {
             next_lifetime: Duration::from_secs(2),
             remap_interval: Duration::from_secs(1),
         };
-        tx.send(HousekeepingThreadCommand::AddMappingConfig(mapping_config))
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
             .unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000))
             .unwrap();
@@ -1814,7 +1814,7 @@ mod tests {
             next_lifetime: Duration::from_secs(1000),
             remap_interval: Duration::from_millis(80),
         };
-        tx.send(HousekeepingThreadCommand::AddMappingConfig(mapping_config))
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
             .unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
             .unwrap();
