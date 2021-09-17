@@ -97,7 +97,7 @@ pub mod standard {
     use crate::node_configurator::{
         data_directory_from_context, determine_config_file_path,
         real_user_data_directory_opt_and_chain_name, real_user_from_multi_config_or_populate,
-        request_existing_db_password, DirsWrapper,
+        DirsWrapper,
     };
     use crate::server_initializer::GatheredParams;
     use crate::sub_lib::accountant::DEFAULT_EARNING_WALLET;
@@ -635,26 +635,14 @@ pub mod standard {
 
     pub fn get_db_password(
         multi_config: &MultiConfig,
-        streams: &mut StdStreams,
+        _streams: &mut StdStreams,
         config: &mut BootstrapperConfig,
         persistent_config: &mut dyn PersistentConfiguration,
     ) -> Result<Option<String>, ConfiguratorError> {
         if let Some(db_password) = &config.db_password_opt {
             return Ok(Some(db_password.clone()));
         }
-        let db_password_opt = match value_user_specified_m!(multi_config, "db-password", String) {
-            (Some(dbp), _) => Some(dbp),
-            (None, false) => None,
-            (None, true) => match request_existing_db_password(
-                streams,
-                Some("Decrypt information from previous runs"),
-                "Enter password: ",
-                persistent_config,
-            ) {
-                Ok(password_opt) => password_opt,
-                Err(e) => return Err(e),
-            },
-        };
+        let db_password_opt = value_m!(multi_config, "db-password", String);
         if let Some(db_password) = &db_password_opt {
             set_db_password_at_first_mention(db_password, persistent_config)?;
             config.db_password_opt = Some(db_password.clone());
@@ -1461,56 +1449,6 @@ mod tests {
     }
 
     #[test]
-    fn get_past_neighbors_handles_error_getting_db_password() {
-        running_test();
-        let args = ["command", "--db-password"];
-        let simplified_multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Err(PersistentConfigError::NotPresent));
-        let mut unprivileged_config = BootstrapperConfig::new();
-
-        let result = standard::get_past_neighbors(
-            &simplified_multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &mut persistent_config,
-            &mut unprivileged_config,
-        );
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::new(vec![ParamError::new(
-                "db-password",
-                "NotPresent"
-            )]))
-        );
-    }
-
-    #[test]
-    fn get_past_neighbors_handles_incorrect_password() {
-        running_test();
-        let args = ["program", "--db-password"];
-        let simplified_multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Err(PersistentConfigError::PasswordError));
-        let mut unprivileged_config = BootstrapperConfig::new();
-
-        let result = standard::get_past_neighbors(
-            &simplified_multi_config,
-            &mut FakeStreamHolder::new().streams(),
-            &mut persistent_config,
-            &mut unprivileged_config,
-        );
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::new(vec![ParamError::new(
-                "db-password",
-                "PasswordError"
-            )]))
-        );
-    }
-
-    #[test]
     fn convert_ci_configs_does_not_like_neighbors_with_bad_syntax() {
         running_test();
         let multi_config = make_new_test_multi_config(
@@ -2051,29 +1989,6 @@ mod tests {
     }
 
     #[test]
-    fn get_wallets_handles_failure_of_get_db_password() {
-        let args = ["program", "--db-password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .earning_wallet_from_address_result(Ok(None))
-            .mnemonic_seed_exists_result(Ok(true))
-            .check_password_result(Err(PersistentConfigError::NotPresent));
-        let mut config = BootstrapperConfig::new();
-
-        let result = standard::get_wallets(
-            &mut FakeStreamHolder::new().streams(),
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        );
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
-        );
-    }
-
-    #[test]
     fn earning_wallet_address_different_from_database() {
         running_test();
         let args = [
@@ -2279,55 +2194,6 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_derivation_path_plus_mnemonic_seed_with_no_db_password_value() {
-        running_test();
-        let args = ["program", "--db-password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mnemonic_seed_prefix = "mnemonic_seed";
-        let mut persistent_config = make_persistent_config(
-            Some(mnemonic_seed_prefix),
-            None,
-            Some("m/44'/60'/1'/2/3"),
-            Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
-            None,
-            None,
-        )
-        .check_password_result(Ok(false))
-        .check_password_result(Ok(true))
-        .check_password_result(Ok(false));
-        let mut config = BootstrapperConfig::new();
-        let mut stdout_writer = ByteArrayWriter::new();
-        let mut streams = &mut StdStreams {
-            stdin: &mut Cursor::new(&b"prompt for me\n"[..]),
-            stdout: &mut stdout_writer,
-            stderr: &mut ByteArrayWriter::new(),
-        };
-
-        standard::get_wallets(
-            &mut streams,
-            &multi_config,
-            &mut persistent_config,
-            &mut config,
-        )
-        .unwrap();
-
-        let captured_output = stdout_writer.get_string();
-        assert_eq!(
-            captured_output,
-            "Decrypt information from previous runs\nEnter password: "
-        );
-        let mnemonic_seed = make_mnemonic_seed(mnemonic_seed_prefix);
-        let expected_consuming_wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(mnemonic_seed.as_ref(), "m/44'/60'/1'/2/3").unwrap(),
-        );
-        assert_eq!(config.consuming_wallet, Some(expected_consuming_wallet));
-        assert_eq!(
-            config.earning_wallet,
-            Wallet::from_str("0xcafedeadbeefbabefacecafedeadbeefbabeface").unwrap()
-        );
-    }
-
-    #[test]
     fn unprivileged_parse_args_with_invalid_consuming_wallet_private_key_reacts_correctly() {
         running_test();
         let home_directory = ensure_node_home_directory_exists(
@@ -2445,34 +2311,6 @@ mod tests {
         );
 
         assert_eq!(result, Ok(None));
-    }
-
-    #[test]
-    fn get_db_password_handles_database_read_error() {
-        running_test();
-        let args = ["command", "--db-password"];
-        let multi_config = pure_test_utils::make_simplified_multi_config(args);
-        let mut streams = &mut StdStreams {
-            stdin: &mut Cursor::new(&b"Too Many S3cr3ts!\n"[..]),
-            stdout: &mut ByteArrayWriter::new(),
-            stderr: &mut ByteArrayWriter::new(),
-        };
-        let mut config = BootstrapperConfig::new();
-        let mut persistent_config = make_default_persistent_configuration()
-            .check_password_result(Ok(false))
-            .check_password_result(Err(PersistentConfigError::NotPresent));
-
-        let result = standard::get_db_password(
-            &multi_config,
-            &mut streams,
-            &mut config,
-            &mut persistent_config,
-        );
-
-        assert_eq!(
-            result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
-        );
     }
 
     #[test]
