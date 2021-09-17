@@ -6,7 +6,7 @@ pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
+use crate::blockchain::blockchain_interface::{chain_id_from_name, platform_from_chain_name};
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::persistent_configuration::{
@@ -257,10 +257,20 @@ pub fn data_directory_from_context(
                 .to_string();
             let right_local_data_dir =
                 wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
+            let platform = platform_from_chain_name(chain_name);
+            let chain_name_adjusted = adjust_composed_names(chain_name);
             PathBuf::from(right_local_data_dir)
                 .join("MASQ")
-                .join(chain_name)
+                .join(platform)
+                .join(chain_name_adjusted)
         }
+    }
+}
+
+fn adjust_composed_names(chain_name:&str) ->&str{
+    match chain_name{
+        "eth-mainnet" => "eth_mainnet",
+        _ => chain_name
     }
 }
 
@@ -731,7 +741,7 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::ArgsBuilder;
     use bip39::{Mnemonic, Seed};
-    use masq_lib::constants::DEFAULT_CHAIN_NAME;
+    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_PLATFORM, DEFAULT_CHAIN_DIRECTORY_NAME};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{db_password_arg, ParamError};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
@@ -742,6 +752,8 @@ mod tests {
     use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
+    use crate::blockchain::blockchain_interface::CHAINS;
+    use std::ops::Not;
 
     #[test]
     fn validate_ethereum_address_requires_an_address_that_is_42_characters_long() {
@@ -922,6 +934,20 @@ mod tests {
     }
 
     #[test]
+    fn adjust_composed_names_works_for_one_word_names(){
+        CHAINS.iter().filter(|chain|chain.0.contains("-").not()).for_each(|chain|assert_eq!(chain.0,adjust_composed_names(chain.0)))
+    }
+
+    #[test]
+    fn adjust_composed_names_works_for_composed_names(){
+        let mut filtered_existing = CHAINS.iter().filter(|chain|chain.0.contains("-"));
+        let first = filtered_existing.next().unwrap().0;
+        assert_eq!(first,"eth-mainnet");
+        assert_eq!(adjust_composed_names(first),DEFAULT_CHAIN_DIRECTORY_NAME);
+        assert_eq!(filtered_existing.next(),None)
+    }
+
+    #[test]
     fn data_directory_default_given_no_default() {
         assert_eq!(
             String::from(""),
@@ -948,6 +974,18 @@ mod tests {
         App::new("test")
             .arg(data_directory_arg())
             .arg(config_file_arg())
+    }
+
+    #[test]
+    fn data_directory_from_context_creates_new_folder_for_every_blockchain_platform(){
+        let dirs_wrapper = DirsWrapperMock::new().home_dir_result(Some(PathBuf::from("/nonexistent_home/root".to_string()))).data_dir_result(Some(PathBuf::from("/nonexistent_home/root/.local/share")));
+        let real_user = RealUser::new(None,None,Some(PathBuf::from("/nonexistent_home/nonexistent_alice".to_string())));
+        let data_dir_opt = None;
+        let chain_name = "ropsten";
+
+        let result = data_directory_from_context(&dirs_wrapper,&real_user,&data_dir_opt, chain_name);
+
+        assert_eq!(result,PathBuf::from("/nonexistent_home/nonexistent_alice/.local/share/MASQ/eth/ropsten".to_string()))
     }
 
     #[test]
@@ -994,9 +1032,12 @@ mod tests {
         let args = ArgsBuilder::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
+        let fake_directory_path_for_home = PathBuf::from_str("nonexistent_home/nonexistent_alice").unwrap();
+        let fake_directory_path_for_data = PathBuf::from_str("nonexistent_home/nonexistent_alice/.local/share").unwrap();
+        let dirs_wrapper = DirsWrapperMock::new().home_dir_result(Some(fake_directory_path_for_home)).data_dir_result(Some(fake_directory_path_for_data.clone()));
 
         let (real_user, data_directory_opt, chain_name) =
-            real_user_data_directory_opt_and_chain_name(&DirsWrapperReal {}, &multi_config);
+            real_user_data_directory_opt_and_chain_name(&dirs_wrapper, &multi_config);
         let directory = data_directory_from_context(
             &DirsWrapperReal {},
             &real_user,
@@ -1004,8 +1045,8 @@ mod tests {
             &chain_name,
         );
 
-        let expected_root = DirsWrapperReal {}.data_dir().unwrap();
-        let expected_directory = expected_root.join("MASQ").join(DEFAULT_CHAIN_NAME);
+        let expected_root = fake_directory_path_for_data;
+        let expected_directory = expected_root.join("MASQ").join(DEFAULT_PLATFORM).join(DEFAULT_CHAIN_DIRECTORY_NAME);
         assert_eq!(directory, expected_directory);
         assert_eq!(&chain_name, DEFAULT_CHAIN_NAME);
     }

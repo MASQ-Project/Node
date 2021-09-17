@@ -50,15 +50,15 @@ impl DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::str::FromStr;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     #[should_panic(expected = "Failed to connect to database at \"nonexistent")]
     fn connection_panics_if_connection_cannot_be_made() {
         let subject = DaoFactoryReal::new(
             &PathBuf::from_str("nonexistent").unwrap(),
-            DEFAULT_CHAIN_ID,
+            TEST_DEFAULT_CHAIN_ID,
             false,
         );
 

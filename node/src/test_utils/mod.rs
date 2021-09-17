@@ -41,7 +41,6 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
 use regex::Regex;
 use rustc_hex::ToHex;
 use std::collections::btree_set::BTreeSet;
@@ -59,10 +58,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
 lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
-    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(DEFAULT_CHAIN_ID);
+    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN_ID);
+    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN_ID);
 }
 
 pub fn main_cryptde() -> &'static CryptDENull {
@@ -184,7 +184,7 @@ pub fn make_meaningless_route() -> Route {
         ),
         main_cryptde(),
         Some(make_paying_wallet(b"irrelevant")),
-        Some(contract_address(DEFAULT_CHAIN_ID)),
+        Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
     )
     .unwrap()
 }
@@ -465,7 +465,7 @@ pub fn dummy_address_to_hex(dummy_address: &str) -> String {
 
 pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
     let wallet = make_paying_wallet(secret);
-    wallet.as_payer(public_key, &contract_address(DEFAULT_CHAIN_ID))
+    wallet.as_payer(public_key, &contract_address(TEST_DEFAULT_CHAIN_ID))
 }
 
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {

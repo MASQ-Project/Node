@@ -163,9 +163,7 @@ mod tests {
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_PLATFORM, TEST_DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
 
     #[test]
@@ -175,6 +173,7 @@ mod tests {
             "dump_config_creates_database_if_nonexistent",
         )
         .join("MASQ")
+        .join(TEST_DEFAULT_PLATFORM)
         .join(TEST_DEFAULT_CHAIN_NAME);
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
@@ -219,6 +218,7 @@ mod tests {
             "dump_config_dumps_existing_database_without_password",
         )
         .join("MASQ")
+        .join(TEST_DEFAULT_PLATFORM)
         .join(TEST_DEFAULT_CHAIN_NAME);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
@@ -227,7 +227,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -243,9 +243,9 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(main_cryptde(), "QUJDREVGRw@1.2.3.4:1234")
+                        NodeDescriptor::from_str(main_cryptde(), "QUJDREVGRw$ETH@1.2.3.4:1234")
                             .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "QkNERUZHSA@2.3.4.5:2345")
+                        NodeDescriptor::from_str(main_cryptde(), "QkNERUZHSA$ETH@2.3.4.5:2345")
                             .unwrap(),
                     ]),
                     "password",
@@ -269,7 +269,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
+            .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
         let check = |key: &str, expected_value: &str| {
@@ -311,6 +311,7 @@ mod tests {
             "dump_config_dumps_existing_database_with_correct_password",
         )
         .join("MASQ")
+        .join(TEST_DEFAULT_PLATFORM)
         .join(TEST_DEFAULT_CHAIN_NAME);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
@@ -319,7 +320,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -337,12 +338,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU$ETH@1.2.3.4:1234",
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY$ETH@2.3.4.5:2345",
                         )
                         .unwrap(),
                     ]),
@@ -368,7 +369,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
+            .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         let check = |key: &str, expected_value: &str| {
@@ -385,7 +386,7 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
         );
         check("gasPrice", "1");
-        check("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345");
+        check("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU$ETH@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY$ETH@2.3.4.5:2345");
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
@@ -412,6 +413,7 @@ mod tests {
             "dump_config_dumps_existing_database_with_incorrect_password",
         )
         .join("MASQ")
+        .join(TEST_DEFAULT_PLATFORM)
         .join(TEST_DEFAULT_CHAIN_NAME);
         let seed = Seed::new(
             &Bip39::mnemonic(MnemonicType::Words24, Language::English),
@@ -420,7 +422,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
-                .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -438,12 +440,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU$ETH@1.2.3.4:1234",
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY$ETH@2.3.4.5:2345",
                         )
                         .unwrap(),
                     ]),
@@ -469,7 +471,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DEFAULT_CHAIN_ID, false)
+            .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, false)
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         let check = |key: &str, expected_value: &str| {

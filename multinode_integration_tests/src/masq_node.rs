@@ -4,7 +4,7 @@ use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::RatePack;
+use node_lib::sub_lib::neighborhood::{RatePack, NodeDescriptor};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -21,11 +21,13 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use node_lib::blockchain::blockchain_interface::{chain_id_from_name, chain_id_from_blockchain, blockchain_from_chain_id};
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
+    pub chain_id: Option<u8>
 }
 
 impl FromStr for NodeReference {
@@ -36,10 +38,11 @@ impl FromStr for NodeReference {
         if pieces.len() != 3 {
             return Err(format!("A NodeReference must have the form <public_key>:<IP address>:<port list>, not '{}'", string_rep));
         }
-        let public_key = Self::extract_public_key(pieces[0])?;
+        let (key_segment_alone,label) = Self::cut_off_label(pieces[0])?;
+        let public_key = Self::extract_public_key(key_segment_alone)?;
         let ip_addr = Self::extract_ip_addr(pieces[1])?;
         let port_list = Self::extract_port_list(pieces[2])?;
-        Ok(NodeReference::new(public_key, ip_addr, port_list))
+        Ok(NodeReference::new(public_key, ip_addr, port_list, Some(chain_id_from_blockchain(NodeDescriptor::blockchain_from_label(label)))))
     }
 }
 
@@ -48,6 +51,7 @@ impl From<&dyn MASQNode> for NodeReference {
         NodeReference {
             public_key: masq_node.main_public_key().clone(),
             node_addr_opt: Some(masq_node.node_addr()),
+            chain_id: Some(chain_id_from_name(&masq_node.chain().unwrap_or("dev".to_string())))
         }
     }
 }
@@ -70,8 +74,8 @@ impl fmt::Display for NodeReference {
         };
         write!(
             f,
-            "{}:{}:{}",
-            public_key_string, ip_addr_string, port_list_string
+            "{}${}:{}:{}",
+            public_key_string,NodeDescriptor::label_from_blockchain(blockchain_from_chain_id(self.chain_id.unwrap_or(0))), ip_addr_string, port_list_string
         )
         .unwrap();
         Ok(())
@@ -83,15 +87,18 @@ impl NodeReference {
         public_key: PublicKey,
         ip_addr_opt: Option<IpAddr>,
         ports: Vec<u16>,
+        chain_id: Option<u8>
     ) -> NodeReference {
         match ip_addr_opt {
             Some(ip_addr) => NodeReference {
                 public_key,
                 node_addr_opt: Some(NodeAddr::new(&ip_addr, &ports)),
+                chain_id
             },
             None => NodeReference {
                 public_key,
                 node_addr_opt: None,
+                chain_id
             },
         }
     }
@@ -101,6 +108,12 @@ impl NodeReference {
             Ok (data) => Ok (PublicKey::new (&data[..])),
             Err (_) => Err (format!("The public key of a NodeReference must be represented as a valid Base64 string, not '{}'", slice))
         }
+    }
+
+    fn cut_off_label(slice: &str) -> Result<(&str,&str),String>{
+        let pieces:Vec<&str> = slice.split('$').collect();
+        if pieces.len() != 2 {return Err(format!("The chain label in the descriptor isn't properly set: '{}'",slice))}
+        Ok((pieces[0],pieces[1]))
     }
 
     fn extract_ip_addr(slice: &str) -> Result<Option<IpAddr>, String> {
@@ -275,6 +288,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cut_off_label_happy_path(){
+        let key_including_label = "AQIDBAUGBwg$DEV";
+
+        let (key_part,label) = NodeReference::cut_off_label(key_including_label).unwrap();
+
+        assert_eq!(key_part,"AQIDBAUGBwg");
+        assert_eq!(label,"DEV")
+    }
+
+    #[test]
+    fn cut_off_label_sad_path(){
+        let key_including_label = "AQIDBAUGBwgDEV";
+
+        let result = NodeReference::cut_off_label(key_including_label);
+
+        assert_eq!(result,Err("The chain label in the descriptor isn't properly set: 'AQIDBAUGBwgDEV'".to_string()))
+    }
+
+    #[test]
     fn node_reference_from_string_fails_if_there_are_not_three_fields() {
         let string = String::from("Only two:fields");
 
@@ -285,7 +317,7 @@ mod tests {
 
     #[test]
     fn node_reference_from_string_fails_if_key_is_not_valid_base64() {
-        let string = String::from(";;;:12.34.56.78:1234,2345");
+        let string = String::from(";;;$DEV:12.34.56.78:1234,2345");
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -295,7 +327,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_fails_if_ip_address_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:blippy:1234,2345", key);
+        let string = format!("{}$DEV:blippy:1234,2345", key);
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -310,7 +342,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_fails_if_a_port_number_is_not_valid() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:12.34.56.78:weeble,frud", key);
+        let string = format!("{}$DEV:12.34.56.78:weeble,frud", key);
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -320,7 +352,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_fails_if_a_port_number_is_too_big() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:12.34.56.78:1234,65536", key);
+        let string = format!("{}$DEV:12.34.56.78:1234,65536", key);
 
         let result = NodeReference::from_str(string.as_str());
 
@@ -335,7 +367,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_happy() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:12.34.56.78:1234,2345", key);
+        let string = format!("{}$DEV:12.34.56.78:1234,2345", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
 
@@ -352,7 +384,7 @@ mod tests {
     #[test]
     fn node_reference_from_string_works_if_there_are_no_ports() {
         let key = PublicKey::new(&b"Booga"[..]);
-        let string = format!("{}:12.34.56.78:", key);
+        let string = format!("{}$DEV:12.34.56.78:", key);
 
         let result = NodeReference::from_str(string.as_str()).unwrap();
 
@@ -368,14 +400,16 @@ mod tests {
 
     #[test]
     fn node_reference_can_display_itself() {
+        let chain_id = 4;
         let subject = NodeReference::new(
             PublicKey::new(&b"Booga"[..]),
             Some(IpAddr::from_str("12.34.56.78").unwrap()),
             vec![1234, 5678],
+            Some(chain_id)
         );
 
         let result = format!("{}", subject);
 
-        assert_eq!(result, String::from("Qm9vZ2E:12.34.56.78:1234,5678"));
+        assert_eq!(result, String::from("Qm9vZ2E$DEV:12.34.56.78:1234,5678"));
     }
 }

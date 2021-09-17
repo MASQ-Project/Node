@@ -14,6 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 #[test]
+#[ignore]
 fn provided_and_consumed_services_are_recorded_in_databases() {
     let mut cluster = MASQNodeCluster::start().unwrap();
 

@@ -214,12 +214,12 @@ mod tests {
     use futures::future::Future;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::messages::ToMessageBody;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())
@@ -377,7 +377,7 @@ mod tests {
         let wallet = make_wallet("smelly");
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(result)
-            .contract_address_result(contract_address(DEFAULT_CHAIN_ID));
+            .contract_address_result(contract_address(TEST_DEFAULT_CHAIN_ID));
         let retrieve_transactions_parameters = blockchain_interface_mock
             .retrieve_transactions_parameters
             .clone();
@@ -412,7 +412,7 @@ mod tests {
             .get_transaction_count_result(Ok(U256::from(2)))
             .send_transaction_result(Ok(H256::from("sometransactionhash".keccak256())))
             .send_transaction_result(Ok(H256::from("someothertransactionhash".keccak256())))
-            .contract_address_result(contract_address(DEFAULT_CHAIN_ID));
+            .contract_address_result(contract_address(TEST_DEFAULT_CHAIN_ID));
         let send_parameters = blockchain_interface_mock
             .send_transaction_parameters
             .clone();

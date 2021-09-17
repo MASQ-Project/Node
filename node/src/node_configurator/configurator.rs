@@ -745,7 +745,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::automap_tools::AutomapProtocol;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
     use masq_lib::utils::derivation_path;
 
     #[test]
@@ -754,12 +754,12 @@ mod tests {
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
         let verifier = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&data_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&data_dir, TEST_DEFAULT_CHAIN_ID, true)
                 .unwrap(),
         )));
         let (recorder, _, _) = make_recorder();
         let recorder_addr = recorder.start();
-        let mut subject = Configurator::new(data_dir, DEFAULT_CHAIN_ID);
+        let mut subject = Configurator::new(data_dir, TEST_DEFAULT_CHAIN_ID);
         subject.node_to_ui_sub = Some(recorder_addr.recipient());
         subject.new_password_subs = Some(vec![]);
 

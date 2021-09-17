@@ -439,7 +439,6 @@ mod tests {
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, Seed};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::utils::derivation_path;
     use rusqlite::Connection;
     use rustc_hex::FromHex;
@@ -447,6 +446,7 @@ mod tests {
     use std::collections::hash_map::DefaultHasher;
     use std::convert::TryFrom;
     use std::str::FromStr;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn can_create_with_str_address() {
@@ -673,7 +673,7 @@ mod tests {
     fn sign_with_uninitialized_wallets_panic() {
         Wallet::new("").as_payer(
             &CryptdePublicKey::new(&[1, 2, 3]),
-            &contract_address(DEFAULT_CHAIN_ID),
+            &contract_address(TEST_DEFAULT_CHAIN_ID),
         );
     }
 

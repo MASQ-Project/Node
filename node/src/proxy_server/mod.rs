@@ -985,12 +985,12 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
 
@@ -1981,7 +1981,7 @@ mod tests {
             main_cryptde,
             Some(consuming_wallet),
             1234,
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
@@ -4117,7 +4117,7 @@ mod tests {
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let affected_stream_key =
             StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
-        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), DEFAULT_CHAIN_ID);
+        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN_ID);
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4143,7 +4143,7 @@ mod tests {
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
@@ -4239,7 +4239,7 @@ mod tests {
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let affected_stream_key =
             StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
-        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), DEFAULT_CHAIN_ID);
+        let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN_ID);
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4265,7 +4265,7 @@ mod tests {
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
             1234,
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(

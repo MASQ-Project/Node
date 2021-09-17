@@ -4,7 +4,7 @@ use crate::masq_mock_node::MASQMockNode;
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
-use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+use masq_lib::test_utils::utils::{TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID};
 use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -37,7 +37,7 @@ impl MASQNodeCluster {
             mock_nodes: HashMap::new(),
             host_node_parent_dir,
             next_index: 1,
-            chain_id: DEFAULT_CHAIN_ID,
+            chain_id: TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID,
         })
     }
 

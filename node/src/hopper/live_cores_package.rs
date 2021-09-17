@@ -106,9 +106,9 @@ mod tests {
     use crate::test_utils::{
         main_cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
     };
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {
@@ -122,7 +122,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
 
@@ -135,9 +135,9 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_produced_from_older_live_cores_package() {
         let destination_key = PublicKey::new(&[3, 4]);
-        let destination_cryptde = CryptDENull::from(&destination_key, DEFAULT_CHAIN_ID);
+        let destination_cryptde = CryptDENull::from(&destination_key, TEST_DEFAULT_CHAIN_ID);
         let relay_key = PublicKey::new(&[1, 2]);
-        let relay_cryptde = CryptDENull::from(&relay_key, DEFAULT_CHAIN_ID);
+        let relay_cryptde = CryptDENull::from(&relay_key, TEST_DEFAULT_CHAIN_ID);
         let cryptde = main_cryptde();
         let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
         let encrypted_payload = cryptde
@@ -148,7 +148,7 @@ mod tests {
             RouteSegment::new(vec![&relay_key, &destination_key], Component::Neighborhood),
             cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
@@ -162,7 +162,7 @@ mod tests {
                 Some(
                     paying_wallet
                         .clone()
-                        .as_payer(&relay_key, &contract_address(DEFAULT_CHAIN_ID))
+                        .as_payer(&relay_key, &contract_address(TEST_DEFAULT_CHAIN_ID))
                 ),
                 Component::Hopper,
             )
@@ -174,7 +174,7 @@ mod tests {
             route.shift(&destination_cryptde).unwrap(),
             LiveHop::new(
                 &public_key,
-                Some(paying_wallet.as_payer(&destination_key, &contract_address(DEFAULT_CHAIN_ID))),
+                Some(paying_wallet.as_payer(&destination_key, &contract_address(TEST_DEFAULT_CHAIN_ID))),
                 Component::Neighborhood,
             )
         );
@@ -244,7 +244,7 @@ mod tests {
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
         let mut route = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
             cryptde,
@@ -297,15 +297,15 @@ mod tests {
         let immediate_neighbor_ip = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let payload = make_meaningless_message_type();
         let first_stop_key = PublicKey::new(&[3, 4]);
-        let first_stop_cryptde = CryptDENull::from(&first_stop_key, DEFAULT_CHAIN_ID);
+        let first_stop_cryptde = CryptDENull::from(&first_stop_key, TEST_DEFAULT_CHAIN_ID);
         let relay_key = PublicKey::new(&[1, 2]);
-        let relay_cryptde = CryptDENull::from(&relay_key, DEFAULT_CHAIN_ID);
+        let relay_cryptde = CryptDENull::from(&relay_key, TEST_DEFAULT_CHAIN_ID);
         let second_stop_key = PublicKey::new(&[5, 6]);
-        let second_stop_cryptde = CryptDENull::from(&second_stop_key, DEFAULT_CHAIN_ID);
+        let second_stop_cryptde = CryptDENull::from(&second_stop_key, TEST_DEFAULT_CHAIN_ID);
         let cryptde = main_cryptde();
         let encrypted_payload = encodex(cryptde, &first_stop_key, &payload).unwrap();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
         let mut route = Route::round_trip(
             RouteSegment::new(vec![&relay_key, &first_stop_key], Component::Neighborhood),
             RouteSegment::new(

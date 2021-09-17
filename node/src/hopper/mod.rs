@@ -144,9 +144,9 @@ mod tests {
     };
     use actix::Actor;
     use actix::System;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]
@@ -207,7 +207,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let incipient_package = IncipientCoresPackage::new(

@@ -37,6 +37,7 @@ use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
+use node_lib::blockchain::blockchain_interface::chain_id_from_name;
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,
@@ -67,6 +68,7 @@ impl MASQNode for MASQMockNode {
             self.signing_cryptde().unwrap().public_key().clone(),
             Some(self.node_addr().ip_addr()),
             self.node_addr().ports(),
+            self.chain().map(|name|chain_id_from_name(&name))
         )
     }
 

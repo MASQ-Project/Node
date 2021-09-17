@@ -875,6 +875,7 @@ mod tests {
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::neighborhood::Blockchain;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
@@ -882,7 +883,7 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_PLATFORM};
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -891,6 +892,7 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_PLATFORM};
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -990,7 +992,7 @@ mod tests {
         config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"ABCD"),
-            mainnet: true,
+            blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &[1234],
@@ -998,7 +1000,7 @@ mod tests {
         };
         let neighbor2 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"EFGH"),
-            mainnet: true,
+            blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("5.6.7.8").unwrap(),
                 &[5678],
@@ -1045,7 +1047,7 @@ mod tests {
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
-                "QUJDRA@1.2.3.4:1234,RUZHSA@5.6.7.8:5678",
+                "QUJDRA$ETH@1.2.3.4:1234,RUZHSA$ETH@5.6.7.8:5678",
                 Configured,
             ),
             #[cfg(not(target_os = "windows"))]
@@ -1093,7 +1095,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
+            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
         ]);
@@ -1117,7 +1119,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
+            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
         ].into_iter()
@@ -1151,7 +1153,7 @@ mod tests {
             ("ip", "4.3.2.1"),
             ("log-level", "error"),
             ("neighborhood-mode", "originate-only"),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
         ].into_iter()
@@ -1179,7 +1181,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
+            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
         ].into_iter()
@@ -1214,7 +1216,7 @@ mod tests {
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ].into_iter()
@@ -1240,7 +1242,7 @@ mod tests {
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Configured),
+            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
         ].into_iter()
@@ -1261,7 +1263,7 @@ mod tests {
             "switching_config_files_changes_setup",
         );
         let data_root = home_dir.join("data_root");
-        let mainnet_dir = data_root.join("MASQ").join(DEFAULT_CHAIN_NAME);
+        let mainnet_dir = data_root.join("MASQ").join(DEFAULT_PLATFORM).join(DEFAULT_CHAIN_DIRECTORY_NAME);
         {
             std::fs::create_dir_all(mainnet_dir.clone()).unwrap();
             let mut config_file = File::create(mainnet_dir.join("config.toml")).unwrap();
@@ -1288,7 +1290,7 @@ mod tests {
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
         }
-        let ropsten_dir = data_root.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
+        let ropsten_dir = data_root.join("MASQ").join(TEST_DEFAULT_PLATFORM).join(TEST_DEFAULT_CHAIN_NAME);
         {
             std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
             let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
@@ -1315,13 +1317,11 @@ mod tests {
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
         }
-        let dirs_wrapper = Box::new(DirsWrapperReal);
-        let mut subject = SetupReporterReal::new(dirs_wrapper);
-        subject.dirs_wrapper = Box::new(
-            DirsWrapperMock::new()
-                .home_dir_result(Some(home_dir.clone()))
-                .data_dir_result(Some(data_root.clone())),
-        );
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperMock::new()
+                                                     .home_dir_result(Some(home_dir.clone()))
+                                                     .data_dir_result(Some(data_root.clone()))
+        ));
+
         let params = vec![UiSetupRequestValue::new("chain", DEFAULT_CHAIN_NAME)];
         let existing_setup = subject.get_modified_setup(HashMap::new(), params).unwrap();
         let params = vec![UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME)];
@@ -1405,7 +1405,7 @@ mod tests {
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ].into_iter()
@@ -1452,7 +1452,7 @@ mod tests {
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
-                "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:9.10.11.12:9101",
+                "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:9.10.11.12:9101",
                 Set,
             ),
             #[cfg(not(target_os = "windows"))]
@@ -1482,7 +1482,7 @@ mod tests {
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Configured),
+            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
         ]
@@ -1530,7 +1530,7 @@ mod tests {
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
         let base_data_dir = base_dir.join("data_dir");
-        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
+        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_PLATFORM).join(TEST_DEFAULT_CHAIN_NAME);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))
@@ -1590,7 +1590,7 @@ mod tests {
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
         let base_data_dir = base_dir.join("data_dir");
-        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
+        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_PLATFORM).join(TEST_DEFAULT_CHAIN_NAME);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))
@@ -2109,12 +2109,13 @@ mod tests {
     #[test]
     fn data_directory_computed_default() {
         let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal {});
-        let expected = data_directory_from_context(&DirsWrapperReal {}, &real_user, &None, "dev")
-            .to_string_lossy()
-            .to_string();
+        let expected =
+            data_directory_from_context(&DirsWrapperReal {}, &real_user, &None, "eth-mainnet")
+                .to_string_lossy()
+                .to_string();
         let mut config = BootstrapperConfig::new();
         config.real_user = real_user;
-        config.blockchain_bridge_config.chain_id = chain_id_from_name("dev");
+        config.blockchain_bridge_config.chain_id = chain_id_from_name("eth-mainnet");
 
         let subject = DataDirectory::default();
 
@@ -2260,12 +2261,12 @@ mod tests {
             .past_neighbors_result(Ok(Some(vec![
                 NodeDescriptor::from_str(
                     main_cryptde(),
-                    "MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
+                    "MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg$ETH@1.2.3.4:1234",
                 )
                 .unwrap(),
                 NodeDescriptor::from_str(
                     main_cryptde(),
-                    "ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321",
+                    "ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE$ETH@4.3.2.1:4321",
                 )
                 .unwrap(),
             ])));
@@ -2277,7 +2278,7 @@ mod tests {
             &Some("password".to_string()),
         );
 
-        assert_eq! (result, Some (("MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234,ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321".to_string(), Configured)));
+        assert_eq! (result, Some (("MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg$ETH@1.2.3.4:1234,ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE$ETH@4.3.2.1:4321".to_string(), Configured)));
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(*past_neighbors_params, vec!["password".to_string()])
     }

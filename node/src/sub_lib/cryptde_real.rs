@@ -229,11 +229,11 @@ impl CryptDEReal {
 mod tests {
     use super::*;
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     impl Default for CryptDEReal {
         fn default() -> Self {
-            Self::new(DEFAULT_CHAIN_ID)
+            Self::new(TEST_DEFAULT_CHAIN_ID)
         }
     }
 
@@ -590,7 +590,7 @@ mod tests {
         let subject = &CryptDEReal::default();
         let merged = [
             subject.public_key().as_ref(),
-            contract_address(DEFAULT_CHAIN_ID).as_ref(),
+            contract_address(TEST_DEFAULT_CHAIN_ID).as_ref(),
         ]
         .concat();
         let expected_digest = merged.keccak256();

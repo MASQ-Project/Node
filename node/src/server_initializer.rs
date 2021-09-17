@@ -845,7 +845,7 @@ pub mod tests {
         assert_eq!(
             *chown_params,
             vec![(
-                PathBuf::from("/home/alice/mock_directory/MASQ/mainnet"),
+                PathBuf::from("/home/alice/mock_directory/MASQ/eth/eth_mainnet"),
                 real_user.clone()
             )]
         );

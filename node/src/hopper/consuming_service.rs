@@ -142,9 +142,9 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::System;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {
@@ -222,7 +222,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
@@ -269,7 +269,7 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let payload = make_meaningless_message_type();

@@ -535,9 +535,9 @@ mod tests {
     };
     use actix::System;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
@@ -645,7 +645,7 @@ mod tests {
         init_test_logging();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
-        let rogue_cryptde = CryptDENull::new(DEFAULT_CHAIN_ID);
+        let rogue_cryptde = CryptDENull::new(TEST_DEFAULT_CHAIN_ID);
         let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
@@ -1088,7 +1088,7 @@ mod tests {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let next_key = PublicKey::new(&[65, 65, 65]);
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&main_cryptde.public_key(), &next_key],
@@ -1184,7 +1184,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
@@ -1256,7 +1256,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let origin_key = PublicKey::new(&[1, 2]);
-        let origin_cryptde = CryptDENull::from(&origin_key, DEFAULT_CHAIN_ID);
+        let origin_cryptde = CryptDENull::from(&origin_key, TEST_DEFAULT_CHAIN_ID);
         let destination_key = PublicKey::new(&[3, 4]);
         let payload = make_meaningless_message_type();
         let route = Route::one_way(
@@ -1343,7 +1343,7 @@ mod tests {
             &make_request_payload(0, main_cryptde),
         ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &public_key,
@@ -1441,14 +1441,14 @@ mod tests {
         let current_key = main_cryptde.public_key();
         let origin_key = PublicKey::new(&[1, 2]);
         let destination_key = PublicKey::new(&[5, 6]);
-        let destination_cryptde = CryptDENull::from(&destination_key, DEFAULT_CHAIN_ID);
+        let destination_cryptde = CryptDENull::from(&destination_key, TEST_DEFAULT_CHAIN_ID);
 
         let payload = ClientRequest(VersionedData::new(
             &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
             &make_request_payload(0, &destination_cryptde),
         ));
         let paying_wallet = Some(make_paying_wallet(b"paying wallet"));
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
         let live_hops: Vec<LiveHop> = vec![
             LiveHop::new(
                 &current_key,
@@ -1538,7 +1538,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let contract_address = contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = contract_address(TEST_DEFAULT_CHAIN_ID);
         BAN_CACHE.insert(paying_wallet.clone());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1615,7 +1615,7 @@ mod tests {
             ),
             main_cryptde,
             Some(paying_wallet.clone()),
-            Some(contract_address(DEFAULT_CHAIN_ID)),
+            Some(contract_address(TEST_DEFAULT_CHAIN_ID)),
         )
         .unwrap();
         route.shift(main_cryptde).unwrap();

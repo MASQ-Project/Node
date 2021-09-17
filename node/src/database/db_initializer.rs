@@ -536,10 +536,7 @@ mod tests {
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db, DbMigratorMock,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_CHAIN_ID};
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
     use std::fs::File;
@@ -557,7 +554,7 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, false);
+        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, false);
 
         assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
         let result = Connection::open(&home_dir.join(DATABASE_FILE));
@@ -575,7 +572,7 @@ mod tests {
         );
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, false);
+        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, false);
 
         assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
         let mut flags = OpenFlags::empty();
@@ -596,7 +593,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -617,7 +614,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -640,7 +637,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -697,7 +694,7 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
                 .unwrap();
         }
         {
@@ -712,7 +709,7 @@ mod tests {
         }
 
         subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -768,7 +765,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -781,7 +778,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, true);
+        let result = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true);
 
         assert_eq!(
             result.err().unwrap(),
@@ -801,7 +798,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+                .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -814,7 +811,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(&home_dir, DEFAULT_CHAIN_ID, true);
+        let _ = subject.initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true);
     }
 
     #[test]
@@ -832,7 +829,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let result = subject
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
             .unwrap();
 
         let schema: String = result
@@ -929,7 +926,7 @@ mod tests {
             ensure_node_home_directory_exists("db_initializer", "initialize_config_with_seed");
 
         DbInitializerReal::default()
-            .initialize(&home_dir, DEFAULT_CHAIN_ID, true)
+            .initialize(&home_dir, TEST_DEFAULT_CHAIN_ID, true)
             .unwrap();
 
         let mut flags = OpenFlags::empty();

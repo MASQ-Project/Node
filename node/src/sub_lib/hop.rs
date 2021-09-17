@@ -52,7 +52,7 @@ mod tests {
     use super::*;
     use crate::blockchain::blockchain_interface::contract_address;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn can_construct_hop() {
@@ -61,7 +61,7 @@ mod tests {
         let subject = LiveHop::new(
             &key,
             Some(make_paying_wallet(b"wallet"))
-                .map(|w| w.as_payer(&key, &contract_address(DEFAULT_CHAIN_ID))),
+                .map(|w| w.as_payer(&key, &contract_address(TEST_DEFAULT_CHAIN_ID))),
             Component::Neighborhood,
         );
 
@@ -89,7 +89,7 @@ mod tests {
         let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let encode_key = cryptde.public_key();
-        let contract_address = &contract_address(DEFAULT_CHAIN_ID);
+        let contract_address = &contract_address(TEST_DEFAULT_CHAIN_ID);
         let hopper_hop = LiveHop::new(
             &PublicKey::new(&[4, 3, 2, 1]),
             Some(paying_wallet.clone())

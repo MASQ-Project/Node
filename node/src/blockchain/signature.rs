@@ -1,6 +1,8 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use serde_derive::{Deserialize, Serialize};
 
+//TODO what is this?; it seems unused.
+
 #[derive(Deserialize, Serialize)]
 #[serde(remote = "ethsign::Signature")]
 pub struct SerializableSignature {

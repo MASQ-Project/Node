@@ -2,6 +2,7 @@
 
 use crate::blockchain::raw_transaction::RawTransaction;
 use crate::sub_lib::logger::Logger;
+use crate::sub_lib::neighborhood::Blockchain;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
@@ -47,9 +48,9 @@ pub const MAINNET_CONTRACT_ADDRESS: Address = Address {
 const CONTRACTS: [Address; 5] = [
     Address { 0: [0u8; 20] },
     MAINNET_CONTRACT_ADDRESS,
-    MULTINODE_TESTNET_CONTRACT_ADDRESS,
     ROPSTEN_TESTNET_CONTRACT_ADDRESS,
     RINKEBY_TESTNET_CONTRACT_ADDRESS,
+    MULTINODE_TESTNET_CONTRACT_ADDRESS,
 ];
 
 pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 9_415_932;
@@ -59,12 +60,30 @@ pub const RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 5_893_771;
 pub const CONTRACT_CREATION_BLOCK: [u64; 5] = [
     0,
     MAINNET_CONTRACT_CREATION_BLOCK,
-    0,
     ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
     RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
+    0,
 ];
 
-pub const CHAIN_NAMES: [&str; 5] = ["", "mainnet", "dev", "ropsten", "rinkeby"];
+pub const CHAINS: [(&str, Blockchain, &str); 5] = [
+    ("", Blockchain::Null, ""),
+    ("eth-mainnet", Blockchain::EthMainnet, "@"),
+    ("ropsten", Blockchain::EthRopsten, ":"),
+    ("rinkeby", Blockchain::EthRinkeby, ":"),
+    ("dev", Blockchain::Dev, ":"),
+]; //TODO is this tested directly??
+   //pub const CHAIN_NAMES: [&str; 5] = ["", "eth_net","poly_net", "dev", "ropsten", "rinkeby","mumbai"];
+   //pub const CHAIN_NAMES: [&str; 5] = ["", "eth_mainnet","poly_mainnet", "dev", "ropsten", "rinkeby","mumbai"];
+
+pub const MAINNET_DELIMITER: char = '@';
+pub const TESTNET_DELIMITER: char = ':';
+pub const CHAIN_LABEL_DELIMITER: char = '$';
+
+pub static NODE_DESCRIPTOR_DELIMITERS: [char; 4] = ['_', '@', ':', ':']; //TODO may not be needed
+
+pub fn node_descriptor_delimiter(chain_id: u8) -> char {
+    NODE_DESCRIPTOR_DELIMITERS[chain_id as usize]
+}
 
 pub fn contract_address(chain_id: u8) -> Address {
     match chain_id {
@@ -75,32 +94,70 @@ pub fn contract_address(chain_id: u8) -> Address {
 
 pub fn chain_name(chain_id: u8) -> &'static str {
     match chain_id {
-        1u8 | 2u8 | 3u8 | 4u8 => CHAIN_NAMES[usize::from(chain_id)],
-        _ => CHAIN_NAMES[3],
+        1u8 | 2u8 | 3u8 | 4u8 => CHAINS[usize::from(chain_id)].0,
+        _ => CHAINS[2].0,
     }
 }
 
 pub fn chain_id_from_name(name: &str) -> u8 {
     match name.to_lowercase().as_str() {
-        "mainnet" => 1u8,
-        "dev" => 2u8,
-        "ropsten" => 3u8,
-        "rinkeby" => 4u8,
-        _ => 3u8,
+        "eth-mainnet" => 1u8,
+        "ropsten" => 2u8,
+        "rinkeby" => 3u8,
+        "dev" => 4u8,
+        _ => 2u8,
     }
 }
 
 pub fn chain_name_from_id(chain_id: u8) -> &'static str {
     match chain_id {
-        1u8 | 2u8 | 3u8 | 4u8 => CHAIN_NAMES[usize::from(chain_id)],
-        _ => CHAIN_NAMES[3],
+        1u8 | 2u8 | 3u8 | 4u8 => CHAINS[usize::from(chain_id)].0,
+        _ => CHAINS[2].0,
     }
+}
+
+//TODO manage proper testing for this, untested
+pub fn chain_id_from_blockchain(blockchain: Blockchain) -> u8 {
+    match CHAINS.iter().position(|item| item.1 == blockchain) {
+        Some(idx) => idx as u8,
+        None => panic!("nonexistent chain should never be reached"),
+    }
+}
+
+//TODO manage proper testing for this, untested
+pub fn blockchain_from_chain_id(chain_id: u8) -> Blockchain {
+    match chain_id {
+        1u8 | 2u8 | 3u8 | 4u8 => CHAINS[usize::from(chain_id)].1,
+        _ => panic!("Attempt to use '{}' as a chain id, but such isn't supported with any chain",chain_id),
+    }
+} //TODO I'd be happier if I saw panic!() at all the outside options, certainly, similar changes would need to come all over here
+
+//TODO manage proper testing for this, untested
+pub fn blockchain_from_chain_name(chain_name: &str) -> Blockchain {
+   blockchain_from_chain_id(chain_id_from_name(chain_name))
+}
+
+//TODO manage proper testing for this, untested
+pub fn delimiter_from_blockchain(blockchain: Blockchain) -> &'static str {
+    match CHAINS.iter().find(|item| item.1 == blockchain) {
+        Some((_, _, delimiter)) => delimiter,
+        None => panic!("nonexistent chain should never be reached"),
+    }
+} //TODO I'd be happier if I saw panic!() at all the outside options, certainly, similar changes would need to come all over here
+
+pub fn platform_from_chain_name(chain_name: &str) ->&str{
+    if chain_name == CHAINS[0].0{"null"}
+    else if chain_name == CHAINS[1].0{"eth"}
+    else if chain_name == CHAINS[2].0{"eth"}
+    else if chain_name == CHAINS[3].0{"eth"}
+    else if chain_name == CHAINS[4].0{"dev"}
+    else {panic!("Attempt to use '{}' chain which doesn't exist or isn't available",chain_name)}
 }
 
 pub fn contract_creation_block_from_chain_id(chain_id: u8) -> u64 {
     match chain_id {
         1u8 | 2u8 | 3u8 | 4u8 => CONTRACT_CREATION_BLOCK[usize::from(chain_id)],
-        _ => CONTRACT_CREATION_BLOCK[3],
+        _ => CONTRACT_CREATION_BLOCK[2],
     }
 }
 
@@ -447,7 +504,7 @@ mod tests {
     use ethereum_types::BigEndianHash;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core as rpc;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::{TEST_DEFAULT_CHAIN_ID};
     use masq_lib::utils::find_free_port;
     use serde_json::json;
     use serde_json::Value;
@@ -545,7 +602,7 @@ mod tests {
         ))
         .unwrap();
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject
             .retrieve_transactions(
@@ -577,7 +634,7 @@ mod tests {
         let (event_loop_handle, transport) =
             Http::new(&format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port)).unwrap();
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject
             .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"));
@@ -606,7 +663,7 @@ mod tests {
         ))
         .unwrap();
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject.retrieve_transactions(
             42,
@@ -638,7 +695,7 @@ mod tests {
         .unwrap();
 
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject.retrieve_transactions(
             42,
@@ -668,7 +725,7 @@ mod tests {
         .unwrap();
 
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject.retrieve_transactions(
             42,
@@ -697,7 +754,7 @@ mod tests {
         .unwrap();
 
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject.get_eth_balance(
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
@@ -719,7 +776,7 @@ mod tests {
         .unwrap();
 
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result =
             subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
@@ -747,7 +804,7 @@ mod tests {
         .unwrap();
 
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject.get_eth_balance(
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
@@ -777,7 +834,7 @@ mod tests {
         ))
         .unwrap();
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject.get_token_balance(
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
@@ -798,7 +855,7 @@ mod tests {
         ))
         .unwrap();
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result =
             subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
@@ -828,7 +885,7 @@ mod tests {
         ))
         .unwrap();
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let result = subject.get_token_balance(
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
@@ -858,7 +915,7 @@ mod tests {
         ))
         .unwrap();
         let subject =
-            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, DEFAULT_CHAIN_ID);
+            BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN_ID);
 
         let results: (Balance, Balance) = await_value(None, || {
             match subject.get_balances(
@@ -889,7 +946,7 @@ mod tests {
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
-            DEFAULT_CHAIN_ID,
+            TEST_DEFAULT_CHAIN_ID,
         );
 
         let result = subject.send_transaction(
@@ -900,7 +957,8 @@ mod tests {
             2u64,
         );
 
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0b8e83e714af8bf1685b496912ee4aeff7007ba0f4c29ae50f513bc71ce6a18f4a06a923088306b4ee9cbfcdc62c9b396385f9b1c380134bf046d6c9ae47dea6578""#)]);
+        //TODO remove this comment: to my defence in the review, I replaced these strings because I believe that chain_id takes part in the signing process and because of changing the number the sign must look different now
+        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a801847735940082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900027a0d0f4d1ca4d9504b0f7d68d05479123cb1c36f1e6b63e291f4d5198d4a3b5583ba040af5e2aea610e991180bc81b52f07305b39313935d2470721d44336cf27eb69""#)]);
         transport.assert_no_more_requests();
         assert_eq!(result, Ok(H256::from_uint(&U256::from(1))));
     }
@@ -916,7 +974,7 @@ mod tests {
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
-            DEFAULT_CHAIN_ID,
+            TEST_DEFAULT_CHAIN_ID,
         );
 
         let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));
@@ -974,5 +1032,44 @@ mod tests {
             TRANSFER_METHOD_ID,
             "transfer(address,uint256)".keccak256()[0..4]
         );
+    }
+
+    #[test]
+    fn blockchain_from_chain_id_returns_correct_values() {
+        assert_eq!(blockchain_from_chain_id(1),Blockchain::EthMainnet);
+        assert_eq!(blockchain_from_chain_id(2),Blockchain::EthRopsten);
+        assert_eq!(blockchain_from_chain_id(3),Blockchain::EthRinkeby);
+        assert_eq!(blockchain_from_chain_id(4),Blockchain::Dev)
+    }
+
+    #[test]
+    #[should_panic(expected="Attempt to use '0' as a chain id, but such isn't supported with any chain")]
+    fn blockchain_from_chain_id_panics_on_0(){
+        blockchain_from_chain_id(0);
+    }
+
+    #[test]
+    #[should_panic(expected="Attempt to use '5' as a chain id, but such isn't supported with any chain")]
+    fn blockchain_from_chain_id_panics_on_unsupported_higher_id_number(){
+        blockchain_from_chain_id(5);
+    }
+
+    #[test]
+    fn str_platform_from_chain_name_works(){
+        assert_platform(CHAINS[0].0,"null");
+        assert_platform(CHAINS[1].0,"eth"); //mainet
+        assert_platform(CHAINS[2].0,"eth"); //ropsten
+        assert_platform(CHAINS[3].0,"eth"); //rinkeby
+        assert_platform(CHAINS[4].0,"dev"); //rinkeby
+    }
+
+    #[test]
+    #[should_panic(expected="Attempt to use 'whatever' chain which doesn't exist or isn't available")]
+    fn str_platform_from_chain_name_panics_on_unknown_chain(){
+        assert_platform("whatever","dev");
+    }
+
+    fn assert_platform(chain_name:&str,expected_platform:&str){
+        assert_eq!(platform_from_chain_name(chain_name), expected_platform)
     }
 }

@@ -363,12 +363,12 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
         db_initializer: &dyn DbInitializer,
     ) -> BlockchainBridgeSubs {
-        let blockchain_service_url = config
+        let blockchain_service_url_opt = config
             .blockchain_bridge_config
-            .blockchain_service_url
+            .blockchain_service_url_opt
             .clone();
         let blockchain_interface: Box<dyn BlockchainInterface> = {
-            match blockchain_service_url {
+            match blockchain_service_url_opt {
                 Some(url) => match Http::new(&url) {
                     Ok((event_loop_handle, transport)) => {
                         Box::new(BlockchainInterfaceNonClandestine::new(
@@ -467,7 +467,6 @@ mod tests {
     use actix::System;
     use log::LevelFilter;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;
@@ -478,6 +477,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {
@@ -823,8 +823,8 @@ mod tests {
     #[should_panic(expected = "Invalid blockchain node URL")]
     fn invalid_blockchain_url_produces_panic() {
         let bbconfig = BlockchainBridgeConfig {
-            blockchain_service_url: Some("http://λ:8545".to_string()),
-            chain_id: DEFAULT_CHAIN_ID,
+            blockchain_service_url_opt: Some("http://λ:8545".to_string()),
+            chain_id: TEST_DEFAULT_CHAIN_ID,
             gas_price: 1,
         };
         let mut config = BootstrapperConfig::new();
@@ -849,8 +849,8 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain_id: TEST_DEFAULT_CHAIN_ID,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -912,8 +912,8 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain_id: TEST_DEFAULT_CHAIN_ID,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -995,8 +995,8 @@ mod tests {
         assert_eq!(
             blockchain_bridge_param.blockchain_bridge_config,
             BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain_id: TEST_DEFAULT_CHAIN_ID,
                 gas_price: 1,
             }
         );
@@ -1023,8 +1023,8 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain_id: TEST_DEFAULT_CHAIN_ID,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -1081,8 +1081,8 @@ mod tests {
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
-                blockchain_service_url: None,
-                chain_id: DEFAULT_CHAIN_ID,
+                blockchain_service_url_opt: None,
+                chain_id: TEST_DEFAULT_CHAIN_ID,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),

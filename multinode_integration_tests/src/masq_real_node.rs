@@ -8,7 +8,7 @@ use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
 use masq_lib::constants::CURRENT_LOGFILE_NAME;
-use masq_lib::test_utils::utils::{DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
+use masq_lib::test_utils::utils::{TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID, TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME};
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
@@ -150,7 +150,7 @@ impl NodeStartupConfig {
             memory_opt: None,
             fake_public_key_opt: None,
             blockchain_service_url_opt: None,
-            chain_opt: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
+            chain_opt: Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID.to_string()),
             db_password_opt: Some("password".to_string()),
         }
     }
@@ -397,7 +397,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
+            chain: Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME.to_string()),
             db_password: None,
         }
     }
@@ -422,7 +422,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
+            chain: Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME.to_string()),
             db_password: Some("password".to_string()),
         }
     }
@@ -447,7 +447,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
+            chain: Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME.to_string()),
             db_password: Some("password".to_string()),
         }
     }
@@ -468,7 +468,7 @@ impl NodeStartupConfigBuilder {
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
+            chain: Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME.to_string()),
             db_password: Some("password".to_string()),
         }
     }
@@ -789,7 +789,7 @@ impl MASQRealNode {
             .clone()
             .chain_opt
             .map(|chain_name| chain_id_from_name(chain_name.as_str()))
-            .unwrap_or(DEFAULT_CHAIN_ID);
+            .unwrap_or(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID);
         let cryptde_null_opt = real_startup_config
             .fake_public_key_opt
             .clone()
@@ -799,7 +799,7 @@ impl MASQRealNode {
             startup_config: real_startup_config.clone(),
             name: name.clone(),
             container_ip: ip_addr,
-            node_reference: NodeReference::new(PublicKey::new(&[]), None, vec![]), // placeholder
+            node_reference: NodeReference::new(PublicKey::new(&[]), None, vec![],None), // placeholder
             earning_wallet: real_startup_config.get_earning_wallet(),
             consuming_wallet_opt: real_startup_config.get_consuming_wallet(),
             rate_pack: DEFAULT_RATE_PACK.clone(), // replace with this when rate packs are configurable: startup_config.rate_pack.clone()
@@ -826,6 +826,7 @@ impl MASQRealNode {
         result.restart_node(restart_startup_config);
         let node_reference =
             Self::extract_node_reference(&name).expect("extracting node reference");
+eprintln!("our node reference: {}",node_reference);
         Rc::get_mut(&mut result.guts).unwrap().node_reference = node_reference;
         result
     }
@@ -1112,8 +1113,10 @@ impl MASQRealNode {
                     DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
                 )
             });
+            eprintln!(">>>>>>we've got this as the raw string {}<<<<<<<<<",output.as_str());
             match regex.captures(output.as_str()) {
                 Some(captures) => {
+                    eprintln!("we've got this as captured with regex {:?}",captures);
                     let node_reference =
                         NodeReference::from_str(captures.get(1).unwrap().as_str()).unwrap();
                     println!("{} startup detected at {}", name, node_reference);
@@ -1163,7 +1166,7 @@ impl Drop for MASQRealNodeGuts {
 mod tests {
     use super::*;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
+    use masq_lib::test_utils::utils::{TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME};
     use masq_lib::utils::localhost;
 
     #[test]
@@ -1244,11 +1247,13 @@ mod tests {
                 one_neighbor_key.clone(),
                 Some(one_neighbor_ip_addr.clone()),
                 one_neighbor_ports.clone(),
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
             ),
             NodeReference::new(
                 another_neighbor_key.clone(),
                 Some(another_neighbor_ip_addr.clone()),
                 another_neighbor_ports.clone(),
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
             ),
         ];
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
@@ -1280,6 +1285,7 @@ mod tests {
                 PublicKey::new(&[255]),
                 Some(IpAddr::from_str("255.255.255.255").unwrap()),
                 vec![255],
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID),
             )],
             clandestine_port_opt: Some(1234),
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
@@ -1298,7 +1304,7 @@ mod tests {
             memory_opt: Some("32m".to_string()),
             fake_public_key_opt: Some(PublicKey::new(&[1, 2, 3, 4])),
             blockchain_service_url_opt: None,
-            chain_opt: None,
+            chain_opt: Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME.to_string()),
             db_password_opt: Some("booga".to_string()),
         };
         let neighborhood_mode = "standard".to_string();
@@ -1318,11 +1324,13 @@ mod tests {
                 one_neighbor_key.clone(),
                 Some(one_neighbor_ip_addr.clone()),
                 one_neighbor_ports.clone(),
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
             ),
             NodeReference::new(
                 another_neighbor_key.clone(),
                 Some(another_neighbor_ip_addr.clone()),
                 another_neighbor_ports.clone(),
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
             ),
         ];
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
@@ -1365,11 +1373,13 @@ mod tests {
             PublicKey::new(&[1, 2, 3, 4]),
             Some(IpAddr::from_str("4.5.6.7").unwrap()),
             vec![1234, 2345],
+            Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
         );
         let another_neighbor = NodeReference::new(
             PublicKey::new(&[2, 3, 4, 5]),
             Some(IpAddr::from_str("5.6.7.8").unwrap()),
             vec![3456, 4567],
+            Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
         );
 
         let subject = NodeStartupConfigBuilder::standard()
@@ -1398,7 +1408,7 @@ mod tests {
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
                 "--chain",
-                TEST_DEFAULT_CHAIN_NAME,
+                TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME, //TODO this is gonna be awful
                 "--db-password",
                 "password",
             ))

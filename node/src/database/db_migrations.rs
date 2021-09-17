@@ -311,7 +311,7 @@ mod tests {
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use lazy_static::lazy_static;
-    use masq_lib::test_utils::utils::{BASE_TEST_DIR, DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{BASE_TEST_DIR, TEST_DEFAULT_CHAIN_ID};
     use rusqlite::{Connection, Error, OptionalExtension, NO_PARAMS};
     use std::cell::RefCell;
     use std::fmt::Debug;
@@ -916,7 +916,7 @@ mod tests {
             revive_tables_of_the_version_0_and_return_the_connection_to_the_db(&db_path);
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize_to_version(&dir_path, DEFAULT_CHAIN_ID, 1, true);
+        let result = subject.initialize_to_version(&dir_path, TEST_DEFAULT_CHAIN_ID, 1, true);
 
         let (mp_name, mp_value, mp_encrypted): (String, Option<String>, u16) =
             assurance_query_for_config_table(
