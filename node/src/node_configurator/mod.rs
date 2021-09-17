@@ -138,6 +138,16 @@ pub fn data_directory_from_context(
     }
 }
 
+pub fn data_directory_default(dirs_wrapper: &dyn DirsWrapper, chain_name: &'static str) -> String {
+    match dirs_wrapper.data_dir() {
+        Some(path) => path.join("MASQ").join(chain_name),
+        None => PathBuf::from(""),
+    }
+    .to_str()
+    .expect("Internal Error")
+    .to_string()
+}
+
 pub fn port_is_busy(port: u16) -> bool {
     TcpListener::bind(SocketAddr::new(localhost(), port)).is_err()
 }
@@ -256,9 +266,12 @@ mod tests {
     use crate::masq_lib::utils::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
     use masq_lib::utils::find_free_port;
     use std::net::{SocketAddr, TcpListener};
     use tiny_hderive::bip44::DerivationPath;
@@ -442,6 +455,35 @@ mod tests {
     }
 
     #[test]
+    fn data_directory_default_given_no_default() {
+        assert_eq!(
+            String::from(""),
+            data_directory_default(
+                &DirsWrapperMock::new().data_dir_result(None),
+                TEST_DEFAULT_CHAIN_NAME
+            )
+        );
+    }
+
+    #[test]
+    fn data_directory_default_works() {
+        let mock_dirs_wrapper = DirsWrapperMock::new().data_dir_result(Some("mocked/path".into()));
+
+        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
+
+        let expected = PathBuf::from("mocked/path")
+            .join("MASQ")
+            .join(DEFAULT_CHAIN_NAME);
+        assert_eq!(result, expected.as_path().to_str().unwrap().to_string());
+    }
+
+    fn determine_config_file_path_app() -> App<'static, 'static> {
+        App::new("test")
+            .arg(data_directory_arg())
+            .arg(config_file_arg())
+    }
+
+    #[test]
     fn real_user_data_directory_and_chain_id_picks_correct_directory_for_default_chain() {
         let args = ArgsBuilder::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
@@ -462,6 +504,53 @@ mod tests {
         assert_eq!(&chain_name, DEFAULT_CHAIN_NAME);
     }
 
+    #[test]
+    fn determine_config_file_path_finds_path_in_args() {
+        let _guard = EnvironmentGuard::new();
+        let args = ArgsBuilder::new()
+            .param("--clandestine-port", "2345")
+            .param("--data-directory", "data-dir")
+            .param("--config-file", "booga.toml");
+        let args_vec: Vec<String> = args.into();
+
+        let (config_file_path, user_specified) = determine_config_file_path(
+            &DirsWrapperReal {},
+            &determine_config_file_path_app(),
+            args_vec.as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            &format!("{}", config_file_path.parent().unwrap().display()),
+            "data-dir",
+        );
+        assert_eq!("booga.toml", config_file_path.file_name().unwrap());
+        assert_eq!(true, user_specified);
+    }
+
+    #[test]
+    fn determine_config_file_path_finds_path_in_environment() {
+        let _guard = EnvironmentGuard::new();
+        let args = ArgsBuilder::new();
+        let args_vec: Vec<String> = args.into();
+        std::env::set_var("MASQ_DATA_DIRECTORY", "data_dir");
+        std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
+
+        let (config_file_path, user_specified) = determine_config_file_path(
+            &DirsWrapperReal {},
+            &determine_config_file_path_app(),
+            args_vec.as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            "data_dir",
+            &format!("{}", config_file_path.parent().unwrap().display())
+        );
+        assert_eq!("booga.toml", config_file_path.file_name().unwrap());
+        assert_eq!(true, user_specified);
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn determine_config_file_path_ignores_data_dir_if_config_file_has_root() {
@@ -480,6 +569,99 @@ mod tests {
 
         assert_eq!(
             "/tmp/booga.toml",
+            &format!("{}", config_file_path.display())
+        );
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_separator_root() {
+        let _guard = EnvironmentGuard::new();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", r"\tmp\booga.toml");
+        let args_vec: Vec<String> = args.into();
+
+        let (config_file_path, user_specified) = determine_config_file_path(
+            &DirsWrapperReal {},
+            &determine_config_file_path_app(),
+            args_vec.as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            r"\tmp\booga.toml",
+            &format!("{}", config_file_path.display())
+        );
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_root() {
+        let _guard = EnvironmentGuard::new();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", r"c:\tmp\booga.toml");
+        let args_vec: Vec<String> = args.into();
+
+        let (config_file_path, user_specified) = determine_config_file_path(
+            &DirsWrapperReal {},
+            &determine_config_file_path_app(),
+            args_vec.as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            r"c:\tmp\booga.toml",
+            &format!("{}", config_file_path.display())
+        );
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_network_root() {
+        let _guard = EnvironmentGuard::new();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", r"\\TMP\booga.toml");
+        let args_vec: Vec<String> = args.into();
+
+        let (config_file_path, user_specified) = determine_config_file_path(
+            &DirsWrapperReal {},
+            &determine_config_file_path_app(),
+            args_vec.as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            r"\\TMP\booga.toml",
+            &format!("{}", config_file_path.display())
+        );
+        assert_eq!(true, user_specified);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
+    ) {
+        let _guard = EnvironmentGuard::new();
+        let args = ArgsBuilder::new()
+            .param("--data-directory", "data-dir")
+            .param("--config-file", r"c:tmp\booga.toml");
+        let args_vec: Vec<String> = args.into();
+
+        let (config_file_path, user_specified) = determine_config_file_path(
+            &DirsWrapperReal {},
+            &determine_config_file_path_app(),
+            args_vec.as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            r"c:tmp\booga.toml",
             &format!("{}", config_file_path.display())
         );
         assert_eq!(true, user_specified);
