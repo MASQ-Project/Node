@@ -196,11 +196,14 @@ impl Transactor for IgdpTransactor {
                     next_lifetime: Duration::from_secs(lifetime as u64),
                     remap_interval: Duration::from_secs(remap_interval as u64),
                 };
-                if let Some (commander) = inner.housekeeping_commander_opt.as_ref() {
-                    commander.try_send (HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)).expect ("Housekeeping thread died");
-                }
-                else {
-                    panic! ("Start housekeeping thread before calling add_mapping()");
+                if let Some(commander) = inner.housekeeping_commander_opt.as_ref() {
+                    commander
+                        .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
+                            mapping_config,
+                        ))
+                        .expect("Housekeeping thread died");
+                } else {
+                    panic!("Start housekeeping thread before calling add_mapping()");
                 }
                 remap_interval
             })
@@ -272,14 +275,24 @@ impl Transactor for IgdpTransactor {
         self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(public_ip_poll_delay_ms, change_handler, inner_inner, rx)
         }));
-eprintln! ("end of start_housekeeping_thread:\nhousekeeping_commander_opt populated: {}", self.inner_arc.lock().unwrap().housekeeping_commander_opt.is_some());
+        eprintln!(
+            "end of start_housekeeping_thread:\nhousekeeping_commander_opt populated: {}",
+            self.inner_arc
+                .lock()
+                .unwrap()
+                .housekeeping_commander_opt
+                .is_some()
+        );
         Ok(tx)
     }
 
     fn stop_housekeeping_thread(&mut self) -> ChangeHandler {
         let stopper = {
             let inner = self.inner_arc.lock().expect("Change handler is dead");
-eprintln! ("beginning of stop_housekeeping_thread:\nhousekeeping_commander_opt populated: {}", inner.housekeeping_commander_opt.is_some());
+            eprintln!(
+                "beginning of stop_housekeeping_thread:\nhousekeeping_commander_opt populated: {}",
+                inner.housekeeping_commander_opt.is_some()
+            );
             debug!(inner.logger, "Stopping housekeeping thread");
             inner.housekeeping_commander_opt.clone()
         }
@@ -390,12 +403,16 @@ impl IgdpTransactor {
             }
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)) => {
-                    mapping_config_opt = Some (mapping_config);
+                    mapping_config_opt = Some(mapping_config);
                 }
                 Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
                     match mapping_config_opt.as_mut() {
-                        Some (mapping_config) => mapping_config.remap_interval = Duration::from_millis (remap_after),
-                        None => panic! ("Must InitializeMappingConfig before you can SetRemapIntervalMs"),
+                        Some(mapping_config) => {
+                            mapping_config.remap_interval = Duration::from_millis(remap_after)
+                        }
+                        None => {
+                            panic!("Must InitializeMappingConfig before you can SetRemapIntervalMs")
+                        }
                     }
                 }
                 Ok(HousekeepingThreadCommand::Stop) => break,
@@ -411,9 +428,9 @@ impl IgdpTransactor {
         last_remapped: &mut Instant,
         mapping_config_opt: &Option<MappingConfig>,
     ) -> bool {
-eprintln! ("thread_guts_iteration waiting for inner_arc");
+        eprintln!("thread_guts_iteration waiting for inner_arc");
         let mut inner = inner_arc.lock().expect("IgdpTransactor died");
-eprintln! ("thread_guts_iteration locked inner_arc");
+        eprintln!("thread_guts_iteration locked inner_arc");
         debug!(
             inner.logger,
             "Polling router to see if public IP has changed"
@@ -933,11 +950,11 @@ mod tests {
         let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
-        subject.start_housekeeping_thread(Box::new (|_| ()), router_ip).unwrap();
-
-        let result = subject
-            .add_mapping(router_ip, 7777, 1234)
+        subject
+            .start_housekeeping_thread(Box::new(|_| ()), router_ip)
             .unwrap();
+
+        let result = subject.add_mapping(router_ip, 7777, 1234).unwrap();
 
         assert_eq!(result, 617);
         let add_port_params = add_port_params_arc.lock().unwrap();
@@ -971,11 +988,11 @@ mod tests {
         let gateway_factory = GatewayFactoryMock::new().make_result(Ok(gateway));
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
-        subject.start_housekeeping_thread(Box::new (|_| ()), router_ip).unwrap();
-
-        let result = subject
-            .add_permanent_mapping(router_ip, 7777)
+        subject
+            .start_housekeeping_thread(Box::new(|_| ()), router_ip)
             .unwrap();
+
+        let result = subject.add_permanent_mapping(router_ip, 7777).unwrap();
 
         assert_eq!(result, u32::MAX);
         let add_port_params = add_port_params_arc.lock().unwrap();
@@ -1188,8 +1205,9 @@ mod tests {
         subject.public_ip_poll_delay_ms = 10;
         let change_log_arc = Arc::new(Mutex::new(vec![]));
         let change_log_inner_arc = change_log_arc.clone();
-        let change_handler =
-            Box::new(move |change: AutomapChange| change_log_inner_arc.lock().unwrap().push(change));
+        let change_handler = Box::new(move |change: AutomapChange| {
+            change_log_inner_arc.lock().unwrap().push(change)
+        });
 
         subject
             .start_housekeeping_thread(change_handler, router_ip)
@@ -1325,19 +1343,22 @@ mod tests {
         let change_handler: ChangeHandler = Box::new(move |_| {});
         let gateway = GatewayWrapperMock::new()
             .get_external_ip_result(Ok(Ipv4Addr::from_str("1.2.3.4").unwrap()));
-            // No call to add_port_result; if the MUT tries to remap a port, the test will fail.
+        // No call to add_port_result; if the MUT tries to remap a port, the test will fail.
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
-            housekeeping_commander_opt: Some (tx.clone()),
+            housekeeping_commander_opt: Some(tx.clone()),
             public_ip_opt: None,
             mapping_adder: Box::new(MappingAdderMock::new()), // no provision for add_mapping()
             logger: Logger::new("no_remap_test"),
         }));
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(MappingConfig {
-            hole_port: 6666,
-            next_lifetime: Duration::from_secs(0),
-            remap_interval: Duration::from_secs(1),
-        })).unwrap();
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            MappingConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs(0),
+                remap_interval: Duration::from_secs(1),
+            },
+        ))
+        .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
         let _ = IgdpTransactor::thread_guts(10, change_handler, inner_arc, rx);
@@ -1374,8 +1395,8 @@ mod tests {
         IgdpTransactor::thread_guts_iteration(
             &change_handler,
             &inner_arc,
-            &mut Instant::now().sub (Duration::from_secs(1000)),
-            &Some (mapping_config),
+            &mut Instant::now().sub(Duration::from_secs(1000)),
+            &Some(mapping_config),
         );
 
         let (_, hole_port, lifetime) = add_mapping_params_arc.lock().unwrap().remove(0);
@@ -1385,21 +1406,21 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Must InitializeMappingConfig before you can SetRemapIntervalMs")]
+    #[should_panic(expected = "Must InitializeMappingConfig before you can SetRemapIntervalMs")]
     fn thread_guts_panics_if_remap_interval_is_set_in_absence_of_mapping_config() {
         let (tx, rx) = unbounded();
         let change_handler: ChangeHandler = Box::new(move |_| {});
         let public_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
-        let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result(Ok(public_ip));
+        let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(public_ip));
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
-            housekeeping_commander_opt: Some (tx.clone()),
-            public_ip_opt: Some (public_ip),
+            housekeeping_commander_opt: Some(tx.clone()),
+            public_ip_opt: Some(public_ip),
             mapping_adder: Box::new(MappingAdderMock::new()),
             logger: Logger::new("test"),
         }));
-        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1234)).unwrap();
+        tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1234))
+            .unwrap();
 
         let _ = IgdpTransactor::thread_guts(10, change_handler, inner_arc, rx);
     }
@@ -1437,7 +1458,7 @@ mod tests {
             &change_handler,
             &inner_arc,
             &mut Instant::now(),
-            &Some (MappingConfig {
+            &Some(MappingConfig {
                 hole_port: 6666,
                 next_lifetime: Duration::from_secs(0),
                 remap_interval: Duration::from_millis(1000),
@@ -1501,7 +1522,7 @@ mod tests {
             &change_handler,
             &inner_arc,
             &mut Instant::now().sub(Duration::from_secs(1)),
-            &Some (MappingConfig {
+            &Some(MappingConfig {
                 hole_port: 6689,
                 next_lifetime: Duration::from_secs(600),
                 remap_interval: Duration::from_secs(0),

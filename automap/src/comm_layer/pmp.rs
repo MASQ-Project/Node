@@ -127,7 +127,9 @@ impl Transactor for PmpTransactor {
                 self.housekeeper_commander_opt
                     .as_ref()
                     .expect("Housekeeping thread is dead")
-                    .send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
+                    .send(HousekeepingThreadCommand::InitializeMappingConfig(
+                        mapping_config,
+                    ))
                     .expect("Housekeeping thread is dead");
                 remap_interval
             })
@@ -1202,15 +1204,18 @@ mod tests {
         let result = subject.add_mapping(
             &Arc::new(Mutex::new(factories)),
             SocketAddr::new(router_ip, ROUTER_PORT),
-            &mut mapping_config
+            &mut mapping_config,
         );
 
-        assert_eq! (result, Ok(617));
-        assert_eq! (mapping_config, MappingConfig {
-            hole_port: 6666,
-            next_lifetime: Duration::from_secs(1234),
-            remap_interval: Duration::from_secs(617),
-        });
+        assert_eq!(result, Ok(617));
+        assert_eq!(
+            mapping_config,
+            MappingConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs(1234),
+                remap_interval: Duration::from_secs(617),
+            }
+        );
     }
 
     #[test]
@@ -1326,7 +1331,9 @@ mod tests {
             .make_result(Ok(announcement_socket))
             .make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
-        subject.start_housekeeping_thread(Box::new(|_| ()), router_ip).unwrap();
+        subject
+            .start_housekeeping_thread(Box::new(|_| ()), router_ip)
+            .unwrap();
 
         let result = subject.add_mapping(router_ip, 7777, 10);
 
@@ -1520,9 +1527,11 @@ mod tests {
             .housekeeper_commander_opt
             .as_ref()
             .unwrap()
-            .send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
+            .send(HousekeepingThreadCommand::InitializeMappingConfig(
+                mapping_config,
+            ))
             .unwrap();
-        thread::sleep (Duration::from_millis (50)); // wait for first announcement read to time out
+        thread::sleep(Duration::from_millis(50)); // wait for first announcement read to time out
         let announcement_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
         announce_socket.set_broadcast(true).unwrap();
@@ -1594,8 +1603,10 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
-            .unwrap();
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            mapping_config,
+        ))
+        .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
@@ -1648,8 +1659,10 @@ mod tests {
             .start_housekeeping_thread(Box::new(change_handler), router_ip)
             .unwrap();
 
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
-            .unwrap();
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            mapping_config,
+        ))
+        .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
@@ -1770,8 +1783,10 @@ mod tests {
             next_lifetime: Duration::from_secs(2),
             remap_interval: Duration::from_secs(1),
         };
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
-            .unwrap();
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            mapping_config,
+        ))
+        .unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000))
             .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
@@ -1814,8 +1829,10 @@ mod tests {
             next_lifetime: Duration::from_secs(1000),
             remap_interval: Duration::from_millis(80),
         };
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
-            .unwrap();
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            mapping_config,
+        ))
+        .unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
             .unwrap();
 

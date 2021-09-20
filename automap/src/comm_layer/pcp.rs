@@ -145,8 +145,10 @@ impl Transactor for PcpTransactor {
             .0;
         self.housekeeper_commander_opt
             .as_ref()
-            .expect ("Start housekeeping thread before adding a mapping")
-            .try_send (HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
+            .expect("Start housekeeping thread before adding a mapping")
+            .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
+                mapping_config,
+            ))
             .unwrap();
         Ok(approved_lifetime / 2)
     }
@@ -1195,7 +1197,7 @@ mod tests {
         let free_port_factory = FreePortFactoryMock::new().make_result(34567);
         let (tx, rx) = unbounded();
         let mut subject = PcpTransactor::default();
-        subject.housekeeper_commander_opt = Some (tx);
+        subject.housekeeper_commander_opt = Some(tx);
         {
             let factories = &mut subject.inner_arc.lock().unwrap().factories;
             factories.socket_factory = Box::new(socket_factory);
@@ -1208,13 +1210,16 @@ mod tests {
         assert_eq!(result, Ok(4000));
         let mapping_config = match rx.try_recv().unwrap() {
             HousekeepingThreadCommand::InitializeMappingConfig(mc) => mc,
-            x => panic! ("Expecting AddMappingConfig, got {:?}", x),
+            x => panic!("Expecting AddMappingConfig, got {:?}", x),
         };
-        assert_eq! (mapping_config, MappingConfig {
-            hole_port: 6666,
-            next_lifetime: Duration::from_secs (8000),
-            remap_interval: Duration::from_secs(4000),
-        });
+        assert_eq!(
+            mapping_config,
+            MappingConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs(8000),
+                remap_interval: Duration::from_secs(4000),
+            }
+        );
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
             *make_params,
@@ -1412,7 +1417,9 @@ mod tests {
             .housekeeper_commander_opt
             .as_ref()
             .unwrap()
-            .try_send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
+            .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
+                mapping_config,
+            ))
             .unwrap();
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
@@ -1627,8 +1634,10 @@ mod tests {
             next_lifetime: Duration::from_secs(1),
             remap_interval: Duration::from_millis(500),
         };
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
-            .unwrap();
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            mapping_config,
+        ))
+        .unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(1000))
             .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
@@ -1725,8 +1734,10 @@ mod tests {
             next_lifetime: Duration::from_secs(1000),
             remap_interval: Duration::from_secs(500),
         };
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
-            .unwrap();
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            mapping_config,
+        ))
+        .unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
             .unwrap();
 
@@ -1769,11 +1780,13 @@ mod tests {
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
         let logger = Logger::new("thread_guts_logs_if_error_receiving_pcp_packet");
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(MappingConfig {
-            hole_port: 0,
-            next_lifetime: Duration::from_secs(u32::MAX as u64),
-            remap_interval: Duration::from_secs((u32::MAX / 2) as u64),
-        }))
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            MappingConfig {
+                hole_port: 0,
+                next_lifetime: Duration::from_secs(u32::MAX as u64),
+                remap_interval: Duration::from_secs((u32::MAX / 2) as u64),
+            },
+        ))
         .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
@@ -1807,11 +1820,13 @@ mod tests {
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
         let logger = Logger::new("thread_guts_logs_if_unparseable_pcp_packet_arrives");
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(MappingConfig {
-            hole_port: 0,
-            next_lifetime: Duration::from_secs(u32::MAX as u64),
-            remap_interval: Duration::from_secs((u32::MAX / 2) as u64),
-        }))
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            MappingConfig {
+                hole_port: 0,
+                next_lifetime: Duration::from_secs(u32::MAX as u64),
+                remap_interval: Duration::from_secs((u32::MAX / 2) as u64),
+            },
+        ))
         .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
@@ -1958,11 +1973,13 @@ mod tests {
             change_opt_arc_inner.lock().unwrap().replace(change);
         });
         let logger = Logger::new("thread_guts_complains_if_remapping_fails");
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(MappingConfig {
-            hole_port: 0,
-            next_lifetime: Duration::from_secs(u32::MAX as u64),
-            remap_interval: Duration::from_secs((u32::MAX / 2) as u64),
-        }))
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            MappingConfig {
+                hole_port: 0,
+                next_lifetime: Duration::from_secs(u32::MAX as u64),
+                remap_interval: Duration::from_secs((u32::MAX / 2) as u64),
+            },
+        ))
         .unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
             .unwrap();
