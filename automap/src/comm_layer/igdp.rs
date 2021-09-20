@@ -3,7 +3,6 @@
 use crate::comm_layer::pcp_pmp_common::MappingConfig;
 use crate::comm_layer::{
     AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor,
-    DEFAULT_MAPPING_LIFETIME_SECONDS,
 };
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crossbeam_channel::{unbounded, Receiver, Sender};

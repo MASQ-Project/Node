@@ -143,7 +143,11 @@ impl Transactor for PcpTransactor {
                 &mut mapping_config,
             )?
             .0;
-        todo! ("Send mapping_config to the Housekeeping thread");
+        self.housekeeper_commander_opt
+            .as_ref()
+            .expect ("Start housekeeping thread before adding a mapping")
+            .try_send (HousekeepingThreadCommand::InitializeMappingConfig(mapping_config))
+            .unwrap();
         Ok(approved_lifetime / 2)
     }
 
