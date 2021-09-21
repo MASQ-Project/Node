@@ -88,7 +88,7 @@ pub mod standard {
 
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchain_interface::{chain_id_from_name, blockchain_from_chain_id};
+    use crate::blockchain::blockchain_interface::{blockchain_from_chain_id, chain_id_from_name};
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
@@ -115,11 +115,12 @@ pub mod standard {
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use masq_lib::utils::WrapResult;
+    use regex::Regex;
     use rustc_hex::FromHex;
     use std::ops::Deref;
     use std::str::FromStr;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -140,6 +141,10 @@ pub mod standard {
                 config_file_vcl,
             ],
         )?;
+        eprintln!(
+            "neighbors right after mc creation {:?}",
+            value_m!(multi_config, "neighbors", String)
+        );
         let data_directory = config_file_path
             .parent()
             .map(|dir| dir.to_path_buf())
@@ -147,6 +152,28 @@ pub mod standard {
         let real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper);
         GatheredParams::new(multi_config, data_directory, real_user).wrap_to_ok()
     }
+
+    // fn escape_dollar_signs_in_descriptors_if_some(args: &[String]) ->Vec<String>{
+    //     let neighbors_idx = args.iter().position(|arg|**arg == "--neighbors".to_string());
+    //     if let Some(idx) = neighbors_idx {
+    //         if args.len() > idx {
+    //             let regex = descriptor_regex_with_rough_match();
+    //             let potential_neighbors = &args[idx + 1];
+    //             if regex.is_match(potential_neighbors) {
+    //                 let adjusted = potential_neighbors.replace("$", "00000000");
+    //                 eprintln!("adjusted {}",adjusted);
+    //                 let mut owned_vec = args.to_vec();
+    //                 owned_vec[idx + 1] = adjusted;
+    //                 eprintln!("returned after change {:?}",owned_vec);
+    //                 return owned_vec
+    //             }
+    //         }
+    //     } args.to_vec()
+    // }
+    //
+    // fn descriptor_regex_with_rough_match()->Regex {
+    //     Regex::new(r"(([^:]*\$(\w)+(:|@)[\d.]*[\d,]*,?)*)").expect("regex failed")
+    // }
 
     pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
         config.port_configurations.insert(
@@ -383,6 +410,10 @@ pub mod standard {
         match value_m!(multi_config, "neighbors", String) {
             None => Ok(None),
             Some(joined_configs) => {
+                eprintln!(
+                    "joined_config in convert ci configs: {:?}",
+                    joined_configs.clone()
+                );
                 let cli_configs: Vec<String> = joined_configs
                     .split(',')
                     .map(|s| s.to_string())
@@ -687,11 +718,13 @@ pub mod standard {
         use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
         use crate::sub_lib::utils::make_new_test_multi_config;
         use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-        use crate::test_utils::pure_test_utils::{make_default_persistent_configuration, make_simplified_multi_config};
+        use crate::test_utils::pure_test_utils::{
+            make_default_persistent_configuration, make_simplified_multi_config,
+        };
         use crate::test_utils::ArgsBuilder;
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-        use masq_lib::utils::running_test;
+        use masq_lib::utils::{running_test, SliceToVec};
         use std::sync::{Arc, Mutex};
 
         #[test]
@@ -839,8 +872,13 @@ pub mod standard {
 
         #[test]
         fn convert_ci_configs_handles_blockchain_mismatch() {
-            let multi_config = make_simplified_multi_config(["MASQNode","--neighbors",
-                "abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw$ETH~tA:12.23.34.45:5678","--chain",DEFAULT_CHAIN_NAME]);
+            let multi_config = make_simplified_multi_config([
+                "MASQNode",
+                "--neighbors",
+                "abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw$ETH~tA:12.23.34.45:5678",
+                "--chain",
+                DEFAULT_CHAIN_NAME,
+            ]);
 
             let result = standard::convert_ci_configs(&multi_config).err().unwrap();
 
@@ -852,6 +890,60 @@ pub mod standard {
                 )
             )
         }
+
+        // #[test]
+        // fn descriptor_regex_helps_catch_a_descriptorlike_string(){
+        //     let descriptor = "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4$ETH@1.2.3.4:1234;2345";
+        //
+        //     assert!(descriptor_regex_with_rough_match().is_match(descriptor))
+        // }
+        //
+        // #[test]
+        // fn descriptor_regex_helps_find_a_descriptorlike_string_even_if_more_than_one(){
+        //     todo!("finish and rename");
+        //     let descriptor = "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4$ETH@1.2.3.4:1234;2345,Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk$ETH2.3.4.53456;4567";
+        //
+        //     assert!(!descriptor_regex_with_rough_match().is_match(descriptor))
+        // }
+        //
+        // #[test]
+        // fn descriptor_regex_is_benevolent_to_incomplete_descriptor_with_dollar_sign(){
+        //     let descriptor = "$ETH@1.2.3.4:1234;2345";
+        //
+        //     assert!(descriptor_regex_with_rough_match().is_match(descriptor))
+        // }
+        //
+        // #[test]
+        // fn descriptor_regex_refuses_a_descriptor_where_one_of_two_main_delimiters_is_missing(){   //$...:/@
+        //     let descriptor = "mhtjjdMt7Gy$ETH~tA1.2.4.5";
+        //
+        //     assert!(!descriptor_regex_with_rough_match().is_match(descriptor))
+        // }
+        //
+        // #[test]
+        // fn descriptor_regex_is_tolerant_to_a_descriptor_without_node_addr(){
+        //     let descriptor = "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4$ETH@";
+        //
+        //     assert!(descriptor_regex_with_rough_match().is_match(descriptor))
+        // }
+        //
+        // #[test]
+        // fn escaping_of_dollar_signs_works(){
+        //     let args = ["program","--ui-port","45123","--log-level","off","--neighbors","abJ5XvhVbmVyGejkYUkmfNnWQxFw$ETH@:12.23.34.45:5678,mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4$ETH@1.2.3.4:1234","--chain","dev"].array_of_borrows_to_vec();
+        //
+        //     let result = standard::escape_dollar_signs_in_descriptors_if_some(&args);
+        //
+        //     assert_eq!(result,["program","--ui-port","45123","--log-level","off","--neighbors","abJ5XvhVbmVyGejkYUkmfNnWQxFw\\$ETH@:12.23.34.45:5678,mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4\\$ETH@1.2.3.4:1234","--chain","dev"].array_of_borrows_to_vec())
+        // }
+        //
+        // #[test]
+        // fn wrongly_formatted_descriptors_return_back_with_all_args_unchanged_including_them(){
+        //     let args = ["program","--ui-port","45123","--log-level","off","--neighbors","mhtjjdMt7Gy$ETH~tA1.2.4.5","--chain","dev"].array_of_borrows_to_vec();
+        //
+        //     let result = standard::escape_dollar_signs_in_descriptors_if_some(&args);
+        //
+        //     assert_eq!(result,args)
+        // }
 
         #[test]
         fn get_earning_wallet_from_address_handles_attempted_wallet_change() {
@@ -1010,14 +1102,19 @@ mod tests {
         make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_PLATFORM};
+    use masq_lib::constants::{
+        DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_PLATFORM,
+        DEFAULT_UI_PORT,
+    };
     use masq_lib::multi_config::{
         CommandLineVcl, ConfigFileVcl, NameValueVclArg, VclArg, VirtualCommandLine,
     };
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
     use masq_lib::utils::{running_test, SliceToVec};
     use rustc_hex::FromHex;
     use std::fs::File;
@@ -1147,7 +1244,8 @@ mod tests {
                     vec![
                         NodeDescriptor::from_str(main_cryptde(), "QmlsbA$ETH@1.2.3.4:1234;2345")
                             .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "VGVk$ETH@2.3.4.5:3456;4567").unwrap()
+                        NodeDescriptor::from_str(main_cryptde(), "VGVk$ETH@2.3.4.5:3456;4567")
+                            .unwrap()
                     ],
                     DEFAULT_RATE_PACK
                 )
@@ -1207,7 +1305,8 @@ mod tests {
             result,
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
-                    NodeDescriptor::from_str(main_cryptde(), "QmlsbA$ETH@1.2.3.4:1234;2345").unwrap(),
+                    NodeDescriptor::from_str(main_cryptde(), "QmlsbA$ETH@1.2.3.4:1234;2345")
+                        .unwrap(),
                     NodeDescriptor::from_str(main_cryptde(), "VGVk$ETH@2.3.4.5:3456;4567").unwrap()
                 ],)
             })
@@ -1732,7 +1831,8 @@ mod tests {
                     vec![
                         NodeDescriptor::from_str(main_cryptde(), "QmlsbA$ETH@1.2.3.4:1234;2345")
                             .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "VGVk$ETH@2.3.4.5:3456;4567").unwrap(),
+                        NodeDescriptor::from_str(main_cryptde(), "VGVk$ETH@2.3.4.5:3456;4567")
+                            .unwrap(),
                     ],
                     DEFAULT_RATE_PACK.clone()
                 )
@@ -1867,7 +1967,9 @@ mod tests {
         #[cfg(target_os = "linux")]
         assert_eq!(
             config.data_directory,
-            PathBuf::from("/home/booga/.local/share/MASQ").join(DEFAULT_PLATFORM).join(DEFAULT_CHAIN_DIRECTORY_NAME)
+            PathBuf::from("/home/booga/.local/share/MASQ")
+                .join(DEFAULT_PLATFORM)
+                .join(DEFAULT_CHAIN_DIRECTORY_NAME)
         );
 
         #[cfg(target_os = "macos")]

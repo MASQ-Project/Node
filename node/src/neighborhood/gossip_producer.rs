@@ -111,9 +111,9 @@ mod tests {
     use crate::test_utils::assert_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use itertools::Itertools;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn constructor_populates_last_dead_node_check() {

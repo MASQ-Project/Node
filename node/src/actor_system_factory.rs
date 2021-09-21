@@ -467,6 +467,7 @@ mod tests {
     use actix::System;
     use log::LevelFilter;
     use masq_lib::crash_point::CrashPoint;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cell::RefCell;
@@ -477,7 +478,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[derive(Default)]
     struct BannedCacheLoaderMock {

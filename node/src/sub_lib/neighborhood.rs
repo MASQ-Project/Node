@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::{delimiter_from_blockchain, CHAIN_LABEL_DELIMITER, MAINNET_DELIMITER,
-    TESTNET_DELIMITER,
+use crate::blockchain::blockchain_interface::{
+    delimiter_from_blockchain, CHAIN_LABEL_DELIMITER, MAINNET_DELIMITER, TESTNET_DELIMITER,
 };
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
@@ -124,14 +124,14 @@ pub enum Blockchain {
     Dev,
 }
 
-impl Display for Blockchain{
+impl Display for Blockchain {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self{
-            Self::EthMainnet => write!(f,"ETH mainnet"),
-            Self::EthRopsten => write!(f,"Ropsten"),
-            Self::EthRinkeby => write!(f,"Rinkeby"),
-            Self::Null => write!(f,"null"),
-            Self::Dev => write!(f,"developer's"),
+        match self {
+            Self::EthMainnet => write!(f, "ETH mainnet"),
+            Self::EthRopsten => write!(f, "Ropsten"),
+            Self::EthRinkeby => write!(f, "Rinkeby"),
+            Self::Null => write!(f, "null"),
+            Self::Dev => write!(f, "developer's"),
         }
     }
 }
@@ -139,8 +139,8 @@ impl Display for Blockchain{
 //TODO in terms of optimization we can make our own impl of serde for blockchain
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeDescriptor {
-    pub encryption_public_key: PublicKey,
     pub blockchain: Blockchain,
+    pub encryption_public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
 }
 
@@ -148,12 +148,12 @@ impl From<(&PublicKey, &NodeAddr, Blockchain, &dyn CryptDE)> for NodeDescriptor 
     fn from(tuple: (&PublicKey, &NodeAddr, Blockchain, &dyn CryptDE)) -> Self {
         let (public_key, node_addr, blockchain, cryptde) = tuple;
         NodeDescriptor {
+            blockchain,
             encryption_public_key: cryptde
                 .descriptor_fragment_to_first_contact_public_key(
                     &cryptde.public_key_to_descriptor_fragment(public_key),
                 )
                 .expect("Internal error"),
-            blockchain,
             node_addr_opt: Some(node_addr.clone()),
         }
     }
@@ -163,12 +163,12 @@ impl From<(&PublicKey, Blockchain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&PublicKey, Blockchain, &dyn CryptDE)) -> Self {
         let (public_key, blockchain, cryptde) = tuple;
         NodeDescriptor {
+            blockchain,
             encryption_public_key: cryptde
                 .descriptor_fragment_to_first_contact_public_key(
                     &cryptde.public_key_to_descriptor_fragment(public_key),
                 )
                 .expect("Internal error"),
-            blockchain,
             node_addr_opt: None,
         }
     }
@@ -178,12 +178,12 @@ impl From<(&NodeRecord, Blockchain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&NodeRecord, Blockchain, &dyn CryptDE)) -> Self {
         let (node_record, blockchain, cryptde) = tuple;
         NodeDescriptor {
+            blockchain,
             encryption_public_key: cryptde
                 .descriptor_fragment_to_first_contact_public_key(
                     &cryptde.public_key_to_descriptor_fragment(node_record.public_key()),
                 )
                 .expect("Internal error"),
-            blockchain,
             node_addr_opt: node_record.node_addr_opt(),
         }
     }
@@ -200,8 +200,8 @@ impl NodeDescriptor {
         };
 
         Ok(NodeDescriptor {
-            encryption_public_key,
             blockchain,
+            encryption_public_key,
             node_addr_opt,
         })
     }
@@ -212,30 +212,31 @@ impl NodeDescriptor {
     const DEV_LABEL: &'static str = "DEV";
 
     //TODO should I change this to FROM pattern?
-    pub fn label_from_blockchain(blockchain:Blockchain)->&'static str{
-       match blockchain{
-           Blockchain::EthMainnet => Self::ETH_MAINNET_LABEL,
-           Blockchain::EthRopsten => Self::ETH_ROPSTEN_LABEL,
-           Blockchain::EthRinkeby => Self::ETH_RINKEBY_LABEL,
-           Blockchain::Null => "",
-           Blockchain::Dev => Self::DEV_LABEL, //TODO will this be right?
-       }
+    pub fn label_from_blockchain(blockchain: Blockchain) -> &'static str {
+        match blockchain {
+            Blockchain::EthMainnet => Self::ETH_MAINNET_LABEL,
+            Blockchain::EthRopsten => Self::ETH_ROPSTEN_LABEL,
+            Blockchain::EthRinkeby => Self::ETH_RINKEBY_LABEL,
+            Blockchain::Null => "",
+            Blockchain::Dev => Self::DEV_LABEL, //TODO will this be right?
+        }
     }
 
     //TODO should I change this to FROM pattern?
     //TODO untested
-    pub fn blockchain_from_label(label:&str)->Blockchain{
-        match label{
+    pub fn blockchain_from_label(label: &str) -> Blockchain {
+        match label {
             Self::ETH_MAINNET_LABEL => Blockchain::EthMainnet,
             Self::ETH_ROPSTEN_LABEL => Blockchain::EthRopsten,
             Self::ETH_RINKEBY_LABEL => Blockchain::EthRinkeby,
             "" => Blockchain::Null,
-            Self::DEV_LABEL => Blockchain::Dev , //TODO will this be right?
-            _ => unreachable!()
+            Self::DEV_LABEL => Blockchain::Dev, //TODO will this be right?
+            _ => unreachable!(),
         }
     }
 
     fn try_dismantle_str(str_descriptor: &str) -> Result<(&str, Blockchain, &str), String> {
+        eprintln!("we received this descriptor to process: {}", str_descriptor);
         let (halves, mainnet): (Vec<&str>, bool) = if str_descriptor.contains(MAINNET_DELIMITER) {
             (str_descriptor.splitn(2, MAINNET_DELIMITER).collect(), true)
         } else {
@@ -259,7 +260,8 @@ impl NodeDescriptor {
             }
             (Self::ETH_ROPSTEN_LABEL, false) => Blockchain::EthRopsten,
             (Self::ETH_RINKEBY_LABEL, false) => Blockchain::EthRinkeby,
-            (Self::ETH_ROPSTEN_LABEL | Self::ETH_RINKEBY_LABEL, true) => {
+            (Self::DEV_LABEL,false) => Blockchain::Dev,
+            (Self::ETH_ROPSTEN_LABEL | Self::ETH_RINKEBY_LABEL | Self::DEV_LABEL, true) => {
                 return Err(format!(
                     "Label '{}' means testnet and therefore must be followed by '{}' delimiter",
                     blockchain_label, TESTNET_DELIMITER
@@ -295,7 +297,7 @@ impl NodeDescriptor {
         let label = Self::label_from_blockchain(self.blockchain);
         format!(
             "{}{}{}{}{}",
-            contact_public_key_string,CHAIN_LABEL_DELIMITER,label, delimiter, node_addr_string
+            contact_public_key_string, CHAIN_LABEL_DELIMITER, label, delimiter, node_addr_string
         )
     }
 }
@@ -481,9 +483,9 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use masq_lib::utils::localhost;
     use std::str::FromStr;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
         RatePack {
@@ -554,6 +556,30 @@ mod tests {
     }
 
     #[test]
+    fn try_dismantle_str_works_for_dev_chain() {
+        let descriptor = "as45cs5c5$DEV:1.2.3.4:4444";
+
+        let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
+
+        assert_eq!(result, ("as45cs5c5", Blockchain::Dev, "1.2.3.4:4444"))
+    }
+
+    #[test]
+    fn try_dismantle_str_refuses_dev_chain_with_mainnet_delimiter() {
+        let descriptor = "as45cs5c5$DEV@1.2.3.4:4444";
+
+        let result = NodeDescriptor::try_dismantle_str(descriptor);
+
+        assert_eq!(
+            result,
+            Err(
+                "Label 'DEV' means testnet and therefore must be followed by ':' delimiter"
+                    .to_string()
+            )
+        )
+    }
+
+    #[test]
     fn try_dismantle_str_uncovers_fault_in_wrong_chain_delimiter_for_ethereum_mainnet() {
         let descriptor = "as45cs5c5$ETH:1.2.3.4:4444";
 
@@ -612,25 +638,25 @@ mod tests {
     }
 
     #[test]
-    fn label_from_blockchain_returns_right_labels(){
-        assert_label(Blockchain::Null,"");
-        assert_label(Blockchain::EthMainnet,NodeDescriptor::ETH_MAINNET_LABEL);
-        assert_label(Blockchain::EthRopsten,NodeDescriptor::ETH_ROPSTEN_LABEL);
-        assert_label(Blockchain::EthRinkeby,NodeDescriptor::ETH_RINKEBY_LABEL);
+    fn label_from_blockchain_returns_right_labels() {
+        assert_label(Blockchain::Null, "");
+        assert_label(Blockchain::EthMainnet, NodeDescriptor::ETH_MAINNET_LABEL);
+        assert_label(Blockchain::EthRopsten, NodeDescriptor::ETH_ROPSTEN_LABEL);
+        assert_label(Blockchain::EthRinkeby, NodeDescriptor::ETH_RINKEBY_LABEL);
         //assert_label(Blockchain::Dev,NodeDescriptor::ETH_RINKEBY) //TODO finish this
     }
 
-    fn assert_label(blockchain:Blockchain,expected:&str){
-        assert_eq!(NodeDescriptor::label_from_blockchain(blockchain),expected)
+    fn assert_label(blockchain: Blockchain, expected: &str) {
+        assert_eq!(NodeDescriptor::label_from_blockchain(blockchain), expected)
     }
 
     #[test]
-    fn blockchain_implements_display(){
-        assert_eq!(Blockchain::EthMainnet.to_string(),"ETH mainnet");
-        assert_eq!(Blockchain::EthRopsten.to_string(),"Ropsten");
-        assert_eq!(Blockchain::EthRinkeby.to_string(),"Rinkeby");
-        assert_eq!(Blockchain::Null.to_string(),"null");
-        assert_eq!(Blockchain::Null.to_string(),"developer's");
+    fn blockchain_implements_display() {
+        assert_eq!(Blockchain::EthMainnet.to_string(), "ETH mainnet");
+        assert_eq!(Blockchain::EthRopsten.to_string(), "Ropsten");
+        assert_eq!(Blockchain::EthRinkeby.to_string(), "Rinkeby");
+        assert_eq!(Blockchain::Null.to_string(), "null");
+        assert_eq!(Blockchain::Null.to_string(), "developer's");
     }
 
     #[test]
@@ -787,7 +813,10 @@ mod tests {
 
         let result = subject.to_string(cryptde);
 
-        assert_eq!(result, "AQIDBAUGBwg$ETH~tB:123.45.67.89:2345;3456".to_string());
+        assert_eq!(
+            result,
+            "AQIDBAUGBwg$ETH~tB:123.45.67.89:2345;3456".to_string()
+        );
     }
 
     #[test]

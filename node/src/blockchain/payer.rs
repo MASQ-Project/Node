@@ -64,8 +64,8 @@ mod tests {
     use crate::sub_lib::cryptde;
     use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
     use crate::test_utils::make_payer;
-    use rustc_hex::FromHex;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use rustc_hex::FromHex;
 
     #[test]
     fn can_pay_validates_payer_owns_wallet_secret_key() {

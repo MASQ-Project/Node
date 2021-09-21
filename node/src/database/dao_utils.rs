@@ -50,8 +50,8 @@ impl DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use std::str::FromStr;
 
     #[test]
     #[should_panic(expected = "Failed to connect to database at \"nonexistent")]

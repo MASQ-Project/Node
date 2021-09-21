@@ -163,7 +163,10 @@ mod tests {
     use bip39::{Language, MnemonicType, Seed};
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_PLATFORM, TEST_DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+        TEST_DEFAULT_PLATFORM,
+    };
     use masq_lib::utils::derivation_path;
 
     #[test]

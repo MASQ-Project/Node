@@ -351,9 +351,9 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::iter::FromIterator;
     use std::str::FromStr;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {

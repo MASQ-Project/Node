@@ -535,9 +535,9 @@ mod tests {
     };
     use actix::System;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {

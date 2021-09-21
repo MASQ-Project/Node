@@ -106,9 +106,9 @@ mod tests {
     use crate::test_utils::{
         main_cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
     };
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {
@@ -174,7 +174,10 @@ mod tests {
             route.shift(&destination_cryptde).unwrap(),
             LiveHop::new(
                 &public_key,
-                Some(paying_wallet.as_payer(&destination_key, &contract_address(TEST_DEFAULT_CHAIN_ID))),
+                Some(
+                    paying_wallet
+                        .as_payer(&destination_key, &contract_address(TEST_DEFAULT_CHAIN_ID))
+                ),
                 Component::Neighborhood,
             )
         );

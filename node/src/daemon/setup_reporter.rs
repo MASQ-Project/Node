@@ -881,9 +881,12 @@ mod tests {
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_PLATFORM};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_PLATFORM};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_PLATFORM,
+    };
     use std::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
@@ -892,7 +895,6 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_PLATFORM};
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1263,7 +1265,10 @@ mod tests {
             "switching_config_files_changes_setup",
         );
         let data_root = home_dir.join("data_root");
-        let mainnet_dir = data_root.join("MASQ").join(DEFAULT_PLATFORM).join(DEFAULT_CHAIN_DIRECTORY_NAME);
+        let mainnet_dir = data_root
+            .join("MASQ")
+            .join(DEFAULT_PLATFORM)
+            .join(DEFAULT_CHAIN_DIRECTORY_NAME);
         {
             std::fs::create_dir_all(mainnet_dir.clone()).unwrap();
             let mut config_file = File::create(mainnet_dir.join("config.toml")).unwrap();
@@ -1290,7 +1295,10 @@ mod tests {
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
         }
-        let ropsten_dir = data_root.join("MASQ").join(TEST_DEFAULT_PLATFORM).join(TEST_DEFAULT_CHAIN_NAME);
+        let ropsten_dir = data_root
+            .join("MASQ")
+            .join(TEST_DEFAULT_PLATFORM)
+            .join(TEST_DEFAULT_CHAIN_NAME);
         {
             std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
             let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
@@ -1317,9 +1325,10 @@ mod tests {
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
         }
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperMock::new()
-                                                     .home_dir_result(Some(home_dir.clone()))
-                                                     .data_dir_result(Some(data_root.clone()))
+        let subject = SetupReporterReal::new(Box::new(
+            DirsWrapperMock::new()
+                .home_dir_result(Some(home_dir.clone()))
+                .data_dir_result(Some(data_root.clone())),
         ));
 
         let params = vec![UiSetupRequestValue::new("chain", DEFAULT_CHAIN_NAME)];
@@ -1530,7 +1539,10 @@ mod tests {
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
         let base_data_dir = base_dir.join("data_dir");
-        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_PLATFORM).join(TEST_DEFAULT_CHAIN_NAME);
+        let expected_data_directory = base_data_dir
+            .join("MASQ")
+            .join(TEST_DEFAULT_PLATFORM)
+            .join(TEST_DEFAULT_CHAIN_NAME);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))
@@ -1590,7 +1602,10 @@ mod tests {
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
         let base_data_dir = base_dir.join("data_dir");
-        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_PLATFORM).join(TEST_DEFAULT_CHAIN_NAME);
+        let expected_data_directory = base_data_dir
+            .join("MASQ")
+            .join(TEST_DEFAULT_PLATFORM)
+            .join(TEST_DEFAULT_CHAIN_NAME);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))

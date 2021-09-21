@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::masq_node::MASQNode;
-use masq_lib::test_utils::utils::{TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID};
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID;
 use node_lib::neighborhood::gossip::{GossipNodeRecord, Gossip_0v1};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;

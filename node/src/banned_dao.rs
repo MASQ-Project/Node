@@ -150,7 +150,10 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+        TEST_DEFAULT_CHAIN_ID,
+    };
     use rusqlite::NO_PARAMS;
 
     #[test]

@@ -1263,8 +1263,10 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
-    use masq_lib::constants::{TLS_PORT, DEFAULT_CHAIN_NAME};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_CHAIN_ID};
+    use masq_lib::constants::{DEFAULT_CHAIN_NAME, TLS_PORT};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::utils::running_test;
@@ -1278,7 +1280,9 @@ mod tests {
     use tokio::prelude::Future;
 
     #[test]
-    #[should_panic(expected = "Neighbor AQIDBA$ETH~tA:1.2.3.4:1234 is not on the mainnet blockchain")]
+    #[should_panic(
+        expected = "Neighbor AQIDBA$ETH~tA:1.2.3.4:1234 is not on the mainnet blockchain"
+    )]
     fn cant_create_mainnet_neighborhood_with_non_mainnet_neighbors() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
@@ -2902,11 +2906,19 @@ mod tests {
         let neighbors = neighbors_opt.unwrap();
         assert_contains(
             &neighbors,
-            &NodeDescriptor::from((&old_neighbor, blockchain_from_chain_id(TEST_DEFAULT_CHAIN_ID), cryptde)),
+            &NodeDescriptor::from((
+                &old_neighbor,
+                blockchain_from_chain_id(TEST_DEFAULT_CHAIN_ID),
+                cryptde,
+            )),
         );
         assert_contains(
             &neighbors,
-            &NodeDescriptor::from((&new_neighbor, blockchain_from_chain_id(TEST_DEFAULT_CHAIN_ID), cryptde)),
+            &NodeDescriptor::from((
+                &new_neighbor,
+                blockchain_from_chain_id(TEST_DEFAULT_CHAIN_ID),
+                cryptde,
+            )),
         );
         assert_eq!(neighbors.len(), 2);
         assert_eq!(db_password, "password".to_string());

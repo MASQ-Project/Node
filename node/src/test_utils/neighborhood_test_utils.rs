@@ -13,10 +13,10 @@ use crate::sub_lib::neighborhood::{
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(

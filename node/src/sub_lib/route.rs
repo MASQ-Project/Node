@@ -152,7 +152,7 @@ impl Route {
         if let Some(error) = Route::validate_route_segments(&over, &back) {
             return Err(CodexError::RoutingError(error));
         }
-        eprintln!("{:?}",contract_address);
+        eprintln!("{:?}", contract_address);
         let over_component = over.recipient;
         let over_keys = over.keys.iter();
 
@@ -349,8 +349,8 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::make_wallet;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
-    use serde_cbor;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
+    use serde_cbor;
 
     #[test]
     fn id_decodes_return_route_id() {

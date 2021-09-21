@@ -8,7 +8,9 @@ use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
 use bip39::{Language, Mnemonic, Seed};
 use masq_lib::constants::CURRENT_LOGFILE_NAME;
-use masq_lib::test_utils::utils::{TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID, TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME};
+use masq_lib::test_utils::utils::{
+    TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID, TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME,
+};
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
@@ -790,6 +792,7 @@ impl MASQRealNode {
             .chain_opt
             .map(|chain_name| chain_id_from_name(chain_name.as_str()))
             .unwrap_or(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID);
+        eprintln!("chain id in 'start_with' {}", chain_id);
         let cryptde_null_opt = real_startup_config
             .fake_public_key_opt
             .clone()
@@ -799,7 +802,7 @@ impl MASQRealNode {
             startup_config: real_startup_config.clone(),
             name: name.clone(),
             container_ip: ip_addr,
-            node_reference: NodeReference::new(PublicKey::new(&[]), None, vec![],None), // placeholder
+            node_reference: NodeReference::new(PublicKey::new(&[]), None, vec![], None), // placeholder
             earning_wallet: real_startup_config.get_earning_wallet(),
             consuming_wallet_opt: real_startup_config.get_consuming_wallet(),
             rate_pack: DEFAULT_RATE_PACK.clone(), // replace with this when rate packs are configurable: startup_config.rate_pack.clone()
@@ -826,7 +829,7 @@ impl MASQRealNode {
         result.restart_node(restart_startup_config);
         let node_reference =
             Self::extract_node_reference(&name).expect("extracting node reference");
-eprintln!("our node reference: {}",node_reference);
+        eprintln!("our node reference: {}", node_reference);
         Rc::get_mut(&mut result.guts).unwrap().node_reference = node_reference;
         result
     }
@@ -1113,10 +1116,13 @@ eprintln!("our node reference: {}",node_reference);
                     DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
                 )
             });
-            eprintln!(">>>>>>we've got this as the raw string {}<<<<<<<<<",output.as_str());
+            eprintln!(
+                ">>>>>>we've got this as the raw string {}<<<<<<<<<",
+                output.as_str()
+            );
             match regex.captures(output.as_str()) {
                 Some(captures) => {
-                    eprintln!("we've got this as captured with regex {:?}",captures);
+                    eprintln!("we've got this as captured with regex {:?}", captures);
                     let node_reference =
                         NodeReference::from_str(captures.get(1).unwrap().as_str()).unwrap();
                     println!("{} startup detected at {}", name, node_reference);
@@ -1166,7 +1172,7 @@ impl Drop for MASQRealNodeGuts {
 mod tests {
     use super::*;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-    use masq_lib::test_utils::utils::{TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_TEST_CHAIN_NAME;
     use masq_lib::utils::localhost;
 
     #[test]
@@ -1247,13 +1253,13 @@ mod tests {
                 one_neighbor_key.clone(),
                 Some(one_neighbor_ip_addr.clone()),
                 one_neighbor_ports.clone(),
-                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID),
             ),
             NodeReference::new(
                 another_neighbor_key.clone(),
                 Some(another_neighbor_ip_addr.clone()),
                 another_neighbor_ports.clone(),
-                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID),
             ),
         ];
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
@@ -1324,13 +1330,13 @@ mod tests {
                 one_neighbor_key.clone(),
                 Some(one_neighbor_ip_addr.clone()),
                 one_neighbor_ports.clone(),
-                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID),
             ),
             NodeReference::new(
                 another_neighbor_key.clone(),
                 Some(another_neighbor_ip_addr.clone()),
                 another_neighbor_ports.clone(),
-                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+                Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID),
             ),
         ];
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
@@ -1373,13 +1379,13 @@ mod tests {
             PublicKey::new(&[1, 2, 3, 4]),
             Some(IpAddr::from_str("4.5.6.7").unwrap()),
             vec![1234, 2345],
-            Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+            Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID),
         );
         let another_neighbor = NodeReference::new(
             PublicKey::new(&[2, 3, 4, 5]),
             Some(IpAddr::from_str("5.6.7.8").unwrap()),
             vec![3456, 4567],
-            Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID)
+            Some(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID),
         );
 
         let subject = NodeStartupConfigBuilder::standard()

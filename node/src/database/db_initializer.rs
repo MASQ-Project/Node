@@ -536,7 +536,10 @@ mod tests {
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db, DbMigratorMock,
     };
     use crate::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME, TEST_DEFAULT_CHAIN_ID};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
+        TEST_DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
+    };
     use rusqlite::types::Type::Null;
     use rusqlite::{Error, OpenFlags};
     use std::fs::File;

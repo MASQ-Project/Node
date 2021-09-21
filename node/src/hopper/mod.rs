@@ -144,9 +144,9 @@ mod tests {
     };
     use actix::Actor;
     use actix::System;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
 
     #[test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]

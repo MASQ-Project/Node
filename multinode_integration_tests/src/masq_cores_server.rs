@@ -139,7 +139,7 @@ impl MASQCoresServer {
                 &self.socket_addr.ip(),
                 &[self.socket_addr.port()],
             )),
-            chain_id: None
+            chain_id: None,
         }
     }
 
