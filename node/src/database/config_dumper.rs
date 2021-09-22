@@ -246,9 +246,9 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(main_cryptde(), "QUJDREVGRw$ETH@1.2.3.4:1234")
+                        NodeDescriptor::from_str(main_cryptde(), "masq://eth.QUJDREVGRw:1.2.3.4:1234")
                             .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "QkNERUZHSA$ETH@2.3.4.5:2345")
+                        NodeDescriptor::from_str(main_cryptde(), "masq://eth.QkNERUZHSA:2.3.4.5:2345")
                             .unwrap(),
                     ]),
                     "password",
@@ -341,12 +341,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU$ETH@1.2.3.4:1234",
+                            "masq://eth.QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU:1.2.3.4:1234",
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY$ETH@2.3.4.5:2345",
+                            "masq://eth.QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY:2.3.4.5:2345",
                         )
                         .unwrap(),
                     ]),
@@ -389,7 +389,7 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
         );
         check("gasPrice", "1");
-        check("pastNeighbors", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU$ETH@1.2.3.4:1234,QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY$ETH@2.3.4.5:2345");
+        check("pastNeighbors", "masq://eth.QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU:1.2.3.4:1234,masq://eth.QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY:2.3.4.5:2345");
         check("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string());
         check(
             "startBlock",
@@ -443,12 +443,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU$ETH@1.2.3.4:1234",
+                            "masq://eth.QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU:1.2.3.4:1234",
                         )
                         .unwrap(),
                         NodeDescriptor::from_str(
                             main_cryptde(),
-                            "QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY$ETH@2.3.4.5:2345",
+                            "masq://eth.QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY:2.3.4.5:2345",
                         )
                         .unwrap(),
                     ]),

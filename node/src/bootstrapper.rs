@@ -3,7 +3,7 @@ use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_
 use crate::actor_system_factory::ActorFactoryReal;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::blockchain::blockchain_interface::blockchain_from_chain_id;
+use crate::blockchain::blockchain_interface::{blockchain_from_chain_id, CHAIN_LABEL_DELIMITER};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -38,7 +38,7 @@ use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::DEFAULT_UI_PORT;
+use masq_lib::constants::{DEFAULT_UI_PORT, MASQ_URL_PREFIX};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
@@ -509,9 +509,11 @@ impl Bootstrapper {
                 node_descriptor.to_string(cryptde)
             }
             None => format!(
-                "{}${}::",
-                cryptde.public_key_to_descriptor_fragment(cryptde.public_key()),
-                NodeDescriptor::label_from_blockchain(blockchain_from_chain_id(chain_id))
+                "{}{}{}{}::",
+                MASQ_URL_PREFIX,
+                NodeDescriptor::label_from_blockchain(blockchain_from_chain_id(chain_id)),
+                CHAIN_LABEL_DELIMITER,
+                cryptde.public_key_to_descriptor_fragment(cryptde.public_key())
             ),
         };
         let descriptor_msg = format!("MASQ Node local descriptor: {}", descriptor);
@@ -634,6 +636,7 @@ mod tests {
     use std::thread;
     use tokio;
     use tokio::prelude::Async;
+    use masq_lib::constants::MASQ_URL_PREFIX;
 
     lazy_static! {
         static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1234,7 +1237,7 @@ mod tests {
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
-            "{}$ETH~tA:2.3.4.5:3456;4567",
+            "masq://eth_t1.{}:2.3.4.5:3456;4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")
@@ -1291,7 +1294,7 @@ mod tests {
         };
         let stdout_dump = holder.stdout.get_string();
         let expected_descriptor = format!(
-            "{}$ETH~tA::",
+            "masq://eth_t1.{}::",
             main_cryptde_ref.public_key_to_descriptor_fragment(main_cryptde_ref.public_key())
         );
         let regex = Regex::new(r"MASQ Node local descriptor: (.+?)\n")

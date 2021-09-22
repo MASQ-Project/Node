@@ -416,7 +416,7 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA$ETH~tA:1.2.3.4:1234;2345").unwrap()
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AQIDBA:1.2.3.4:1234;2345").unwrap()
         );
     }
 
@@ -429,7 +429,7 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA$ETH~tA::").unwrap()
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AQIDBA::").unwrap()
         );
     }
 

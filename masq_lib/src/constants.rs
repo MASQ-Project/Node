@@ -3,6 +3,7 @@
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
 pub const TLS_PORT: u16 = 443;
+pub const MASQ_URL_PREFIX:&str = "masq://";
 pub const DEFAULT_CHAIN_NAME: &str = "eth-mainnet";
 pub const DEFAULT_PLATFORM: &str = "eth";
 pub const DEFAULT_CHAIN_DIRECTORY_NAME: &str = "eth_mainnet";

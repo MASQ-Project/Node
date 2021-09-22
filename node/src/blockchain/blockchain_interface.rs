@@ -75,9 +75,8 @@ pub const CHAINS: [(&str, Blockchain, &str); 5] = [
    //pub const CHAIN_NAMES: [&str; 5] = ["", "eth_net","poly_net", "dev", "ropsten", "rinkeby","mumbai"];
    //pub const CHAIN_NAMES: [&str; 5] = ["", "eth_mainnet","poly_mainnet", "dev", "ropsten", "rinkeby","mumbai"];
 
-pub const MAINNET_DELIMITER: char = '@';
-pub const TESTNET_DELIMITER: char = ':';
-pub const CHAIN_LABEL_DELIMITER: char = '$';
+pub const KEY_VS_IP_DELIMITER: char = ':';
+pub const CHAIN_LABEL_DELIMITER: char = '.';
 
 pub static NODE_DESCRIPTOR_DELIMITERS: [char; 4] = ['_', '@', ':', ':']; //TODO may not be needed
 

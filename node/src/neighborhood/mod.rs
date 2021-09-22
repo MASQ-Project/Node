@@ -1281,7 +1281,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Neighbor AQIDBA$ETH~tA:1.2.3.4:1234 is not on the mainnet blockchain"
+        expected = "Neighbor masq://eth_t1.AQIDBA:1.2.3.4:1234 is not on the mainnet blockchain"
     )]
     fn cant_create_mainnet_neighborhood_with_non_mainnet_neighbors() {
         let cryptde = main_cryptde();
@@ -1290,7 +1290,7 @@ mod tests {
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
                     cryptde,
-                    "AQIDBA$ETH~tA:1.2.3.4:1234",
+                    "masq://eth_t1.AQIDBA:1.2.3.4:1234",
                 )
                 .unwrap()]),
             },
@@ -1304,7 +1304,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Neighbor AQIDBA$ETH@1.2.3.4:1234 is on the mainnet blockchain")]
+    #[should_panic(expected = "Neighbor masq://eth.AQIDBA:1.2.3.4:1234 is on the mainnet blockchain")]
     fn cant_create_non_mainnet_neighborhood_with_mainnet_neighbors() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
@@ -1312,7 +1312,7 @@ mod tests {
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from_str(
                     cryptde,
-                    "AQIDBA$ETH@1.2.3.4:1234",
+                    "masq://eth.AQIDBA:1.2.3.4:1234",
                 )
                 .unwrap()]),
             },
@@ -1416,7 +1416,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "--neighbors node descriptors must have IP address and port list, not 'AwQFBg$ETH~tA::'"
+        expected = "--neighbors node descriptors must have IP address and port list, not 'masq://eth_t1.AwQFBg::'"
     )]
     fn node_with_neighbor_config_having_no_node_addr_panics() {
         let cryptde: &dyn CryptDE = main_cryptde();

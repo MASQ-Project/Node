@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 use crate::blockchain::blockchain_interface::{
-    delimiter_from_blockchain, CHAIN_LABEL_DELIMITER, MAINNET_DELIMITER, TESTNET_DELIMITER,
+    delimiter_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER
 };
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
@@ -24,6 +24,8 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use masq_lib::constants::MASQ_URL_PREFIX;
+use regex::Regex;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,
@@ -191,7 +193,7 @@ impl From<(&NodeRecord, Blockchain, &dyn CryptDE)> for NodeDescriptor {
 
 impl NodeDescriptor {
     pub fn from_str(cryptde: &dyn CryptDE, str_descriptor: &str) -> Result<NodeDescriptor, String> {
-        let (key, blockchain, str_node_addr) = Self::try_dismantle_str(str_descriptor)?;
+        let (blockchain,key, str_node_addr) = Self::try_dismantle_str(str_descriptor)?;
         let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
         let node_addr_opt = if str_node_addr == ":" {
             None
@@ -206,10 +208,10 @@ impl NodeDescriptor {
         })
     }
 
-    const ETH_MAINNET_LABEL: &'static str = "ETH";
-    const ETH_ROPSTEN_LABEL: &'static str = "ETH~tA";
-    const ETH_RINKEBY_LABEL: &'static str = "ETH~tB";
-    const DEV_LABEL: &'static str = "DEV";
+    const ETH_MAINNET_LABEL: &'static str = "eth";
+    const ETH_ROPSTEN_LABEL: &'static str = "eth_t1";
+    const ETH_RINKEBY_LABEL: &'static str = "eth_t2";
+    const DEV_LABEL: &'static str = "dev";
 
     //TODO should I change this to FROM pattern?
     pub fn label_from_blockchain(blockchain: Blockchain) -> &'static str {
@@ -235,41 +237,26 @@ impl NodeDescriptor {
         }
     }
 
-    fn try_dismantle_str(str_descriptor: &str) -> Result<(&str, Blockchain, &str), String> {
-        eprintln!("we received this descriptor to process: {}", str_descriptor);
-        let (halves, mainnet): (Vec<&str>, bool) = if str_descriptor.contains(MAINNET_DELIMITER) {
-            (str_descriptor.splitn(2, MAINNET_DELIMITER).collect(), true)
-        } else {
-            (str_descriptor.splitn(2, TESTNET_DELIMITER).collect(), false)
-        };
+    fn try_dismantle_str(str_descriptor: &str) -> Result<(Blockchain,&str, &str), String> {
+        let without_prefix= if let Some(str) = str_descriptor.strip_prefix(MASQ_URL_PREFIX){str}else{
+            return Err(format!("Prefix or more missing. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",str_descriptor))};
+        let halves: Vec<&str>= without_prefix.splitn(2, KEY_VS_IP_DELIMITER).collect();
         if halves.len() == 1 {
-            return Err(format!("Should be <public key><chain label>[@ | :]<node address>, not '{}'; either '@' or ':' delimiter is missing",str_descriptor));
+            return Err(format!("Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",str_descriptor));
         };
         let first_half = halves[0];
         let second_half = halves[1];
         let blockchain_label = first_half
-            .rsplitn(2, CHAIN_LABEL_DELIMITER)
+            .splitn(2, CHAIN_LABEL_DELIMITER)
             .collect::<Vec<&str>>()[0];
-        let blockchain = match (blockchain_label, mainnet) {
-            (Self::ETH_MAINNET_LABEL, true) => Blockchain::EthMainnet,
-            (Self::ETH_MAINNET_LABEL, false) => {
-                return Err(format!(
-                    "Label '{}' means mainnet and therefore must be followed by '{}' delimiter",
-                    blockchain_label, MAINNET_DELIMITER
-                ))
-            }
-            (Self::ETH_ROPSTEN_LABEL, false) => Blockchain::EthRopsten,
-            (Self::ETH_RINKEBY_LABEL, false) => Blockchain::EthRinkeby,
-            (Self::DEV_LABEL,false) => Blockchain::Dev,
-            (Self::ETH_ROPSTEN_LABEL | Self::ETH_RINKEBY_LABEL | Self::DEV_LABEL, true) => {
-                return Err(format!(
-                    "Label '{}' means testnet and therefore must be followed by '{}' delimiter",
-                    blockchain_label, TESTNET_DELIMITER
-                ))
-            }
+        let blockchain = match blockchain_label.to_lowercase().as_str() {
+            Self::ETH_MAINNET_LABEL => Blockchain::EthMainnet,
+            Self::ETH_ROPSTEN_LABEL=> Blockchain::EthRopsten,
+            Self::ETH_RINKEBY_LABEL => Blockchain::EthRinkeby,
+            Self::DEV_LABEL=> Blockchain::Dev,
             _ => {
                 return Err(format!(
-                    "Label '{}' isn't valid; you can have only '{}', '{}','{}' while formatted as <public key><chain label>[@ | :]<node address>",
+                    "Chain label '{}' isn't valid; you can have only '{}', '{}','{}' while formatted as 'masq://<chain label>.<public key>:<node address>'",
                     blockchain_label,
                     Self::ETH_MAINNET_LABEL,
                     Self::ETH_ROPSTEN_LABEL,
@@ -277,9 +264,14 @@ impl NodeDescriptor {
                 ))
             }
         };
-        let key_offset = first_half.len() - (blockchain_label.len() + 1);
-        let key = &first_half[0..key_offset];
-        Ok((key, blockchain, second_half))
+        let key_offset = blockchain_label.len() + 1;
+        if key_offset > first_half.len() { return Err("Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5:4545'".to_string())}
+        let key = &first_half[key_offset..];
+        let regex = Regex::new(r"\d\.\d").expect("regex initialization failed"); //the ip address contains ':' too, could be confused with the central delimiter
+        if regex.is_match(key){
+            return Err(format!("Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not '{}'",str_descriptor))
+        }
+        Ok((blockchain, key, second_half))
     }
 
     pub fn to_string(&self, cryptde: &dyn CryptDE) -> String {
@@ -292,12 +284,10 @@ impl NodeDescriptor {
             Some(node_addr) => node_addr.to_string(),
             None => ":".to_string(),
         };
-
-        let delimiter = delimiter_from_blockchain(self.blockchain);
         let label = Self::label_from_blockchain(self.blockchain);
         format!(
-            "{}{}{}{}{}",
-            contact_public_key_string, CHAIN_LABEL_DELIMITER, label, delimiter, node_addr_string
+            "{}{}{}{}{}{}",
+            MASQ_URL_PREFIX,label,CHAIN_LABEL_DELIMITER,contact_public_key_string,KEY_VS_IP_DELIMITER, node_addr_string
         )
     }
 }
@@ -521,120 +511,114 @@ mod tests {
 
     #[test]
     fn try_dismantle_works_for_ethereum_mainnet() {
-        let descriptor = "as45cs5c5$ETH@1.2.3.4:4444";
+        let descriptor = "masq://eth.as45cs5c5:1.2.3.4:4444";
 
         let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
 
         assert_eq!(
             result,
-            ("as45cs5c5", Blockchain::EthMainnet, "1.2.3.4:4444")
+            (Blockchain::EthMainnet, "as45cs5c5", "1.2.3.4:4444")
         )
     }
 
     #[test]
     fn try_dismantle_str_works_for_ethereum_testnet_ropsten() {
-        let descriptor = "as45cs5c5$ETH~tA:1.2.3.4:4444";
+        let descriptor = "masq://eth_t1.as45cs5c5:1.2.3.4:4444";
 
         let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
 
         assert_eq!(
             result,
-            ("as45cs5c5", Blockchain::EthRopsten, "1.2.3.4:4444")
+            (Blockchain::EthRopsten, "as45cs5c5", "1.2.3.4:4444")
         )
     }
 
     #[test]
     fn try_dismantle_str_works_for_ethereum_testnet_rinkeby() {
-        let descriptor = "as45cs5c5$ETH~tB:1.2.3.4:4444";
+        let descriptor = "masq://eth_t2.as45cs5c5:1.2.3.4:4444";
 
         let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
 
         assert_eq!(
             result,
-            ("as45cs5c5", Blockchain::EthRinkeby, "1.2.3.4:4444")
+            (Blockchain::EthRinkeby, "as45cs5c5", "1.2.3.4:4444")
         )
     }
 
     #[test]
     fn try_dismantle_str_works_for_dev_chain() {
-        let descriptor = "as45cs5c5$DEV:1.2.3.4:4444";
+        let descriptor = "masq://dev.as45cs5c5:1.2.3.4:4444";
 
         let result = NodeDescriptor::try_dismantle_str(descriptor).unwrap();
 
-        assert_eq!(result, ("as45cs5c5", Blockchain::Dev, "1.2.3.4:4444"))
+        assert_eq!(result, (Blockchain::Dev, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
-    fn try_dismantle_str_refuses_dev_chain_with_mainnet_delimiter() {
-        let descriptor = "as45cs5c5$DEV@1.2.3.4:4444";
+    fn try_dismantle_str_complains_about_url_prefix_not_found() {
+        let descriptor = "https://eth.as45cs5c5:1.2.3.4:4444";
 
         let result = NodeDescriptor::try_dismantle_str(descriptor);
 
         assert_eq!(
             result,
             Err(
-                "Label 'DEV' means testnet and therefore must be followed by ':' delimiter"
-                    .to_string()
-            )
-        )
-    }
-
-    #[test]
-    fn try_dismantle_str_uncovers_fault_in_wrong_chain_delimiter_for_ethereum_mainnet() {
-        let descriptor = "as45cs5c5$ETH:1.2.3.4:4444";
-
-        assert_eq!(
-            NodeDescriptor::try_dismantle_str(descriptor),
-            Err(
-                "Label 'ETH' means mainnet and therefore must be followed by '@' delimiter"
+                "Prefix or more missing. Should be 'masq://<chain label>.<public key>:<node address>', not 'https://eth.as45cs5c5:1.2.3.4:4444'"
                     .to_string()
             )
         );
-    }
-
-    #[test]
-    fn try_dismantle_str_uncovers_fault_in_wrong_chain_delimiter_for_rinkeby_and_ropsten() {
-        let descriptors = [
-            "as45cs5c5$ETH~tB@1.2.3.4:4444",
-            "as45cs5c5$ETH~tB@1.2.3.4:4444",
-        ];
-
-        descriptors.iter().for_each(|descriptor| {
-            assert_eq!(
-                NodeDescriptor::try_dismantle_str(descriptor),
-                Err(
-                    "Label 'ETH~tB' means testnet and therefore must be followed by ':' delimiter"
-                        .to_string()
-                )
-            )
-        });
     }
 
     #[test]
     fn try_dismantle_str_complains_about_unknown_chain_label() {
-        let descriptor = "as45cs5c5$bitcoin@1.2.3.4:4444";
+        let descriptor = "masq://bitcoin.as45cs5c5:1.2.3.4:4444";
 
         let result = NodeDescriptor::try_dismantle_str(descriptor);
 
         assert_eq!(
             result,
             Err(
-                "Label 'bitcoin' isn't valid; you can have only 'ETH', 'ETH~tA','ETH~tB' while formatted as <public key><chain label>[@ | :]<node address>"
+                "Chain label 'bitcoin' isn't valid; you can have only 'eth', 'eth_t1','eth_t2' while formatted as 'masq://<chain label>.<public key>:<node address>'"
                     .to_string()
             )
         );
     }
 
     #[test]
-    fn try_dismantle_str_complains_about_str_which_it_does_not_know_how_to_halve() {
-        let descriptor = "as45cs5c5$ETH/1.4.4.5;4545";
+    fn try_dismantle_str_complains_about_str_which_it_does_not_know_how_to_halve_because_no_colons_at_all() {
+        let descriptor = "masq://dev.as45cs5c5/1.4.4.5;4545";
 
         let result = NodeDescriptor::try_dismantle_str(descriptor);
 
         assert_eq!(
             result,
-            Err("Should be <public key><chain label>[@ | :]<node address>, not 'as45cs5c5$ETH/1.4.4.5;4545'; either '@' or ':' delimiter is missing".to_string())
+            Err("Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5;4545'".to_string())
         );
+    }
+
+    #[test]
+    fn try_dismantle_str_complains_about_str_which_must_lack_the_central_colon_though_one_from_ip_addrs_was_falsely_taken() {
+        let descriptor = "masq://dev.as45cs5c5/1.4.4.5:4545";
+
+        let result = NodeDescriptor::try_dismantle_str(descriptor);
+
+        assert_eq!(
+            result,
+            Err("Central delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5:4545'".to_string())
+        );
+    }
+
+    #[test]
+    fn avoiding_byte_index_out_of_bounds_in_key_offset_when_a_colon_used_instead_of_the_label_delimiter(){
+        let descriptor = "masq://dev:as45cs5c5:1.4.4.5:4545";
+
+        let result = NodeDescriptor::try_dismantle_str(descriptor);
+
+        assert_eq!(
+            result,
+            Err("Chain label delimiter mismatch. Should be 'masq://<chain label>.<public key>:<node address>', not 'masq://dev.as45cs5c5/1.4.4.5:4545'".to_string())
+        );
+
     }
 
     #[test]
@@ -643,7 +627,7 @@ mod tests {
         assert_label(Blockchain::EthMainnet, NodeDescriptor::ETH_MAINNET_LABEL);
         assert_label(Blockchain::EthRopsten, NodeDescriptor::ETH_ROPSTEN_LABEL);
         assert_label(Blockchain::EthRinkeby, NodeDescriptor::ETH_RINKEBY_LABEL);
-        //assert_label(Blockchain::Dev,NodeDescriptor::ETH_RINKEBY) //TODO finish this
+        assert_label(Blockchain::Dev,NodeDescriptor::DEV_LABEL)
     }
 
     fn assert_label(blockchain: Blockchain, expected: &str) {
@@ -656,12 +640,12 @@ mod tests {
         assert_eq!(Blockchain::EthRopsten.to_string(), "Ropsten");
         assert_eq!(Blockchain::EthRinkeby.to_string(), "Rinkeby");
         assert_eq!(Blockchain::Null.to_string(), "null");
-        assert_eq!(Blockchain::Null.to_string(), "developer's");
+        assert_eq!(Blockchain::Dev.to_string(), "developer's");
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_base_64() {
-        let result = NodeDescriptor::from_str(main_cryptde(), "bad_key$ETH~tA:1.2.3.4:1234;2345");
+        let result = NodeDescriptor::from_str(main_cryptde(), "masq://eth.bad_key:1.2.3.4:1234;2345");
 
         assert_eq!(
             result,
@@ -671,14 +655,14 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::from_str(main_cryptde(), "$ETH~tB:1.2.3.4:1234;2345");
+        let result = NodeDescriptor::from_str(main_cryptde(), "masq://dev.:1.2.3.4:1234;2345");
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
 
     #[test]
     fn node_descriptor_from_str_complains_about_bad_node_addr() {
-        let result = NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ==$ETH@BadNodeAddr");
+        let result = NodeDescriptor::from_str(main_cryptde(), "masq://eth.R29vZEtleQ==:BadNodeAddr");
 
         assert_eq!(result, Err(String::from("NodeAddr should be expressed as '<IP address>:<port>;<port>,...', not 'BadNodeAddr'")));
     }
@@ -686,7 +670,7 @@ mod tests {
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path_with_node_addr() {
         let result =
-            NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ$ETH~tA:1.2.3.4:1234;2345;3456");
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.R29vZEtleQ:1.2.3.4:1234;2345;3456");
 
         assert_eq!(
             result.unwrap(),
@@ -703,32 +687,14 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_str_handles_the_happy_path_without_node_addr() {
-        let result = NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ$ETH~tA::");
-
-        assert_eq!(
-            result.unwrap(),
-            NodeDescriptor {
-                encryption_public_key: PublicKey::new(b"GoodKey"),
-                blockchain: Blockchain::EthRopsten,
-                node_addr_opt: None
-            },
-        )
-    }
-
-    #[test]
-    fn node_descriptor_from_str_accepts_mainnet_delimiter() {
-        let result =
-            NodeDescriptor::from_str(main_cryptde(), "R29vZEtleQ$ETH@1.2.3.4:1234;2345;3456");
+        let result = NodeDescriptor::from_str(main_cryptde(), "masq://eth.R29vZEtleQ::");
 
         assert_eq!(
             result.unwrap(),
             NodeDescriptor {
                 encryption_public_key: PublicKey::new(b"GoodKey"),
                 blockchain: Blockchain::EthMainnet,
-                node_addr_opt: Some(NodeAddr::new(
-                    &IpAddr::from_str("1.2.3.4").unwrap(),
-                    &[1234, 2345, 3456],
-                ))
+                node_addr_opt: None
             },
         )
     }
@@ -800,7 +766,7 @@ mod tests {
 
         let result = subject.to_string(cryptde);
 
-        assert_eq!(result, "AQIDBAUGBwg$ETH@123.45.67.89:2345;3456".to_string());
+        assert_eq!(result, "masq://eth.AQIDBAUGBwg:123.45.67.89:2345;3456".to_string());
     }
 
     #[test]
@@ -809,13 +775,13 @@ mod tests {
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject =
-            NodeDescriptor::from((&public_key, &node_addr, Blockchain::EthRinkeby, cryptde));
+            NodeDescriptor::from((&public_key, &node_addr, Blockchain::EthRopsten, cryptde));
 
         let result = subject.to_string(cryptde);
 
         assert_eq!(
             result,
-            "AQIDBAUGBwg$ETH~tB:123.45.67.89:2345;3456".to_string()
+            "masq://eth_t1.AQIDBAUGBwg:123.45.67.89:2345;3456".to_string()
         );
     }
 
@@ -832,7 +798,7 @@ mod tests {
             NodeDescriptor::from((&public_key, &node_addr, Blockchain::EthMainnet, cryptde));
         let string_descriptor = descriptor.to_string(cryptde);
 
-        let result = string_descriptor.chars().position(|l| l == '$').unwrap();
+        let result = string_descriptor.chars().skip_while(|char|char != &'.').skip(1).position(|l| l == ':').unwrap();
 
         assert_eq!(result, required_number_of_characters);
     }
@@ -855,9 +821,9 @@ mod tests {
     #[test]
     fn standard_mode_results() {
         let one_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA$ETH@1.2.3.4:1234").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth.AQIDBA:1.2.3.4:1234").unwrap();
         let another_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ$ETH@2.3.4.5:2345").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth.AgMEBQ:2.3.4.5:2345").unwrap();
         let subject = NeighborhoodMode::Standard(
             NodeAddr::new(&localhost(), &[1234, 2345]),
             vec![one_neighbor.clone(), another_neighbor.clone()],
@@ -884,9 +850,9 @@ mod tests {
     #[test]
     fn originate_only_mode_results() {
         let one_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA$ETH~tB:1.2.3.4:1234").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t2.AQIDBA:1.2.3.4:1234").unwrap();
         let another_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ$ETH~tB:2.3.4.5:2345").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t2.AgMEBQ:2.3.4.5:2345").unwrap();
         let subject = NeighborhoodMode::OriginateOnly(
             vec![one_neighbor.clone(), another_neighbor.clone()],
             rate_pack(100),
@@ -909,9 +875,9 @@ mod tests {
     #[test]
     fn consume_only_mode_results() {
         let one_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "AQIDBA$ETH@1.2.3.4:1234").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth.AQIDBA:1.2.3.4:1234").unwrap();
         let another_neighbor =
-            NodeDescriptor::from_str(main_cryptde(), "AgMEBQ$ETH@2.3.4.5:2345").unwrap();
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth.AgMEBQ:2.3.4.5:2345").unwrap();
         let subject =
             NeighborhoodMode::ConsumeOnly(vec![one_neighbor.clone(), another_neighbor.clone()]);
 

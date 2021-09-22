@@ -1049,7 +1049,7 @@ mod tests {
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
-                "QUJDRA$ETH@1.2.3.4:1234,RUZHSA$ETH@5.6.7.8:5678",
+                "masq://eth.QUJDRA:1.2.3.4:1234,masq://eth.RUZHSA:5.6.7.8:5678",
                 Configured,
             ),
             #[cfg(not(target_os = "windows"))]
@@ -1097,7 +1097,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Set),
+            ("neighbors", "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
         ]);
@@ -1121,7 +1121,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Set),
+            ("neighbors", "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
         ].into_iter()
@@ -1155,7 +1155,7 @@ mod tests {
             ("ip", "4.3.2.1"),
             ("log-level", "error"),
             ("neighborhood-mode", "originate-only"),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678"),
+            ("neighbors", "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
         ].into_iter()
@@ -1183,7 +1183,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Set),
+            ("neighbors", "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
         ].into_iter()
@@ -1218,7 +1218,7 @@ mod tests {
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ].into_iter()
@@ -1244,7 +1244,7 @@ mod tests {
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Configured),
+            ("neighbors", "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
         ].into_iter()
@@ -1414,7 +1414,7 @@ mod tests {
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ].into_iter()
@@ -1461,7 +1461,7 @@ mod tests {
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
-                "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:9.10.11.12:9101",
+                "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:9.10.11.12:9101",
                 Set,
             ),
             #[cfg(not(target_os = "windows"))]
@@ -1491,7 +1491,7 @@ mod tests {
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI$ETH~tA:5.6.7.8:5678", Configured),
+            ("neighbors", "masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,masq://eth_t1.MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
         ]
@@ -2276,12 +2276,12 @@ mod tests {
             .past_neighbors_result(Ok(Some(vec![
                 NodeDescriptor::from_str(
                     main_cryptde(),
-                    "MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg$ETH@1.2.3.4:1234",
+                    "masq://eth.MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg:1.2.3.4:1234",
                 )
                 .unwrap(),
                 NodeDescriptor::from_str(
                     main_cryptde(),
-                    "ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE$ETH@4.3.2.1:4321",
+                    "masq://eth.ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE:4.3.2.1:4321",
                 )
                 .unwrap(),
             ])));
@@ -2293,7 +2293,7 @@ mod tests {
             &Some("password".to_string()),
         );
 
-        assert_eq! (result, Some (("MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg$ETH@1.2.3.4:1234,ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE$ETH@4.3.2.1:4321".to_string(), Configured)));
+        assert_eq! (result, Some (("masq://eth.MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg:1.2.3.4:1234,masq://eth.ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE:4.3.2.1:4321".to_string(), Configured)));
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(*past_neighbors_params, vec!["password".to_string()])
     }
