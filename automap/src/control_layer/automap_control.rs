@@ -172,15 +172,6 @@ impl AutomapControlReal {
         transactor: &mut dyn Transactor,
         router_ip: IpAddr,
     ) -> Result<(), AutomapError> {
-        // Currently, starting the housekeeper surrenders ownership of the change handler to the Transactor.
-        // This means that we can't start the housekeeper, stop it, and then restart it, without
-        // getting the change handler from the client of AutomapControl again. It does turn out that in Rust
-        // closures are Clone, which means that we could redesign this code to keep a copy of the
-        // change handler against the time when we might want to start it up again. However, at the
-        // moment, the signal that the housekeeper is already running is that change_handler_opt
-        // is None, so adding the restart capability will require a little rearchitecture. At the
-        // time of this writing, we don't need a restart capability, so we're deferring that work
-        // until it's necessary, if ever.
         let mut housekeeping_tools = self.housekeeping_tools.borrow_mut(); //to avoid multiple borrows a time
         if let Some(change_handler) = housekeeping_tools.change_handler_opt.take() {
 eprintln!("entering change_handler_opt == Some");
@@ -233,7 +224,7 @@ eprintln!("entering change_handler_opt == None");
         let mut transactor = self.transactors.borrow_mut().remove(inner.transactor_idx);
         self.maybe_start_housekeeper(transactor.as_mut(), inner.router_ip)?;
         let result = experiment(transactor.as_ref(), inner.router_ip);
-        self.transactors.borrow_mut().push(transactor);
+        self.transactors.borrow_mut().insert(inner.transactor_idx, transactor);
         result.map(|payload| ProtocolInfo {
             payload,
             router_ip: inner.router_ip,
@@ -676,14 +667,17 @@ mod tests {
             }
         );
         let transactors = subject.transactors.take();
-        let vec_of_protocols: Vec<AutomapProtocol> = transactors
+        let actual_vec_of_protocols: Vec<AutomapProtocol> = transactors
             .iter()
             .map(|transactor| transactor.protocol())
             .collect();
-        assert_eq!(vec_of_protocols.len(), 3);
-        assert!(vec_of_protocols.contains(&AutomapProtocol::Pmp));
-        assert!(vec_of_protocols.contains(&AutomapProtocol::Pcp));
-        assert!(vec_of_protocols.contains(&AutomapProtocol::Igdp))
+        let expected_vec_of_protocols = AutomapControlReal::new(None, Box::new (|_| ()))
+            .transactors
+            .borrow()
+            .iter()
+            .map (|t| t.protocol())
+            .collect::<Vec<AutomapProtocol>>();
+        assert_eq!(actual_vec_of_protocols, expected_vec_of_protocols);
     }
 
     #[test]
