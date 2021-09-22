@@ -9,7 +9,6 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::utils::make_new_multi_config;
 use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
@@ -19,7 +18,6 @@ use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
 use masq_lib::utils::{localhost, ExpectValue, WrapResult};
-use std::fmt::Debug;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -133,16 +131,6 @@ pub fn data_directory_from_context(
     }
 }
 
-pub fn data_directory_default(dirs_wrapper: &dyn DirsWrapper, chain_name: &'static str) -> String {
-    match dirs_wrapper.data_dir() {
-        Some(path) => path.join("MASQ").join(chain_name),
-        None => PathBuf::from(""),
-    }
-    .to_str()
-    .expect("Internal Error")
-    .to_string()
-}
-
 pub fn port_is_busy(port: u16) -> bool {
     TcpListener::bind(SocketAddr::new(localhost(), port)).is_err()
 }
@@ -234,26 +222,6 @@ impl DirsWrapper for DirsWrapperReal {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Either<L: Debug + PartialEq, R: Debug + PartialEq> {
-    Left(L),
-    Right(R),
-}
-
-#[derive(PartialEq, Debug)]
-pub struct DerivationPathWalletInfo {
-    pub mnemonic_seed: PlainData,
-    pub db_password: String,
-    pub consuming_derivation_path_opt: Option<String>,
-}
-
-#[derive(PartialEq, Debug)]
-pub struct WalletCreationConfig {
-    pub earning_wallet_address_opt: Option<String>,
-    pub derivation_path_info_opt: Option<DerivationPathWalletInfo>,
-    pub real_user: RealUser,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,12 +229,10 @@ mod tests {
     use crate::masq_lib::utils::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
     };
-    use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::constants::DEFAULT_CHAIN_NAME;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
     use masq_lib::utils::find_free_port;
     use std::net::{SocketAddr, TcpListener};
     use tiny_hderive::bip44::DerivationPath;
@@ -447,29 +413,6 @@ mod tests {
         let result = common_validators::validate_real_user(String::from(":::"));
 
         assert_eq!(Ok(()), result);
-    }
-
-    #[test]
-    fn data_directory_default_given_no_default() {
-        assert_eq!(
-            String::from(""),
-            data_directory_default(
-                &DirsWrapperMock::new().data_dir_result(None),
-                TEST_DEFAULT_CHAIN_NAME
-            )
-        );
-    }
-
-    #[test]
-    fn data_directory_default_works() {
-        let mock_dirs_wrapper = DirsWrapperMock::new().data_dir_result(Some("mocked/path".into()));
-
-        let result = data_directory_default(&mock_dirs_wrapper, DEFAULT_CHAIN_NAME);
-
-        let expected = PathBuf::from("mocked/path")
-            .join("MASQ")
-            .join(DEFAULT_CHAIN_NAME);
-        assert_eq!(result, expected.as_path().to_str().unwrap().to_string());
     }
 
     fn determine_config_file_path_app() -> App<'static, 'static> {
