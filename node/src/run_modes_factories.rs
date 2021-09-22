@@ -61,11 +61,7 @@ pub trait ServerInitializerFactory {
     fn make(&self) -> Box<dyn ServerInitializer<Item = (), Error = ()>>;
 }
 pub trait DaemonInitializerFactory {
-    fn make(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams,
-    ) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError>;
+    fn make(&self, args: &[String]) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError>;
 }
 
 pub trait DumpConfigRunner {
@@ -96,15 +92,11 @@ impl ServerInitializerFactory for ServerInitializerFactoryReal {
 }
 
 impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
-    fn make(
-        &self,
-        args: &[String],
-        streams: &mut StdStreams,
-    ) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError> {
+    fn make(&self, args: &[String]) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError> {
         let configurator = Self::expect(self.configurator.take());
         let multi_config =
             NodeConfiguratorInitializationReal::make_multi_config_daemon_specific(args)?;
-        let initialization_config = configurator.configure(&multi_config, Some(streams))?;
+        let initialization_config = configurator.configure(&multi_config)?;
         let initializer_clustered_params = Self::expect(self.inner.take());
         let daemon_initializer = Box::new(DaemonInitializerReal::new(
             initialization_config,
@@ -153,7 +145,6 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, ChannelFactoryMock,
     };
     use masq_lib::shared_schema::ConfiguratorError;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::utils::SliceToVec;
     use std::sync::{Arc, Mutex};
 
@@ -208,9 +199,8 @@ mod tests {
             1234.to_string().as_str(),
         ]
         .array_of_borrows_to_vec();
-        let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject.make(&args, &mut stream_holder.streams()).unwrap();
+        let result = subject.make(&args).unwrap();
 
         let factory_product = result
             .as_any()
@@ -250,9 +240,8 @@ mod tests {
             daemon_clustered_params,
         );
         let args = &["program", "--wooooooo", "--fooooooo"].array_of_borrows_to_vec();
-        let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject.make(&args, &mut stream_holder.streams());
+        let result = subject.make(&args);
 
         let mut config_error = result.err().unwrap();
         let actual_error = config_error.param_errors.remove(0);
@@ -281,9 +270,8 @@ mod tests {
             daemon_clustered_params,
         );
         let args = &["program", "--initialization"].array_of_borrows_to_vec();
-        let mut stream_holder = FakeStreamHolder::default();
 
-        let result = subject.make(&args, &mut stream_holder.streams());
+        let result = subject.make(&args);
 
         let mut config_error = result.err().unwrap();
         let actual_error = config_error.param_errors.remove(0);
@@ -374,11 +362,7 @@ pub mod mocks {
     }
 
     impl DaemonInitializerFactory for DaemonInitializerFactoryMock {
-        fn make(
-            &self,
-            args: &[String],
-            _streams: &mut StdStreams,
-        ) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError> {
+        fn make(&self, args: &[String]) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError> {
             self.make_params.lock().unwrap().push(args.to_vec());
             self.make_result.borrow_mut().remove(0)
         }
@@ -488,7 +472,6 @@ pub mod mocks {
         fn configure(
             &self,
             multi_config: &MultiConfig,
-            _streams: Option<&mut StdStreams>,
         ) -> Result<InitializationConfig, ConfiguratorError> {
             ingest_values_from_multi_config(
                 &self.demanded_values_from_multi_config,

@@ -13,7 +13,6 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::utils::make_new_multi_config;
 use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
-use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_CHAIN_NAME;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
@@ -25,11 +24,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
 pub trait NodeConfigurator<T> {
-    fn configure(
-        &self,
-        multi_config: &MultiConfig,
-        streams: Option<&mut StdStreams<'_>>,
-    ) -> Result<T, ConfiguratorError>;
+    fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
 pub fn determine_config_file_path(
