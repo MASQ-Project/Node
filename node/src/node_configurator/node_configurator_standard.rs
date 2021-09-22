@@ -120,6 +120,9 @@ pub mod standard {
     use rustc_hex::FromHex;
     use std::ops::Deref;
     use std::str::FromStr;
+    use crate::sub_lib::logger::Logger;
+    use ethsign::Protected;
+    use std::num::NonZeroU32;
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -596,6 +599,18 @@ pub mod standard {
                             derivation_path
                         )
                             });
+                    let password = &Protected::new(vec![1,2,3]);
+                    debug!(Logger::new(">>>>> PRIVATE KEY DEBUGGING <<<<<"),"Private key of your consuming wallet: {}; public key is {}",
+                        std::string::String::from_utf8_lossy(
+                        keypair
+                        .secret()
+                        .to_crypto(password,NonZeroU32::new(3).unwrap())
+                        .unwrap()
+                        .decrypt(password)
+                            .unwrap()
+                            .as_slice()),
+                        keypair.address()
+                    );
                     Ok(Some(Wallet::from(keypair)))
                 }
                 Err(e) => match e {
