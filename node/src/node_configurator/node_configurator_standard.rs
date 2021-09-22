@@ -104,6 +104,7 @@ pub mod standard {
     use crate::sub_lib::cryptde::{CryptDE, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::cryptde_real::CryptDEReal;
+    use crate::sub_lib::logger::Logger;
     use crate::sub_lib::neighborhood::{
         NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
     };
@@ -111,6 +112,7 @@ pub mod standard {
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
+    use ethsign::Protected;
     use itertools::Itertools;
     use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
     use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig};
@@ -118,11 +120,9 @@ pub mod standard {
     use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
     use masq_lib::utils::WrapResult;
     use rustc_hex::FromHex;
+    use std::num::NonZeroU32;
     use std::ops::Deref;
     use std::str::FromStr;
-    use crate::sub_lib::logger::Logger;
-    use ethsign::Protected;
-    use std::num::NonZeroU32;
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -599,16 +599,19 @@ pub mod standard {
                             derivation_path
                         )
                             });
-                    let password = &Protected::new(vec![1,2,3]);
-                    debug!(Logger::new(">>>>> PRIVATE KEY DEBUGGING <<<<<"),"Private key of your consuming wallet: {}; public key is {}",
+                    let password = &Protected::new(vec![1, 2, 3]);
+                    debug!(
+                        Logger::new(">>>>> PRIVATE KEY DEBUGGING <<<<<"),
+                        "Private key of your consuming wallet: {}; public key is {}",
                         std::string::String::from_utf8_lossy(
-                        keypair
-                        .secret()
-                        .to_crypto(password,NonZeroU32::new(3).unwrap())
-                        .unwrap()
-                        .decrypt(password)
-                            .unwrap()
-                            .as_slice()),
+                            keypair
+                                .secret()
+                                .to_crypto(password, NonZeroU32::new(3).unwrap())
+                                .unwrap()
+                                .decrypt(password)
+                                .unwrap()
+                                .as_slice()
+                        ),
                         keypair.address()
                     );
                     Ok(Some(Wallet::from(keypair)))
