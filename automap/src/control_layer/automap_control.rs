@@ -161,17 +161,11 @@ impl AutomapControlReal {
         transactor: &mut dyn Transactor,
         router_ip: IpAddr,
     ) -> Result<(), AutomapError> {
-
-        //TODO remove this comment once it's clear
-        //to the removed code: experiment hasn't necessarily been done, we shouldn't be strict about not having a change handler
-        //or we have to find a way to do that check conditional - with some flag only etc
         let mut housekeeping_tools = self.housekeeping_tools.borrow_mut(); //to avoid multiple borrows a time
         if let Some(change_handler) = housekeeping_tools.change_handler_opt.take() {
-eprintln!("maybe_start_housekeeper with change_handler_opt == Some");
             debug!(self.logger, "Attempting to start housekeeping thread");
             match transactor.start_housekeeping_thread(change_handler, router_ip) {
                 Err(AutomapError::HousekeeperUnconfigured) => {
-eprintln! ("maybe_start_housekeeper: HousekeeperUnconfigured");
                     debug!(
                         self.logger,
                         "Housekeeping thread failed: change handler unconfigured"
@@ -181,19 +175,16 @@ eprintln! ("maybe_start_housekeeper: HousekeeperUnconfigured");
                 }
                 Err(e) => {
                     debug!(self.logger, "Housekeeping thread failed: {:?}", e);
-eprintln!("maybe_start_housekeeper: error: {:?}", e);
                     Self::put_change_handler_back(transactor, &mut housekeeping_tools);
                     Err(e)
                 }
                 Ok(commander) => {
                     debug!(self.logger, "Housekeeping thread running");
-eprintln!("maybe_start_housekeeper: success");
                     housekeeping_tools.housekeeping_thread_commander_opt = Some(commander);
                     Ok(())
                 }
             }
         } else {
-eprintln!("maybe_start_housekeeper with change_handler_opt == None");
             Ok(())
         }
     }
@@ -241,7 +232,6 @@ eprintln!("maybe_start_housekeeper with change_handler_opt == None");
         experiment: TransactorExperiment<T>,
     ) -> Result<ProtocolInfo<T>, AutomapError> {
         if let Some(usual_protocol) = self.usual_protocol_opt {
-eprintln! ("Usual protocol exists: {:?}", self.usual_protocol_opt.unwrap());
             let mut transactors_ref_mut = self.transactors.borrow_mut();
             let transactor= transactors_ref_mut
                 .iter_mut()
@@ -298,16 +288,13 @@ eprintln! ("Usual protocol exists: {:?}", self.usual_protocol_opt.unwrap());
         if router_ips.is_empty() {
             return Err(AutomapError::FindRouterError("No routers found".to_string()))
         }
-eprintln!("router ips {:?}", router_ips);
         let init: Result<(IpAddr, T), AutomapError> = Err(AutomapError::Unknown);
         router_ips
             .into_iter()
             .fold(init, |so_far, router_ip| match so_far {
                 Ok(tuple) => Ok(tuple),
                 Err(_) => {
-eprintln!("before entering maybe_start_hkt");
                     self.maybe_start_housekeeper(transactor, router_ip)?;
-eprintln!("now experiment");
                     experiment(transactor, router_ip).map(|t| (router_ip, t))
                 }
             }
@@ -320,11 +307,9 @@ eprintln!("now experiment");
     ) -> Result<ProtocolInfo<T>, AutomapError> {
         if let Some(inner) = self.inner_opt.as_ref() {
             // Protocol's already chosen and running; just run the code
-eprintln! ("Protocol's already chosen: {:?}", self.transactors.borrow()[self.inner_opt.as_ref().unwrap().transactor_idx].protocol());
             self.prepare_and_perform_experiment(inner, experiment)
         } else {
             // Nothing's set up yet; repeat the experiment until we find the right protocol
-eprintln! ("Choosing protocol...");
             self.choose_working_protocol(experiment)
         }
     }
@@ -368,7 +353,6 @@ mod tests {
 
     impl Transactor for TransactorMock {
         fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
-eprintln!("find routers mock result: just gonna remove one");
             self.find_routers_results.borrow_mut().remove(0)
         }
 
