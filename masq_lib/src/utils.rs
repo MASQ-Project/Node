@@ -216,18 +216,6 @@ pub fn array_of_borrows_to_vec(slice: &[&str]) -> Vec<String> {
         .map(|item| item.to_string())
         .collect::<Vec<String>>()
 }
-//
-// pub trait SliceToVec<T: 'static + Clone> {
-//     fn array_of_borrows_to_vec(self) -> Vec<T>;
-// }
-//
-// impl<const N: usize> SliceToVec<String> for [&str; N] {
-//     fn array_of_borrows_to_vec(self) -> Vec<String> {
-//         self.iter()
-//             .map(|item| item.to_string())
-//             .collect::<Vec<String>>()
-//     }
-// }
 
 pub trait ExpectValue<T> {
     #[track_caller]

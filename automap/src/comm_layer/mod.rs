@@ -39,7 +39,7 @@ pub enum AutomapError {
     NoLocalIpAddress,
     CantFindDefaultGateway,
     IPv6Unsupported(Ipv6Addr),
-    FindRouterError(String, AutomapErrorCause),
+    FindRouterError(String),
     GetPublicIpError(String),
     SocketBindingError(String, SocketAddr),
     SocketSendError(AutomapErrorCause),
@@ -54,8 +54,7 @@ pub enum AutomapError {
     ProbeReceiveError(String),
     DeleteMappingError(String),
     TransactionFailure(String),
-    AllProtocolsFailed,
-    AllRoutersFailed(AutomapProtocol),
+    AllProtocolsFailed(Vec<(AutomapProtocol, AutomapError)>),
     ChangeHandlerAlreadyRunning,
     HousekeeperUnconfigured,
 }
@@ -67,7 +66,7 @@ impl AutomapError {
             AutomapError::NoLocalIpAddress => AutomapErrorCause::NetworkConfiguration,
             AutomapError::CantFindDefaultGateway => AutomapErrorCause::ProtocolNotImplemented,
             AutomapError::IPv6Unsupported(_) => AutomapErrorCause::NetworkConfiguration,
-            AutomapError::FindRouterError(_, aec) => aec.clone(),
+            AutomapError::FindRouterError(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::GetPublicIpError(_) => AutomapErrorCause::ProtocolNotImplemented,
             AutomapError::SocketBindingError(_, _) => AutomapErrorCause::UserError,
             AutomapError::SocketSendError(aec) => aec.clone(),
@@ -84,8 +83,7 @@ impl AutomapError {
             AutomapError::ProbeReceiveError(_) => AutomapErrorCause::ProbeFailed,
             AutomapError::DeleteMappingError(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::AllProtocolsFailed => AutomapErrorCause::NetworkConfiguration,
-            AutomapError::AllRoutersFailed(_) => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::AllProtocolsFailed(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::ChangeHandlerAlreadyRunning => {
                 AutomapErrorCause::Unknown("Sequencing error".to_string())
             }
@@ -210,10 +208,7 @@ mod tests {
                 AutomapErrorCause::NetworkConfiguration,
             ),
             (
-                AutomapError::FindRouterError(
-                    String::new(),
-                    AutomapErrorCause::NetworkConfiguration,
-                ),
+                AutomapError::FindRouterError(String::new()),
                 AutomapErrorCause::NetworkConfiguration,
             ),
             (
@@ -276,11 +271,7 @@ mod tests {
                 AutomapErrorCause::ProtocolFailed,
             ),
             (
-                AutomapError::AllProtocolsFailed,
-                AutomapErrorCause::NetworkConfiguration,
-            ),
-            (
-                AutomapError::AllRoutersFailed(AutomapProtocol::Pmp),
+                AutomapError::AllProtocolsFailed(vec![]),
                 AutomapErrorCause::NetworkConfiguration,
             ),
             (

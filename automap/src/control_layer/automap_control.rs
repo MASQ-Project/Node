@@ -9,7 +9,7 @@ use crate::comm_layer::{
 use crossbeam_channel::Sender;
 use masq_lib::debug;
 use masq_lib::logger::Logger;
-use masq_lib::utils::{plus, AutomapProtocol, ExpectValue};
+use masq_lib::utils::{plus, AutomapProtocol};
 use std::cell::{RefCell, RefMut};
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -46,6 +46,8 @@ struct ProtocolInfo<T: PartialEq + Debug> {
     router_ip: IpAddr,
 }
 
+//Dan, you will need this at maybe_start_change_handler because we use an owned ChangeHandler which cannot clone; we move with it
+//you can keep with this or we had to find a way to make it cloneable (i tried earlier and hit trait object boundaries)
 struct HousekeepingTools {
     change_handler_opt: Option<ChangeHandler>,
     housekeeping_thread_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
@@ -66,11 +68,7 @@ impl AutomapControl for AutomapControlReal {
         let experiment = Box::new(move |transactor: &dyn Transactor, router_ip: IpAddr| {
             transactor.get_public_ip(router_ip)
         });
-        let protocol_info = if self.inner_opt.as_ref().is_some() {
-            self.first_housekeeping_thread_second_experiment(experiment)
-        } else {
-            self.choose_working_protocol(experiment)
-        }?;
+        let protocol_info = self.calculate_protocol_info(experiment)?;
         debug!(self.logger, "Public IP {:?}", protocol_info.payload);
         Ok(protocol_info.payload)
     }
@@ -86,24 +84,15 @@ impl AutomapControl for AutomapControlReal {
                 Err(e) => Err(e),
             }
         });
-        let protocol_info = if self.inner_opt.as_ref().is_some() {
-            self.first_housekeeping_thread_second_experiment(experiment)
-        } else {
-            match self.choose_working_protocol(experiment) {
-                Ok(protocol_info) => {
-                    let transactor_idx = self
-                        .inner_opt
-                        .as_ref()
-                        .expect("inner disappeared")
-                        .transactor_idx;
-                    self.usual_protocol_opt =
-                        Some(self.transactors.borrow()[transactor_idx].protocol());
-                    self.hole_ports.insert(hole_port);
-                    Ok(protocol_info)
-                }
-                Err(e) => Err(e),
-            }
-        }?;
+        let protocol_info = self.calculate_protocol_info(experiment)?;
+        let transactor_idx = self
+            .inner_opt
+            .as_ref()
+            .expect("inner disappeared")
+            .transactor_idx;
+        self.usual_protocol_opt =
+            Some(self.transactors.borrow()[transactor_idx].protocol());
+        self.hole_ports.insert(hole_port);
         let remap_after_sec: u32 = protocol_info.payload;
         self.housekeeping_tools
             .borrow()
@@ -172,38 +161,48 @@ impl AutomapControlReal {
         transactor: &mut dyn Transactor,
         router_ip: IpAddr,
     ) -> Result<(), AutomapError> {
+
+        //TODO remove this comment once it's clear
+        //to the removed code: experiment hasn't necessarily been done, we shouldn't be strict about not having a change handler
+        //or we have to find a way to do that check conditional - with some flag only etc
         let mut housekeeping_tools = self.housekeeping_tools.borrow_mut(); //to avoid multiple borrows a time
         if let Some(change_handler) = housekeeping_tools.change_handler_opt.take() {
-eprintln!("entering change_handler_opt == Some");
+eprintln!("maybe_start_housekeeper with change_handler_opt == Some");
             debug!(self.logger, "Attempting to start housekeeping thread");
             match transactor.start_housekeeping_thread(change_handler, router_ip) {
                 Err(AutomapError::HousekeeperUnconfigured) => {
+eprintln! ("maybe_start_housekeeper: HousekeeperUnconfigured");
                     debug!(
                         self.logger,
                         "Housekeeping thread failed: change handler unconfigured"
                     );
-                    let change_handler = transactor.stop_housekeeping_thread();
-                    housekeeping_tools
-                        .change_handler_opt
-                        .replace(change_handler);
+                    Self::put_change_handler_back(transactor, &mut housekeeping_tools);
                     Ok(())
                 }
                 Err(e) => {
                     debug!(self.logger, "Housekeeping thread failed: {:?}", e);
-                    // TODO: Put the change handler back
-eprintln!("error: {:?}", e);
+eprintln!("maybe_start_housekeeper: error: {:?}", e);
+                    Self::put_change_handler_back(transactor, &mut housekeeping_tools);
                     Err(e)
                 }
                 Ok(commander) => {
                     debug!(self.logger, "Housekeeping thread running");
+eprintln!("maybe_start_housekeeper: success");
                     housekeeping_tools.housekeeping_thread_commander_opt = Some(commander);
                     Ok(())
                 }
             }
         } else {
-eprintln!("entering change_handler_opt == None");
+eprintln!("maybe_start_housekeeper with change_handler_opt == None");
             Ok(())
         }
+    }
+
+    fn put_change_handler_back(transactor: &mut dyn Transactor, housekeeping_tools: &mut RefMut<HousekeepingTools>) {
+        let change_handler = transactor.stop_housekeeping_thread();
+        housekeeping_tools
+            .change_handler_opt
+            .replace(change_handler);
     }
 
     fn find_transactor_index(
@@ -216,15 +215,21 @@ eprintln!("entering change_handler_opt == None");
             .unwrap_or_else(|| panic!("No Transactor for {}", protocol))
     }
 
-    fn first_housekeeping_thread_second_experiment<T: PartialEq + Debug>(
+    fn prepare_and_perform_experiment<T: PartialEq + Debug>(
         &self,
+        inner: &AutomapControlRealInner,
         experiment: TransactorExperiment<T>,
     ) -> Result<ProtocolInfo<T>, AutomapError> {
-        let inner = self.inner_opt.as_ref().expect_v("inner");
-        let mut transactor = self.transactors.borrow_mut().remove(inner.transactor_idx);
-        self.maybe_start_housekeeper(transactor.as_mut(), inner.router_ip)?;
-        let result = experiment(transactor.as_ref(), inner.router_ip);
-        self.transactors.borrow_mut().insert(inner.transactor_idx, transactor);
+        self.maybe_start_housekeeper(
+            self.transactors
+                .borrow_mut()
+                [inner.transactor_idx]
+                .as_mut(), inner.router_ip)?;
+        let result = experiment(
+            self.transactors
+                .borrow_mut()
+                [inner.transactor_idx]
+                .as_ref(), inner.router_ip);
         result.map(|payload| ProtocolInfo {
             payload,
             router_ip: inner.router_ip,
@@ -236,15 +241,16 @@ eprintln!("entering change_handler_opt == None");
         experiment: TransactorExperiment<T>,
     ) -> Result<ProtocolInfo<T>, AutomapError> {
         if let Some(usual_protocol) = self.usual_protocol_opt {
-            let mut transactors = self.transactors.borrow_mut();
-            let transactor = transactors
+eprintln! ("Usual protocol exists: {:?}", self.usual_protocol_opt.unwrap());
+            let mut transactors_ref_mut = self.transactors.borrow_mut();
+            let transactor= transactors_ref_mut
                 .iter_mut()
                 .find(|t| t.protocol() == usual_protocol)
                 .expect("Missing Transactor");
             if let Ok((router_ip, t)) = self.try_protocol(transactor.as_mut(), &experiment) {
                 self.inner_opt = Some(AutomapControlRealInner {
                     router_ip,
-                    transactor_idx: Self::find_transactor_index(transactors, usual_protocol),
+                    transactor_idx: Self::find_transactor_index(transactors_ref_mut, usual_protocol),
                 });
                 return Ok(ProtocolInfo {
                     payload: t,
@@ -252,25 +258,26 @@ eprintln!("entering change_handler_opt == None");
                 });
             }
         }
-        let init: Result<(AutomapProtocol, IpAddr, T), AutomapError> = Err(AutomapError::Unknown);
-        let mut transactors = self.transactors.borrow_mut();
+        let init: Result<(AutomapProtocol, IpAddr, T), Vec<(AutomapProtocol, AutomapError)>> = Err(vec![]);
+        let mut transactors_ref_mut = self.transactors.borrow_mut();
         let protocol_router_ip_and_experimental_outcome_result =
-            transactors.iter_mut().fold(init, |so_far, transactor| {
+            transactors_ref_mut.iter_mut().fold(init, |so_far, transactor| {
                 match (so_far, self.usual_protocol_opt) {
                     (Ok(tuple), _) => Ok(tuple),
                     (Err(e), Some(usual_protocol)) if usual_protocol == transactor.protocol() => {
                         Err(e)
                     }
-                    (Err(_), _) => self
+                    (Err(existing_errors), _) => self
                         .try_protocol(transactor.as_mut(), &experiment)
-                        .map(|(router_ip, t)| (transactor.protocol(), router_ip, t)),
+                        .map(|(router_ip, t)| (transactor.protocol(), router_ip, t))
+                        .map_err(|e| plus (existing_errors, (transactor.protocol(), e)))
                 }
             });
         match protocol_router_ip_and_experimental_outcome_result {
             Ok((protocol, router_ip, t)) => {
                 self.inner_opt = Some(AutomapControlRealInner {
                     router_ip,
-                    transactor_idx: Self::find_transactor_index(transactors, protocol),
+                    transactor_idx: Self::find_transactor_index(transactors_ref_mut, protocol),
                 });
                 self.usual_protocol_opt = Some(protocol);
                 Ok(ProtocolInfo {
@@ -278,7 +285,7 @@ eprintln!("entering change_handler_opt == None");
                     router_ip,
                 })
             }
-            Err(_) => Err(AutomapError::AllProtocolsFailed),
+            Err(errors) => Err(AutomapError::AllProtocolsFailed(errors)),
         }
     }
 
@@ -287,34 +294,46 @@ eprintln!("entering change_handler_opt == None");
         transactor: &mut dyn Transactor,
         experiment: &TransactorExperiment<T>,
     ) -> Result<(IpAddr, T), AutomapError> {
-        let router_ips = match transactor.find_routers() {
-            Ok(router_ips) if !router_ips.is_empty() => router_ips,
-            _ => return Err(AutomapError::AllRoutersFailed(transactor.protocol())),
-        };
-        eprintln!("router ips {:?}", router_ips);
+        let router_ips = transactor.find_routers()?;
+        if router_ips.is_empty() {
+            return Err(AutomapError::FindRouterError("No routers found".to_string()))
+        }
+eprintln!("router ips {:?}", router_ips);
         let init: Result<(IpAddr, T), AutomapError> = Err(AutomapError::Unknown);
         router_ips
             .into_iter()
             .fold(init, |so_far, router_ip| match so_far {
                 Ok(tuple) => Ok(tuple),
                 Err(_) => {
-                    eprintln!("before entering maybe_start_hkt");
-                    match self.maybe_start_housekeeper(transactor, router_ip) {
-                        Err(e) => Err(e),
-                        Ok(_) => {
-                            eprintln!("now experiment");
-                            experiment(transactor, router_ip).map(|t| (router_ip, t))
-                        }
-                    }
+eprintln!("before entering maybe_start_hkt");
+                    self.maybe_start_housekeeper(transactor, router_ip)?;
+eprintln!("now experiment");
+                    experiment(transactor, router_ip).map(|t| (router_ip, t))
                 }
-            })
+            }
+        )
+    }
+
+    fn calculate_protocol_info<T: PartialEq + Debug>(
+        &mut self,
+        experiment: TransactorExperiment<T>
+    ) -> Result<ProtocolInfo<T>, AutomapError> {
+        if let Some(inner) = self.inner_opt.as_ref() {
+            // Protocol's already chosen and running; just run the code
+eprintln! ("Protocol's already chosen: {:?}", self.transactors.borrow()[self.inner_opt.as_ref().unwrap().transactor_idx].protocol());
+            self.prepare_and_perform_experiment(inner, experiment)
+        } else {
+            // Nothing's set up yet; repeat the experiment until we find the right protocol
+eprintln! ("Choosing protocol...");
+            self.choose_working_protocol(experiment)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::{AutomapErrorCause, Transactor};
+    use crate::comm_layer::{Transactor};
     use crossbeam_channel::{unbounded, TryRecvError};
     use lazy_static::lazy_static;
     use std::any::Any;
@@ -349,7 +368,7 @@ mod tests {
 
     impl Transactor for TransactorMock {
         fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
-            eprintln!("just gonna remove one");
+eprintln!("find routers mock result: just gonna remove one");
             self.find_routers_results.borrow_mut().remove(0)
         }
 
@@ -596,18 +615,28 @@ mod tests {
 
         let result = subject.choose_working_protocol(experiment);
 
-        assert_eq!(result, Err(AutomapError::AllProtocolsFailed));
+        assert_all_protocols_failed(
+            result,
+            AutomapError::ProtocolError("Booga!".to_string()),
+            AutomapError::ProtocolError("Booga!".to_string()),
+            AutomapError::ProtocolError("Booga!".to_string()),
+        );
     }
 
     #[test]
-    fn choose_working_protocol_works_when_a_protocol_says_no_routers() {
+    fn choose_working_protocol_works_when_all_protocol_say_no_routers() {
         let mut subject = make_no_routers_subject();
         let experiment: TransactorExperiment<String> =
             Box::new(|_t, _router_ip| Ok("Success!".to_string()));
 
         let result = subject.choose_working_protocol(experiment);
 
-        assert_eq!(result, Err(AutomapError::AllProtocolsFailed));
+        assert_all_protocols_failed(
+            result,
+            AutomapError::FindRouterError("No routers found".to_string()),
+            AutomapError::FindRouterError("No routers found".to_string()),
+            AutomapError::FindRouterError("No routers found".to_string())
+        );
         assert_eq!(subject.inner_opt, None);
     }
 
@@ -635,49 +664,8 @@ mod tests {
 
         let result = subject.choose_working_protocol(experiment);
 
-        assert_eq!(result, Err(AutomapError::AllProtocolsFailed));
+        assert_all_protocols_failed(result, AutomapError::Unknown, AutomapError::Unknown, AutomapError::Unknown);
         assert_eq!(subject.inner_opt, None);
-    }
-
-    #[test]
-    fn first_housekeeping_thread_second_experiment_loses_no_transactor() {
-        let subject = make_null_subject();
-        let (tx, _) = unbounded();
-        let mut subject = replace_transactor(
-            subject,
-            Box::new(
-                TransactorMock::new(AutomapProtocol::Pmp).start_housekeeping_thread_result(Ok(tx)),
-            ),
-        );
-        subject.inner_opt = Some(AutomapControlRealInner {
-            router_ip: *ROUTER_IP,
-            transactor_idx: 1,
-        });
-        let experiment: TransactorExperiment<String> = Box::new(|_t, _ip| Ok("blah".to_string()));
-
-        let result = subject
-            .first_housekeeping_thread_second_experiment(experiment)
-            .unwrap();
-
-        assert_eq!(
-            result,
-            ProtocolInfo {
-                payload: "blah".to_string(),
-                router_ip: *ROUTER_IP
-            }
-        );
-        let transactors = subject.transactors.take();
-        let actual_vec_of_protocols: Vec<AutomapProtocol> = transactors
-            .iter()
-            .map(|transactor| transactor.protocol())
-            .collect();
-        let expected_vec_of_protocols = AutomapControlReal::new(None, Box::new (|_| ()))
-            .transactors
-            .borrow()
-            .iter()
-            .map (|t| t.protocol())
-            .collect::<Vec<AutomapProtocol>>();
-        assert_eq!(actual_vec_of_protocols, expected_vec_of_protocols);
     }
 
     #[test]
@@ -785,7 +773,7 @@ mod tests {
     }
 
     #[test]
-    fn early_get_public_ip_starts_housekeeping_thread_and_delegates_to_transactor() {
+    fn get_public_ip_starts_housekeeping_thread_and_delegates_to_transactor() {
         let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
@@ -822,15 +810,33 @@ mod tests {
     }
 
     #[test]
-    fn early_get_public_ip_passes_on_error_from_failing_to_start_change_handler() {
+    fn get_public_ip_passes_on_error_from_failing_to_start_housekeeping_thread() {
         let subject = make_null_subject();
         let mut subject = replace_transactor(
             subject,
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pcp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
-                    .get_public_ip_result(Ok(*PUBLIC_IP))
-                    .start_housekeeping_thread_result(Err(AutomapError::Unknown)),
+                    .start_housekeeping_thread_result(Err(AutomapError::Unknown))
+                    .stop_housekeeping_thread_result(Box::new (|_| ())),
+            ),
+        );
+        let mut subject = replace_transactor(
+            subject,
+            Box::new(
+                TransactorMock::new(AutomapProtocol::Pmp)
+                    .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .start_housekeeping_thread_result(Err(AutomapError::NoLocalIpAddress))
+                    .stop_housekeeping_thread_result(Box::new (|_| ())),
+            ),
+        );
+        let mut subject = replace_transactor(
+            subject,
+            Box::new(
+                TransactorMock::new(AutomapProtocol::Igdp)
+                    .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .start_housekeeping_thread_result(Err(AutomapError::PermanentLeasesOnly))
+                    .stop_housekeeping_thread_result(Box::new (|_| ())),
             ),
         );
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(|_| ()));
@@ -838,23 +844,23 @@ mod tests {
 
         let result = subject.get_public_ip();
 
-        assert_eq!(result, Err(AutomapError::Unknown));
+        assert_all_protocols_failed(result, AutomapError::Unknown, AutomapError::NoLocalIpAddress, AutomapError::PermanentLeasesOnly);
     }
 
     #[test]
-    fn late_get_public_ip_does_not_start_housekeeping_thread_but_delegates_to_transactor() {
+    fn get_public_ip_does_not_start_housekeeping_thread_but_delegates_to_transactor() {
         let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
         let (tx, rx) = unbounded();
-        let mut subject = make_general_success_subject(
-            AutomapProtocol::Pcp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-            tx,
-        );
-        subject.housekeeping_tools.borrow_mut().change_handler_opt = None;
+        let mut subject = make_null_subject();
+        let mut transactor = TransactorMock::new(AutomapProtocol::Pcp)
+            .get_public_ip_params(&get_public_ip_params_arc)
+            .get_public_ip_result(Ok(*PUBLIC_IP));
+        transactor.housekeeping_thread_started = true;
+        let mut subject = replace_transactor(subject, Box::new (transactor));
+        subject.housekeeping_tools = RefCell::new (HousekeepingTools{
+            change_handler_opt: None,
+            housekeeping_thread_commander_opt: Some (tx),
+        });
         subject.inner_opt = Some(AutomapControlRealInner {
             router_ip: *ROUTER_IP,
             transactor_idx: 0,
@@ -866,16 +872,21 @@ mod tests {
         assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
         let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
         assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
-        assert!(add_mapping_params_arc.lock().unwrap().is_empty());
-        assert!(start_change_handler_params_arc.lock().unwrap().is_empty());
     }
 
     #[test]
     fn get_public_ip_reports_experiment_failure() {
-        let subject = make_general_failure_subject();
-        let failure_transactor = TransactorMock::new(AutomapProtocol::Pcp)
-            .get_public_ip_result(Err(AutomapError::NoLocalIpAddress));
-        let mut subject = replace_transactor(subject, Box::new(failure_transactor));
+        let subject = make_null_subject();
+        let mut subject = replace_transactor(
+            subject,
+            Box::new(
+                TransactorMock::new(AutomapProtocol::Pcp)
+                    .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .start_housekeeping_thread_result(Ok(unbounded().0))
+                    .get_public_ip_result(Err(AutomapError::ChangeHandlerAlreadyRunning))
+                    .stop_housekeeping_thread_result(Box::new (|_| ())),
+            ),
+        );
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(|_| ()));
         subject.inner_opt = Some(AutomapControlRealInner {
             router_ip: *ROUTER_IP,
@@ -884,11 +895,11 @@ mod tests {
 
         let result = subject.get_public_ip();
 
-        assert_eq!(result, Err(AutomapError::NoLocalIpAddress));
+        assert_eq! (result, Err(AutomapError::ChangeHandlerAlreadyRunning));
     }
 
     #[test]
-    fn early_add_mapping_timed_starts_housekeeping_thread_and_delegates_to_transactor() {
+    fn add_mapping_timed_starts_housekeeping_thread_and_delegates_to_transactor() {
         let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
@@ -935,17 +946,34 @@ mod tests {
         assert_eq!(*change_handler_log, vec![change])
     }
 
-    //this test doesn't make sense now; we will try to start housekeeping thread for every router ip address we find...it's gonna be very frequent, I think we want a log there and then the error will be overridden by AllProtocolFailure
     #[test]
-    fn early_add_mapping_passes_on_error_from_failing_to_start_housekeeping_thread() {
-        let subject = make_general_failure_subject();
+    fn add_mapping_passes_on_error_from_failing_to_start_housekeeping_thread() {
+        let subject = make_null_subject();
         let mut subject = replace_transactor(
             subject,
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pcp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
-                    .add_mapping_result(Ok(12345))
-                    .start_housekeeping_thread_result(Err(AutomapError::Unknown)),
+                    .start_housekeeping_thread_result(Err(AutomapError::Unknown))
+                    .stop_housekeeping_thread_result(Box::new (|_| ())),
+            ),
+        );
+        let mut subject = replace_transactor(
+            subject,
+            Box::new(
+                TransactorMock::new(AutomapProtocol::Pmp)
+                    .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .start_housekeeping_thread_result(Err(AutomapError::NoLocalIpAddress))
+                    .stop_housekeeping_thread_result(Box::new (|_| ())),
+            ),
+        );
+        let mut subject = replace_transactor(
+            subject,
+            Box::new(
+                TransactorMock::new(AutomapProtocol::Igdp)
+                    .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .start_housekeeping_thread_result(Err(AutomapError::CantFindDefaultGateway))
+                    .stop_housekeeping_thread_result(Box::new (|_| ())),
             ),
         );
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(|_| ()));
@@ -953,27 +981,23 @@ mod tests {
 
         let result = subject.add_mapping(1234);
 
-        assert_eq!(result, Err(AutomapError::Unknown));
+        assert_all_protocols_failed(result, AutomapError::Unknown, AutomapError::NoLocalIpAddress, AutomapError::CantFindDefaultGateway);
     }
 
     #[test]
-    fn late_add_mapping_timed_does_not_start_housekeeping_thread_but_delegates_to_transactor() {
-        let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
+    fn add_mapping_timed_does_not_start_housekeeping_thread_but_delegates_to_transactor() {
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let start_change_handler_params_arc = Arc::new(Mutex::new(vec![]));
         let (tx, rx) = unbounded();
-        let mut subject = make_general_success_subject(
-            AutomapProtocol::Pcp,
-            &get_public_ip_params_arc,
-            &add_mapping_params_arc,
-            &start_change_handler_params_arc,
-            tx.clone(),
-        );
-        subject.housekeeping_tools.borrow_mut().change_handler_opt = None;
-        subject
-            .housekeeping_tools
-            .borrow_mut()
-            .housekeeping_thread_commander_opt = Some(tx);
+        let mut subject = make_null_subject();
+        let mut transactor = TransactorMock::new(AutomapProtocol::Pcp)
+            .add_mapping_params(&add_mapping_params_arc)
+            .add_mapping_result(Ok(1000));
+        transactor.housekeeping_thread_started = true;
+        let mut subject = replace_transactor(subject, Box::new (transactor));
+        subject.housekeeping_tools = RefCell::new (HousekeepingTools{
+            change_handler_opt: None,
+            housekeeping_thread_commander_opt: Some (tx),
+        });
         subject.inner_opt = Some(AutomapControlRealInner {
             router_ip: *ROUTER_IP,
             transactor_idx: 0,
@@ -985,10 +1009,8 @@ mod tests {
             rx.try_recv(),
             Ok(HousekeepingThreadCommand::SetRemapIntervalMs(1000000))
         );
-        assert!(get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
-        assert!(start_change_handler_params_arc.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1018,9 +1040,9 @@ mod tests {
     }
 
     #[test]
-    fn late_add_mapping_permanent_handles_mapping_error() {
+    fn add_mapping_permanent_handles_mapping_error() {
         let mut subject = make_general_failure_subject();
-        let mut transactor = TransactorMock::new(AutomapProtocol::Pcp)
+        let mut transactor = TransactorMock::new(AutomapProtocol::Igdp)
             .find_routers_result(Ok(vec![*ROUTER_IP]))
             .get_public_ip_result(Ok(*PUBLIC_IP))
             .add_mapping_result(Err(AutomapError::PermanentLeasesOnly))
@@ -1045,7 +1067,7 @@ mod tests {
     }
 
     #[test]
-    fn late_add_mapping_permanent_does_not_start_housekeeping_thread_but_delegates_to_transactor() {
+    fn add_mapping_permanent_does_not_start_housekeeping_thread_but_delegates_to_transactor() {
         let get_public_ip_params_arc = Arc::new(Mutex::new(vec![]));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let add_permanent_mapping_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1261,6 +1283,50 @@ mod tests {
         assert_eq!(*change_handler_log, vec![expected_change]);
     }
 
+    #[test]
+    fn calculate_protocol_info_chooses_protocol_when_necessary() {
+        let (tx, rx) = unbounded();
+        let mut subject = make_general_success_subject(
+            AutomapProtocol::Pcp,
+            &Arc::new (Mutex::new (vec![])),
+            &Arc::new (Mutex::new (vec![])),
+            &Arc::new (Mutex::new (vec![])),
+            tx,
+        );
+        let experiment: TransactorExperiment<String> = Box::new (|transactor, router_ip| Ok ("Booga!".to_string()));
+
+        let result = subject.calculate_protocol_info(experiment);
+
+        assert_eq! (result, Ok (ProtocolInfo {payload: "Booga!".to_string(), router_ip: *ROUTER_IP}))
+    }
+
+    #[test]
+    fn calculate_protocol_info_uses_existing_protocol_when_necessary() {
+        let (tx, rx) = unbounded();
+        let mut subject = make_general_success_subject(
+            AutomapProtocol::Pcp,
+            &Arc::new (Mutex::new (vec![])),
+            &Arc::new (Mutex::new (vec![])),
+            &Arc::new (Mutex::new (vec![])),
+            tx.clone(),
+        );
+        let start_housekeeping_thread_params_arc = Arc::new (Mutex::new (vec![]));
+        subject = replace_transactor(subject, Box::new (TransactorMock::new (AutomapProtocol::Pmp)
+            .start_housekeeping_thread_params (&start_housekeeping_thread_params_arc)
+            .start_housekeeping_thread_result (Ok (tx))));
+        subject.inner_opt = Some (AutomapControlRealInner {
+            router_ip: *ROUTER_IP,
+            transactor_idx: 1
+        });
+        let experiment: TransactorExperiment<String> = Box::new (|transactor, router_ip| Ok ("Booga!".to_string()));
+
+        let result = subject.calculate_protocol_info(experiment);
+
+        assert_eq! (result, Ok (ProtocolInfo {payload: "Booga!".to_string(), router_ip: *ROUTER_IP}));
+        let start_housekeeping_thread_params = start_housekeeping_thread_params_arc.lock().unwrap();
+        assert_eq! (start_housekeeping_thread_params[0].1, *ROUTER_IP)
+    }
+
     fn make_multirouter_specific_success_subject(
         protocol: AutomapProtocol,
         router_ips: Vec<IpAddr>,
@@ -1269,10 +1335,7 @@ mod tests {
         for candidate_protocol in AutomapProtocol::values() {
             if candidate_protocol != protocol {
                 let transactor = TransactorMock::new(candidate_protocol).find_routers_result(Err(
-                    AutomapError::FindRouterError(
-                        "Can't find routers".to_string(),
-                        AutomapErrorCause::NetworkConfiguration,
-                    ),
+                    AutomapError::FindRouterError("Can't find routers".to_string()),
                 ));
                 subject = replace_transactor(subject, Box::new(transactor));
             }
@@ -1389,7 +1452,8 @@ mod tests {
                     let transactor: Box<dyn Transactor> = Box::new(
                         TransactorMock::new(t.protocol())
                             .find_routers_result(Ok(vec![*ROUTER_IP]))
-                            .find_routers_result(Ok(vec![*ROUTER_IP])),
+                            .start_housekeeping_thread_result(Ok (unbounded().0))
+                            .stop_housekeeping_thread_result(Box::new (|_| ())),
                     );
                     transactor
                 })
@@ -1423,5 +1487,18 @@ mod tests {
         );
         subject.transactors.borrow_mut()[idx] = transactor;
         subject
+    }
+
+    fn assert_all_protocols_failed<T: Debug + PartialEq> (
+        result: Result<T, AutomapError>,
+        pcp: AutomapError,
+        pmp: AutomapError,
+        igdp: AutomapError
+    ) {
+        assert_eq! (result, Err(AutomapError::AllProtocolsFailed(vec![
+            (AutomapProtocol::Pcp, pcp),
+            (AutomapProtocol::Pmp, pmp),
+            (AutomapProtocol::Igdp, igdp),
+        ])))
     }
 }
