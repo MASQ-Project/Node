@@ -3,7 +3,6 @@
 use crate::blockchain::blockchain_interface::{MAINNET_CONTRACT_ADDRESS, MAINNET_CONTRACT_CREATION_BLOCK, MULTINODE_TESTNET_CONTRACT_ADDRESS, ROPSTEN_TESTNET_CONTRACT_ADDRESS, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, RINKEBY_TESTNET_CONTRACT_ADDRESS, RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK};
 use crate::sub_lib::neighborhood::Blockchain;
 use web3::types::Address;
-use masq_lib::utils::ExpectValue;
 
 const CHAINS: [BlockchainRecord; 4] = [
     BlockchainRecord {
@@ -52,7 +51,7 @@ pub struct BlockchainRecord {
 
 type ChainName = &'static str;
 
-fn return_right_record<F>(mut closure: Box<F>)->&'static BlockchainRecord
+fn return_right_record<F>(closure: Box<F>)->&'static BlockchainRecord
 where F: FnMut(&&BlockchainRecord)->bool{
     CHAINS.iter().find(closure).expect("chain outside the bounds")
 }

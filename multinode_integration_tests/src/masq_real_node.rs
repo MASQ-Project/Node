@@ -792,7 +792,7 @@ impl MASQRealNode {
             .chain_opt
             .map(|chain_name| chain_id_from_name(chain_name.as_str()))
             .unwrap_or(TEST_DEFAULT_MULTINODE_TEST_CHAIN_ID);
-        eprintln!("chain id in 'start_with' {}", chain_id);
+eprintln!("chain id in 'start_with' {}", chain_id);
         let cryptde_null_opt = real_startup_config
             .fake_public_key_opt
             .clone()
@@ -829,7 +829,7 @@ impl MASQRealNode {
         result.restart_node(restart_startup_config);
         let node_reference =
             Self::extract_node_reference(&name).expect("extracting node reference");
-        eprintln!("our node reference: {}", node_reference);
+eprintln!("our node reference: {}", node_reference);
         Rc::get_mut(&mut result.guts).unwrap().node_reference = node_reference;
         result
     }
@@ -1098,7 +1098,7 @@ impl MASQRealNode {
     }
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
-        let regex = Regex::new(r"MASQ Node local descriptor: ([^:]+[:@][\d.]*:[\d,]*)").unwrap();
+        let regex = Regex::new(r"MASQ Node local descriptor: masq://([^:]+[:@][\d.]*:[\d,]*)").unwrap();
         let mut retries_left = 10;
         loop {
             println!("Checking for {} startup", name);
@@ -1116,13 +1116,13 @@ impl MASQRealNode {
                     DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
                 )
             });
-            eprintln!(
+eprintln!(
                 ">>>>>>we've got this as the raw string {}<<<<<<<<<",
                 output.as_str()
             );
             match regex.captures(output.as_str()) {
                 Some(captures) => {
-                    eprintln!("we've got this as captured with regex {:?}", captures);
+eprintln!("we've got this as captured with regex {:?}", captures);
                     let node_reference =
                         NodeReference::from_str(captures.get(1).unwrap().as_str()).unwrap();
                     println!("{} startup detected at {}", name, node_reference);

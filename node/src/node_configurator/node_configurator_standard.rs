@@ -117,7 +117,6 @@ pub mod standard {
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use masq_lib::utils::WrapResult;
-    use regex::Regex;
     use rustc_hex::FromHex;
     use std::ops::Deref;
     use std::str::FromStr;

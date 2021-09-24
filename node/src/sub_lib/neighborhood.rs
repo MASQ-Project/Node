@@ -1,6 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::{
-    delimiter_from_blockchain, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER
+use crate::blockchain::blockchain_interface::{CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER
 };
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
