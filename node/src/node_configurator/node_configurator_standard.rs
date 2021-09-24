@@ -1019,10 +1019,7 @@ mod tests {
         make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{
-        DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_PLATFORM,
-        DEFAULT_UI_PORT,
-    };
+    use masq_lib::constants::{DEFAULT_CHAIN_NAME, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT};
     use masq_lib::multi_config::{
         CommandLineVcl, ConfigFileVcl, NameValueVclArg, VclArg, VirtualCommandLine,
     };
@@ -1042,6 +1039,9 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+
+    #[cfg(target_os = "linux")]
+    use masq_lib::constants::{DEFAULT_CHAIN_DIRECTORY_NAME, DEFAULT_PLATFORM};
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
