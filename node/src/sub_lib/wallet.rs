@@ -433,6 +433,7 @@ impl Serialize for Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchains::contract_address;
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::make_paying_wallet;
@@ -446,7 +447,6 @@ mod tests {
     use std::collections::hash_map::DefaultHasher;
     use std::convert::TryFrom;
     use std::str::FromStr;
-    use crate::blockchain::blockchains::contract_address;
 
     #[test]
     fn can_create_with_str_address() {

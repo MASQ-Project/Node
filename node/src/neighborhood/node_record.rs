@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchains::blockchain_from_chain_id;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
@@ -13,7 +14,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
-use crate::blockchain::blockchains::blockchain_from_chain_id;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -416,7 +416,8 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AQIDBA:1.2.3.4:1234;2345").unwrap()
+            NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AQIDBA:1.2.3.4:1234;2345")
+                .unwrap()
         );
     }
 

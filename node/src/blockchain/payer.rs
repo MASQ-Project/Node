@@ -60,12 +60,12 @@ impl Clone for Payer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchains::contract_address;
     use crate::sub_lib::cryptde;
     use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
     use crate::test_utils::make_payer;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use rustc_hex::FromHex;
-    use crate::blockchain::blockchains::contract_address;
 
     #[test]
     fn can_pay_validates_payer_owns_wallet_secret_key() {

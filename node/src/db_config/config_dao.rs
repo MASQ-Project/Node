@@ -237,12 +237,12 @@ fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchains_specific_constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
     use crate::test_utils::assert_contains;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_ID};
-    use crate::blockchain::blockchains_specific_constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
 
     #[test]
     fn get_all_returns_multiple_results() {

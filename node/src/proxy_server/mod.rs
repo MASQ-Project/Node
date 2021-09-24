@@ -947,6 +947,7 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchains::contract_address;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -990,7 +991,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
-    use crate::blockchain::blockchains::contract_address;
 
     const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
 

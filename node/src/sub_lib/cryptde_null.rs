@@ -1,4 +1,5 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use crate::blockchain::blockchains::contract_address;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::CryptdecError;
@@ -10,7 +11,6 @@ use rand::prelude::*;
 use rustc_hex::ToHex;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
-use crate::blockchain::blockchains::contract_address;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]

@@ -513,6 +513,7 @@ impl RoutingService {
 mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
+    use crate::blockchain::blockchains::contract_address;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, PlainData, PublicKey};
@@ -537,7 +538,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use crate::blockchain::blockchains::contract_address;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {

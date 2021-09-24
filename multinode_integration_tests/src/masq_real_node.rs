@@ -14,6 +14,7 @@ use masq_lib::test_utils::utils::{
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyPair;
+use node_lib::blockchain::blockchains::chain_id_from_name;
 use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
@@ -33,7 +34,6 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
-use node_lib::blockchain::blockchains::chain_id_from_name;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
@@ -1096,7 +1096,8 @@ impl MASQRealNode {
     }
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
-        let regex = Regex::new(r"MASQ Node local descriptor: masq://([^:]+[:@][\d.]*:[\d,]*)").unwrap();
+        let regex =
+            Regex::new(r"MASQ Node local descriptor: masq://([^:]+[:@][\d.]*:[\d,]*)").unwrap();
         let mut retries_left = 10;
         loop {
             println!("Checking for {} startup", name);

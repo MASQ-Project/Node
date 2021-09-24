@@ -1,5 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchains::{chain_id_from_name, contract_address};
 use crate::blockchain::raw_transaction::RawTransaction;
 use crate::sub_lib::logger::Logger;
 use crate::sub_lib::wallet::Wallet;
@@ -13,7 +14,6 @@ use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256};
 use web3::{Transport, Web3};
-use crate::blockchain::blockchains::{contract_address, chain_id_from_name};
 
 // SHRD (Ropsten)
 pub const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = Address {

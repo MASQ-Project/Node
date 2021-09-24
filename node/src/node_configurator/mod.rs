@@ -6,6 +6,7 @@ pub mod node_configurator_standard;
 
 use crate::blockchain::bip32::Bip32ECKeyPair;
 use crate::blockchain::bip39::Bip39;
+use crate::blockchain::blockchains::{chain_id_from_name, platform_from_chain_name};
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::persistent_configuration::{
@@ -34,7 +35,6 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tiny_hderive::bip44::DerivationPath;
-use crate::blockchain::blockchains::{chain_id_from_name, platform_from_chain_name};
 
 pub trait NodeConfigurator<T> {
     fn configure(
@@ -732,6 +732,7 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::blockchains::CHAINS;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::masq_lib::utils::{
         DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH,
@@ -753,7 +754,6 @@ mod tests {
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
     use tiny_hderive::bip44::DerivationPath;
-    use crate::blockchain::blockchains::CHAINS;
 
     #[test]
     fn validate_ethereum_address_requires_an_address_that_is_42_characters_long() {
@@ -938,12 +938,19 @@ mod tests {
         CHAINS
             .iter()
             .filter(|chain| chain.in_command_name.contains("-").not())
-            .for_each(|chain| assert_eq!(chain.in_command_name, adjust_composed_names(chain.in_command_name)))
+            .for_each(|chain| {
+                assert_eq!(
+                    chain.in_command_name,
+                    adjust_composed_names(chain.in_command_name)
+                )
+            })
     }
 
     #[test]
     fn adjust_composed_names_works_for_composed_names() {
-        let mut filtered_existing = CHAINS.iter().filter(|chain| chain.in_command_name.contains("-"));
+        let mut filtered_existing = CHAINS
+            .iter()
+            .filter(|chain| chain.in_command_name.contains("-"));
         let first = filtered_existing.next().unwrap().in_command_name;
         assert_eq!(first, "eth-mainnet");
         assert_eq!(adjust_composed_names(first), DEFAULT_CHAIN_DIRECTORY_NAME);

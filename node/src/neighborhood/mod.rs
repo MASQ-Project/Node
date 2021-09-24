@@ -10,6 +10,9 @@ pub mod gossip_producer;
 pub mod neighborhood_database;
 pub mod node_record;
 
+use crate::blockchain::blockchains::{
+    blockchain_from_chain_id, chain_id_from_blockchain, contract_address,
+};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
@@ -68,7 +71,6 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use crate::blockchain::blockchains::{contract_address, blockchain_from_chain_id, chain_id_from_blockchain};
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
@@ -1222,6 +1224,7 @@ pub fn regenerate_signed_gossip(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::blockchains::{blockchain_from_chain_id, chain_id_from_name};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::gossip::Gossip_0v1;
@@ -1274,7 +1277,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
-    use crate::blockchain::blockchains::{blockchain_from_chain_id, chain_id_from_name};
 
     #[test]
     #[should_panic(
@@ -1301,7 +1303,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Neighbor masq://eth.AQIDBA:1.2.3.4:1234 is on the mainnet blockchain")]
+    #[should_panic(
+        expected = "Neighbor masq://eth.AQIDBA:1.2.3.4:1234 is on the mainnet blockchain"
+    )]
     fn cant_create_non_mainnet_neighborhood_with_mainnet_neighbors() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");

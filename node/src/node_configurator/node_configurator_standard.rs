@@ -88,6 +88,9 @@ pub mod standard {
 
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::blockchains::{
+        blockchain_from_chain_id, chain_id_from_name, chain_name_from_blockchain,
+    };
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
@@ -119,7 +122,6 @@ pub mod standard {
     use rustc_hex::FromHex;
     use std::ops::Deref;
     use std::str::FromStr;
-    use crate::blockchain::blockchains::{blockchain_from_chain_id, chain_id_from_name, chain_name_from_blockchain};
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -693,7 +695,7 @@ pub mod standard {
         use crate::test_utils::ArgsBuilder;
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-        use masq_lib::utils::{running_test};
+        use masq_lib::utils::running_test;
         use std::sync::{Arc, Mutex};
 
         #[test]
@@ -987,6 +989,9 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
+    use crate::blockchain::blockchains::{
+        chain_id_from_name, chain_name_from_id, contract_address,
+    };
     use crate::bootstrapper::RealUser;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -1037,7 +1042,6 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crate::blockchain::blockchains::{contract_address, chain_name_from_id, chain_id_from_name};
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
@@ -1155,10 +1159,16 @@ mod tests {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::OriginateOnly(
                     vec![
-                        NodeDescriptor::from_str(main_cryptde(), "masq://eth.QmlsbA:1.2.3.4:1234;2345")
-                            .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "masq://eth.VGVk:2.3.4.5:3456;4567")
-                            .unwrap()
+                        NodeDescriptor::from_str(
+                            main_cryptde(),
+                            "masq://eth.QmlsbA:1.2.3.4:1234;2345"
+                        )
+                        .unwrap(),
+                        NodeDescriptor::from_str(
+                            main_cryptde(),
+                            "masq://eth.VGVk:2.3.4.5:3456;4567"
+                        )
+                        .unwrap()
                     ],
                     DEFAULT_RATE_PACK
                 )
@@ -1220,7 +1230,8 @@ mod tests {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
                     NodeDescriptor::from_str(main_cryptde(), "masq://eth.QmlsbA:1.2.3.4:1234;2345")
                         .unwrap(),
-                    NodeDescriptor::from_str(main_cryptde(), "masq://eth.VGVk:2.3.4.5:3456;4567").unwrap()
+                    NodeDescriptor::from_str(main_cryptde(), "masq://eth.VGVk:2.3.4.5:3456;4567")
+                        .unwrap()
                 ],)
             })
         );
@@ -1742,10 +1753,16 @@ mod tests {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
                     vec![
-                        NodeDescriptor::from_str(main_cryptde(), "masq://eth.QmlsbA:1.2.3.4:1234;2345")
-                            .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "masq://eth.VGVk:2.3.4.5:3456;4567")
-                            .unwrap(),
+                        NodeDescriptor::from_str(
+                            main_cryptde(),
+                            "masq://eth.QmlsbA:1.2.3.4:1234;2345"
+                        )
+                        .unwrap(),
+                        NodeDescriptor::from_str(
+                            main_cryptde(),
+                            "masq://eth.VGVk:2.3.4.5:3456;4567"
+                        )
+                        .unwrap(),
                     ],
                     DEFAULT_RATE_PACK.clone()
                 )
@@ -1827,8 +1844,10 @@ mod tests {
         assert_eq!(
             config.neighborhood_config.mode.neighbor_configs(),
             &[
-                NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AQIDBA:1.2.3.4:1234").unwrap(),
-                NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AgMEBQ:2.3.4.5:2345").unwrap(),
+                NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AQIDBA:1.2.3.4:1234")
+                    .unwrap(),
+                NodeDescriptor::from_str(main_cryptde(), "masq://eth_t1.AgMEBQ:2.3.4.5:2345")
+                    .unwrap(),
             ]
         );
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();

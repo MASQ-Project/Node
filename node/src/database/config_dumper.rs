@@ -25,9 +25,9 @@ use serde_json::json;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
+use crate::blockchain::blockchains::chain_id_from_name;
 #[cfg(test)]
 use std::any::Any;
-use crate::blockchain::blockchains::chain_id_from_name;
 
 pub struct DumpConfigRunnerReal;
 
@@ -149,6 +149,7 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
+    use crate::blockchain::blockchains::contract_creation_block_from_chain_id;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
@@ -165,7 +166,6 @@ mod tests {
         TEST_DEFAULT_PLATFORM,
     };
     use masq_lib::utils::derivation_path;
-    use crate::blockchain::blockchains::contract_creation_block_from_chain_id;
 
     #[test]
     fn dump_config_creates_database_if_nonexistent() {
@@ -244,10 +244,16 @@ mod tests {
             persistent_config
                 .set_past_neighbors(
                     Some(vec![
-                        NodeDescriptor::from_str(main_cryptde(), "masq://eth.QUJDREVGRw:1.2.3.4:1234")
-                            .unwrap(),
-                        NodeDescriptor::from_str(main_cryptde(), "masq://eth.QkNERUZHSA:2.3.4.5:2345")
-                            .unwrap(),
+                        NodeDescriptor::from_str(
+                            main_cryptde(),
+                            "masq://eth.QUJDREVGRw:1.2.3.4:1234",
+                        )
+                        .unwrap(),
+                        NodeDescriptor::from_str(
+                            main_cryptde(),
+                            "masq://eth.QkNERUZHSA:2.3.4.5:2345",
+                        )
+                        .unwrap(),
                     ]),
                     "password",
                 )
