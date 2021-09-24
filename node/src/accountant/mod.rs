@@ -273,9 +273,7 @@ impl Accountant {
         debug!(self.logger, "Scanning for payables");
         let future_logger = self.logger.clone();
 
-        let all_non_pending_payables = self
-            .payable_dao
-            .non_pending_payables();
+        let all_non_pending_payables = self.payable_dao.non_pending_payables();
         self.logger.debug(|| {
             if all_non_pending_payables.is_empty() {
                 "Payable scan found no debts".to_string()
@@ -307,16 +305,30 @@ impl Accountant {
             .into_iter()
             .filter(Accountant::should_pay)
             .collect::<Vec<PayableAccount>>();
-        info!(self.logger, "Chose {} qualified debts to pay", qualified_payables.len());
-        self.logger.debug (|| {
+        info!(
+            self.logger,
+            "Chose {} qualified debts to pay",
+            qualified_payables.len()
+        );
+        self.logger.debug(|| {
             let now = SystemTime::now();
-            let list = qualified_payables.iter()
-                .fold ("".to_string(), |sofar, payable| {
-                    let p_age = now.duration_since(payable.last_paid_timestamp).expect("Payable time is corrupt");
-                    let threshold = Self::payable_exceeded_threshold(payable).expect ("Threshold suddenly changed!");
-                    format! ("{}\n    {} owed for {}sec exceeds threshold: {}", sofar, payable.balance, p_age.as_secs(), threshold)
+            let list = qualified_payables
+                .iter()
+                .fold("".to_string(), |sofar, payable| {
+                    let p_age = now
+                        .duration_since(payable.last_paid_timestamp)
+                        .expect("Payable time is corrupt");
+                    let threshold = Self::payable_exceeded_threshold(payable)
+                        .expect("Threshold suddenly changed!");
+                    format!(
+                        "{}\n    {} owed for {}sec exceeds threshold: {}",
+                        sofar,
+                        payable.balance,
+                        p_age.as_secs(),
+                        threshold
+                    )
                 });
-            format! ("Paying qualified debts:{}", list)
+            format!("Paying qualified debts:{}", list)
         });
 
         if !qualified_payables.is_empty() {
@@ -329,7 +341,9 @@ impl Accountant {
                 .report_accounts_payable_sub
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
-                .send(ReportAccountsPayable { accounts: qualified_payables })
+                .send(ReportAccountsPayable {
+                    accounts: qualified_payables,
+                })
                 .then(move |results| match results {
                     Ok(Ok(results)) => {
                         report_sent_payments
@@ -479,9 +493,8 @@ impl Accountant {
 
         let threshold = Accountant::calculate_payout_threshold(time_since_last_paid);
         if payable.balance as f64 > threshold {
-            Some (threshold as u64)
-        }
-        else {
+            Some(threshold as u64)
+        } else {
             None
         }
     }
