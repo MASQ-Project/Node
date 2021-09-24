@@ -2,7 +2,6 @@
 
 use crate::apps::app_config_dumper;
 use crate::blockchain::bip39::Bip39;
-use crate::blockchain::blockchain_interface::chain_id_from_name;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
@@ -28,6 +27,7 @@ use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 use std::any::Any;
+use crate::blockchain::blockchains::chain_id_from_name;
 
 pub struct DumpConfigRunnerReal;
 
@@ -149,9 +149,6 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
-    use crate::blockchain::blockchain_interface::{
-        chain_id_from_name, contract_creation_block_from_chain_id,
-    };
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
@@ -168,6 +165,7 @@ mod tests {
         TEST_DEFAULT_PLATFORM,
     };
     use masq_lib::utils::derivation_path;
+    use crate::blockchain::blockchains::contract_creation_block_from_chain_id;
 
     #[test]
     fn dump_config_creates_database_if_nonexistent() {

@@ -196,8 +196,7 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchain_interface::{
-        contract_address, Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
+    use crate::blockchain::blockchain_interface::{Balance, BlockchainError, BlockchainResult, Nonce, Transaction,
         Transactions,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -220,6 +219,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{Address, H256, U256};
+    use crate::blockchain::blockchains::contract_address;
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
         Box::new(BlockchainInterfaceMock::default())

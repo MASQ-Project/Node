@@ -131,7 +131,6 @@ impl Hopper {
 mod tests {
     use super::live_cores_package::LiveCoresPackage;
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::Component;
@@ -147,6 +146,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use crate::blockchain::blockchains::contract_address;
 
     #[test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]

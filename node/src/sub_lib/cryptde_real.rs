@@ -1,5 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::contract_address;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
@@ -12,6 +11,7 @@ use sodiumoxide::crypto::secretbox;
 use sodiumoxide::crypto::sign as signing;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
+use crate::blockchain::blockchains::contract_address;
 
 lazy_static! {
     static ref INITIALIZED: bool = {

@@ -88,7 +88,6 @@ pub mod standard {
 
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchain_interface::{blockchain_from_chain_id, chain_id_from_name};
     use crate::bootstrapper::PortConfiguration;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration,
@@ -120,6 +119,7 @@ pub mod standard {
     use rustc_hex::FromHex;
     use std::ops::Deref;
     use std::str::FromStr;
+    use crate::blockchain::blockchains::{blockchain_from_chain_id, chain_id_from_name};
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -411,7 +411,7 @@ pub mod standard {
             Some(joined_configs) => {
                 eprintln!(
                     "joined_config in convert ci configs: {:?}",
-                    joined_configs.clone()
+                    joined_configs
                 );
                 let cli_configs: Vec<String> = joined_configs
                     .split(',')
@@ -723,7 +723,7 @@ pub mod standard {
         use crate::test_utils::ArgsBuilder;
         use masq_lib::multi_config::VirtualCommandLine;
         use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-        use masq_lib::utils::{running_test, SliceToVec};
+        use masq_lib::utils::{running_test};
         use std::sync::{Arc, Mutex};
 
         #[test]
@@ -1071,9 +1071,6 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyPair;
-    use crate::blockchain::blockchain_interface::{
-        chain_id_from_name, chain_name_from_id, contract_address,
-    };
     use crate::bootstrapper::RealUser;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -1124,6 +1121,7 @@ mod tests {
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use crate::blockchain::blockchains::{contract_address, chain_name_from_id, chain_id_from_name};
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")

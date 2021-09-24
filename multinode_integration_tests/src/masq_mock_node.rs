@@ -6,7 +6,6 @@ use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
-use node_lib::blockchain::blockchain_interface::chain_id_from_name;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
@@ -38,6 +37,7 @@ use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
+use node_lib::blockchain::blockchains::chain_id_from_name;
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,

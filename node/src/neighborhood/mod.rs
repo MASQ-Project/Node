@@ -10,9 +10,6 @@ pub mod gossip_producer;
 pub mod neighborhood_database;
 pub mod node_record;
 
-use crate::blockchain::blockchain_interface::{
-    blockchain_from_chain_id, chain_id_from_blockchain, contract_address,
-};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
@@ -71,6 +68,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use crate::blockchain::blockchains::{contract_address, blockchain_from_chain_id, chain_id_from_blockchain};
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 
@@ -344,7 +342,7 @@ impl Neighborhood {
             .neighbor_configs()
             .iter()
             .map(|nc| {
-                let mainnet_nc = Self::is_mainnet_from_descriptor(&nc);
+                let mainnet_nc = Self::is_mainnet_from_descriptor(nc);
                 if mainnet_nc != is_mainnet {
                     panic!(
                         "Neighbor {} is {}on the mainnet blockchain",
@@ -1225,7 +1223,6 @@ pub fn regenerate_signed_gossip(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::{chain_id_from_name, contract_address};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::gossip::Gossip_0v1;
@@ -1278,6 +1275,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio::prelude::Future;
+    use crate::blockchain::blockchains::{blockchain_from_chain_id, chain_id_from_name};
 
     #[test]
     #[should_panic(

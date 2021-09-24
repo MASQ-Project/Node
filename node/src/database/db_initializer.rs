@@ -1,7 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::{
-    chain_name_from_id, contract_creation_block_from_chain_id,
-};
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
 use crate::database::db_migrations::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
@@ -19,6 +16,7 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
+use crate::blockchain::blockchains::{contract_creation_block_from_chain_id, chain_name_from_id};
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 1;
@@ -531,7 +529,6 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::test_utils::database_utils::{
         revive_tables_of_the_version_0_and_return_the_connection_to_the_db, DbMigratorMock,
     };
@@ -548,6 +545,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
+    use crate::blockchain::blockchains::{contract_creation_block_from_chain_id, chain_id_from_name};
 
     #[test]
     fn db_initialize_does_not_create_if_directed_not_to_and_directory_does_not_exist() {

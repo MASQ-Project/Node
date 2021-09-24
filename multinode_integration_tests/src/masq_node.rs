@@ -2,7 +2,6 @@
 use crate::command::Command;
 use base64::STANDARD_NO_PAD;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT, MASQ_URL_PREFIX};
-use node_lib::blockchain::blockchain_interface::{blockchain_from_chain_id, chain_id_from_blockchain, chain_id_from_name, CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
@@ -22,6 +21,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use node_lib::blockchain::blockchains::{CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER, chain_id_from_blockchain, blockchain_from_chain_id, chain_id_from_name};
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct NodeReference {
@@ -59,7 +59,7 @@ impl From<&dyn MASQNode> for NodeReference {
             public_key: masq_node.main_public_key().clone(),
             node_addr_opt: Some(masq_node.node_addr()),
             chain_id: Some(chain_id_from_name(
-                &masq_node.chain().unwrap_or("dev".to_string()),
+                &masq_node.chain().unwrap_or_else(||"dev".to_string()),
             )),
         }
     }

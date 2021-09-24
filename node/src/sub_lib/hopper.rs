@@ -145,7 +145,6 @@ impl Debug for HopperSubs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
@@ -155,6 +154,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::IpAddr;
     use std::str::FromStr;
+    use crate::blockchain::blockchains::contract_address;
 
     #[test]
     fn hopper_subs_debug() {

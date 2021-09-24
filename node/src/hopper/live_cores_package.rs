@@ -94,7 +94,6 @@ impl LiveCoresPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::sub_lib::cryptde::encodex;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -109,6 +108,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_ID;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
+    use crate::blockchain::blockchains::contract_address;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {

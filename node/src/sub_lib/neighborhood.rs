@@ -1,6 +1,4 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::{CHAIN_LABEL_DELIMITER, KEY_VS_IP_DELIMITER
-};
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::sub_lib::configurator::NewPasswordMessage;
@@ -25,6 +23,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use masq_lib::constants::MASQ_URL_PREFIX;
 use regex::Regex;
+use crate::blockchain::blockchains::{KEY_VS_IP_DELIMITER, CHAIN_LABEL_DELIMITER};
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 100,

@@ -3,6 +3,7 @@ pub mod bip32;
 pub mod bip39;
 pub mod blockchain_bridge;
 pub mod blockchain_interface;
+pub mod blockchains_specific_constants;
 pub mod blockchains;
 pub mod payer;
 pub mod raw_transaction;

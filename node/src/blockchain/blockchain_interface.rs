@@ -2,7 +2,6 @@
 
 use crate::blockchain::raw_transaction::RawTransaction;
 use crate::sub_lib::logger::Logger;
-use crate::sub_lib::neighborhood::Blockchain;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use futures::{future, Future};
@@ -14,6 +13,7 @@ use web3::contract::{Contract, Options};
 use web3::transports::EventLoopHandle;
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, H256, U256};
 use web3::{Transport, Web3};
+use crate::blockchain::blockchains::{contract_address, chain_id_from_name};
 
 // SHRD (Ropsten)
 pub const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = Address {
@@ -44,134 +44,6 @@ pub const MAINNET_CONTRACT_ADDRESS: Address = Address {
         0xB7, 0xF4, 0x3A, 0x05, 0x4c,
     ],
 };
-
-const CONTRACTS: [Address; 5] = [
-    Address { 0: [0u8; 20] },
-    MAINNET_CONTRACT_ADDRESS,
-    ROPSTEN_TESTNET_CONTRACT_ADDRESS,
-    RINKEBY_TESTNET_CONTRACT_ADDRESS,
-    MULTINODE_TESTNET_CONTRACT_ADDRESS,
-];
-
-pub const MAINNET_CONTRACT_CREATION_BLOCK: u64 = 9_415_932;
-pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
-pub const RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 5_893_771;
-
-pub const CONTRACT_CREATION_BLOCK: [u64; 5] = [
-    0,
-    MAINNET_CONTRACT_CREATION_BLOCK,
-    ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
-    RINKEBY_TESTNET_CONTRACT_CREATION_BLOCK,
-    0,
-];
-
-pub const CHAINS: [(&str, Blockchain, &str); 5] = [
-    ("", Blockchain::Null, ""),
-    ("eth-mainnet", Blockchain::EthMainnet, "@"),
-    ("ropsten", Blockchain::EthRopsten, ":"),
-    ("rinkeby", Blockchain::EthRinkeby, ":"),
-    ("dev", Blockchain::Dev, ":"),
-]; //TODO is this tested directly??
-   //pub const CHAIN_NAMES: [&str; 5] = ["", "eth_net","poly_net", "dev", "ropsten", "rinkeby","mumbai"];
-   //pub const CHAIN_NAMES: [&str; 5] = ["", "eth_mainnet","poly_mainnet", "dev", "ropsten", "rinkeby","mumbai"];
-
-pub const KEY_VS_IP_DELIMITER: char = ':';
-pub const CHAIN_LABEL_DELIMITER: char = '.';
-
-pub static NODE_DESCRIPTOR_DELIMITERS: [char; 4] = ['_', '@', ':', ':']; //TODO may not be needed
-
-pub fn node_descriptor_delimiter(chain_id: u8) -> char {
-    NODE_DESCRIPTOR_DELIMITERS[chain_id as usize]
-}
-
-pub fn contract_address(chain_id: u8) -> Address {
-    match chain_id {
-        1u8 | 2u8 | 3u8 | 4u8 => CONTRACTS[usize::from(chain_id)], // IDEA/CLion is wrong: This is copy
-        _ => CONTRACTS[0], // IDEA/CLion is wrong: This is copy
-    }
-}
-
-pub fn chain_name(chain_id: u8) -> &'static str {
-    match chain_id {
-        1u8 | 2u8 | 3u8 | 4u8 => CHAINS[usize::from(chain_id)].0,
-        _ => CHAINS[2].0,
-    }
-}
-
-pub fn chain_id_from_name(name: &str) -> u8 {
-    match name.to_lowercase().as_str() {
-        "eth-mainnet" => 1u8,
-        "ropsten" => 2u8,
-        "rinkeby" => 3u8,
-        "dev" => 4u8,
-        _ => 2u8,
-    }
-}
-
-pub fn chain_name_from_id(chain_id: u8) -> &'static str {
-    match chain_id {
-        1u8 | 2u8 | 3u8 | 4u8 => CHAINS[usize::from(chain_id)].0,
-        _ => CHAINS[2].0,
-    }
-}
-
-//TODO manage proper testing for this, untested
-pub fn chain_id_from_blockchain(blockchain: Blockchain) -> u8 {
-    match CHAINS.iter().position(|item| item.1 == blockchain) {
-        Some(idx) => idx as u8,
-        None => panic!("nonexistent chain should never be reached"),
-    }
-}
-
-//TODO manage proper testing for this, untested
-pub fn blockchain_from_chain_id(chain_id: u8) -> Blockchain {
-    match chain_id {
-        1u8 | 2u8 | 3u8 | 4u8 => CHAINS[usize::from(chain_id)].1,
-        _ => panic!(
-            "Attempt to use '{}' as a chain id, but such isn't supported with any chain",
-            chain_id
-        ),
-    }
-} //TODO I'd be happier if I saw panic!() at all the outside options, certainly, similar changes would need to come all over here
-
-//TODO manage proper testing for this, untested
-pub fn blockchain_from_chain_name(chain_name: &str) -> Blockchain {
-    blockchain_from_chain_id(chain_id_from_name(chain_name))
-}
-
-//TODO manage proper testing for this, untested
-pub fn delimiter_from_blockchain(blockchain: Blockchain) -> &'static str {
-    match CHAINS.iter().find(|item| item.1 == blockchain) {
-        Some((_, _, delimiter)) => delimiter,
-        None => panic!("nonexistent chain should never be reached"),
-    }
-} //TODO I'd be happier if I saw panic!() at all the outside options, certainly, similar changes would need to come all over here
-
-pub fn platform_from_chain_name(chain_name: &str) -> &str {
-    if chain_name == CHAINS[0].0 {
-        "null"
-    } else if chain_name == CHAINS[1].0 {
-        "eth"
-    } else if chain_name == CHAINS[2].0 {
-        "eth"
-    } else if chain_name == CHAINS[3].0 {
-        "eth"
-    } else if chain_name == CHAINS[4].0 {
-        "dev"
-    } else {
-        panic!(
-            "Attempt to use '{}' chain which doesn't exist or isn't available",
-            chain_name
-        )
-    }
-}
-
-pub fn contract_creation_block_from_chain_id(chain_id: u8) -> u64 {
-    match chain_id {
-        1u8 | 2u8 | 3u8 | 4u8 => CONTRACT_CREATION_BLOCK[usize::from(chain_id)],
-        _ => CONTRACT_CREATION_BLOCK[2],
-    }
-}
 
 pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
 
@@ -1080,50 +952,5 @@ mod tests {
             TRANSFER_METHOD_ID,
             "transfer(address,uint256)".keccak256()[0..4]
         );
-    }
-
-    #[test]
-    fn blockchain_from_chain_id_returns_correct_values() {
-        assert_eq!(blockchain_from_chain_id(1), Blockchain::EthMainnet);
-        assert_eq!(blockchain_from_chain_id(2), Blockchain::EthRopsten);
-        assert_eq!(blockchain_from_chain_id(3), Blockchain::EthRinkeby);
-        assert_eq!(blockchain_from_chain_id(4), Blockchain::Dev)
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Attempt to use '0' as a chain id, but such isn't supported with any chain"
-    )]
-    fn blockchain_from_chain_id_panics_on_0() {
-        blockchain_from_chain_id(0);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Attempt to use '5' as a chain id, but such isn't supported with any chain"
-    )]
-    fn blockchain_from_chain_id_panics_on_unsupported_higher_id_number() {
-        blockchain_from_chain_id(5);
-    }
-
-    #[test]
-    fn str_platform_from_chain_name_works() {
-        assert_platform(CHAINS[0].0, "null");
-        assert_platform(CHAINS[1].0, "eth"); //mainet
-        assert_platform(CHAINS[2].0, "eth"); //ropsten
-        assert_platform(CHAINS[3].0, "eth"); //rinkeby
-        assert_platform(CHAINS[4].0, "dev"); //rinkeby
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Attempt to use 'whatever' chain which doesn't exist or isn't available"
-    )]
-    fn str_platform_from_chain_name_panics_on_unknown_chain() {
-        assert_platform("whatever", "dev");
-    }
-
-    fn assert_platform(chain_name: &str, expected_platform: &str) {
-        assert_eq!(platform_from_chain_name(chain_name), expected_platform)
     }
 }
