@@ -2,7 +2,6 @@
 
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
-    eprintln!("we received these args at the gate {:?}", args);
     let exit_code = node_lib::sub_lib::main_tools::main_with_args(args.as_slice());
     ::std::process::exit(exit_code);
 }

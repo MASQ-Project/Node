@@ -318,7 +318,6 @@ enum RouteDirection {
 
 impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: &BootstrapperConfig) -> Self {
-        //TODO we need a trustful assertion that various neighbors aren't intended for various chains but without panicking; I think that ConfiguratorError is more appropriate.
         let neighborhood_config = &config.neighborhood_config;
         if neighborhood_config.mode.is_zero_hop()
             && !neighborhood_config.mode.neighbor_configs().is_empty()

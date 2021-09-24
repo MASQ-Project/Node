@@ -119,7 +119,7 @@ pub mod standard {
     use rustc_hex::FromHex;
     use std::ops::Deref;
     use std::str::FromStr;
-    use crate::blockchain::blockchains::{blockchain_from_chain_id, chain_id_from_name};
+    use crate::blockchain::blockchains::{blockchain_from_chain_id, chain_id_from_name, chain_name_from_blockchain};
 
     pub fn server_initializer_collected_params<'a>(
         dirs_wrapper: &dyn DirsWrapper,
@@ -140,10 +140,6 @@ pub mod standard {
                 config_file_vcl,
             ],
         )?;
-        eprintln!(
-            "neighbors right after mc creation {:?}",
-            value_m!(multi_config, "neighbors", String)
-        );
         let data_directory = config_file_path
             .parent()
             .map(|dir| dir.to_path_buf())
@@ -151,28 +147,6 @@ pub mod standard {
         let real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper);
         GatheredParams::new(multi_config, data_directory, real_user).wrap_to_ok()
     }
-
-    // fn escape_dollar_signs_in_descriptors_if_some(args: &[String]) ->Vec<String>{
-    //     let neighbors_idx = args.iter().position(|arg|**arg == "--neighbors".to_string());
-    //     if let Some(idx) = neighbors_idx {
-    //         if args.len() > idx {
-    //             let regex = descriptor_regex_with_rough_match();
-    //             let potential_neighbors = &args[idx + 1];
-    //             if regex.is_match(potential_neighbors) {
-    //                 let adjusted = potential_neighbors.replace("$", "00000000");
-    //                 eprintln!("adjusted {}",adjusted);
-    //                 let mut owned_vec = args.to_vec();
-    //                 owned_vec[idx + 1] = adjusted;
-    //                 eprintln!("returned after change {:?}",owned_vec);
-    //                 return owned_vec
-    //             }
-    //         }
-    //     } args.to_vec()
-    // }
-    //
-    // fn descriptor_regex_with_rough_match()->Regex {
-    //     Regex::new(r"(([^:]*\$(\w)+(:|@)[\d.]*[\d,]*,?)*)").expect("regex failed")
-    // }
 
     pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
         config.port_configurations.insert(
@@ -409,10 +383,6 @@ pub mod standard {
         match value_m!(multi_config, "neighbors", String) {
             None => Ok(None),
             Some(joined_configs) => {
-                eprintln!(
-                    "joined_config in convert ci configs: {:?}",
-                    joined_configs
-                );
                 let cli_configs: Vec<String> = joined_configs
                     .split(',')
                     .map(|s| s.to_string())
@@ -441,7 +411,7 @@ pub mod standard {
                                     if desired_chain == descriptor_competence{
                                         Ok(nd)
                                     } else{
-                                        Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to {} with descriptor belonging to {}",desired_chain,descriptor_competence)))
+                                        Err(ParamError::new("neighbors", &format!("Mismatched chains. You are requiring access to '{}' with descriptor belonging to '{}'",chain_name_from_blockchain(desired_chain),chain_name_from_blockchain(descriptor_competence))))
                                     }
                                 }
                                 Err(e) => Err(ParamError::new("neighbors", &e)),
@@ -885,64 +855,10 @@ pub mod standard {
                 result,
                 ConfiguratorError::required(
                     "neighbors",
-                    "Mismatched chains. You are requiring access to ETH mainnet with descriptor belonging to Ropsten"
+                    "Mismatched chains. You are requiring access to 'eth-mainnet' with descriptor belonging to 'ropsten'"
                 )
             )
         }
-
-        // #[test]
-        // fn descriptor_regex_helps_catch_a_descriptorlike_string(){
-        //     let descriptor = "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4$ETH@1.2.3.4:1234;2345";
-        //
-        //     assert!(descriptor_regex_with_rough_match().is_match(descriptor))
-        // }
-        //
-        // #[test]
-        // fn descriptor_regex_helps_find_a_descriptorlike_string_even_if_more_than_one(){
-        //     todo!("finish and rename");
-        //     let descriptor = "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4$ETH@1.2.3.4:1234;2345,Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk$ETH2.3.4.53456;4567";
-        //
-        //     assert!(!descriptor_regex_with_rough_match().is_match(descriptor))
-        // }
-        //
-        // #[test]
-        // fn descriptor_regex_is_benevolent_to_incomplete_descriptor_with_dollar_sign(){
-        //     let descriptor = "$ETH@1.2.3.4:1234;2345";
-        //
-        //     assert!(descriptor_regex_with_rough_match().is_match(descriptor))
-        // }
-        //
-        // #[test]
-        // fn descriptor_regex_refuses_a_descriptor_where_one_of_two_main_delimiters_is_missing(){   //$...:/@
-        //     let descriptor = "mhtjjdMt7Gy$ETH~tA1.2.4.5";
-        //
-        //     assert!(!descriptor_regex_with_rough_match().is_match(descriptor))
-        // }
-        //
-        // #[test]
-        // fn descriptor_regex_is_tolerant_to_a_descriptor_without_node_addr(){
-        //     let descriptor = "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4$ETH@";
-        //
-        //     assert!(descriptor_regex_with_rough_match().is_match(descriptor))
-        // }
-        //
-        // #[test]
-        // fn escaping_of_dollar_signs_works(){
-        //     let args = ["program","--ui-port","45123","--log-level","off","--neighbors","abJ5XvhVbmVyGejkYUkmfNnWQxFw$ETH@:12.23.34.45:5678,mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4$ETH@1.2.3.4:1234","--chain","dev"].array_of_borrows_to_vec();
-        //
-        //     let result = standard::escape_dollar_signs_in_descriptors_if_some(&args);
-        //
-        //     assert_eq!(result,["program","--ui-port","45123","--log-level","off","--neighbors","abJ5XvhVbmVyGejkYUkmfNnWQxFw\\$ETH@:12.23.34.45:5678,mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4\\$ETH@1.2.3.4:1234","--chain","dev"].array_of_borrows_to_vec())
-        // }
-        //
-        // #[test]
-        // fn wrongly_formatted_descriptors_return_back_with_all_args_unchanged_including_them(){
-        //     let args = ["program","--ui-port","45123","--log-level","off","--neighbors","mhtjjdMt7Gy$ETH~tA1.2.4.5","--chain","dev"].array_of_borrows_to_vec();
-        //
-        //     let result = standard::escape_dollar_signs_in_descriptors_if_some(&args);
-        //
-        //     assert_eq!(result,args)
-        // }
 
         #[test]
         fn get_earning_wallet_from_address_handles_attempted_wallet_change() {

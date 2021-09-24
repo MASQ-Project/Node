@@ -120,23 +120,10 @@ pub enum Blockchain {
     EthMainnet,
     EthRopsten,
     EthRinkeby,
-    Null,
     Dev,
 }
 
-impl Display for Blockchain {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EthMainnet => write!(f, "ETH mainnet"),
-            Self::EthRopsten => write!(f, "Ropsten"),
-            Self::EthRinkeby => write!(f, "Rinkeby"),
-            Self::Null => write!(f, "null"),
-            Self::Dev => write!(f, "developer's"),
-        }
-    }
-}
-
-//TODO in terms of optimization we can make our own impl of serde for blockchain
+//TODO for sake of optimization we could make our own impl of serde to blockchain
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeDescriptor {
     pub blockchain: Blockchain,
@@ -211,27 +198,22 @@ impl NodeDescriptor {
     const ETH_RINKEBY_LABEL: &'static str = "eth_t2";
     const DEV_LABEL: &'static str = "dev";
 
-    //TODO should I change this to FROM pattern?
     pub fn label_from_blockchain(blockchain: Blockchain) -> &'static str {
         match blockchain {
             Blockchain::EthMainnet => Self::ETH_MAINNET_LABEL,
             Blockchain::EthRopsten => Self::ETH_ROPSTEN_LABEL,
             Blockchain::EthRinkeby => Self::ETH_RINKEBY_LABEL,
-            Blockchain::Null => "",
-            Blockchain::Dev => Self::DEV_LABEL, //TODO will this be right?
+            Blockchain::Dev => Self::DEV_LABEL
         }
     }
 
-    //TODO should I change this to FROM pattern?
-    //TODO untested
     pub fn blockchain_from_label(label: &str) -> Blockchain {
         match label {
             Self::ETH_MAINNET_LABEL => Blockchain::EthMainnet,
             Self::ETH_ROPSTEN_LABEL => Blockchain::EthRopsten,
             Self::ETH_RINKEBY_LABEL => Blockchain::EthRinkeby,
-            "" => Blockchain::Null,
-            Self::DEV_LABEL => Blockchain::Dev, //TODO will this be right?
-            _ => unreachable!(),
+            Self::DEV_LABEL => Blockchain::Dev,
+            x => unreachable!("such a blockchain label isn't registered: {}",x),
         }
     }
 
@@ -621,7 +603,6 @@ mod tests {
 
     #[test]
     fn label_from_blockchain_returns_right_labels() {
-        assert_label(Blockchain::Null, "");
         assert_label(Blockchain::EthMainnet, NodeDescriptor::ETH_MAINNET_LABEL);
         assert_label(Blockchain::EthRopsten, NodeDescriptor::ETH_ROPSTEN_LABEL);
         assert_label(Blockchain::EthRinkeby, NodeDescriptor::ETH_RINKEBY_LABEL);
@@ -630,15 +611,6 @@ mod tests {
 
     fn assert_label(blockchain: Blockchain, expected: &str) {
         assert_eq!(NodeDescriptor::label_from_blockchain(blockchain), expected)
-    }
-
-    #[test]
-    fn blockchain_implements_display() {
-        assert_eq!(Blockchain::EthMainnet.to_string(), "ETH mainnet");
-        assert_eq!(Blockchain::EthRopsten.to_string(), "Ropsten");
-        assert_eq!(Blockchain::EthRinkeby.to_string(), "Rinkeby");
-        assert_eq!(Blockchain::Null.to_string(), "null");
-        assert_eq!(Blockchain::Dev.to_string(), "developer's");
     }
 
     #[test]
