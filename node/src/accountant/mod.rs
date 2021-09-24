@@ -273,20 +273,63 @@ impl Accountant {
         debug!(self.logger, "Scanning for payables");
         let future_logger = self.logger.clone();
 
-        let payables = self
+        let all_non_pending_payables = self
             .payable_dao
-            .non_pending_payables()
+            .non_pending_payables();
+        self.logger.debug(|| {
+            if all_non_pending_payables.is_empty() {
+                "Payable scan found no debts".to_string()
+            }
+            else {
+                struct PayableInfo {
+                    balance: i64,
+                    age: Duration,
+                }
+                let now = SystemTime::now();
+                let init = (PayableInfo { balance: 0, age: Duration::ZERO }, PayableInfo { balance: 0, age: Duration::ZERO });
+                let (biggest, oldest) = all_non_pending_payables.iter().fold(init, |sofar, p| {
+                    let (mut biggest, mut oldest) = sofar;
+                    let p_age = now.duration_since(p.last_paid_timestamp).expect("Payable time is corrupt");
+                    if p.balance > biggest.balance {
+                        biggest = PayableInfo { balance: p.balance, age: p_age }
+                    }
+                    if p_age > oldest.age {
+                        oldest = PayableInfo { balance: p.balance, age: p_age }
+                    }
+                    (biggest, oldest)
+                });
+                format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
+                    all_non_pending_payables.len(), biggest.balance, biggest.age.as_secs(),
+                    oldest.balance, oldest.age.as_secs())
+            }
+        });
+        let qualified_payables = all_non_pending_payables
             .into_iter()
             .filter(Accountant::should_pay)
             .collect::<Vec<PayableAccount>>();
+        info!(self.logger, "Chose {} qualified debts to pay", qualified_payables.len());
+        self.logger.debug (|| {
+            let now = SystemTime::now();
+            let list = qualified_payables.iter()
+                .fold ("".to_string(), |sofar, payable| {
+                    let p_age = now.duration_since(payable.last_paid_timestamp).expect("Payable time is corrupt");
+                    let threshold = Self::payable_exceeded_threshold(payable).expect ("Threshold suddenly changed!");
+                    format! ("{}\n    {} owed for {}sec exceeds threshold: {}", sofar, payable.balance, p_age.as_secs(), threshold)
+                });
+            format! ("Paying qualified debts:{}", list)
+        });
 
-        if !payables.is_empty() {
+        if !qualified_payables.is_empty() {
             let report_sent_payments = self.report_sent_payments_sub.clone();
+            // TODO: This is bad code. The ReportAccountsPayable message should have no result;
+            // instead, when the BlockchainBridge completes processing the ReportAccountsPayable
+            // message, it should send a SentPayments message back to the Accountant. There should
+            // be no future here: mixing futures and Actors is a bad idea.
             let future = self
                 .report_accounts_payable_sub
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
-                .send(ReportAccountsPayable { accounts: payables })
+                .send(ReportAccountsPayable { accounts: qualified_payables })
                 .then(move |results| match results {
                     Ok(Ok(results)) => {
                         report_sent_payments
@@ -416,6 +459,10 @@ impl Accountant {
     }
 
     fn should_pay(payable: &PayableAccount) -> bool {
+        Self::payable_exceeded_threshold(payable).is_some()
+    }
+
+    fn payable_exceeded_threshold(payable: &PayableAccount) -> Option<u64> {
         // TODO: This calculation should be done in the database, if possible
         let time_since_last_paid = SystemTime::now()
             .duration_since(payable.last_paid_timestamp)
@@ -423,15 +470,20 @@ impl Accountant {
             .as_secs();
 
         if time_since_last_paid <= PAYMENT_CURVES.payment_suggested_after_sec as u64 {
-            return false;
+            return None;
         }
 
         if payable.balance <= PAYMENT_CURVES.permanent_debt_allowed_gwub {
-            return false;
+            return None;
         }
 
         let threshold = Accountant::calculate_payout_threshold(time_since_last_paid);
-        payable.balance as f64 > threshold
+        if payable.balance as f64 > threshold {
+            Some (threshold as u64)
+        }
+        else {
+            None
+        }
     }
 
     fn calculate_payout_threshold(x: u64) -> f64 {
